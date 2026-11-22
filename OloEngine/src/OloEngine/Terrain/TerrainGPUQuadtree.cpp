@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Terrain/TerrainLodMetric.h"
 #include "OloEngine/Terrain/TerrainVertex.h"
 
 #include <algorithm>
@@ -358,9 +359,13 @@ namespace OloEngine
             params.FrustumPlanes[i] = glm::vec4(plane.Normal, plane.Distance);
         }
 
-        // Same expression as TerrainQuadtree::CalculateScreenSpaceError — kept
-        // on the CPU so the two paths cannot disagree by a rounding step.
-        const f32 projScale = inputs.ViewProjection[1][1] * inputs.ViewportHeight * 0.5f;
+        // The scale TerrainQuadtree::CalculateScreenSpaceError uses, from the
+        // same function, so the two paths cannot disagree by a rounding step.
+        // It already carries the division by the node's quads per edge: the
+        // kernel multiplies a node's extent by it and gets one quad's pixels.
+        static_assert(kPatchGridResolution == TerrainLodMetric::kNodeQuads,
+                      "the patch grid and the LOD metric must agree on a node's quads per edge");
+        const f32 projScale = TerrainLodMetric::QuadProjectionScale(inputs.ViewProjection, inputs.ViewportHeight);
         params.CameraAndProjScale = glm::vec4(inputs.CameraPos, projScale);
         params.SizeAndTarget = glm::vec4(m_WorldSizeX, m_WorldSizeZ, inputs.TargetTriangleSize, 0.0f);
         params.LevelParams = glm::uvec4(m_MaxDepth, kMaxVisibleNodes, kPatchGridResolution, kMaxSeamDelta);

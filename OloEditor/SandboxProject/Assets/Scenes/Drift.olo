@@ -151,9 +151,9 @@ PrecipitationSettings:
 # One boat, one sea, and — since #880 — SIX islands to steer at. The pieces this
 # leans on already existed: BoatSystem (#438), BuoyancySystem sampling the real
 # displaced surface, CameraRigComponent (#645), InputActionManager, the GPU LOD
-# quadtree (#714) and the octahedral foliage impostor (#433). The one engine
-# addition #880 needed is the terrain generator's radial island falloff — see the
-# LAYOUT section.
+# quadtree (#714) and the octahedral foliage impostor (#433). The islands are
+# generated height maps with scanned ground layers (#1721) — see the LAYOUT
+# section.
 #
 # The scene explicitly disables ambient occlusion. It was switched off for the
 # previous boat, whose sail and deck were thin two-sided geometry that GTAO's
@@ -173,39 +173,36 @@ PrecipitationSettings:
 # in the Vehicle context — nothing in the scripts touches a key code, which is
 # what leaves #883's rebinding UI with nothing to rewrite.
 #
-# LAYOUT — the island field (issue #880)
-#   The boat starts at (0, 0, -250) pointing at Ridgeback, the tallest thing on
-#   that bearing, whose coast is about 400 m off. Five more lie around it, at
-#   different bearings and different distances, so there is always somewhere else
-#   to go and turning round is worth doing:
+# LAYOUT — the island field (issues #880, #1721)
+#   GENERATED with the island entities: tools/drift-islands/build_islands.py --stamp-scene
+#   writes this section, down to the paragraph about the sea, from the maps on disk.
 #
-#     Ridgeback   (   0,  280)  420 m tile, peak ~84 m   ahead        coast ~365 m
-#     Atoll       ( 330, -480)  400 m tile, peak ~36 m   stbd astern  coast ~235 m
-#     Stacks      (-330, -520)  300 m tile, peak ~98 m   port astern  coast ~315 m
-#     Mesa        ( 500,   40)  360 m tile, peak ~44 m   stbd abeam   coast ~435 m
-#     Dunes       (-540,   60)  380 m tile, peak ~65 m   port abeam   coast ~465 m
-#     Sisters     (-160,  660)  260 m tile, peak ~51 m   the long leg coast ~825 m
+#   The boat starts at (0, 0, -250) pointing at Ridgeback, the tallest thing on that
+#   bearing. Five more lie around it, at different bearings and distances, so there is
+#   always somewhere else to go and turning round is worth doing:
 #
-#   "coast" is the open-water distance from the start line, measured off the
-#   generated height fields, not derived from the falloff radius: the mask only
-#   STARTS falling there and land survives out to roughly the midpoint between
-#   it and the tile's half-width. Ridgeback's waterline is 165-180 m from its
-#   centre, not the 126 m the radius alone would suggest.
+#     Ridgeback  (    0,   280)  420 m tile, peak  85 m  ahead          414 m of water
+#     Atoll      (  330,  -480)  400 m tile, peak   6 m  stbd quarter   313 m of water
+#     Stacks     ( -330,  -520)  300 m tile, peak  88 m  port quarter   278 m of water
+#     Mesa       (  500,    40)  360 m tile, peak  41 m  stbd bow       456 m of water
+#     Dunes      ( -540,    60)  380 m tile, peak  25 m  port bow       467 m of water
+#     Sisters    ( -160,   660)  260 m tile, peak  52 m  ahead          854 m of water
 #
-#   They are DIFFERENT PLACES, not one heightfield repeated: each has its own
-#   seed, frequency, octave count, ridge blend, warp, exponent and height scale,
-#   plus its own material palette and vegetation. Stacks is nearly pure ridged
-#   noise and bare rock; Dunes is nearly pure fBm and smooth; Mesa is terraced.
-#   The per-island notes on each entity say what knob made it what it is.
+#   Peaks are above the sea. The last column is the open water from the start line to the
+#   island's nearest land.
 #
-#   THE SHORELINE IS THE HARD PART, and it needed an engine field. Every knob the
-#   generator had was uniform over the tile, so whatever the noise left high at
-#   the tile BORDER became a vertical wall dropping into the sea: measured on the
-#   original single island, 64.9% of its border stood above sea level. #880 added
-#   TerrainHeightShaping::IslandFalloff, a radial mask that drives every border
-#   texel to the tile's base height. Each island here sets it to 1 and sits its
-#   base 24 m under water, so the tile edge is sea floor and the coastline is
-#   wherever the masked field crosses y = 0 — a beach, not a cut.
+#   They are DIFFERENT PLACES. Each is a height map the tool builds as a landform: a recipe
+#   draws its character in metres, erosion and a shore profile are derived from that, and
+#   the material maps are baked beside it. The per-island notes on each entity say what
+#   each one is. All six share one library of eight scanned ground layers; an island's own
+#   rock and sand colour comes from its macro map.
+#
+#   THE SHORELINE. A terrain tile that meets an ocean must not end in a wall: every border
+#   texel of every map is exactly the tile floor, and each island sits that floor 24 m
+#   under the sea, so a tile's edge is seabed. Inside it the coast is shaped, not left to
+#   a mask: sand coasts are pulled to a beach profile (a 7 degree foreshore and a berm),
+#   rock coasts get a wave-cut platform. docs/agent-rules/terrain-tile-meets-ocean.md has
+#   the rules; DriftIslandSplatCoverage pins them on the shipped maps.
 #
 #   The sea is 1.6 km square, deliberately, and that is the boundary of the game:
 #   WaterProbe::CollectEnabledVolumes takes the playable area from the water
@@ -398,8 +395,16 @@ Entities:
       CastShadows: true
       ShadowDepthBiasTexels: 2
       ShadowNormalBias: 0.01
-      MaxShadowDistance: 35
-      CascadeSplitLambda: 0.4
+      # 600 m, so an island is shaded by its own relief from the boat (issue
+      # #1721): at the 35 m this used to be, nothing past the boat's own wake
+      # was ever in shadow, and at a low sun every island was one flat tone.
+      # The split is pushed toward the logarithmic end (0.9) to pay for it: the
+      # cascades end at about 16, 40, 118 and 600 m, so the boat and its sail
+      # keep the first cascade's centimetre texels and the islands take the
+      # last one. Terrain casts into it from coarser meshes with distance
+      # (TerrainShadowLod), which is what makes this range affordable.
+      MaxShadowDistance: 600
+      CascadeSplitLambda: 0.9
       CascadeDebugVisualization: false
 
   # ── Atmosphere ────────────────────────────────────────────────────────────
@@ -769,8 +774,8 @@ Entities:
       WakeShapeFlattenStrength: 0.9
       # Shore wave deformation (issue #1033) — THE reason this scene reads as a sea
       # rather than as a shader at a coastline. Every island here is a terrain tile
-      # whose island-falloff mask drives its border to 24 m under water (see the
-      # ShapingIslandFalloff note on each one), so the terrain already IS the sea
+      # whose height map runs out to the tile floor, 24 m under water (see the
+      # header's LAYOUT section), so the terrain already IS the sea
       # floor for the whole approach; nothing had to be authored for this. The
       # renderer resamples all six tiles into one 512x512 depth field over this
       # water tile — 3.1 m per texel against wavelengths of 18-27 m — and the wave
@@ -890,15 +895,18 @@ Entities:
       Roughness: 0.95
 
   # ── Island - Ridgeback ────────────────────────────────────────────────────
-  # The steering target, dead ahead of the start line and the tallest thing on that
-  # bearing. A ridged spine with lobed bays either side — the shape you learn to
-  # recognise first, which is why it keeps the original island's seed.
+  # The steering target, dead ahead of the start line. A whaleback of gneiss: a long spine
+  # with a summit and a saddle, sheer on its weather (north) side, grass falling south to a
+  # rock shore with shingle coves. The timber landing and hand crane stand on a low rock
+  # spit in the lee of the west point.
   #
-  # Waterline at 0.218 of the height range (24 m of base below sea level over a
-  # 110 m HeightScale); peak about 84 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.214 of the 112 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000005
     TagComponent:
       Tag: Island - Ridgeback
@@ -908,256 +916,359 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Ridgeback_Height.png
       WorldSizeX: 420
       WorldSizeZ: 420
-      HeightScale: 110
+      HeightScale: 112
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 879
-      ProceduralResolution: 512
-      ProceduralOctaves: 6
-      ProceduralFrequency: 2.4
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.46
-      ShapingRidgeBlend: 0.72
-      ShapingWarpStrength: 0.18
-      ShapingWarpFrequency: 2
-      ShapingTerraceSteps: 0
-      ShapingTerraceSharpness: 0.6
-      ShapingHeightExponent: 1.15
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.3
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.218, 0.986] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 69 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 16/37/27/20 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.298
-          HeightBlend: 0.077
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 69
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.298
-          MaxHeight: 0.528
-          HeightBlend: 0.077
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 69
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 69
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.528
-          MaxHeight: 1
-          HeightBlend: 0.077
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 69
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 182 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.366
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Ridgeback_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Ridgeback_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Ridgeback_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 105
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
+          Roughness: 0.9
+          Metallic: 0
         - Name: Sand
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 22
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.8, 0.73, 0.55]
-          Roughness: 0.95
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 161.5
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Scrub
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 24
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.26, 0.42, 0.19]
-          Roughness: 0.92
+        - Name: Shingle
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 190.9
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Rock
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 14
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.4, 0.4, 0.43]
-          Roughness: 0.85
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 175
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
           Metallic: 0
         - Name: Heath
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 18
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.5, 0.31, 0.24]
-          Roughness: 0.8
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 210
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 140
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 123.5
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 190.9
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Ridgeback
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [150, 80, 150]
-      Offset: [210, 24, 210]
+      HalfExtents: [179, 80, 113]
+      Offset: [207, 24, 192]
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Scrub
-          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
-          Density: 0.45
-          SplatmapChannel: 1
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 40
-          MinScale: 0.8
-          MaxScale: 1.6
-          MinHeight: 1.4
-          MaxHeight: 3
-          RandomRotation: true
-          ViewDistance: 260
-          FadeStartDistance: 200
-          MeshViewDistance: 30
-          MeshFadeStartDistance: 22
-          WindStrength: 0.4
-          WindSpeed: 1.6
-          BaseColor: [0.28, 0.44, 0.18]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Dune grass
-          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
-          Density: 0.16
-          SplatmapChannel: 0
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 20
-          MinScale: 0.7
-          MaxScale: 1.3
-          MinHeight: 1
-          MaxHeight: 2.2
-          RandomRotation: true
-          ViewDistance: 200
-          FadeStartDistance: 150
-          MeshViewDistance: 18
-          MeshFadeStartDistance: 13
-          WindStrength: 0.5
-          WindSpeed: 1.3
-          BaseColor: [0.62, 0.6, 0.34]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Pines
-          MeshPath: Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
-          Density: 0.016
-          SplatmapChannel: 1
+        - Name: Turf
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
+          Density: 6
+          SplatmapChannel: 3
           MinSlopeAngle: 0
           MaxSlopeAngle: 38
-          MinScale: 0.9
-          MaxScale: 1.4
-          MinHeight: 9
-          MaxHeight: 16
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.28
+          MaxHeight: 0.5
           RandomRotation: true
-          ViewDistance: 1100
-          FadeStartDistance: 950
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+        - Name: Moor grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 4
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.3
+          MaxHeight: 0.6
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.7
+          ClumpScale: 6
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.95, 0.9, 0.78]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+        - Name: Bracken
+          MeshPath: Assets/Models/Vegetation/fern/fern.obj
+          AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
+          Density: 0.5
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.5
+          MaxHeight: 0.9
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.85
+          ClumpScale: 18
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 160
+          FadeStartDistance: 130
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+          UseMoisture: true
+          MinMoisture: 0.55
+          MaxMoisture: 1
+          MoistureFeather: 0.12
+        - Name: Gorse
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          Density: 0.035
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.8
+          MaxHeight: 1.4
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.8
+          ClumpScale: 26
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 420
+          FadeStartDistance: 360
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: true
+        - Name: Wind-cut pines
+          MeshPath: Assets/Models/Vegetation/pine/pine.obj
+          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
+          Density: 0.0035
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.25
+          MinHeight: 5.5
+          MaxHeight: 9
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 58
+          AltitudeFeather: 4
+          ClumpStrength: 0.85
+          ClumpScale: 48
+          ClumpFalloff: 1.6
+          ClumpScaleInfluence: 0.2
+          SlopeSinkFactor: 0.6
+          ViewDistance: 1400
+          FadeStartDistance: 1250
+          MeshViewDistance: 45
+          MeshFadeStartDistance: 32
           WindStrength: 0.16
           WindSpeed: 0.8
-          BaseColor: [0.19, 0.33, 0.2]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          # Octahedral impostor card (issue #433). The near billboard is a tufted
-          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
-          # the tree line a 3D silhouette from any azimuth at range. NO scene set
-          # UseImpostor before this one, so the path had zero runtime coverage.
-          UseImpostor: true
-          ImpostorStartDistance: 30
-          ImpostorTransitionBand: 18
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
+          BaseColor: [0.95, 0.95, 0.92]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.3
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: false
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: true
+          UseImpostor: true
+          ImpostorStartDistance: 45
+          ImpostorTransitionBand: 20
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 2048
+          ImpostorHemiOctahedral: true
+          UseMoisture: true
+          MinMoisture: 0.5
+          MaxMoisture: 1
+          MoistureFeather: 0.1
 
   # ── Island - Mesa ─────────────────────────────────────────────────────────
-  # Terraced. Five flat steps make a stack of pale ledges that is unmistakable in
-  # profile even when it is only a smudge on the horizon — the one island that
-  # reads by its SHAPE rather than by its height.
+  # A table of bedded red sandstone: a caprock rim, a bench where a softer bed has
+  # weathered back, a second wall, and a talus apron down to a narrow red shore. The one
+  # island that reads by its PROFILE even as a smudge on the horizon.
   #
-  # Waterline at 0.282 of the height range (24 m of base below sea level over a
-  # 85 m HeightScale); peak about 44 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.333 of the 72 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000006
     TagComponent:
       Tag: Island - Mesa
@@ -1167,256 +1278,310 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Mesa_Height.png
       WorldSizeX: 360
       WorldSizeZ: 360
-      HeightScale: 85
+      HeightScale: 72
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 2207
-      ProceduralResolution: 384
-      ProceduralOctaves: 5
-      ProceduralFrequency: 2
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.44
-      ShapingRidgeBlend: 0.28
-      ShapingWarpStrength: 0.22
-      ShapingWarpFrequency: 2.4
-      ShapingTerraceSteps: 5
-      ShapingTerraceSharpness: 0.78
-      ShapingHeightExponent: 1
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.29
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.282, 0.800] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 24 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 28/31/27/14 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.422
-          HeightBlend: 0.052
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 24
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.422
-          MaxHeight: 0.622
-          HeightBlend: 0.052
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 24
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 24
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.622
-          MaxHeight: 1
-          HeightBlend: 0.052
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 24
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 147 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.318
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Mesa_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Mesa_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Mesa_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 90
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
+          Roughness: 0.9
+          Metallic: 0
         - Name: Sand
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 20
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.86, 0.78, 0.6]
-          Roughness: 0.96
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 138.5
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Dry scrub
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 22
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.52, 0.55, 0.24]
-          Roughness: 0.93
+        - Name: Shingle
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 163.6
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Sandstone
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 12
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.7, 0.42, 0.26]
-          Roughness: 0.88
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 150
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Caprock
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 16
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.46, 0.4, 0.42]
-          Roughness: 0.82
+        - Name: Heath
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 180
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 120
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 105.9
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 163.6
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Mesa
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [130, 80, 130]
-      Offset: [180, 24, 180]
+      HalfExtents: [139, 80, 115]
+      Offset: [188, 24, 182]
     FoliageComponent:
       Enabled: true
       Layers:
+        - Name: Dry grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 3
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.3
+          MaxHeight: 0.6
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.75
+          ClumpScale: 7
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [1, 0.95, 0.78]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+        - Name: Bunch grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 1.6
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.4
+          MaxHeight: 0.75
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.85
+          ClumpScale: 5
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [1, 0.92, 0.72]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
         - Name: Scrub
           MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
           AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
-          Density: 0.45
-          SplatmapChannel: 1
+          Density: 0.06
+          SplatmapChannel: 4
           MinSlopeAngle: 0
-          MaxSlopeAngle: 40
-          MinScale: 0.8
-          MaxScale: 1.6
-          MinHeight: 1.4
-          MaxHeight: 3
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.7
+          MaxHeight: 1.3
           RandomRotation: true
-          ViewDistance: 260
-          FadeStartDistance: 200
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.8
+          ClumpScale: 22
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 420
+          FadeStartDistance: 360
           MeshViewDistance: 30
           MeshFadeStartDistance: 22
-          WindStrength: 0.4
-          WindSpeed: 1.6
-          BaseColor: [0.28, 0.44, 0.18]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
-        - Name: Dune grass
-          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
-          Density: 0.16
-          SplatmapChannel: 0
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 20
-          MinScale: 0.7
-          MaxScale: 1.3
-          MinHeight: 1
-          MaxHeight: 2.2
-          RandomRotation: true
-          ViewDistance: 200
-          FadeStartDistance: 150
-          MeshViewDistance: 18
-          MeshFadeStartDistance: 13
-          WindStrength: 0.5
-          WindSpeed: 1.3
-          BaseColor: [0.62, 0.6, 0.34]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Broadleaf
+          CastShadows: true
+        - Name: Table oaks
           MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
           AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
-          Density: 0.014
-          SplatmapChannel: 1
+          Density: 0.0022
+          SplatmapChannel: 3
           MinSlopeAngle: 0
           MaxSlopeAngle: 30
           MinScale: 0.9
-          MaxScale: 1.4
-          MinHeight: 7
-          MaxHeight: 13
+          MaxScale: 1.25
+          MinHeight: 4.5
+          MaxHeight: 7
           RandomRotation: true
-          ViewDistance: 1100
-          FadeStartDistance: 950
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.85
+          ClumpScale: 48
+          ClumpFalloff: 1.6
+          ClumpScaleInfluence: 0.2
+          SlopeSinkFactor: 0.6
+          ViewDistance: 1400
+          FadeStartDistance: 1250
+          MeshViewDistance: 45
+          MeshFadeStartDistance: 32
           WindStrength: 0.16
           WindSpeed: 0.8
-          BaseColor: [0.28, 0.42, 0.22]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          # Octahedral impostor card (issue #433). The near billboard is a tufted
-          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
-          # the tree line a 3D silhouette from any azimuth at range. NO scene set
-          # UseImpostor before this one, so the path had zero runtime coverage.
-          UseImpostor: true
-          ImpostorStartDistance: 30
-          ImpostorTransitionBand: 18
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
+          BaseColor: [0.95, 0.95, 0.92]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.3
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: false
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: true
+          UseImpostor: true
+          ImpostorStartDistance: 45
+          ImpostorTransitionBand: 20
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 2048
+          ImpostorHemiOctahedral: true
 
   # ── Island - Atoll ────────────────────────────────────────────────────────
-  # Low and broad, with the widest beach of the six: an exponent below 1 raises the
-  # lowlands, so most of its area sits just above the waterline instead of climbing
-  # away from it. Astern of the start — the island you find by turning round.
+  # A ring reef awash with four sand cays on it, a pale lagoon inside and one pass
+  # through the reef, facing the start line. Six metres at its highest: from the sea it is
+  # a line of white sand and a canopy.
   #
-  # Waterline at 0.400 of the height range (24 m of base below sea level over a
-  # 60 m HeightScale); peak about 36 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.750 of the 32 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000007
     TagComponent:
       Tag: Island - Atoll
@@ -1426,245 +1591,256 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Atoll_Height.png
       WorldSizeX: 400
       WorldSizeZ: 400
-      HeightScale: 60
+      HeightScale: 32
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 4409
-      ProceduralResolution: 384
-      ProceduralOctaves: 4
-      ProceduralFrequency: 2.8
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.4
-      ShapingRidgeBlend: 0.12
-      ShapingWarpStrength: 0.3
-      ShapingWarpFrequency: 2
-      ShapingTerraceSteps: 0
-      ShapingTerraceSharpness: 0.6
-      ShapingHeightExponent: 0.8
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.33
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.400, 1.000] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 47 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 17/35/27/21 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.46
-          HeightBlend: 0.06
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 47
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.46
-          MaxHeight: 0.69
-          HeightBlend: 0.06
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 47
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 47
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.69
-          MaxHeight: 1
-          HeightBlend: 0.06
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 47
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 126 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.128
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Atoll_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Atoll_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Atoll_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
-        - Name: White sand
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 24
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.92, 0.87, 0.74]
-          Roughness: 0.94
-          Metallic: 0
-        - Name: Palm scrub
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 26
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.34, 0.5, 0.18]
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 100
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
           Roughness: 0.9
           Metallic: 0
-        - Name: Coral rock
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 14
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.7, 0.6, 0.53]
-          Roughness: 0.86
+        - Name: Sand
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 153.8
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Green cap
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 18
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.16, 0.34, 0.22]
-          Roughness: 0.84
+        - Name: Shingle
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 181.8
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 166.7
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Heath
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 200
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 133.3
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 117.6
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 181.8
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Atoll
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [140, 80, 140]
-      Offset: [200, 24, 200]
+      HalfExtents: [127, 80, 120]
+      Offset: [208, 24, 197]
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Scrub
-          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
-          Density: 0.45
-          SplatmapChannel: 1
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 40
-          MinScale: 0.8
-          MaxScale: 1.6
-          MinHeight: 1.4
-          MaxHeight: 3
-          RandomRotation: true
-          ViewDistance: 260
-          FadeStartDistance: 200
-          MeshViewDistance: 30
-          MeshFadeStartDistance: 22
-          WindStrength: 0.4
-          WindSpeed: 1.6
-          BaseColor: [0.28, 0.44, 0.18]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Dune grass
-          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
-          Density: 0.16
-          SplatmapChannel: 0
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 20
-          MinScale: 0.7
-          MaxScale: 1.3
-          MinHeight: 1
-          MaxHeight: 2.2
-          RandomRotation: true
-          ViewDistance: 200
-          FadeStartDistance: 150
-          MeshViewDistance: 18
-          MeshFadeStartDistance: 13
-          WindStrength: 0.5
-          WindSpeed: 1.3
-          BaseColor: [0.62, 0.6, 0.34]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Broadleaf
+        - Name: Canopy
           MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
           AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
-          Density: 0.014
-          SplatmapChannel: 1
+          Density: 0.02
+          SplatmapChannel: 4
           MinSlopeAngle: 0
           MaxSlopeAngle: 30
           MinScale: 0.9
-          MaxScale: 1.4
-          MinHeight: 7
-          MaxHeight: 13
+          MaxScale: 1.25
+          MinHeight: 6.5
+          MaxHeight: 10.5
           RandomRotation: true
-          ViewDistance: 1100
-          FadeStartDistance: 950
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 25.9
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.45
+          ClumpScale: 30
+          ClumpFalloff: 1.6
+          ClumpScaleInfluence: 0.2
+          SlopeSinkFactor: 0.6
+          ViewDistance: 1400
+          FadeStartDistance: 1250
+          MeshViewDistance: 45
+          MeshFadeStartDistance: 32
           WindStrength: 0.16
           WindSpeed: 0.8
-          BaseColor: [0.28, 0.42, 0.22]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          # Octahedral impostor card (issue #433). The near billboard is a tufted
-          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
-          # the tree line a 3D silhouette from any azimuth at range. NO scene set
-          # UseImpostor before this one, so the path had zero runtime coverage.
-          UseImpostor: true
-          ImpostorStartDistance: 30
-          ImpostorTransitionBand: 18
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
+          BaseColor: [0.95, 0.95, 0.92]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.3
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: false
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: true
+          UseImpostor: true
+          ImpostorStartDistance: 45
+          ImpostorTransitionBand: 20
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 2048
+          ImpostorHemiOctahedral: true
+        - Name: Understorey
+          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
+          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
+          Density: 0.22
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.8
+          MaxHeight: 1.6
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 25.7
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.6
+          ClumpScale: 14
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 420
+          FadeStartDistance: 360
+          MeshViewDistance: 30
+          MeshFadeStartDistance: 22
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: true
+        - Name: Beach grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 2.5
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.3
+          MaxHeight: 0.55
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 25.5
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
 
   # Ridgeback's southern loading berth. Both origins are on the mounting deck.
   - Entity: 878551717000001
@@ -1922,15 +2098,17 @@ Entities:
       CastShadows: false
 
   # ── Island - Stacks ───────────────────────────────────────────────────────
-  # Nearly pure ridged noise on a small tile: a cluster of sheer dark stacks, the
-  # tallest of the six at ~98 m out of the smallest footprint. Bare rock — nothing
-  # grows on it, which is itself the distinguishing feature at range.
+  # A block of black basalt with a tilted grass top, an outlier beside it and sea stacks
+  # on a wave-cut platform. Faces step back in tiers, one per lava flow. Stacks Light
+  # stands on the outer western stack.
   #
-  # Waterline at 0.185 of the height range (24 m of base below sea level over a
-  # 130 m HeightScale); peak about 98 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.188 of the 128 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000008
     TagComponent:
       Tag: Island - Stacks
@@ -1940,204 +2118,263 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Stacks_Height.png
       WorldSizeX: 300
       WorldSizeZ: 300
-      HeightScale: 130
+      HeightScale: 128
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 5501
-      ProceduralResolution: 256
-      ProceduralOctaves: 6
-      ProceduralFrequency: 3.2
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.52
-      ShapingRidgeBlend: 0.92
-      ShapingWarpStrength: 0.14
-      ShapingWarpFrequency: 2.8
-      ShapingTerraceSteps: 0
-      ShapingTerraceSharpness: 0.6
-      ShapingHeightExponent: 1.45
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.26
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.185, 0.941] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 81 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 18/37/26/19 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.235
-          HeightBlend: 0.076
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 81
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.235
-          MaxHeight: 0.385
-          HeightBlend: 0.076
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 81
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 81
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.385
-          MaxHeight: 1
-          HeightBlend: 0.076
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 81
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 142 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.448
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Stacks_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Stacks_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Stacks_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 75
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Sand
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 115.4
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
+          Metallic: 0
         - Name: Shingle
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 18
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.44, 0.42, 0.42]
-          Roughness: 0.94
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 136.4
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Lichen
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 22
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.42, 0.52, 0.22]
-          Roughness: 0.92
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 125
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Basalt
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 10
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.17, 0.17, 0.2]
-          Roughness: 0.72
+        - Name: Heath
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 150
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Guano
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 16
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.8, 0.79, 0.74]
-          Roughness: 0.78
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 100
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 88.24
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 136.4
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Stacks
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [110, 80, 110]
-      Offset: [150, 24, 150]
+      HalfExtents: [132, 80, 103]
+      Offset: [151, 24, 154]
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Ferns
-          MeshPath: Assets/Models/Vegetation/fern/fern.obj
-          AlbedoPath: Assets/Models/Vegetation/fern/Textures/fern_card.png
-          Density: 0.3
-          SplatmapChannel: 1
+        - Name: Turf
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
+          Density: 6
+          SplatmapChannel: 3
           MinSlopeAngle: 0
-          MaxSlopeAngle: 44
-          MinScale: 0.6
-          MaxScale: 1.1
-          MinHeight: 0.3
-          MaxHeight: 0.7
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.25
+          MaxHeight: 0.48
           RandomRotation: true
-          ViewDistance: 170
-          FadeStartDistance: 130
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
           MeshViewDistance: 16
-          MeshFadeStartDistance: 12
-          WindStrength: 0.2
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
           WindSpeed: 1.4
-          BaseColor: [0.3, 0.34, 0.26]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: false
+        - Name: Sea campion
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
+          Density: 0.5
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.16
+          MaxHeight: 0.28
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.9
+          ClumpScale: 8
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [1, 1, 0.96]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+        - Name: Moor grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 4
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.25
+          MaxHeight: 0.5
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
 
   # ── Island - Dunes ────────────────────────────────────────────────────────
-  # Almost pure fBm at a low frequency: one smooth rolling mass with no ridge line
-  # at all. It is the anti-Stacks, and having the pair of them abeam to port is the
-  # clearest read on how far the shaping knobs actually move the place.
+  # Sand on a low platform: a foredune behind the windward beach, crescent dunes with
+  # their slip faces downwind, machair in their lee, and a spit hooking round a shallow
+  # lagoon. The anti-Stacks: nothing here is rock.
   #
-  # Waterline at 0.253 of the height range (24 m of base below sea level over a
-  # 95 m HeightScale); peak about 65 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.429 of the 56 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000009
     TagComponent:
       Tag: Island - Dunes
@@ -2147,256 +2384,262 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Dunes_Height.png
       WorldSizeX: 380
       WorldSizeZ: 380
-      HeightScale: 95
+      HeightScale: 56
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 1301
-      ProceduralResolution: 384
-      ProceduralOctaves: 5
-      ProceduralFrequency: 1.7
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.5
-      ShapingRidgeBlend: 0.06
-      ShapingWarpStrength: 0.1
-      ShapingWarpFrequency: 1.5
-      ShapingTerraceSteps: 0
-      ShapingTerraceSharpness: 0.6
-      ShapingHeightExponent: 0.9
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.32
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.253, 0.936] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 51 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 17/37/26/21 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.423
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 51
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.423
-          MaxHeight: 0.693
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 51
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 51
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.693
-          MaxHeight: 1
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 51
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 155 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.313
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Dunes_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Dunes_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Dunes_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
-        - Name: White sand
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 24
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.92, 0.87, 0.74]
-          Roughness: 0.94
-          Metallic: 0
-        - Name: Palm scrub
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 26
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.34, 0.5, 0.18]
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 95
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
           Roughness: 0.9
           Metallic: 0
-        - Name: Coral rock
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 14
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.7, 0.6, 0.53]
-          Roughness: 0.86
+        - Name: Sand
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 146.2
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Green cap
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 18
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.16, 0.34, 0.22]
-          Roughness: 0.84
+        - Name: Shingle
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 172.7
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 158.3
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Heath
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 190
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 126.7
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 111.8
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 172.7
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Dunes
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [135, 80, 135]
-      Offset: [190, 24, 190]
+      HalfExtents: [134, 80, 126]
+      Offset: [191, 24, 177]
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Scrub
-          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
-          Density: 0.45
-          SplatmapChannel: 1
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 40
-          MinScale: 0.8
-          MaxScale: 1.6
-          MinHeight: 1.4
-          MaxHeight: 3
-          RandomRotation: true
-          ViewDistance: 260
-          FadeStartDistance: 200
-          MeshViewDistance: 30
-          MeshFadeStartDistance: 22
-          WindStrength: 0.4
-          WindSpeed: 1.6
-          BaseColor: [0.28, 0.44, 0.18]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Dune grass
+        - Name: Marram
           MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
           AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
-          Density: 0.16
-          SplatmapChannel: 0
+          Density: 3.2
+          SplatmapChannel: 4
           MinSlopeAngle: 0
-          MaxSlopeAngle: 20
-          MinScale: 0.7
-          MaxScale: 1.3
-          MinHeight: 1
-          MaxHeight: 2.2
+          MaxSlopeAngle: 34
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.55
+          MaxHeight: 0.95
           RandomRotation: true
-          ViewDistance: 200
-          FadeStartDistance: 150
-          MeshViewDistance: 18
-          MeshFadeStartDistance: 13
-          WindStrength: 0.5
-          WindSpeed: 1.3
-          BaseColor: [0.62, 0.6, 0.34]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.8
+          ClumpScale: 4.5
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.7
+          WindSpeed: 1.4
+          BaseColor: [0.96, 0.98, 0.82]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
-        - Name: Broadleaf
-          MeshPath: Assets/Models/Vegetation/broadleaf/broadleaf.obj
-          AlbedoPath: Assets/Models/Vegetation/broadleaf/Textures/broadleaf_card.png
-          Density: 0.014
-          SplatmapChannel: 1
+          CastShadows: false
+        - Name: Machair grass
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
+          Density: 7
+          SplatmapChannel: 3
           MinSlopeAngle: 0
-          MaxSlopeAngle: 30
-          MinScale: 0.9
-          MaxScale: 1.4
-          MinHeight: 7
-          MaxHeight: 13
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.2
+          MaxHeight: 0.38
           RandomRotation: true
-          ViewDistance: 1100
-          FadeStartDistance: 950
-          WindStrength: 0.16
-          WindSpeed: 0.8
-          BaseColor: [0.28, 0.42, 0.22]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          # Octahedral impostor card (issue #433). The near billboard is a tufted
-          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
-          # the tree line a 3D silhouette from any azimuth at range. NO scene set
-          # UseImpostor before this one, so the path had zero runtime coverage.
-          UseImpostor: true
-          ImpostorStartDistance: 30
-          ImpostorTransitionBand: 18
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: false
+        - Name: Machair flowers
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
+          Density: 1.6
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.16
+          MaxHeight: 0.3
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.85
+          ClumpScale: 11
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [1, 0.98, 0.9]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
 
   # ── Island - Sisters ──────────────────────────────────────────────────────
-  # Seven octaves on a small tile: a dense knot of small peaks and channels that
-  # reads as several islands until you are close enough to see they are joined.
-  # The furthest from the start line — about 950 m, the long leg.
+  # Two steep islets of the same rock, joined by a shingle bar the swell washes over.
+  # The long leg: about 950 m from the start line, approached from the south.
   #
-  # Waterline at 0.320 of the height range (24 m of base below sea level over a
-  # 75 m HeightScale); peak about 51 m above the water. The layer bands below are
-  # anchored on that number AND on this island's own slope distribution, so every
-  # island bands the same way in relative terms however deep it is sunk and however
-  # steep it is — see the note above its LayerRules (issue #942).
+  # GENERATED: tools/drift-islands/build_islands.py --stamp-scene writes this entity, from
+  # this header to the end of its FoliageComponent. Change the tool, not this text.
+  #
+  # The ground is a height MAP (issue #1721), not a noise recipe: the tool models the
+  # landform, erodes it, shapes its shore and bakes the material maps beside it. The tile
+  # floor is 24 m under the sea (0.300 of the 80 m HeightScale) and every border
+  # texel of the map is exactly that floor, so the tile edge is seabed, never a wall.
   - Entity: 879000000000011
     TagComponent:
       Tag: Island - Sisters
@@ -2406,245 +2649,250 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
-      HeightmapPath: ""
+      HeightmapPath: Assets/Terrain/DriftIslands/Sisters_Height.png
       WorldSizeX: 260
       WorldSizeZ: 260
-      HeightScale: 75
+      HeightScale: 80
       CollisionEnabled: true
-      ProceduralEnabled: true
-      ProceduralSeed: 3313
-      ProceduralResolution: 256
-      ProceduralOctaves: 7
-      ProceduralFrequency: 2.6
-      ProceduralLacunarity: 2
-      ProceduralPersistence: 0.48
-      ShapingRidgeBlend: 0.55
-      ShapingWarpStrength: 0.26
-      ShapingWarpFrequency: 3
-      ShapingTerraceSteps: 0
-      ShapingTerraceSharpness: 0.6
-      ShapingHeightExponent: 1.25
-      # THE reason this scene has a shoreline instead of a seam (issue #880). At
-      # strength 1 the radial mask drives every border texel of the tile to the base
-      # height, 24 m under water, so the tile edge is sea floor and the coastline is
-      # wherever the masked field crosses y = 0. Measured before the mask existed:
-      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
-      ShapingIslandFalloff: 1
-      ShapingIslandFalloffRadius: 0.28
-      AutoMaterial: true
-      SplatmapGenResolution: 512
-      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
-      # #942). Two things had to be measured, and only the first ever was:
-      #
-      #   * HEIGHT. The reachable range here is [0.320, 1.000] — the waterline at the
-      #     bottom, and at the top whatever the island mask and the height exponent
-      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
-      #     the summit layer above the summit, so it never drew at all.
-      #   * SLOPE. 75 deg is this island's cliff line: the steepest ~28% of its
-      #     surface. It is ONE number shared by all four rules — the three altitude
-      #     bands stop there and the bare-rock rule starts there — because a rock
-      #     rule that opens BELOW the median slope claims the whole island and
-      #     normalizes every altitude band to nothing. That is what it used to do:
-      #     the #880 shoreline mask ramps full height to zero across the outer
-      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
-      #     threshold sat under it.
-      #
-      # Resulting share of the above-water surface: 17/36/27/19 %.
-      # Guarded by DriftIslandSplatCoverageTest.
-      LayerRules:
-        - LayerIndex: 0
-          MinHeight: 0
-          MaxHeight: 0.45
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 75
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.45
-          MaxHeight: 0.76
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 75
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 2
-          MinHeight: 0
-          MaxHeight: 1
-          HeightBlend: 0
-          MinSlopeDeg: 75
-          MaxSlopeDeg: 90
-          SlopeBlend: 8
-          Strength: 1
-        - LayerIndex: 3
-          MinHeight: 0.76
-          MaxHeight: 1
-          HeightBlend: 0.068
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 75
-          SlopeBlend: 8
-          Strength: 1
-      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
-      # island resolve as you sail toward it instead of popping: nodes are selected by
-      # screen-space error and adjacent patches are edge-snapped, so a level change
-      # cannot open a crack. No Drift terrain set this flag before #880.
+      ProceduralEnabled: false
+      # No mask is applied to a height map. The radius is kept because the weather director
+      # derives this island's landfall and departure rings from it:
+      #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+      # which gives 94 m here, the distance from the tile centre to its farthest land.
+      ShapingIslandFalloff: 0
+      ShapingIslandFalloffRadius: 0.227
+      AutoMaterial: false
+      # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
+      # screen-space error, so the island resolves as the boat closes instead of popping.
       TessellationEnabled: true
-      TargetTriangleSize: 10
+      TargetTriangleSize: 6
       MorphRegion: 0.3
-      StreamingEnabled: false
-      TileDirectory: ""
-      TileFilePattern: tile_%d_%d.raw
-      TileWorldSize: 256
-      TileResolution: 513
-      StreamingLoadRadius: 3
-      StreamingMaxTiles: 25
-      VoxelEnabled: false
-      VoxelSize: 1
-      SplatmapPath0: ""
-      SplatmapPath1: ""
-      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
-      # scene renders under a warm haze and an ACES curve, both of which compress
-      # luminance and pull saturation, so two materials that differ only in
-      # brightness converge into one mass on screen. Each island previously had a
-      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
-      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
-      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
-      # pairs that used to collide were re-separated by HUE rather than by another
-      # step of brightness. A big lightness gap is fine on its own — Shingle vs
-      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
-      # distance, which is the property that actually holds. See
-      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
+      SplatmapPath0: Assets/Terrain/DriftIslands/Sisters_Splat0.png
+      SplatmapPath1: Assets/Terrain/DriftIslands/Sisters_Splat1.png
+      # Island-scale colour and wetness (128 = neutral, alpha 255 = dry): this island's
+      # rock and sand colour, its tide band, lichen, bedding and damp gullies.
+      MacroMapPath: Assets/Terrain/DriftIslands/Sisters_Macro.png
+      LayerResolution: 1024
+      # One shared library of eight scanned layers. TilingScale is repeats across the
+      # tile, so it is the tile size over the metres one repeat should cover.
       Layers:
+        - Name: Seabed
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Seabed_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Seabed_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Seabed_ARM.png
+          TilingScale: 65
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.29, 0.24]
+          Roughness: 0.9
+          Metallic: 0
         - Name: Sand
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 22
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.8, 0.73, 0.55]
-          Roughness: 0.95
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Sand_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Sand_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Sand_ARM.png
+          TilingScale: 100
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.42, 0.37, 0.28]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Scrub
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 24
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.26, 0.42, 0.19]
-          Roughness: 0.92
+        - Name: Shingle
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Shingle_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Shingle_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Shingle_ARM.png
+          TilingScale: 118.2
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.22, 0.21, 0.2]
+          Roughness: 0.9
           Metallic: 0
-        - Name: Rock
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 14
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.4, 0.4, 0.43]
-          Roughness: 0.85
+        - Name: Turf
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Turf_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Turf_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Turf_ARM.png
+          TilingScale: 108.3
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.095, 0.15, 0.05]
+          Roughness: 0.9
           Metallic: 0
         - Name: Heath
-          AlbedoPath: ""
-          NormalPath: ""
-          ARMPath: ""
-          TilingScale: 18
-          HeightBlendSharpness: 4
-          TriplanarSharpness: 8
-          BaseColor: [0.5, 0.31, 0.24]
-          Roughness: 0.8
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Heath_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Heath_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Heath_ARM.png
+          TilingScale: 130
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.11, 0.095, 0.06]
+          Roughness: 0.9
           Metallic: 0
-    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
-    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
-    # this entity's CORNER origin — see the Translation comment above) and
-    # tall enough to span from below the waterline to above the peak, so a
-    # boat registers a landing on approach rather than needing to beach exactly.
+        - Name: Rock
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Rock_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Rock_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Rock_ARM.png
+          TilingScale: 86.67
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.2, 0.195, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: RockBedded
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/RockBedded_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/RockBedded_ARM.png
+          TilingScale: 76.47
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.3, 0.22, 0.16]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Scree
+          AlbedoPath: Assets/Terrain/DriftIslands/Layers/Scree_Color.jpg
+          NormalPath: Assets/Terrain/DriftIslands/Layers/Scree_Normal.jpg
+          ARMPath: Assets/Terrain/DriftIslands/Layers/Scree_ARM.png
+          TilingScale: 118.2
+          HeightBlendSharpness: 6
+          TriplanarSharpness: 6
+          BaseColor: [0.21, 0.2, 0.19]
+          Roughness: 0.9
+          Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's
+    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat
+    # registers a landing as it closes the shore.
     DiscoverableComponent:
       DisplayName: Sisters
     Rigidbody3DComponent:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [95, 80, 95]
-      Offset: [130, 24, 130]
+      HalfExtents: [100, 80, 78]
+      Offset: [130, 24, 136]
     FoliageComponent:
       Enabled: true
       Layers:
-        - Name: Scrub
-          MeshPath: Assets/Models/Vegetation/shrub/shrub.obj
-          AlbedoPath: Assets/Models/Vegetation/shrub/Textures/shrub_card.png
-          Density: 0.45
-          SplatmapChannel: 1
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 40
-          MinScale: 0.8
-          MaxScale: 1.6
-          MinHeight: 1.4
-          MaxHeight: 3
-          RandomRotation: true
-          ViewDistance: 260
-          FadeStartDistance: 200
-          MeshViewDistance: 30
-          MeshFadeStartDistance: 22
-          WindStrength: 0.4
-          WindSpeed: 1.6
-          BaseColor: [0.28, 0.44, 0.18]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Dune grass
-          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
-          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
-          Density: 0.16
-          SplatmapChannel: 0
-          MinSlopeAngle: 0
-          MaxSlopeAngle: 20
-          MinScale: 0.7
-          MaxScale: 1.3
-          MinHeight: 1
-          MaxHeight: 2.2
-          RandomRotation: true
-          ViewDistance: 200
-          FadeStartDistance: 150
-          MeshViewDistance: 18
-          MeshFadeStartDistance: 13
-          WindStrength: 0.5
-          WindSpeed: 1.3
-          BaseColor: [0.62, 0.6, 0.34]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          Enabled: true
-        - Name: Pines
-          MeshPath: Assets/Models/Vegetation/pine/pine.obj
-          AlbedoPath: Assets/Models/Vegetation/pine/Textures/pine_card.png
-          Density: 0.016
-          SplatmapChannel: 1
+        - Name: Turf
+          MeshPath: Assets/Models/Vegetation/grass/grass.obj
+          AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
+          Density: 6
+          SplatmapChannel: 3
           MinSlopeAngle: 0
           MaxSlopeAngle: 38
-          MinScale: 0.9
-          MaxScale: 1.4
-          MinHeight: 9
-          MaxHeight: 16
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.22
+          MaxHeight: 0.42
           RandomRotation: true
-          ViewDistance: 1100
-          FadeStartDistance: 950
-          WindStrength: 0.16
-          WindSpeed: 0.8
-          BaseColor: [0.19, 0.33, 0.2]
-          Roughness: 0.8
-          AlphaCutoff: 0.5
-          # Octahedral impostor card (issue #433). The near billboard is a tufted
-          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
-          # the tree line a 3D silhouette from any azimuth at range. NO scene set
-          # UseImpostor before this one, so the path had zero runtime coverage.
-          UseImpostor: true
-          ImpostorStartDistance: 30
-          ImpostorTransitionBand: 18
-          ImpostorFramesPerAxis: 8
-          ImpostorAtlasResolution: 1024
-          ImpostorHemiOctahedral: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.92, 0.95, 0.88]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
           Enabled: true
+          CastShadows: false
+        - Name: Thrift
+          MeshPath: Assets/Models/Vegetation/flower/flower.obj
+          AlbedoPath: Assets/Models/Vegetation/flower/Textures/flower_card.png
+          Density: 0.7
+          SplatmapChannel: 3
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.18
+          MaxHeight: 0.3
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.9
+          ClumpScale: 7
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 90
+          FadeStartDistance: 70
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [1, 0.86, 0.9]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
+        - Name: Moor grass
+          MeshPath: Assets/Models/Vegetation/grass_dry/grass_dry.obj
+          AlbedoPath: Assets/Models/Vegetation/grass_dry/Textures/grass_dry_card.png
+          Density: 3.5
+          SplatmapChannel: 4
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.85
+          MaxScale: 1.2
+          MinHeight: 0.25
+          MaxHeight: 0.5
+          RandomRotation: true
+          SlopeFeather: 6
+          UseAltitudeBand: true
+          MinAltitude: 26.4
+          MaxAltitude: 1000
+          AltitudeFeather: 0.8
+          ClumpStrength: 0.5
+          ClumpScale: 9
+          ClumpFalloff: 1.2
+          ClumpScaleInfluence: 0.3
+          SlopeSinkFactor: 0.6
+          ViewDistance: 110
+          FadeStartDistance: 85
+          MeshViewDistance: 16
+          MeshFadeStartDistance: 11
+          WindStrength: 0.45
+          WindSpeed: 1.4
+          BaseColor: [0.95, 0.9, 0.78]
+          Roughness: 0.75
+          AlphaCutoff: 0.45
+          TransmissionStrength: 0.45
+          LodTransitionSpread: 5
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 22
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.3
+          Enabled: true
+          CastShadows: false
 
   # ── The boat ──────────────────────────────────────────────────────────────
   # A Nordic clinker boat with one square sail on a braced yard, generated from

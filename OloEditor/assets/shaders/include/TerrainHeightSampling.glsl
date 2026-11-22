@@ -1,6 +1,8 @@
 #ifndef TERRAIN_HEIGHT_SAMPLING_GLSL
 #define TERRAIN_HEIGHT_SAMPLING_GLSL
 
+#include "TerrainHeightUV.glsl"
+
 // A tessellation-evaluation shader has no implicit texture derivatives. Using
 // texture() therefore selects mip zero even when a coarse terrain node places
 // its vertices many heightmap texels apart. That undersamples the heightfield
@@ -21,9 +23,11 @@ float oloTerrainHeightMip(vec2 uv0, vec2 uv1, vec2 uv2)
     return clamp(log2(max(footprintTexels, 1.0)), 0.0, maxMip);
 }
 
+// `uv` is the TILE UV: 0 and 1 are the tile's edges, where the height map's
+// first and last samples sit (TerrainHeightUV.glsl).
 float oloTerrainFilteredHeight(vec2 uv, float mip)
 {
-    return textureLod(u_TerrainHeightmap, uv, mip).r;
+    return textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv, float(u_HeightmapResolution)), mip).r;
 }
 
 #endif // TERRAIN_HEIGHT_SAMPLING_GLSL

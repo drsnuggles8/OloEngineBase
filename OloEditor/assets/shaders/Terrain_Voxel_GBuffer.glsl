@@ -86,6 +86,7 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 
 #include "include/TerrainParamsBlock.glsl"
+#include "include/TerrainVoxelTiling.glsl"
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -133,21 +134,20 @@ void main()
     vec3 triWeights = pow(absNormal, vec3(triplanarSharpness));
     triWeights /= (triWeights.x + triWeights.y + triWeights.z + 0.0001);
 
-    float tiling = u_LayerTilingScales0[0];
-    if (tiling < 0.001)
-        tiling = 0.1;
+    // Layer 0, per metre along world (X, Z): include/TerrainVoxelTiling.glsl.
+    vec2 tiling = oloTerrainVoxelTiling(u_LayerTilingScales0[0]);
 
     vec3 wpTri = v_WorldPos + u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
-    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling.y, 0.0));
     vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, 0.0));
-    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, 0.0));
+    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling.x, 0.0));
     vec3 albedo = albedoX.rgb * triWeights.x
                 + albedoY.rgb * triWeights.y
                 + albedoZ.rgb * triWeights.z;
 
-    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling.y, 0.0));
     vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, 0.0));
-    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, 0.0));
+    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling.x, 0.0));
     vec4 arm = armX * triWeights.x + armY * triWeights.y + armZ * triWeights.z;
     float ao = arm.r;
     float roughness = arm.g;
@@ -163,9 +163,9 @@ void main()
     // away from the sun and renders black while the geometry, the materials and
     // the lighting are all provably fine. A voxel scene with no terrain layer
     // textures bound hits this on every fragment.
-    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * triWeights.x
+    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling.y, 0.0)).rgb * triWeights.x
                       + texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * triWeights.y
-                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * triWeights.z;
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling.x, 0.0)).rgb * triWeights.z;
     bool hasNormalMap = dot(packedNormal, packedNormal) > 1e-5;
     vec3 triNormal = hasNormalMap ? normalize(packedNormal * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
 

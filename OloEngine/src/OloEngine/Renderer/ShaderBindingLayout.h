@@ -598,6 +598,22 @@ namespace OloEngine
             // x = EnableIBL, y = EnableLightProbes, z = IBLIntensity, w = unused.
             glm::vec4 AmbientLadder{ 0.0f, 0.0f, 1.0f, 0.0f };
 
+            // Two-scale layer sampling (issue #1721): x = far tiling ratio
+            // (0 = each layer at its own tiling only), y = near distance,
+            // z = far distance, w = unused. Packing owner:
+            // TerrainSurfaceShading::PackLayerScale (Terrain/TerrainSurfaceShading.h),
+            // which is also where the constants live. Zero-initialised, so a
+            // draw that fills nothing (the voxel shaders, the shadow casters)
+            // samples at one scale.
+            glm::vec4 LayerScale{ 0.0f };
+
+            // The macro map (issue #1721): x = bound (0/1), y = tint scale,
+            // z = wet albedo factor, w = wet roughness. Packing owner:
+            // TerrainSurfaceShading::PackMacroParams. All zero with no map, and
+            // the shaders then skip the macro step, leaving the surface as it
+            // was.
+            glm::vec4 MacroParams{ 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(TerrainUBO);
@@ -2974,10 +2990,12 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
     // 144 before issue #715 appended the three virtual-texture vec4s (-> 192);
     // slices 3+4 appended VTParams3 and the 64-sector x 2-vec4 adaptive table
-    // (-> 2256). Bumping this is only half the edit: the GLSL block lives in
+    // (-> 2256); #1336 appended the ambient-ladder vec4 (-> 2272); #1721 the
+    // two-scale layer sampling and macro-map vec4s (-> 2304). Bumping this is
+    // only half the edit: the GLSL block lives in
     // include/TerrainParamsBlock.glsl and is declared ONCE for all eight
     // terrain shaders (see that file for why).
-    static_assert(sizeof(UBOStructures::TerrainUBO) == 2272, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
+    static_assert(sizeof(UBOStructures::TerrainUBO) == 2304, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     // 48 before issue #433 appended the two impostor vec4s (-> 80); #1233
     // appended MeshParams and MeshViewPos (-> 112); #1234 appended the four
@@ -4623,7 +4641,18 @@ namespace OloEngine
                            // fullscreen passes with no material bound, so they reuse the
                            // pass-local low slots the same way every entry above does.
                            // The reservoir is THREE planes, so it takes three of them.
-                           name == "u_Reservoir0";
+                           name == "u_Reservoir0" ||
+                           // The terrain MACRO MAP (issue #1721): a per-terrain
+                           // albedo tint + wetness texture sampled by Terrain_PBR
+                           // and Terrain_GBuffer. Terrain is never drawn through
+                           // the material system, so no material diffuse can
+                           // occupy the slot under it — the reasoning that puts
+                           // foliage's u_LeafThicknessMap on TEX_METALLIC — and
+                           // a dedicated slot would have taken one of the two
+                           // indices left for shader-graph textures. Bound
+                           // through the tracked route (BindTrackedTexture) so
+                           // the next mesh draw's diffuse bind is not skipped.
+                           name == "u_TerrainMacroMap";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,

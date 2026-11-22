@@ -32,6 +32,7 @@
 
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
+#include "OloEngine/Terrain/TerrainLodMetric.h"
 #include "OloEngine/Terrain/TerrainQuadtree.h"
 
 #include <glm/glm.hpp>
@@ -135,10 +136,12 @@ namespace OloEngine::Tests
 
                     if (node.Level < maxDepth)
                     {
-                        const f32 geometricError = std::max(maxX - minX, maxZ - minZ);
+                        // One QUAD of the node in pixels: projScale carries
+                        // the division by the node's quads per edge.
+                        const f32 nodeWorldSize = std::max(maxX - minX, maxZ - minZ);
                         const glm::vec3 nodeCenter = (boundsMin + boundsMax) * 0.5f;
                         const f32 distance = std::max(glm::length(cameraPos - nodeCenter), 0.001f);
-                        const f32 screenError = (geometricError * projScale) / distance;
+                        const f32 screenError = (nodeWorldSize * projScale) / distance;
                         if (screenError >= targetTriangleSize)
                         {
                             result.SplitMap[NodeIndex_GLSLEquivalent(node.Level, node.X, node.Y)] = 1;
@@ -304,12 +307,13 @@ namespace OloEngine::Tests
             return TerrainQuadtree::BuildHeightPyramid(std::span(heights.GetData(), static_cast<sizet>(heights.Num())), kTestResolution, kHeightScale, maxDepth);
         }
 
-        // Split thresholds swept alongside the camera poses. The shipped default
-        // of 8 px splits everything to leaves at these distances, so a sweep that
-        // only used it would never produce two ADJACENT VISIBLE nodes at
-        // different levels — and the crack proof would pass vacuously. The looser
-        // values are what actually exercise the seam snapping.
-        constexpr std::array<f32, 4> kTargetTriangleSizes{ 8.0f, 120.0f, 600.0f, 2400.0f };
+        // Split thresholds swept alongside the camera poses, in pixels per
+        // QUAD of a node (TerrainLodMetric.h). The spread matters more than the
+        // values: a sweep in which every node splits to a leaf, or none does,
+        // never produces two ADJACENT VISIBLE nodes at different levels, and the
+        // crack proof would pass vacuously. The posesWithSplit guard in the
+        // parity test fails if these stop producing mixed trees.
+        constexpr std::array<f32, 4> kTargetTriangleSizes{ 0.125f, 2.0f, 8.0f, 32.0f };
 
         // The camera poses the parity / crack sweeps run over. Deliberately
         // includes a ground-level pose looking across the terrain (the case that
@@ -497,7 +501,7 @@ namespace OloEngine::Tests
                                          static_cast<u32>(std::lround(node->MinZ * static_cast<f32>(span))) });
                 }
 
-                const f32 projScale = viewProjection[1][1] * kViewportHeight * 0.5f;
+                const f32 projScale = TerrainLodMetric::QuadProjectionScale(viewProjection, kViewportHeight);
                 const DescentResult gpu = RunDescent_GLSLEquivalent(
                     pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ,
                     ExtractPlanes(frustum), eye, projScale, target);
@@ -533,7 +537,7 @@ namespace OloEngine::Tests
 
         const DescentResult gpu = RunDescent_GLSLEquivalent(
             pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ, ExtractPlanes(frustum), eye,
-            viewProjection[1][1] * kViewportHeight * 0.5f, 120.0f);
+            TerrainLodMetric::QuadProjectionScale(viewProjection, kViewportHeight), 2.0f);
         const std::vector<u32> lodMap = BuildLODMap_GLSLEquivalent(gpu.SplitMap, kTestDepth);
 
         // Every VISIBLE node's own footprint must report that node's level — the
@@ -567,7 +571,7 @@ namespace OloEngine::Tests
                 const Frustum frustum(viewProjection);
                 const DescentResult gpu = RunDescent_GLSLEquivalent(
                     pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ, ExtractPlanes(frustum), eye,
-                    viewProjection[1][1] * kViewportHeight * 0.5f, target);
+                    TerrainLodMetric::QuadProjectionScale(viewProjection, kViewportHeight), target);
                 const std::vector<u32> lodMap = BuildLODMap_GLSLEquivalent(gpu.SplitMap, kTestDepth);
 
                 for (const GpuNodeCoord& node : gpu.Visible)
@@ -615,7 +619,7 @@ namespace OloEngine::Tests
                     const Frustum frustum(viewProjection);
                     const DescentResult gpu = RunDescent_GLSLEquivalent(
                         pyramid, kTestDepth, kWorldSizeX, kWorldSizeZ, ExtractPlanes(frustum), eye,
-                        viewProjection[1][1] * kViewportHeight * 0.5f, target);
+                        TerrainLodMetric::QuadProjectionScale(viewProjection, kViewportHeight), target);
                     const std::vector<u32> lodMap = BuildLODMap_GLSLEquivalent(gpu.SplitMap, kTestDepth);
 
                     std::map<GpuNodeCoord, SeamDeltas> seams;

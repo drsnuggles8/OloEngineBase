@@ -22,5 +22,8 @@ backends. The full rules are [docs/agent-rules/glsl-shaders.md](../../docs/agent
   `opengl4.5` environment false-fails `gl_InstanceIndex`).
 - The engine's include expander ignores `#ifdef`, so a guarded `#include` is always included.
 - A shader change is a rendering change: see `renderer-verification.md` in this directory.
+- The terrain height map is a grid of samples, not areas: fetch it by tile UV through
+  `oloTerrainHeightUV` (`include/TerrainHeightUV.glsl`), never with the bare UV
+  ([guide](../../docs/agent-rules/generated-island-height-maps.md), rule 18).
 - A table read by a parameter on [0, 1] is clamped to its texel centres first; the BRDF table is read through
   `oloEnvBRDF` ([guide](../../docs/agent-rules/a-lookup-table-is-read-at-its-texel-centres.md)).

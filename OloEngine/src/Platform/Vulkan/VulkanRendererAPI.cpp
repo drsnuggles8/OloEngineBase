@@ -4077,6 +4077,20 @@ namespace OloEngine
             samplerInfo.minFilter = VK_FILTER_NEAREST;
             samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         }
+        else if (info->MaxAnisotropy > 1.0f && VulkanDevice::Get()->IsSamplerAnisotropyEnabled())
+        {
+            // The image's own anisotropy (issue #1721), as GL's texture object
+            // carries GL_TEXTURE_MAX_ANISOTROPY. Legal only with the feature on
+            // and within the device limit, the two rules
+            // VulkanSamplerHeap::CreateInfoFromDesc applies to an explicit desc.
+            samplerInfo.anisotropyEnable = VK_TRUE;
+            samplerInfo.maxAnisotropy =
+                std::clamp(info->MaxAnisotropy, 1.0f, VulkanDevice::Get()->GetMaxSamplerAnisotropy());
+        }
+        else
+        {
+            // No additional handling required.
+        }
         bindingState.SetTextureSamplerSlot(slot, VulkanSamplerHeap::Get().GetOrCreateSlot(samplerInfo));
     }
 

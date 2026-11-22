@@ -619,7 +619,8 @@ namespace OloEngine
         i32 entityID,
         RHI::ResourceHandle terrainIndirectArgsID,
         RHI::ResourceHandle terrainVisibleNodesID,
-        const TerrainVTBindings& virtualTexture)
+        const TerrainVTBindings& virtualTexture,
+        RHI::ResourceHandle macroMapID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -671,6 +672,7 @@ namespace OloEngine
         cmd->albedoArrayTextureID = albedoArrayID;
         cmd->normalArrayTextureID = normalArrayID;
         cmd->armArrayTextureID = armArrayID;
+        cmd->macroMapTextureID = macroMapID;
         cmd->transform = transform;
         cmd->entityID = entityID;
         // Both or neither. With only one supplied the dispatcher takes the

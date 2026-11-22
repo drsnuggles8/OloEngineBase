@@ -96,8 +96,8 @@ Not fixed in #<PR> because: <needs a decision | needs access | too big | owned e
 ```
 
 Before the PR exists, write the branch name in place of `#<PR>`. Add an `olo-score` block ([issue-scoring.md §5](issue-scoring.md), scored against the §4
-anchors): `gh issue create --body` bypasses the issue templates, and an unscored issue is invisible
-to `/start-work`. Score Fun honestly and never write `fun_by: user`: the Pull-override is the user's
+anchors, with its `areas:`): `gh issue create --body` bypasses the issue templates, and an unscored
+issue is invisible to `/start-work`. Score Fun honestly and never write `fun_by: user`: the Pull-override is the user's
 (issue-scoring.md §3.4), and `olo-command-guards` refuses it. For **owned elsewhere**, also message the owning session if it is live
 (`ListAgents`, then `SendMessage`) so the fix lands there instead of waiting in the backlog.
 
@@ -264,7 +264,7 @@ End the body with these sections:
 
 ```markdown
 ## Found and fixed
-- <commit sha> fix(<scope>): <bug> — <how it was found, the test or evidence that pins it>
+- <commit sha> fix(<scope>): <bug> [S<n>] — <how it was found, the test or evidence that pins it>
   (or "None.")
 
 ## Filed, not fixed
@@ -283,6 +283,15 @@ End the body with these sections:
 
 "Least confident" is for uncertainty about work that is done. Unrun work belongs in the matrix with
 a factual reason, or it gets run.
+
+**Every *Found and fixed* bullet carries one severity tag**, `[S1]`, `[S2]`, `[S3]`, `[S5]`, `[S8]`
+or `[S13]`: the bug's severity on the Stability rungs of
+[issue-scoring.md §1](issue-scoring.md#1--the-axes) (`[S3]` a minor or rare bug, `[S8]` data loss
+or silent corruption, `[S13]` a crash or corruption in a core path). One bullet is one bug. The
+picker's discovery term weights each found bug by its tag; an untagged bullet falls back to a
+keyword guess marked *estimated* (issue-scoring.md §1, *Discovery*). A filed issue needs no tag:
+its own `stability:` is its severity. Keep both headings exactly as written, because the picker
+parses them.
 
 ## Phase 5 — Drive the PR to green
 

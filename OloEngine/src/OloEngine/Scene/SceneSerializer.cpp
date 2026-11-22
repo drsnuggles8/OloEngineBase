@@ -1543,6 +1543,14 @@ namespace OloEngine
                 terrain.m_Material->SetSplatmapPath(0, sp0.as<std::string>());
             if (auto sp1 = terrainComponent["SplatmapPath1"]; sp1)
                 terrain.m_Material->SetSplatmapPath(1, sp1.as<std::string>());
+            // The macro map and the layer-array resolution (issue #1721). Both
+            // optional: a scene without them has no macro map and the 512
+            // every material was built at before. The resolution is clamped
+            // and rounded down to a power of two by the material.
+            if (auto macroMap = terrainComponent["MacroMapPath"]; macroMap)
+                terrain.m_Material->SetMacroMapPath(macroMap.as<std::string>());
+            terrain.m_Material->SetLayerResolution(
+                terrainComponent["LayerResolution"].as<u32>(TerrainMaterial::kDefaultLayerResolution));
 
             for (const auto& layerNode : layersNode)
             {
@@ -5995,6 +6003,8 @@ namespace OloEngine
                 const auto& mat = terrain.m_Material;
                 out << YAML::Key << "SplatmapPath0" << YAML::Value << mat->GetSplatmapPath(0).ToStdString();
                 out << YAML::Key << "SplatmapPath1" << YAML::Value << mat->GetSplatmapPath(1).ToStdString();
+                out << YAML::Key << "MacroMapPath" << YAML::Value << mat->GetMacroMapPath().ToStdString();
+                out << YAML::Key << "LayerResolution" << YAML::Value << mat->GetLayerResolution();
                 out << YAML::Key << "Layers";
                 out << YAML::Value << YAML::BeginSeq;
                 for (u32 i = 0; i < mat->GetLayerCount(); ++i)

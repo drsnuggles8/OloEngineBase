@@ -3,6 +3,10 @@
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Terrain/TerrainShadowLod.h"
+#include "OloEngine/Terrain/TerrainVertex.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <atomic>
@@ -58,6 +62,8 @@ namespace OloEngine
         {
             OLO_CORE_WARN("TerrainChunkManager: Cannot generate chunks — heightmap resolution is 0");
             m_Chunks.Reset();
+            m_ShadowTileMesh = nullptr;
+            m_ShadowTileIndexCount = 0;
             m_SelectedChunks.Reset();
             m_NumChunksX = 0;
             m_NumChunksZ = 0;
@@ -87,6 +93,7 @@ namespace OloEngine
         {
             chunk.UploadToGPU();
         }
+        BuildShadowTileMesh(worldSizeX, worldSizeZ);
 
         // Build quadtree for LOD selection
         // Max depth is ceil(log2) of number of chunks on one axis (so leaf = one chunk)
@@ -117,6 +124,63 @@ namespace OloEngine
 
         OLO_CORE_INFO("TerrainChunkManager: Built {}x{} chunks ({} total), quadtree depth {} (GPU depth {})",
                       m_NumChunksX, m_NumChunksZ, totalChunks, quadtreeDepth, gpuDepth);
+    }
+
+    void TerrainChunkManager::BuildShadowTileMesh(const f32 worldSizeX, const f32 worldSizeZ)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // The chunk grid at the coarsest shadow level, joined: each chunk
+        // contributes CHUNK_RESOLUTION >> (kLevelCount - 1) quads a side.
+        const u32 quadsPerChunk = TerrainChunk::CHUNK_RESOLUTION >> (TerrainShadowLod::kLevelCount - 1u);
+        const u32 quadsX = m_NumChunksX * quadsPerChunk;
+        const u32 quadsZ = m_NumChunksZ * quadsPerChunk;
+        m_ShadowTileMesh = nullptr;
+        m_ShadowTileIndexCount = 0;
+        if (quadsX == 0 || quadsZ == 0)
+            return;
+
+        TArray<TerrainVertex> vertices;
+        vertices.Reserve(static_cast<TArray<TerrainVertex>::SizeType>((quadsX + 1) * (quadsZ + 1)));
+        for (u32 z = 0; z <= quadsZ; ++z)
+        {
+            for (u32 x = 0; x <= quadsX; ++x)
+            {
+                // The tile-local frame and whole-terrain UV a chunk vertex
+                // has. Y is zero: the evaluation stage samples the height.
+                const f32 u = static_cast<f32>(x) / static_cast<f32>(quadsX);
+                const f32 v = static_cast<f32>(z) / static_cast<f32>(quadsZ);
+                vertices.Emplace(glm::vec3(u * worldSizeX, 0.0f, v * worldSizeZ), glm::vec2(u, v), glm::vec3(0.0f, 1.0f, 0.0f));
+            }
+        }
+
+        TArray<u32> indices;
+        indices.Reserve(static_cast<TArray<u32>::SizeType>(quadsX * quadsZ * 6u));
+        const u32 vertsPerRow = quadsX + 1;
+        for (u32 z = 0; z < quadsZ; ++z)
+        {
+            for (u32 x = 0; x < quadsX; ++x)
+            {
+                // The chunk meshes' winding (TerrainChunk::BuildGeometry).
+                const u32 topLeft = z * vertsPerRow + x;
+                const u32 topRight = topLeft + 1;
+                const u32 bottomLeft = (z + 1) * vertsPerRow + x;
+                const u32 bottomRight = bottomLeft + 1;
+                indices.Add(topLeft);
+                indices.Add(bottomLeft);
+                indices.Add(topRight);
+                indices.Add(topRight);
+                indices.Add(bottomLeft);
+                indices.Add(bottomRight);
+            }
+        }
+
+        m_ShadowTileMesh = VertexArray::Create();
+        auto vbo = VertexBuffer::Create(vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(TerrainVertex)));
+        vbo->SetLayout(TerrainVertex::GetLayout());
+        m_ShadowTileMesh->AddVertexBuffer(vbo);
+        m_ShadowTileMesh->SetIndexBuffer(IndexBuffer::Create(indices.GetData(), static_cast<u32>(indices.Num())));
+        m_ShadowTileIndexCount = static_cast<u32>(indices.Num());
     }
 
     void TerrainChunkManager::RebuildChunk(const TerrainData& terrainData, u32 chunkX, u32 chunkZ,

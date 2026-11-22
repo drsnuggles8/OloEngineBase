@@ -196,6 +196,14 @@ layout(location = 3) flat out vec4 v_SnowClip;          // xy = ring-0 centre (w
 layout(location = 4) flat out float v_SnowAccumulation; // u_DisplacementParams.z: > 0.5 when the clipmap is live
 layout(location = 5) flat out vec4 v_BrushPosAndRadius;
 layout(location = 6) flat out vec4 v_BrushParams;
+// The instance's normal matrix, for the fragment stage's per-pixel normal
+// (include/TerrainPixelNormal.glsl, issue #1721): that normal is computed in
+// the tile's own frame and has to be turned into the world's. Flat for the
+// reason the four above are: one value per draw, and no new block in a stage
+// that has none to spare.
+layout(location = 7) flat out vec3 v_NormalMatrixX;
+layout(location = 8) flat out vec3 v_NormalMatrixY;
+layout(location = 9) flat out vec3 v_NormalMatrixZ;
 
 vec3 interpolate3(vec3 a, vec3 b, vec3 c)
 {
@@ -264,6 +272,9 @@ void main()
     vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);
     v_WorldPos = worldPos.xyz;
     v_Normal = mat3(instances[0].Normal) * nrm;
+    v_NormalMatrixX = instances[0].Normal[0].xyz;
+    v_NormalMatrixY = instances[0].Normal[1].xyz;
+    v_NormalMatrixZ = instances[0].Normal[2].xyz;
     v_TexCoord = uv;
     v_SnowClip = vec4(u_ClipmapCenterAndExtent[0].xyz, u_AccumulationParams.y);
     v_SnowAccumulation = u_DisplacementParams.z;
@@ -390,13 +401,21 @@ layout(binding = 12) uniform sampler2D u_BRDFLutMap;
 #define u_TerrainNormalArray OLO_HEAP_TEX_2D_ARRAY(26)  // TEX_TERRAIN_NORMAL_ARRAY
 #define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
 #define u_TerrainSplatmap1 OLO_HEAP_TEX_2D(28)  // Layers 4-7 weights — TEX_TERRAIN_SPLATMAP_1
+#define u_TerrainMacroMap OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE, see below
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)  // TEX_TERRAIN_HEIGHTMAP, for the per-pixel normal
 #else
+layout(binding = 23) uniform sampler2D u_TerrainHeightmap;     // for the per-pixel normal
 layout(binding = 24) uniform sampler2D u_TerrainSplatmap0;     // Layers 0-3 weights
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
 layout(binding = 27) uniform sampler2DArray u_TerrainARMArray;
 layout(binding = 28) uniform sampler2D u_TerrainSplatmap1;     // Layers 4-7 weights
+layout(binding = 0) uniform sampler2D u_TerrainMacroMap;
 #endif
+// The macro map (issue #1721) sits on TEX_DIFFUSE: terrain is not drawn
+// through the material system, so no material texture can occupy that slot
+// under it — the same reasoning that puts the foliage leaf-thickness map on
+// TEX_METALLIC — and it costs no new engine texture slot.
 
 // =============================================================================
 // INPUT/OUTPUT
@@ -409,6 +428,9 @@ layout(location = 3) flat in vec4 v_SnowClip;
 layout(location = 4) flat in float v_SnowAccumulation;
 layout(location = 5) flat in vec4 v_BrushPosAndRadius;
 layout(location = 6) flat in vec4 v_BrushParams;
+layout(location = 7) flat in vec3 v_NormalMatrixX;
+layout(location = 8) flat in vec3 v_NormalMatrixY;
+layout(location = 9) flat in vec3 v_NormalMatrixZ;
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
@@ -435,72 +457,15 @@ vec2 octEncode(vec3 n)
 // SPLATMAP MATERIAL HELPERS
 // =============================================================================
 
-// The blend math itself now lives in include/TerrainLayerBlend.glsl, shared with
-// the deferred path and with compute/TerrainVTTileBake.comp — three evaluators
-// of one blend (issue #715). These wrappers just bind the UBO's packed scalars
-// to it, so the call sites below are unchanged.
+// The blend MATH lives in include/TerrainLayerBlend.glsl, shared with the
+// deferred path and with compute/TerrainVTTileBake.comp — three evaluators of
+// one blend (issue #715). The SAMPLING of the two fragment paths lives in
+// include/TerrainLayerSampling.glsl (issue #1721), shared with Terrain_GBuffer
+// so Forward and Deferred cannot drift.
 #include "include/TerrainLayerBlend.glsl"
 #include "include/TerrainVirtualTexture.glsl"
-
-float getLayerTiling(int layer)
-{
-    return oloTerrainLayerTiling(layer, u_LayerTilingScales0, u_LayerTilingScales1);
-}
-
-void heightBlend(inout float weights[8], float heights[8], int layerCount)
-{
-    oloTerrainHeightBlend(weights, heights, layerCount, u_LayerBlendSharpness0, u_LayerBlendSharpness1);
-}
-
-// Sample a layer using planar UV
-vec4 sampleLayerAlbedo(int layer, vec2 uv)
-{
-    return texture(u_TerrainAlbedoArray, vec3(uv * getLayerTiling(layer), float(layer)));
-}
-
-vec3 sampleLayerNormal(int layer, vec2 uv)
-{
-    vec3 n = texture(u_TerrainNormalArray, vec3(uv * getLayerTiling(layer), float(layer))).rgb;
-    return n * 2.0 - 1.0; // Decode from [0,1] to [-1,1]
-}
-
-vec4 sampleLayerARM(int layer, vec2 uv)
-{
-    return texture(u_TerrainARMArray, vec3(uv * getLayerTiling(layer), float(layer)));
-}
-
-// Triplanar sampling for steep slopes
-vec4 triplanarSampleAlbedo(int layer, vec3 worldPos, vec3 blendWeights)
-{
-    // Camera-relative (issue #429): triplanar tiling is world-anchored, so
-    // rebuild the absolute world position from the render-relative input.
-    worldPos += u_RenderOrigin;
-    float tiling = getLayerTiling(layer);
-    vec4 xProj = texture(u_TerrainAlbedoArray, vec3(worldPos.yz * tiling, float(layer)));
-    vec4 yProj = texture(u_TerrainAlbedoArray, vec3(worldPos.xz * tiling, float(layer)));
-    vec4 zProj = texture(u_TerrainAlbedoArray, vec3(worldPos.xy * tiling, float(layer)));
-    return xProj * blendWeights.x + yProj * blendWeights.y + zProj * blendWeights.z;
-}
-
-vec3 triplanarSampleNormal(int layer, vec3 worldPos, vec3 blendWeights)
-{
-    worldPos += u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
-    float tiling = getLayerTiling(layer);
-    vec3 xNorm = texture(u_TerrainNormalArray, vec3(worldPos.yz * tiling, float(layer))).rgb * 2.0 - 1.0;
-    vec3 yNorm = texture(u_TerrainNormalArray, vec3(worldPos.xz * tiling, float(layer))).rgb * 2.0 - 1.0;
-    vec3 zNorm = texture(u_TerrainNormalArray, vec3(worldPos.xy * tiling, float(layer))).rgb * 2.0 - 1.0;
-    return normalize(xNorm * blendWeights.x + yNorm * blendWeights.y + zNorm * blendWeights.z);
-}
-
-vec4 triplanarSampleARM(int layer, vec3 worldPos, vec3 blendWeights)
-{
-    worldPos += u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
-    float tiling = getLayerTiling(layer);
-    vec4 xARM = texture(u_TerrainARMArray, vec3(worldPos.yz * tiling, float(layer)));
-    vec4 yARM = texture(u_TerrainARMArray, vec3(worldPos.xz * tiling, float(layer)));
-    vec4 zARM = texture(u_TerrainARMArray, vec3(worldPos.xy * tiling, float(layer)));
-    return xARM * blendWeights.x + yARM * blendWeights.y + zARM * blendWeights.z;
-}
+#include "include/TerrainLayerSampling.glsl"
+#include "include/TerrainPixelNormal.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -508,7 +473,6 @@ vec4 triplanarSampleARM(int layer, vec3 worldPos, vec3 blendWeights)
 
 void main()
 {
-    vec3 N = normalize(v_Normal);
     // Camera-relative (issue #429): v_WorldPos is render-relative. Rebuild the
     // absolute world position for the world-anchored patterns below (editor
     // brush, snow height/clipmap/noise). Lighting/shadow/velocity below keep
@@ -516,6 +480,13 @@ void main()
     vec3 worldPosAbs = v_WorldPos + u_RenderOrigin;
     int layerCount = int(u_TerrainParams.z);
     float triplanarSharpness = u_TerrainParams.w;
+    // Where the layers are sampled and their screen-space gradients, taken here
+    // before any per-pixel branch (include/TerrainLayerSampling.glsl says why).
+    OloTerrainLayerCoords layerCoords = oloTerrainLayerCoords(v_TexCoord, worldPosAbs.y);
+    // The geometric normal, from the height map at this pixel's own scale
+    // rather than the vertex stage's (include/TerrainPixelNormal.glsl).
+    vec3 N = normalize(mat3(v_NormalMatrixX, v_NormalMatrixY, v_NormalMatrixZ) *
+                       oloTerrainPixelNormalLocal(v_TexCoord, layerCoords.TopDx, layerCoords.TopDy));
 
     // Determine if we should use splatmap or procedural fallback
     bool useSplatmap = (layerCount > 0);
@@ -550,87 +521,10 @@ void main()
 
     if (!vtResolved && useSplatmap)
     {
-        // Read splatmap weights
-        float weights[8];
-        vec4 splat0 = texture(u_TerrainSplatmap0, v_TexCoord);
-        weights[0] = splat0.r;
-        weights[1] = splat0.g;
-        weights[2] = splat0.b;
-        weights[3] = splat0.a;
-
-        if (layerCount > 4)
-        {
-            vec4 splat1 = texture(u_TerrainSplatmap1, v_TexCoord);
-            weights[4] = splat1.r;
-            weights[5] = splat1.g;
-            weights[6] = splat1.b;
-            weights[7] = splat1.a;
-        }
-        else
-        {
-            weights[4] = 0.0; weights[5] = 0.0; weights[6] = 0.0; weights[7] = 0.0;
-        }
-
-        // Shared with the VT tile bake, which must agree about BOTH the
-        // weights and the slope threshold: a tile baked planar and shaded
-        // as if triplanar shows a hard band exactly where they disagree.
-        vec3 triWeights = oloTerrainTriplanarWeights(N, triplanarSharpness);
-        bool useTriplanar = oloTerrainUseTriplanar(N);
-
-        // Sample per-layer ARM alpha as height for height-based blending
-        float heights[8];
-        for (int i = 0; i < layerCount; ++i)
-        {
-            vec4 armSample;
-            if (useTriplanar)
-                armSample = triplanarSampleARM(i, v_WorldPos, triWeights);
-            else
-                armSample = sampleLayerARM(i, v_TexCoord);
-            heights[i] = armSample.a;
-        }
-        for (int i = layerCount; i < 8; ++i)
-            heights[i] = 0.0;
-
-        // Apply height-based blending
-        heightBlend(weights, heights, layerCount);
-
-        // Blend layers
-        albedo = vec3(0.0);
-        metallic = 0.0;
-        roughness = 0.0;
-        ao = 0.0;
-        normalMap = vec3(0.0);
-
-        for (int i = 0; i < layerCount; ++i)
-        {
-            if (weights[i] < 0.001)
-                continue;
-
-            vec4 layerAlbedo;
-            vec3 layerNormal;
-            vec4 layerARM;
-
-            if (useTriplanar)
-            {
-                layerAlbedo = triplanarSampleAlbedo(i, v_WorldPos, triWeights);
-                layerNormal = triplanarSampleNormal(i, v_WorldPos, triWeights);
-                layerARM = triplanarSampleARM(i, v_WorldPos, triWeights);
-            }
-            else
-            {
-                layerAlbedo = sampleLayerAlbedo(i, v_TexCoord);
-                layerNormal = sampleLayerNormal(i, v_TexCoord);
-                layerARM = sampleLayerARM(i, v_TexCoord);
-            }
-
-            albedo += layerAlbedo.rgb * weights[i];
-            normalMap += layerNormal * weights[i];
-            ao += layerARM.r * weights[i];
-            roughness += layerARM.g * weights[i];
-            metallic += layerARM.b * weights[i];
-        }
-
-        normalMap = normalize(normalMap);
+        // The splat blend. Both positions are camera-relative, so their
+        // distance is the view distance the two-scale sampling fades on.
+        oloTerrainBlendLayers(layerCoords, N, distance(u_CameraPosition, v_WorldPos), layerCount, triplanarSharpness,
+                              albedo, ao, normalMap, roughness, metallic);
     }
     else if (!vtResolved)
     {
@@ -644,17 +538,17 @@ void main()
         ao = 1.0;
     }
 
-    // Apply tangent-space normal mapping (when splatmap is active)
+    // Apply tangent-space normal mapping (when splatmap is active). The frame
+    // is the one the layer blend expressed normalMap in (terrain-specific:
+    // T always ~X, B always ~-Z).
     if (useSplatmap)
     {
-        // Build TBN from world normal (terrain-specific: T always ~X, B always ~Z)
-        vec3 T = normalize(cross(N, vec3(0.0, 0.0, 1.0)));
-        if (length(T) < 0.001)
-            T = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
-        vec3 B = cross(N, T);
-        mat3 TBN = mat3(T, B, N);
-        N = normalize(TBN * normalMap);
+        N = normalize(oloTerrainTangentFrame(N) * normalMap);
     }
+
+    // The macro map (issue #1721): after the layer blend or the virtual-texture
+    // resolve, before snow and weather.
+    oloTerrainApplyMacroMap(layerCoords, albedo, roughness);
 
     // THE SNOW LAYER (issue #1451) — include/SnowLayer.glsl, the same calls
     // Terrain_GBuffer makes. The material is blended toward snow before any

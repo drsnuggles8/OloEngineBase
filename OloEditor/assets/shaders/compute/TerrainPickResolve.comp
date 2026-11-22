@@ -80,12 +80,14 @@ const int kMaxLaneSteps = 64;
 // step, not the refinement, is what actually bounds that.
 const int kRefineSteps = 16;
 
-// TerrainData::GetHeightAt, transcribed. NOT texture(): GetHeightAt maps
-// normalized [0,1] onto the texel index range [0, N-1] and lerps between
-// integer texels, whereas a bilinear texture() fetch works in the texel-CENTRE
-// convention (uv * N - 0.5). Those differ by half a texel, which is the whole
-// error budget this feature is measured against — so the picking path mirrors
-// the CPU expression exactly and leaves the rendering path's convention alone.
+// TerrainData::GetHeightAt, transcribed. NOT a bare texture(uv): GetHeightAt
+// maps normalized [0,1] onto the texel index range [0, N-1] and lerps between
+// integer texels, whereas a bilinear fetch at the tile UV works in the texel-
+// CENTRE convention (uv * N - 0.5). Those differ by half a texel, which is the
+// whole error budget this feature is measured against. The rendering path
+// converts its UV to the same samples (include/TerrainHeightUV.glsl, issue
+// #1721); this one fetches the four texels itself so the lerp is the CPU's bit
+// for bit and does not depend on the sampler's filter.
 float oloTerrainPickHeight(vec2 worldXZ)
 {
     float res = float(b_Pick.PickParams.w);

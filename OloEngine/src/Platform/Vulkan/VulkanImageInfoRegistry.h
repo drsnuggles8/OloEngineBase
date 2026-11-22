@@ -110,6 +110,11 @@ namespace OloEngine
         VkSamplerMipmapMode MipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         VkSamplerAddressMode AddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         VkBorderColor BorderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        // Maximum anisotropy of the inherited sampler (issue #1721); 1 =
+        // isotropic. The twin of GL_TEXTURE_MAX_ANISOTROPY on a GL texture
+        // object. Clamped to the device limit, and dropped where the device has
+        // no samplerAnisotropy, by the bind that mints the sampler.
+        f32 MaxAnisotropy = 1.0f;
     };
 
     class VulkanImageInfoRegistry

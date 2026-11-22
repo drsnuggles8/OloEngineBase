@@ -55,6 +55,15 @@ layout(std140, binding = 10) uniform TerrainParams {
     // deferred pass shades terrain with: x = EnableIBL, y = EnableLightProbes,
     // z = IBLIntensity, w = unused. Read by the forward terrain shaders.
     vec4 u_TerrainAmbientLadder;
+    // Two-scale layer sampling (issue #1721): x = far tiling ratio (0 = sample
+    // each layer at its own tiling only), y = near distance, z = far distance,
+    // w = unused. Zero for a terrain shading through the virtual texture.
+    // Packed by TerrainSurfaceShading::PackLayerScale.
+    vec4 u_TerrainLayerScale;
+    // The macro map (issue #1721): x = bound (0/1), y = tint scale, z = wet
+    // albedo factor, w = wet roughness. All zero with no map, and the macro
+    // step is then skipped. Packed by TerrainSurfaceShading::PackMacroParams.
+    vec4 u_TerrainMacroParams;
 };
 
 #endif // TERRAIN_PARAMS_BLOCK_GLSL

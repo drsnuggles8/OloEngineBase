@@ -6440,12 +6440,58 @@ namespace OloEngine
 
         DrawComponent<TerrainComponent>("Terrain", entity, [](auto& component)
                                         {
-            // Heightmap path
-            char buf[256];
-            std::strncpy(buf, component.m_HeightmapPath.c_str(), sizeof(buf) - 1);
-            buf[sizeof(buf) - 1] = '\0';
-            if (ImGui::InputText("Heightmap Path", buf, sizeof(buf)))
-                component.m_HeightmapPath = buf;
+            // A file path field that takes effect ONCE, when the edit is
+            // finished (issue #1721). What is typed is held here, not in the
+            // component: applying each keystroke re-decoded a terrain's maps,
+            // rebuilt its layer arrays, re-placed its foliage and logged an
+            // unresolvable path for every prefix of the name being typed. An
+            // edit that never finishes (the selection changes under it) is
+            // dropped, so the stored path and what was built from it cannot
+            // come apart. Returns true on the frame the new path is committed.
+            const auto pathField = [](const char* label, const std::string& current, std::string& outCommitted)
+            {
+                static ImGuiID s_Editing = 0;
+                static std::string s_Typed;
+                const ImGuiID id = ImGui::GetID(label);
+                char buf[512]{};
+                std::strncpy(buf, (s_Editing == id ? s_Typed : current).c_str(), sizeof(buf) - 1);
+                if (ImGui::InputText(label, buf, sizeof(buf)))
+                {
+                    s_Editing = id;
+                    s_Typed = buf;
+                }
+                if (s_Editing != id)
+                    return false;
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    s_Editing = 0;
+                    if (s_Typed == current)
+                        return false;
+                    outCommitted = s_Typed;
+                    return true;
+                }
+                if (!ImGui::IsItemActive())
+                    s_Editing = 0; // abandoned
+                return false;
+            };
+            std::string committedPath;
+
+            // Heightmap path. A new file, or the same one written again on
+            // disk, is a new height field: Regenerate drops the built one so
+            // the next tick reads the file. Without it the viewport kept the
+            // old ground until the scene was reloaded.
+            if (pathField("Heightmap Path", component.m_HeightmapPath, committedPath))
+            {
+                component.m_HeightmapPath = committedPath;
+                component.Regenerate();
+            }
+            if (!component.m_HeightmapPath.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Reload"))
+                    component.Regenerate();
+                ImGui::SetItemTooltip("Read the height map file again.");
+            }
 
             // ── Procedural Generation ────────────────────────────────────
             ImGui::Separator();
@@ -6563,20 +6609,44 @@ namespace OloEngine
 
                 // Splatmap paths
                 {
-                    char sp0Buf[256]{};
-                    std::strncpy(sp0Buf, mat->GetSplatmapPath(0).GetData(), sizeof(sp0Buf) - 1);
-                    if (ImGui::InputText("Splatmap 0", sp0Buf, sizeof(sp0Buf)))
+                    if (pathField("Splatmap 0", mat->GetSplatmapPath(0).ToStdString(), committedPath))
                     {
-                        mat->SetSplatmapPath(0, sp0Buf);
+                        mat->SetSplatmapPath(0, committedPath.c_str());
+                        component.m_MaterialNeedsRebuild = true;
+                    }
+                    if (pathField("Splatmap 1", mat->GetSplatmapPath(1).ToStdString(), committedPath))
+                    {
+                        mat->SetSplatmapPath(1, committedPath.c_str());
                         component.m_MaterialNeedsRebuild = true;
                     }
 
-                    char sp1Buf[256]{};
-                    std::strncpy(sp1Buf, mat->GetSplatmapPath(1).GetData(), sizeof(sp1Buf) - 1);
-                    if (ImGui::InputText("Splatmap 1", sp1Buf, sizeof(sp1Buf)))
+                    // The macro map: a per-terrain tint (RGB, 128 = neutral)
+                    // and dryness (alpha, 255 = dry) over the whole terrain.
+                    if (pathField("Macro Map", mat->GetMacroMapPath().ToStdString(), committedPath))
                     {
-                        mat->SetSplatmapPath(1, sp1Buf);
+                        mat->SetMacroMapPath(committedPath.c_str());
                         component.m_MaterialNeedsRebuild = true;
+                    }
+
+                    // The resolution every layer texture is resampled to. A
+                    // power of two; the material clamps and rounds what it is
+                    // given, so the combo only offers valid values.
+                    const u32 layerResolution = mat->GetLayerResolution();
+                    if (ImGui::BeginCombo("Layer Resolution", std::to_string(layerResolution).c_str()))
+                    {
+                        for (u32 option = TerrainMaterial::kMinLayerResolution;
+                             option <= TerrainMaterial::kMaxLayerResolution; option *= 2u)
+                        {
+                            const bool selected = (option == layerResolution);
+                            if (ImGui::Selectable(std::to_string(option).c_str(), selected) && !selected)
+                            {
+                                mat->SetLayerResolution(option);
+                                component.m_MaterialNeedsRebuild = true;
+                            }
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
                     }
                 }
 
@@ -6609,31 +6679,24 @@ namespace OloEngine
                         if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf)))
                             layer.Name = nameBuf;
 
-                        char albBuf[256]{};
-                        std::strncpy(albBuf, layer.AlbedoPath.GetData(), sizeof(albBuf) - 1);
-                        if (ImGui::InputText("Albedo", albBuf, sizeof(albBuf)))
+                        if (pathField("Albedo", layer.AlbedoPath.ToStdString(), committedPath))
                         {
-                            layer.AlbedoPath = albBuf;
+                            layer.AlbedoPath = committedPath.c_str();
+                            component.m_MaterialNeedsRebuild = true;
+                        }
+                        if (pathField("Normal", layer.NormalPath.ToStdString(), committedPath))
+                        {
+                            layer.NormalPath = committedPath.c_str();
+                            component.m_MaterialNeedsRebuild = true;
+                        }
+                        if (pathField("ARM", layer.ARMPath.ToStdString(), committedPath))
+                        {
+                            layer.ARMPath = committedPath.c_str();
                             component.m_MaterialNeedsRebuild = true;
                         }
 
-                        char nrmBuf[256]{};
-                        std::strncpy(nrmBuf, layer.NormalPath.GetData(), sizeof(nrmBuf) - 1);
-                        if (ImGui::InputText("Normal", nrmBuf, sizeof(nrmBuf)))
-                        {
-                            layer.NormalPath = nrmBuf;
-                            component.m_MaterialNeedsRebuild = true;
-                        }
-
-                        char armBuf[256]{};
-                        std::strncpy(armBuf, layer.ARMPath.GetData(), sizeof(armBuf) - 1);
-                        if (ImGui::InputText("ARM", armBuf, sizeof(armBuf)))
-                        {
-                            layer.ARMPath = armBuf;
-                            component.m_MaterialNeedsRebuild = true;
-                        }
-
-                        ImGui::DragFloat("Tiling", &layer.TilingScale, 0.1f, 0.1f, 200.0f);
+                        ImGui::DragFloat("Tiling", &layer.TilingScale, 0.1f, 0.1f, 4096.0f);
+                        ImGui::SetItemTooltip("Repeats of the layer textures across the whole tile.");
                         ImGui::DragFloat("Blend Sharpness", &layer.HeightBlendSharpness, 0.1f, 0.1f, 32.0f);
                         ImGui::DragFloat("Triplanar Sharpness", &layer.TriplanarSharpness, 0.1f, 1.0f, 32.0f);
                         ImGui::ColorEdit3("Base Color", &layer.BaseColor.x);
