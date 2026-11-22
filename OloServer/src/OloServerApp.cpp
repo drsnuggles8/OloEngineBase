@@ -220,8 +220,6 @@ namespace OloEngine
             auto tempScene = Scene::Create();
             if (SceneSerializer serializer(tempScene); serializer.Deserialize(scenePath))
             {
-                tempScene->OnRuntimeStart();
-
                 // Success — swap in the new scene
                 if (m_ActiveScene)
                 {
@@ -231,6 +229,7 @@ namespace OloEngine
                     m_ActiveScene->OnRuntimeStop();
                 }
                 m_ActiveScene = tempScene;
+                m_ActiveScene->OnRuntimeStart();
 
                 // Register the running scene with networking. Everything downstream
                 // — capture, interest scoping, spawn/despawn, RPC handlers — early-
