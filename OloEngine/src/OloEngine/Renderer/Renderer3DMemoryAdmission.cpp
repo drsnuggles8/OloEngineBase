@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -264,6 +265,13 @@ namespace OloEngine
             input.Views.Add(entry);
         }
 
+        input.PendingNewBytes = 0;
+        input.PendingReleasedBytes = 0;
+        // The room a waiting reload needs is the room it lands in: its new storage and the
+        // upload copy, beside the old storage it has not yet released. Charging only its
+        // steady growth made room the landing check (ReplacementFits) never found.
+        for (const auto& reload : state.PendingReloads)
+            input.PendingNewBytes += reload.NewBytes + reload.UploadBytes;
         input.OptionalDetailBytes = RepresentationStreaming::Get().GetOptionalResidentGpuBytes();
         state.KnownOptionalDetailBytes = std::max(state.KnownOptionalDetailBytes, input.OptionalDetailBytes);
         input.KnownOptionalDetailBytes = state.KnownOptionalDetailBytes;
@@ -307,6 +315,106 @@ namespace OloEngine
                           snapshot.PredictedPeakBytes / (1024ull * 1024ull));
         }
         ApplyWorldMemoryQuality();
+        ProcessPendingReloads();
+    }
+
+    bool Renderer3D::ReplacementFits(const u64 newBytes, const u64 releasedBytes, const u64 uploadBytes)
+    {
+        const MemoryBudgetObservation observed = ObserveMemoryBudget(/*frameTick=*/false);
+        if (!observed.BudgetBytes)
+            return true;
+        const u64 budget = *observed.BudgetBytes;
+        const MemoryAdmissionPolicy& policy = s_Data.MemoryAdmission.Governor.GetPolicy();
+        const u64 reserve = std::min(budget, std::max(policy.ReserveBytes,
+                                                      static_cast<u64>(static_cast<f64>(budget) * static_cast<f64>(policy.ReserveFraction))));
+        // The overlap: the new storage, and the staging copy the upload goes through (Vulkan
+        // books it as GPU memory: a host-visible buffer of the base level), while everything
+        // resident now still is.
+        if (observed.ResidentBytes + newBytes + uploadBytes > budget)
+            return false;
+        // The result, once the replaced storage has retired.
+        const u64 after = observed.LiveBytes() + newBytes;
+        return (after > releasedBytes ? after - releasedBytes : 0u) <= budget - reserve;
+    }
+
+    bool Renderer3D::ReplaceTextureContents(Ref<Texture2D> texture, Texture2D::DecodedImage image)
+    {
+        auto& state = s_Data.MemoryAdmission;
+        if (!texture || !image.IsValid())
+            return false;
+
+        // Priced like the storage Invalidate makes: four bytes a texel (the widest of the
+        // uncompressed upload formats) over the texture's mip policy. The replaced storage
+        // is what the tracker holds for this texture now, exactly.
+        const auto& spec = texture->GetSpecification();
+        const u32 levels = spec.GenerateMips ? RendererMemoryFormat::FullMipCount(image.Width, image.Height) : 1u;
+        const u64 newBytes = RendererMemoryFormat::ImageBytes(ImageFormat::RGBA8, image.Width, image.Height, levels).value_or(0u);
+        const std::array<u64, 1> handle{ RHI::HashKey(texture->GetRHIHandle()) };
+        const u64 releasedBytes = RendererMemoryTracker::GetInstance().GetLiveBackingGpuBytes(handle).value_or(0u);
+
+        // A newer reload of a texture already waiting replaces the waiting one.
+        std::erase_if(state.PendingReloads, [&texture](const PendingTextureReload& pending)
+                      { return pending.Texture == texture; });
+
+        const u64 uploadBytes = static_cast<u64>(image.Width) * image.Height * 4u;
+        if (Levers::RendererMemoryAdmissionOff() || ReplacementFits(newBytes, releasedBytes, uploadBytes))
+        {
+            texture->ApplyReload(image);
+            ++state.ReloadStats.AppliedImmediately;
+            return true;
+        }
+        OLO_CORE_WARN("[MemoryAdmission] reload of '{}' ({}x{}, {} MiB) deferred until it fits the budget", texture->GetPath(),
+                      image.Width, image.Height, newBytes / (1024ull * 1024ull));
+        state.PendingReloads.push_back(PendingTextureReload{ texture, std::move(image), newBytes, releasedBytes, uploadBytes });
+        return false;
+    }
+
+    bool Renderer3D::ReloadTextureInPlace(Ref<Texture2D> texture)
+    {
+        if (!texture)
+            return false;
+        Texture2D::DecodedImage image;
+        if (!texture->DecodeReloadSource(image))
+            return false;
+        (void)ReplaceTextureContents(texture, std::move(image));
+        return true;
+    }
+
+    void Renderer3D::ProcessPendingReloads()
+    {
+        auto& state = s_Data.MemoryAdmission;
+        if (state.PendingReloads.empty())
+            return;
+        // At the floor and settled there, nothing more can be given back: the reload is
+        // applied over budget rather than never, and the report says overBudgetAtFloor.
+        const MemoryAdmissionSnapshot& snapshot = state.Governor.GetSnapshot();
+        const bool atFloor = snapshot.Level == snapshot.FloorLevel && snapshot.TicksAtLevel >= state.Governor.GetPolicy().SettleFrames;
+        for (auto it = state.PendingReloads.begin(); it != state.PendingReloads.end();)
+        {
+            const bool fits = ReplacementFits(it->NewBytes, it->ReleasedBytes, it->UploadBytes);
+            if (!fits && !atFloor)
+            {
+                ++it;
+                continue;
+            }
+            if (it->Texture)
+                it->Texture->ApplyReload(it->Image);
+            ++(fits ? state.ReloadStats.AppliedDeferred : state.ReloadStats.AppliedAtFloor);
+            if (!fits)
+                OLO_CORE_WARN("[MemoryAdmission] reload of '{}' applied at the floor, over budget", it->Texture ? it->Texture->GetPath() : std::string_view{});
+            it = state.PendingReloads.erase(it);
+        }
+    }
+
+    Renderer3D::DeferredReloadStats Renderer3D::GetDeferredReloadStats()
+    {
+        auto& state = s_Data.MemoryAdmission;
+        DeferredReloadStats stats = state.ReloadStats;
+        stats.Pending = static_cast<u32>(state.PendingReloads.size());
+        stats.PendingNewBytes = 0;
+        for (const auto& reload : state.PendingReloads)
+            stats.PendingNewBytes += reload.NewBytes;
+        return stats;
     }
 
     void Renderer3D::ApplyRealizedMemoryQuality()
@@ -556,6 +664,14 @@ namespace OloEngine
         state.DevicePolled = false;
         state.TicksSincePoll = 0;
         state.KnownOptionalDetailBytes = 0;
+        // A reset forgets the decision a waiting reload depended on: apply what waits.
+        for (auto& reload : state.PendingReloads)
+        {
+            if (reload.Texture)
+                reload.Texture->ApplyReload(reload.Image);
+        }
+        state.PendingReloads.clear();
+        state.ReloadStats = {};
         RepresentationStreaming::Get().SetOptionalDetailWithheld(false);
     }
 } // namespace OloEngine

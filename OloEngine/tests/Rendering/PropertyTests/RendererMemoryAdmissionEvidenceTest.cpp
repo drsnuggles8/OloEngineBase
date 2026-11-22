@@ -33,6 +33,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestRenderBackend.h"
+#include "TestTempDir.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReportJson.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -618,81 +619,92 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
 }
 
 // -------------------------------------------------------------------------------------
-// Criterion 2, hot reload: a reload's old storage is charged until it retires.
+// Criterion 2, hot reload (#1764): a reload that does not fit waits for room. The old
+// pixels stay on screen, the governor makes the room, and the upload lands on the first
+// frame it fits. Through the production entry point: the asset manager's
+// Texture2D::ReloadInPlace on a file-backed texture whose file grew.
 // -------------------------------------------------------------------------------------
-TEST_F(RendererMemoryAdmissionTransitions, AReloadUnderPressureIsChargedWhileItsOldStorageRetires)
+namespace
+{
+    void WriteSolidPng(const std::filesystem::path& file, const u32 size, const u8 value)
+    {
+        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4u, value);
+        for (sizet alpha = 3; alpha < pixels.size(); alpha += 4)
+            pixels[alpha] = 255u;
+        ASSERT_NE(::stbi_write_png(file.string().c_str(), static_cast<int>(size), static_cast<int>(size), 4, pixels.data(), static_cast<int>(size * 4u)), 0)
+            << "could not write " << file.string();
+    }
+} // namespace
+
+TEST_F(RendererMemoryAdmissionTransitions, AReloadThatDoesNotFitWaitsForRoomAndNeverEvadesTheBudget)
 {
     OLO_ENSURE_GPU_OR_SKIP();
-    ConfigureDeferredMsaa4();
+    // One sample: room can be made by releasing alone (a technique fallback). Under MSAA every
+    // reduction rebuilds the G-Buffer, and the transition that makes the room would itself
+    // allocate.
+    Configure(Cell{ "Deferred", RenderingPath::Deferred, 1u, UpscaleMode::Off, UpscalerTechnique::Spatial });
     auto& tracker = RendererMemoryTracker::GetInstance();
 
-    TextureSpecification spec;
-    spec.Width = 1024;
-    spec.Height = 1024;
-    spec.Format = ImageFormat::RGBA8;
-    spec.GenerateMips = false;
-    Ref<Texture2D> asset = Texture2D::Create(spec);
+    constexpr u32 kOldSize = 1024;
+    constexpr u32 kNewSize = 2048;
+    const std::filesystem::path file = TempFile("memory-admission-reload.png");
+    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kOldSize, 64));
+    Ref<Texture2D> asset = Texture2D::Create(file.string());
     ASSERT_TRUE(asset && asset->IsLoaded());
-    constexpr u64 kOldBytes = 1024ull * 1024ull * 4ull;
-    constexpr u64 kNewBytes = 2048ull * 2048ull * 4ull;
+    ASSERT_EQ(asset->GetWidth(), kOldSize);
+    constexpr u64 kNewBytes = static_cast<u64>(kNewSize) * kNewSize * 4u;
 
     InjectAmpleBudget();
     RunFrames(kConvergeFrames);
     ASSERT_FALSE(Renderer3D::GetMemoryAdmission().IsReduced());
-    const u64 liveBefore = LiveBytes();
+    const Renderer3D::DeferredReloadStats statsBefore = Renderer3D::GetDeferredReloadStats();
 
-    // A budget the scene fits with the small texture, and not with the reloaded one.
-    const u64 budget = liveBefore + kReserveBytes + (kNewBytes - kOldBytes) / 2u;
+    // A budget the scene fits with the small texture and not with the large one beside it,
+    // but does once quality has given back what the ladder can.
+    const u64 budget = tracker.GetGpuResidentBytes() + kNewBytes / 2u + kReserveBytes;
     Renderer3D::SetMemoryBudgetOverride(budget);
     RunFrames(kSettleFrames + 2u);
     ASSERT_FALSE(Renderer3D::GetMemoryAdmission().IsReduced());
 
-    // The reload's storage path: a new allocation, the old one handed to the deletion queue.
-    // A reload is not admitted before it allocates (Texture2D::Reload decodes and allocates
-    // in one step; deferring it is #1764's decision). What is pinned instead is the bound:
-    // the peak is the reload's own bytes, or what the governor predicted for the descent it
-    // answers with (half-resolution SSGI histories are new storage), whichever is larger,
-    // and the answer comes on the next frame.
+    // The artist saves a larger image, and the editor reloads it.
+    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kNewSize, 192));
     tracker.BeginPeakWindow();
-    const u64 residentBeforeReload = tracker.GetGpuResidentBytes();
-    const u64 degradationsBeforeReload = Renderer3D::GetMemoryAdmission().Degradations;
-    // Texture2D::Invalidate is the storage path a file-backed reload ends in (decoded
-    // pixels in, new storage booked, old storage retired), as in the accounting tests.
-    TArray<u8> reloadedPixels;
-    reloadedPixels.Init(u8{ 128 }, 2048 * 2048 * 4);
-    asset->Invalidate("MemoryAdmissionReload", 2048, 2048, reloadedPixels.GetData(), 4);
-    RunFrames(1);
-    const MemoryAdmissionSnapshot duringOverlap = Renderer3D::GetMemoryAdmission();
-    const u64 answerPredictedPeak = duringOverlap.PredictedPeakBytes;
-    EXPECT_GE(duringOverlap.RetiringBytes, kOldBytes) << "the reload's old storage was dropped from the charge while the GPU may still read it";
-    EXPECT_GE(duringOverlap.ResidentBytes, liveBefore + kNewBytes);
+    ASSERT_TRUE(Texture2D::ReloadInPlace(asset)) << "the reload was refused";
+    EXPECT_EQ(asset->GetWidth(), kOldSize) << "a reload that does not fit was applied at once";
+    EXPECT_EQ(Renderer3D::GetDeferredReloadStats().Pending, 1u);
 
-    // The reload pushed the scene past the budget: the renderer gives quality back
-    // instead of sitting over it, on the first frame after the reload.
-    EXPECT_GT(duringOverlap.Degradations, degradationsBeforeReload) << "admission did not answer the reload's overshoot on the next frame";
+    // The governor makes room; the upload lands once there is room for it.
+    u32 framesUntilApplied = 0;
+    while (asset->GetWidth() != kNewSize && framesUntilApplied < 4u * kConvergeFrames)
+    {
+        RunFrames(1);
+        ++framesUntilApplied;
+    }
+    EXPECT_EQ(asset->GetWidth(), kNewSize) << "the deferred reload never landed";
+    const Renderer3D::DeferredReloadStats statsAfter = Renderer3D::GetDeferredReloadStats();
+    EXPECT_EQ(statsAfter.Pending, 0u);
+    EXPECT_EQ(statsAfter.AppliedDeferred - statsBefore.AppliedDeferred, 1u);
+    EXPECT_EQ(statsAfter.AppliedAtFloor, statsBefore.AppliedAtFloor) << "the ladder could make room; it should not have needed the floor";
     RunFrames(kConvergeFrames);
-    const u64 reloadPeak = tracker.BuildReport().Gpu.WindowPeakBytes;
-    // The reload's own cost is the new storage plus, at most, one more allocation the size of
-    // the old one: the old image stays resident while the backend copies or retires it.
-    const u64 reloadBound = std::max(residentBeforeReload + kNewBytes + kOldBytes, answerPredictedPeak);
-    EXPECT_LE(reloadPeak, reloadBound + reloadBound / 100u)
-        << "the reload's overshoot grew past both the reload's own bytes and the governor's prediction for its answer";
-    const MemoryAdmissionSnapshot pressured = Renderer3D::GetMemoryAdmission();
-    EXPECT_TRUE(pressured.IsReduced()) << "a reload took the scene over budget and nothing was reduced";
-    EXPECT_NE(pressured.Reason, MemoryAdmissionReason::Admitted);
-    EXPECT_TRUE(LiveBytes() <= budget - kReserveBytes || pressured.Reason == MemoryAdmissionReason::OverBudgetAtFloor);
+
+    // Never over the budget on the way: not while waiting, not at the upload, not after.
+    const u64 peak = tracker.BuildReport().Gpu.WindowPeakBytes;
+    EXPECT_LE(peak, budget) << "the reload evaded the budget: resident peaked at " << peak << " against " << budget;
+    const MemoryAdmissionSnapshot settled = Renderer3D::GetMemoryAdmission();
+    EXPECT_TRUE(settled.IsReduced()) << "room was made for the reload by reducing quality";
+    EXPECT_LE(LiveBytes(), budget - kReserveBytes);
     std::vector<u8> image;
     ASSERT_NO_FATAL_FAILURE(Capture(image));
     WriteImage(TestRenderBackend::EvidenceName("MemoryAdmission") + "Deferred_Msaa4_ReloadUnderPressure", image, kSize, kSize);
-    ExpectCompleteImage(image, kSize, kSize, "the frame after a reload under pressure");
+    ExpectCompleteImage(image, kSize, kSize, "the frame after a deferred reload");
 
-    // The asset goes away: the request comes back.
-    asset.Reset();
+    // Relief: the request comes back.
+    InjectAmpleBudget();
     RunFrames(kConvergeFrames + 4u);
     EXPECT_FALSE(Renderer3D::GetMemoryAdmission().IsReduced());
-    std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << "reload 4 MiB -> 16 MiB under a budget of " << budget
-              << " B: retiring " << duringOverlap.RetiringBytes << " B charged, level " << pressured.Level << " (" << ToString(pressured.Reason)
-              << ") until the asset was released; tracker peak " << tracker.BuildReport().Gpu.PeakBytes << " B\n";
+    std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << "reload 1024 -> 2048 under a budget of " << budget
+              << " B: deferred " << framesUntilApplied << " frames until room was made (level " << settled.Level << ", "
+              << ToString(settled.Reason) << "); peak " << peak << " B\n";
 }
 
 // -------------------------------------------------------------------------------------

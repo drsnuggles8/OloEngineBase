@@ -259,6 +259,36 @@ namespace OloEngine
             return false;
         }
 
+        // Reload() in two halves (#1764), so the renderer's memory admission can price a
+        // reload before it allocates. DecodeReloadSource re-reads and decodes the source
+        // file on the CPU and touches no GPU state; false where Reload() would refuse (no
+        // source path, a cooked block-compressed container) or the file does not decode.
+        // ApplyReload replaces the storage with decoded pixels in place, exactly as
+        // Reload() does.
+        struct DecodedImage
+        {
+            u32 Width = 0;
+            u32 Height = 0;
+            u32 Channels = 0;
+            TArray<u8> Pixels;
+
+            [[nodiscard]] bool IsValid() const
+            {
+                return Width != 0u && Height != 0u && Channels != 0u &&
+                       static_cast<u64>(Pixels.Num()) == static_cast<u64>(Width) * Height * Channels;
+            }
+        };
+        [[nodiscard]] bool DecodeReloadSource(DecodedImage& out) const;
+        bool ApplyReload(const DecodedImage& image);
+
+        // A hot reload of `texture` in place, through the gate the renderer installed (its
+        // memory admission defers an upload that does not fit the budget, #1764), or
+        // straight through Reload() when none is. True when the reload was applied or
+        // accepted for a later frame; false where Reload() would refuse.
+        using ReloadGate = bool (*)(Ref<Texture2D> texture);
+        static bool ReloadInPlace(Ref<Texture2D> texture);
+        static void SetReloadGate(ReloadGate gate);
+
         // Resolve a stored source path (what GetPath() reports) to a path the
         // process can actually open. Used by Reload()'s re-read and by the
         // asset-pack serializer, which stores the same spelling and re-reads the

@@ -66,11 +66,14 @@ drawing it and reports `overBudgetAtFloor` rather than dropping more.
   view, so two views share one budget.
 - **On a resize**, before the new targets are allocated (`Renderer3D::OnWindowResize`). A G-Buffer
   the new size is admitted at another sample count for is dropped instead of being resized.
-- **On a hot reload, from the moment it allocates.** `Texture2D::Reload` decodes and allocates in
-  one step, so a reload is not admitted beforehand: its old storage stays charged while it retires,
-  the overshoot is the reload's own new bytes, and the next frame's decision reduces quality.
-  Admitting it beforehand means deferring the reload, a behaviour call tracked in #1764. Shader
-  reload replaces programs and pipelines, which hold no budgeted memory of note.
+- **On a texture hot reload, before it allocates** (#1764). `Texture2D::ReloadInPlace` decodes the
+  file first; the replacement is priced (the new storage beside everything resident, the result
+  within the reserve) and applied at once when it fits. When it does not, the decoded pixels wait,
+  the old texture stays on screen, and the replacement is charged to the governor as pending: it
+  reduces quality to make room, no climb takes that room back, and the upload lands on the first
+  frame it fits. At the floor, with nothing left to give back, it is applied anyway and reported
+  `overBudgetAtFloor` rather than never shown. Shader reload replaces programs and pipelines,
+  which hold no budgeted memory of note.
 - **Down at once, up slowly.** A reduction is taken the frame pressure is seen, then nothing is
   judged for a few settle frames while the old storage retires. A climb needs headroom beyond the
   reserve and a recovery band for `RecoveryFrames` consecutive frames (`recoveryHold` while

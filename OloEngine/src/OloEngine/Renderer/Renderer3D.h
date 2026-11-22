@@ -1330,6 +1330,24 @@ namespace OloEngine
         static void ResetMemoryAdmission();
         // RendererMemoryTracker's admission reporter (RendererMemoryOwners installs it).
         [[nodiscard]] static bool ReportMemoryAdmission(MemoryAdmissionSnapshot& out);
+        // Texture hot reload under the budget (#1764). Replace `texture`'s contents with
+        // `image` now when the replacement fits; otherwise queue it, charge it to the
+        // governor so it makes room, keep the old contents on screen, and upload on the
+        // first frame it fits (or at the floor, where nothing more can be given back).
+        // Returns true when applied now, false when queued.
+        static bool ReplaceTextureContents(Ref<Texture2D> texture, Texture2D::DecodedImage image);
+        // Texture2D's reload gate: decode, then ReplaceTextureContents.
+        static bool ReloadTextureInPlace(Ref<Texture2D> texture);
+        // Reloads waiting for room, and how many were applied late or at the floor.
+        struct DeferredReloadStats
+        {
+            u32 Pending = 0;
+            u64 PendingNewBytes = 0;
+            u64 AppliedImmediately = 0;
+            u64 AppliedDeferred = 0;
+            u64 AppliedAtFloor = 0;
+        };
+        [[nodiscard]] static DeferredReloadStats GetDeferredReloadStats();
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
@@ -2806,6 +2824,11 @@ namespace OloEngine
         // Once per physical frame, before any view of it allocates.
         static void TickMemoryAdmission();
         static void ApplyWorldMemoryQuality();
+        // Apply the queued reloads that fit now (or every one, at the floor).
+        static void ProcessPendingReloads();
+        // Whether replacing `releasedBytes` of storage with `newBytes` fits the budget
+        // now: the overlap within the budget, the result within the reserve.
+        [[nodiscard]] static bool ReplacementFits(u64 newBytes, u64 releasedBytes, u64 uploadBytes);
         // The active view: put the realized values in its settings for the
         // length of its frame, and the requested ones back afterwards.
         static void ApplyRealizedMemoryQuality();
@@ -3226,10 +3249,24 @@ namespace OloEngine
             SavedRequest Saved;
         };
 
+        // A texture reload waiting for room (#1764).
+        struct PendingTextureReload
+        {
+            Ref<Texture2D> Texture;
+            Texture2D::DecodedImage Image;
+            u64 NewBytes = 0;
+            u64 ReleasedBytes = 0;
+            u64 UploadBytes = 0;
+        };
+
         // The renderer's memory-admission state (issue #1343): one governor for
         // every view, so device-level (ADR 0025).
         struct RendererMemoryAdmissionState
         {
+            // Reloads waiting for room, oldest first. A std::vector: each holds a Ref and
+            // a pixel array, which TArray would relocate bitwise.
+            std::vector<PendingTextureReload> PendingReloads;
+            DeferredReloadStats ReloadStats;
             RendererMemoryGovernor Governor;
             // Renderer3D::SetMemoryBudgetOverride.
             std::optional<u64> BudgetOverrideBytes;

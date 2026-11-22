@@ -1078,6 +1078,42 @@ namespace OloEngine::Tests
         EXPECT_EQ(judged.Transitions, 0u) << "an admission is not a governor transition";
     }
 
+    TEST(RendererMemoryGovernor, AReplacementWaitingForRoomIsChargedUntilItLands)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.AddView(1, MakeConfig(RenderingPath::Deferred, 1920u, 1080u, 4u, kTechSSR));
+        (void)Drive(governor, renderer, 8192ull * kMiB, 4);
+        // Room for the request and 30 MiB more: not for a replacement that grows by 48 MiB.
+        const u64 budget = renderer.LiveBytes() + 16ull * kMiB + 30ull * kMiB;
+        (void)Drive(governor, renderer, budget, 12);
+        ASSERT_FALSE(governor.GetSnapshot().IsReduced());
+
+        // A reload of 64 MiB replacing 16 MiB waits for room: the governor makes it.
+        const auto withPending = [&renderer, budget]()
+        {
+            MemoryAdmissionInput input = renderer.Input(budget);
+            input.PendingNewBytes = 64ull * kMiB;
+            input.PendingReleasedBytes = 16ull * kMiB;
+            return input;
+        };
+        const u64 headroom = budget - 16ull * kMiB - renderer.LiveBytes();
+        ASSERT_LT(headroom, 48ull * kMiB) << "the scenario needs the reload not to fit as things are";
+        for (u32 frame = 0; frame < 20; ++frame)
+            renderer.Render(governor.Tick(withPending()));
+        EXPECT_TRUE(governor.GetSnapshot().IsReduced()) << "a replacement waiting for room did not make room";
+        EXPECT_LE(renderer.LiveBytes() + 48ull * kMiB, budget - 16ull * kMiB) << "the room made is not enough for the replacement";
+
+        // While it waits, no climb takes the room back.
+        const u32 level = governor.GetSnapshot().Level;
+        const u64 recoveries = governor.GetSnapshot().Recoveries;
+        for (u32 frame = 0; frame < 60; ++frame)
+            renderer.Render(governor.Tick(withPending()));
+        EXPECT_EQ(governor.GetSnapshot().Level, level);
+        EXPECT_EQ(governor.GetSnapshot().Recoveries, recoveries) << "a climb took the room the replacement waits for";
+    }
+
     TEST(RendererMemoryGovernor, ReasonCodesHaveStableSpellings)
     {
         EXPECT_STREQ(ToString(MemoryAdmissionReason::Admitted), "admitted");

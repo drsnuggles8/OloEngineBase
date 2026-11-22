@@ -277,6 +277,12 @@ namespace OloEngine
         // what the optional-detail rung gives back, and what climbing past it costs.
         u64 OptionalDetailBytes = 0;
         u64 KnownOptionalDetailBytes = 0;
+        // Replacements waiting for room (a deferred texture reload, #1764): the storage
+        // they will allocate, and what they will release once that has retired. Their
+        // growth is charged to every level's steady footprint, so the governor makes room
+        // for them and no climb takes it; not to the peak, since they land later.
+        u64 PendingNewBytes = 0;
+        u64 PendingReleasedBytes = 0;
     };
 
     struct MemoryAdmissionViewDecision

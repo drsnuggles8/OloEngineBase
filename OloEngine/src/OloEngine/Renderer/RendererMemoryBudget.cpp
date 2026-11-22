@@ -352,6 +352,11 @@ namespace OloEngine
         estimate.SteadyBytes = afterNew >= total.ReleasedBytes ? afterNew - total.ReleasedBytes : 0;
         estimate.PeakBytes = input.Budget.ResidentBytes + total.NewBytes;
         estimate.Complete = total.Complete;
+        // A replacement waiting for room is charged to every level's steady footprint: the
+        // level must leave room for it. Not to the peak: it is not allocated with this
+        // transition, but later, once it fits beside what is resident then.
+        if (input.PendingNewBytes > input.PendingReleasedBytes)
+            estimate.SteadyBytes += input.PendingNewBytes - input.PendingReleasedBytes;
         return estimate;
     }
 
@@ -567,7 +572,12 @@ namespace OloEngine
             }
             else
             {
-                const u64 live = observed.LiveBytes();
+                // A replacement waiting for room is pressure now: the room it needs has
+                // to be made before it can be allocated.
+                const u64 pendingGrowth = input.PendingNewBytes > input.PendingReleasedBytes
+                                              ? input.PendingNewBytes - input.PendingReleasedBytes
+                                              : 0u;
+                const u64 live = observed.LiveBytes() + pendingGrowth;
                 const u32 floor = Canonical(input, kMemoryLadderRungCount);
                 const u64 climbWindow = static_cast<u64>(recoveryRequired) + m_Policy.SettleFrames;
                 if (m_DescentUnmeasured)
