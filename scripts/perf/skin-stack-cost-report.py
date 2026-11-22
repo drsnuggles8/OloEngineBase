@@ -105,10 +105,10 @@ def rng(v: list[float]) -> str:
 
 
 def delta(a: list[float], b: list[float], control: list[float] | None = None, judged: bool = True) -> str:
-    """A − B, judged against its noise floor: the larger of the two arms' run ranges and,
-    when `control` (the identical repeat of arm A) is given, |A − control|, the difference
-    the same workload shows between two cells. `judged=False` prints the identical-arms
-    control itself, whose delta SHOULD sit inside its spread."""
+    """A − B, judged against its noise floor: the largest of the two arms' run ranges and,
+    when `control` (the identical repeat of arm A) is given, its own run range and |A − control|,
+    the difference the same workload shows between two cells. `judged=False` prints the
+    identical-arms control itself, whose delta SHOULD sit inside its spread."""
     if not a or not b:
         return "—"
     if min(len(a), len(b)) < 2:
@@ -117,7 +117,7 @@ def delta(a: list[float], b: list[float], control: list[float] | None = None, ju
     d = statistics.median(a) - statistics.median(b)
     floor = max(max(a) - min(a), max(b) - min(b))
     if control:
-        floor = max(floor, abs(statistics.median(a) - statistics.median(control)))
+        floor = max(floor, abs(statistics.median(a) - statistics.median(control)), max(control) - min(control))
     verdict = "" if not judged or floor < abs(d) else " (not resolved)"
     return f"{d:+.3f} ± {floor:.3f}{verdict}"
 

@@ -29,9 +29,18 @@ full-stack run with valid SkinDiffusionPass samples). After the campaign, only t
 `SkinDominantNoSkin.olo` was reworded; no entity changed, but the skin-off manifests' scene hash
 moved with it. Each cell value is the range over the three
 runs of that run's p50 over 300 measured frames per camera. A delta is the difference of the arms'
-medians over runs, ± its noise floor: the larger of the two arms' run ranges and the full stack's
-own difference from its identical repeat. One whose ± is not smaller than the delta is marked *not
-resolved* and is not a budget number (on this campaign the identical-arms term never set the floor).
+medians over runs, ± its noise floor: the largest of the two arms' run ranges, the identical
+repeat's run range, and the full stack's difference from that repeat. One whose ± is not smaller
+than the delta is marked *not resolved* and is not a budget number.
+
+**The raw records stay out of git**, as every generated capture does
+([generated-evidence-stays-out-of-git.md](../../../agent-rules/generated-evidence-stays-out-of-git.md)):
+`C:/perf/skin-1396-001` on the measuring box holds `plan.json`, `provenance.json`, `runs.json` and each
+counted run's `measurement.csv` and `measurement-passes.jsonl`. The binaries were built from commit
+`0bf756e85` (the working tree differed only in `EditorPreferences.yaml`'s throttle, which the Vulkan
+host requires): test binary sha256 `328f0af5…`, editor `2d85ecac…`. The tables are
+`scripts/perf/skin-stack-cost-report.py` over that directory; a re-run produces new observations to
+compare against these, not the same samples.
 
 ## Per-pass GPU cost
 
@@ -43,8 +52,8 @@ resolved* and is not a budget number (on this campaign the identical-arms term n
 | Forward | crowd | 0.165–0.166 | 0.072–0.073 | 2.977–2.989 | +0.261 ± 0.012 | +0.006 ± 0.012 |
 | Forward+ | face-fill | 0.187 | 0.072 | 2.328–2.340 | +0.266 ± 0.012 | −0.007 ± 0.012 |
 | Forward+ | crowd | 0.165–0.166 | 0.072–0.073 | 3.007–3.021 | +0.247 ± 0.019 | −0.005 ± 0.013 |
-| Deferred | face-fill | 0.187–0.188 | 0.072 | 2.553–2.564 | +0.267 ± 0.011 | −0.004 ± 0.016 |
-| Deferred | crowd | 0.167 | 0.073 | 2.755–2.770 | +0.240 ± 0.015 | −0.004 ± 0.017 |
+| Deferred | face-fill | 0.187–0.188 | 0.072 | 2.553–2.564 | +0.267 ± 0.016 | −0.004 ± 0.016 |
+| Deferred | crowd | 0.167 | 0.073 | 2.755–2.770 | +0.240 ± 0.017 | −0.004 ± 0.017 |
 
 Skin shading in the passes it rides (full stack − skin off, ms of per-pass p50):
 
@@ -52,7 +61,7 @@ Skin shading in the passes it rides (full stack − skin off, ms of per-pass p50
 |---|---|---:|---:|---:|
 | Forward | face-fill | +0.000 ± 0.002 (not resolved) | +0.103 ± 0.006 | — |
 | Forward | crowd | +0.001 ± 0.004 (not resolved) | +0.180 ± 0.008 | — |
-| Forward+ | face-fill | +0.000 ± 0.002 (not resolved) | +0.092 ± 0.003 | — |
+| Forward+ | face-fill | +0.000 ± 0.002 (not resolved) | +0.092 ± 0.005 | — |
 | Forward+ | crowd | +0.001 ± 0.001 (not resolved) | +0.165 ± 0.006 | — |
 | Deferred | face-fill | — | +0.004 ± 0.004 (not resolved) | +0.035 ± 0.004 |
 | Deferred | crowd | — | +0.015 ± 0.006 | +0.036 ± 0.002 |
@@ -66,7 +75,7 @@ Deferred, upscale Quality (0.67 render scale): SkinDiffusionPass 0.095 (face-fil
 |---|---|---:|---:|---:|---:|---:|
 | Forward | face-fill | 0.349–0.372 | 0.057–0.058 | 2.304–2.402 | +0.348 ± 0.141 | +0.030 ± 0.098 |
 | Forward | crowd | 0.318–0.337 | 0.057–0.058 | 2.467–2.538 | +0.079 ± 0.651 (not resolved) | −0.019 ± 0.072 |
-| Forward+ | face-fill | 0.330–0.370 | 0.056–0.058 | 2.298–2.439 | +0.218 ± 0.141 | −0.016 ± 0.152 |
+| Forward+ | face-fill | 0.330–0.370 | 0.056–0.058 | 2.298–2.439 | +0.218 ± 0.152 | −0.016 ± 0.152 |
 | Forward+ | crowd | 0.309–0.342 | 0.057 | 2.515–2.633 | +0.080 ± 0.235 (not resolved) | +0.042 ± 0.118 |
 | Deferred | face-fill | 0.321–0.334 | 0.060–0.061 | 2.434–2.498 | +0.318 ± 0.079 | +0.014 ± 0.072 |
 | Deferred | crowd | 0.309–0.312 | 0.062–0.063 | 2.576–2.602 | +0.140 ± 0.049 | +0.028 ± 0.035 |
