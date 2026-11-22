@@ -2799,8 +2799,10 @@ namespace OloEngine
         // The part of `view`'s settings the governor may reduce, as requested.
         [[nodiscard]] static MemoryQualityConfig CaptureMemoryQualityRequest(const RendererViewResident& view);
         static void MeasureMemoryInventory(RendererViewResident& view);
-        [[nodiscard]] static MemoryBudgetObservation ObserveMemoryBudget();
-        static void BuildMemoryAdmissionInput(MemoryAdmissionInput& input);
+        // `frameTick`: advances the device-budget poll clock. A readmission outside the
+        // frame (a resize) observes without advancing it.
+        [[nodiscard]] static MemoryBudgetObservation ObserveMemoryBudget(bool frameTick);
+        static void BuildMemoryAdmissionInput(MemoryAdmissionInput& input, bool frameTick);
         // Once per physical frame, before any view of it allocates.
         static void TickMemoryAdmission();
         static void ApplyWorldMemoryQuality();
@@ -2810,10 +2812,10 @@ namespace OloEngine
         static void RestoreRequestedMemoryQuality(bool frameRendered);
         // Admit the active view's new size before its targets are allocated.
         static void ReadmitMemoryForResize(u32 width, u32 height);
-        // Whether `technique` is on in what `view` renders with: its realized
-        // configuration under a reduction, its request otherwise. For world
-        // code that reads a view's settings outside the view's frame.
-        [[nodiscard]] static bool IsMemoryTechniqueRealized(const RendererViewResident& view, MemoryTechnique technique);
+        // Whether the memory budget has withheld `technique` from `view` this
+        // frame. For world code that reads a view's settings outside the view's
+        // frame: it keeps its own checks and adds this one.
+        [[nodiscard]] static bool IsMemoryTechniqueWithheld(const RendererViewResident& view, MemoryTechnique technique);
         // Whether any live view's settings select the deferred path.
         [[nodiscard]] static bool AnyViewRendersDeferred();
 

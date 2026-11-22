@@ -551,6 +551,10 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
     large.SceneHeight = large.DisplayHeight = kSize;
     large.MsaaSamples = 4u;
     const u64 unadmittedGBuffer = EstimateGBufferBytes(large);
+    MemoryQualityConfig largeOneSample = large;
+    largeOneSample.MsaaSamples = 1u;
+    // What admitting the large size at one sample instead of four saves on the G-Buffer.
+    const u64 samplesSaving = unadmittedGBuffer - EstimateGBufferBytes(largeOneSample);
 
     const auto resizeAndMeasure = [&](const bool admissionOff) -> u64
     {
@@ -579,7 +583,6 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
     EXPECT_EQ(admitted.Views[0].Realized.DisplayWidth, kSize) << "the realized size must be the requested one";
     EXPECT_LT(admitted.Views[0].Realized.MsaaSamples, 4u);
     EXPECT_TRUE(admitted.IsReduced());
-    EXPECT_LT(admittedGrowth, unadmittedGBuffer) << "the resize allocated the 4x G-Buffer it was not admitted for";
     std::vector<u8> image;
     Capture(image);
     WriteImage(TestRenderBackend::EvidenceName("MemoryAdmission") + "Deferred_Msaa4_ResizeUnderPressure", image, kSize, kSize);
@@ -589,6 +592,9 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
     // holding, the check above measures nothing.
     const u64 unadmittedGrowth = resizeAndMeasure(/*admissionOff=*/true);
     EXPECT_GE(unadmittedGrowth, unadmittedGBuffer) << "the control did not allocate the 4x G-Buffer either";
+    // Against the control measured in this run: every other target grows the same in both,
+    // so the admitted resize must have skipped at least most of the 4x G-Buffer.
+    EXPECT_LE(admittedGrowth + samplesSaving / 2u, unadmittedGrowth) << "the resize allocated the 4x G-Buffer it was not admitted for";
     std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << "resize 256 -> 512 under pressure: grew " << admittedGrowth
               << " B admitted (level " << admitted.Level << ", " << admitted.Views[0].Realized.MsaaSamples << "x) against " << unadmittedGrowth
               << " B with admission off; a 4x G-Buffer is " << unadmittedGBuffer << " B\n";
@@ -625,15 +631,29 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadUnderPressureIsChargedWhileIts
     ASSERT_FALSE(Renderer3D::GetMemoryAdmission().IsReduced());
 
     // The reload's storage path: a new allocation, the old one handed to the deletion queue.
+    // A reload is not admitted before it allocates (Texture2D::Reload decodes and allocates
+    // in one step; deferring it is #1764's decision). What is pinned instead is the bound:
+    // the peak is the reload's own bytes, or what the governor predicted for the descent it
+    // answers with (half-resolution SSGI histories are new storage), whichever is larger,
+    // and the answer comes on the next frame.
+    tracker.BeginPeakWindow();
+    const u64 residentBeforeReload = tracker.GetGpuResidentBytes();
+    const u64 degradationsBeforeReload = Renderer3D::GetMemoryAdmission().Degradations;
     asset->Resize(2048, 2048);
     RunFrames(1);
     const MemoryAdmissionSnapshot duringOverlap = Renderer3D::GetMemoryAdmission();
+    const u64 answerPredictedPeak = duringOverlap.PredictedPeakBytes;
     EXPECT_GE(duringOverlap.RetiringBytes, kOldBytes) << "the reload's old storage was dropped from the charge while the GPU may still read it";
     EXPECT_GE(duringOverlap.ResidentBytes, liveBefore + kNewBytes);
 
     // The reload pushed the scene past the budget: the renderer gives quality back
-    // instead of sitting over it.
+    // instead of sitting over it, on the first frame after the reload.
+    EXPECT_GT(duringOverlap.Degradations, degradationsBeforeReload) << "admission did not answer the reload's overshoot on the next frame";
     RunFrames(kConvergeFrames);
+    const u64 reloadPeak = tracker.BuildReport().Gpu.WindowPeakBytes;
+    const u64 reloadBound = std::max(residentBeforeReload + kNewBytes, answerPredictedPeak);
+    EXPECT_LE(reloadPeak, reloadBound + reloadBound / 100u)
+        << "the reload's overshoot grew past both the reload's own bytes and the governor's prediction for its answer";
     const MemoryAdmissionSnapshot pressured = Renderer3D::GetMemoryAdmission();
     EXPECT_TRUE(pressured.IsReduced()) << "a reload took the scene over budget and nothing was reduced";
     EXPECT_NE(pressured.Reason, MemoryAdmissionReason::Admitted);

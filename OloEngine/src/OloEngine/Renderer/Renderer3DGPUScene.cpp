@@ -1080,8 +1080,11 @@ namespace OloEngine
                                              s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(),
                                              view.Settings.Path == RenderingPath::Deferred,
                                              !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),
-                                             IsMemoryTechniqueRealized(view, MemoryTechnique::RayTracedShadows),
-                                             IsMemoryTechniqueRealized(view, MemoryTechnique::RayTracedReflections)); });
+                                             view.Shadow->GetSettings().Enabled &&
+                                                 view.Shadow->GetSettings().Technique == ShadowTechnique::RayTraced &&
+                                                 !IsMemoryTechniqueWithheld(view, MemoryTechnique::RayTracedShadows),
+                                             view.PostProcess.RayTracedReflection.Enabled &&
+                                                 !IsMemoryTechniqueWithheld(view, MemoryTechnique::RayTracedReflections)); });
         return wanted;
     }
 

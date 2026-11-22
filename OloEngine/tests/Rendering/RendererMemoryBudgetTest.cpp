@@ -283,7 +283,7 @@ namespace OloEngine::Tests
 
         // Ticks the governor and renders its decision, `frames` times.
         std::vector<Step> Drive(RendererMemoryGovernor& governor, SimulatedRenderer& renderer, const std::optional<u64> budget,
-                              const u32 frames)
+                                const u32 frames)
         {
             std::vector<Step> steps;
             for (u32 frame = 0; frame < frames; ++frame)
@@ -508,6 +508,28 @@ namespace OloEngine::Tests
         // ...and all of the old storage is still there until it retires.
         EXPECT_EQ(resize.ReleasedBytes, smallPixels * (texel + 8u + 24u + 68u + 16u));
         EXPECT_TRUE(resize.Complete);
+    }
+
+    TEST(RendererMemoryFootprint, AnUpscaleChangeAtTheSameDisplaySizeIsPricedByTheSceneBand)
+    {
+        // Performance upscale (half scale) switched off at an unchanged 1080p display.
+        MemoryQualityConfig upscaled = MakeConfig(RenderingPath::Forward, 1920u, 1080u);
+        upscaled.SceneWidth = 960u;
+        upscaled.SceneHeight = 540u;
+        const MemoryQualityConfig native = MakeConfig(RenderingPath::Forward, 1920u, 1080u);
+
+        ViewMemoryInventory inventory;
+        inventory.DisplayWidth = 1920u;
+        inventory.DisplayHeight = 1080u;
+        inventory.SceneWidth = 960u;
+        inventory.SceneHeight = 540u;
+        inventory.NodeTargetBytes = 40u * kMiB;
+        inventory.TransientDemandBytes = 20u * kMiB;
+
+        const MemoryTransition transition = EstimateViewTransition(&upscaled, native, inventory);
+        // Four times the scene pixels: never priced as free, and never below the scene-band growth.
+        EXPECT_EQ(transition.NewBytes, 4u * 60u * kMiB);
+        EXPECT_EQ(transition.ReleasedBytes, 60u * kMiB);
     }
 
     TEST(RendererMemoryFootprint, AViewThatHasNotDrawnReportsAnIncompleteEstimateNotAZero)
@@ -913,6 +935,78 @@ namespace OloEngine::Tests
         (void)Drive(governor, renderer, 8192ull * kMiB, 30);
         EXPECT_TRUE(governor.GetSnapshot().Views[0].Realized.OptionalDetail);
         EXPECT_FALSE(governor.GetSnapshot().IsReduced());
+    }
+
+    TEST(RendererMemoryGovernor, AChangedRequestUnderTheSameBudgetKeepsWhatWasMeasured)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.HiddenBytesPerTechnique = 200ull * kMiB;
+        renderer.AddView(1, MakeConfig(RenderingPath::Forward, 1920u, 1080u, 1u, kTechBloom));
+        const u64 budget = 850ull * kMiB;
+        (void)Drive(governor, renderer, budget, 12);
+        ASSERT_FALSE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::Bloom));
+
+        // The viewport is dragged a few pixels at a time: every frame is a readmission.
+        for (u32 step = 0; step < 20; ++step)
+        {
+            MemoryQualityConfig& requested = renderer.Requested(1);
+            requested.DisplayWidth = requested.SceneWidth = 1920u - 8u * (step + 1u);
+            (void)Drive(governor, renderer, budget, 1);
+            EXPECT_FALSE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::Bloom))
+                << "a readmission at step " << step << " re-enabled the technique the descent measured to be too expensive";
+        }
+        EXPECT_EQ(governor.GetSnapshot().Readmissions, 20u);
+        EXPECT_LE(renderer.LiveBytes(), budget - 16ull * kMiB);
+    }
+
+    TEST(RendererMemoryGovernor, AClimbThatHeldIsNotChargedAgainForTheRungsItPassed)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        // Two techniques the model cannot price, 200 MiB each.
+        renderer.HiddenBytesPerTechnique = 200ull * kMiB;
+        const u32 techniques = kTechBloom | MemoryTechniqueBit(MemoryTechnique::DepthOfField);
+        renderer.AddView(1, MakeConfig(RenderingPath::Forward, 1920u, 1080u, 1u, techniques));
+        (void)Drive(governor, renderer, 8192ull * kMiB, 10);
+        const u64 full = renderer.LiveBytes();
+
+        // Room for one of the two only: both go, one at a time, each measured on the way down.
+        (void)Drive(governor, renderer, full - 250ull * kMiB, 40);
+        ASSERT_EQ(governor.GetSnapshot().Views[0].Realized.Techniques & techniques, 0u);
+
+        // Room for one again with the recovery band to spare: the rung removed last
+        // (bloom) is the first one a climb restores, and it pays only bloom's measured cost.
+        (void)Drive(governor, renderer, full - 100ull * kMiB, 60);
+        const MemoryQualityConfig partial = governor.GetSnapshot().Views[0].Realized;
+        EXPECT_TRUE(partial.Has(MemoryTechnique::Bloom)) << "the climb was charged for depth of field too";
+        EXPECT_FALSE(partial.Has(MemoryTechnique::DepthOfField));
+        EXPECT_EQ(governor.GetSnapshot().Recoveries, 1u);
+
+        // Room for both: the last climb pays only for bloom, and is taken.
+        (void)Drive(governor, renderer, full + 100ull * kMiB, 60);
+        EXPECT_FALSE(governor.GetSnapshot().IsReduced()) << "a held climb's cost was charged again to the next one";
+        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 0u);
+    }
+
+    TEST(RendererMemoryGovernor, ABudgetThatBecomesUnknownIsNotCountedAsARecovery)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.AddView(1, MakeConfig(RenderingPath::Deferred, 1920u, 1080u, 4u, kTechSSR));
+        (void)Drive(governor, renderer, 700ull * kMiB, 30);
+        ASSERT_TRUE(governor.GetSnapshot().IsReduced());
+        const MemoryAdmissionSnapshot before = governor.GetSnapshot();
+
+        (void)Drive(governor, renderer, std::nullopt, 5);
+        const MemoryAdmissionSnapshot& after = governor.GetSnapshot();
+        EXPECT_EQ(after.Reason, MemoryAdmissionReason::BudgetUnknown);
+        EXPECT_FALSE(after.IsReduced());
+        EXPECT_EQ(after.Recoveries, before.Recoveries) << "nothing was measured to fit; this is not a recovery";
+        EXPECT_EQ(after.Transitions, before.Transitions);
     }
 
     TEST(RendererMemoryGovernor, ReasonCodesHaveStableSpellings)

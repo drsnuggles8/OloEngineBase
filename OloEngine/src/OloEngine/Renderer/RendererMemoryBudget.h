@@ -151,9 +151,12 @@ namespace OloEngine
     // formula here can derive from a configuration. Format estimates on OpenGL.
     struct ViewMemoryInventory
     {
-        // The display size the figures were measured at; 0 before the first frame.
+        // The display size and scene band the figures were measured at; 0 before the
+        // first frame. Pass targets live at either, so a change to either rescales them.
         u32 DisplayWidth = 0;
         u32 DisplayHeight = 0;
+        u32 SceneWidth = 0;
+        u32 SceneHeight = 0;
         // Persistent pass targets (the scene MRT, the AO chains, the post chain).
         u64 NodeTargetBytes = 0;
         // What the last frame acquired from the transient pool, and what the pool holds
@@ -255,8 +258,6 @@ namespace OloEngine
         u32 SettleFrames = 4;
         // How many times a failed climb may double RecoveryFrames.
         u32 MaxRecoveryBackoffShift = 4;
-
-        auto operator==(const MemoryAdmissionPolicy&) const -> bool = default;
     };
 
     struct MemoryAdmissionViewInput
@@ -379,7 +380,12 @@ namespace OloEngine
         [[nodiscard]] bool SameRealization(const MemoryAdmissionInput& input, u32 a, u32 b) const;
         [[nodiscard]] u32 Canonical(const MemoryAdmissionInput& input, u32 level) const;
         [[nodiscard]] bool RequestChanged(const MemoryAdmissionInput& input) const;
-        void AdmitFresh(const MemoryAdmissionInput& input, u64 limit, u64 budget);
+        // `keepLearned`: the budget has not moved, so what earlier descents and climbs
+        // measured about the rungs still applies to the changed request.
+        void AdmitFresh(const MemoryAdmissionInput& input, u64 limit, u64 budget, bool keepLearned);
+        // What climbing from the current level to `level` costs beyond the model.
+        [[nodiscard]] u64 LearnedClimbBytes(u32 level) const;
+        void ForgetLearning();
         [[nodiscard]] u32 ChooseDescent(const MemoryAdmissionInput& input, u64 limit, u64 budget, u64 reserve) const;
         void Publish(const MemoryAdmissionInput& input, u64 reserve, u32 recoveryRequired);
 
@@ -407,12 +413,15 @@ namespace OloEngine
         u32 m_LevelBeforeClimb = 0;
         u64 m_ClimbPredictedSteady = 0;
         u64 m_TicksSinceClimb = 0;
-        // Bytes a climb costs beyond its estimate, learned two ways: a descent that gave
-        // back more than the model said (a technique's transients are only measurable),
-        // and a climb that had to be undone. Added to every later climb's estimate.
-        u64 m_LearnedClimbBytes = 0;
+        // Bytes climbing past each rung costs beyond the model's estimate, learned two
+        // ways: a descent that gave back more than the model said (a technique's
+        // transients are only measurable), and a climb that had to be undone. Kept per
+        // rung, so a climb is charged only for the rungs it re-enables, and a climb that
+        // held clears the rungs it passed: their cost is in the live bytes from then on.
+        std::array<u64, kMemoryLadderRungCount> m_LearnedRungBytes{};
         // The last descent, until the frame that measures what it really gave back.
         bool m_DescentUnmeasured = false;
+        u32 m_DescentLevel = 0;
         u64 m_DescentPredictedSteady = 0;
     };
 

@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
 #include <cmath>
@@ -93,22 +94,29 @@ namespace OloEngine
             if (on)
                 config.Techniques |= MemoryTechniqueBit(technique);
         };
+        // Only a technique that can run on this view is part of the request: one that is
+        // on in the settings but stands down here (ReSTIR on Forward, any ray-traced
+        // technique on OpenGL) holds nothing, and counting it would price the climb past
+        // its rung at memory it never allocates, so quality would never come back. Its
+        // own stand-down reason reports why it is not running.
+        const bool deferred = view.Settings.Path == RenderingPath::Deferred;
+        const bool rayTracing = deferred && RenderCommand::SupportsRayTracing();
         const PostProcessSettings& post = view.PostProcess;
-        set(MemoryTechnique::ReSTIRGI, post.ReSTIRGI.Enabled);
-        set(MemoryTechnique::ReSTIRDI, post.ReSTIRDI.Enabled);
-        set(MemoryTechnique::ReSTIRPT, post.ReSTIRPT.Enabled);
-        set(MemoryTechnique::RayTracedReflections, post.RayTracedReflection.Enabled);
+        set(MemoryTechnique::ReSTIRGI, rayTracing && post.ReSTIRGI.Enabled);
+        set(MemoryTechnique::ReSTIRDI, rayTracing && post.ReSTIRDI.Enabled);
+        set(MemoryTechnique::ReSTIRPT, rayTracing && post.ReSTIRPT.Enabled);
+        set(MemoryTechnique::RayTracedReflections, rayTracing && post.RayTracedReflection.Enabled);
         if (view.Shadow)
         {
             const ShadowSettings& shadows = view.Shadow->GetSettings();
-            set(MemoryTechnique::RayTracedShadows, shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced);
+            set(MemoryTechnique::RayTracedShadows, rayTracing && shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced);
         }
-        set(MemoryTechnique::SSGI, post.SSGIEnabled);
-        set(MemoryTechnique::SSR, post.SSREnabled);
+        set(MemoryTechnique::SSGI, deferred && post.SSGIEnabled);
+        set(MemoryTechnique::SSR, deferred && post.SSREnabled);
         set(MemoryTechnique::MotionBlur, post.MotionBlurEnabled);
         set(MemoryTechnique::DepthOfField, post.DOFEnabled);
         set(MemoryTechnique::Bloom, post.BloomEnabled);
-        set(MemoryTechnique::PathTracer, post.GpuPathTracer.Enabled);
+        set(MemoryTechnique::PathTracer, RenderCommand::SupportsRayTracing() && post.GpuPathTracer.Enabled);
         return config;
     }
 
@@ -123,6 +131,11 @@ namespace OloEngine
         const RenderGraph::ScreenMemoryUsage usage = view.RGraph->MeasureScreenMemory();
         inventory.DisplayWidth = view.RGraph->GetPhysicalWidth();
         inventory.DisplayHeight = view.RGraph->GetPhysicalHeight();
+        if (view.MemoryQuality.FrameRealized)
+        {
+            inventory.SceneWidth = view.MemoryQuality.FrameRealized->SceneWidth;
+            inventory.SceneHeight = view.MemoryQuality.FrameRealized->SceneHeight;
+        }
         inventory.NodeTargetBytes = usage.NodeTargetBytes;
         inventory.TransientDemandBytes = usage.TransientDemandBytes;
         inventory.TransientSlackBytes = usage.TransientSlackBytes;
@@ -144,7 +157,7 @@ namespace OloEngine
         view.MemoryQuality.FramesSinceMeasured = 0;
     }
 
-    MemoryBudgetObservation Renderer3D::ObserveMemoryBudget()
+    MemoryBudgetObservation Renderer3D::ObserveMemoryBudget(const bool frameTick)
     {
         auto& state = s_Data.MemoryAdmission;
         const auto& tracker = RendererMemoryTracker::GetInstance();
@@ -169,7 +182,9 @@ namespace OloEngine
 
         // The device's own budget. OpenGL has none to report; Vulkan reports the OS's
         // per-heap budget with VK_EXT_memory_budget, and VMA's heuristic without it.
-        if (!state.DevicePolled || ++state.TicksSincePoll >= kDeviceBudgetPollTicks)
+        if (frameTick)
+            ++state.TicksSincePoll;
+        if (!state.DevicePolled || state.TicksSincePoll >= kDeviceBudgetPollTicks)
         {
             state.DevicePolled = true;
             state.TicksSincePoll = 0;
@@ -216,10 +231,10 @@ namespace OloEngine
         return observation;
     }
 
-    void Renderer3D::BuildMemoryAdmissionInput(MemoryAdmissionInput& input)
+    void Renderer3D::BuildMemoryAdmissionInput(MemoryAdmissionInput& input, const bool frameTick)
     {
         auto& state = s_Data.MemoryAdmission;
-        input.Budget = ObserveMemoryBudget();
+        input.Budget = ObserveMemoryBudget(frameTick);
         input.Views.Empty(static_cast<i32>(s_Data.Views.size()));
         for (RendererViewSlot& slot : s_Data.Views)
         {
@@ -262,7 +277,7 @@ namespace OloEngine
             return;
         }
 
-        BuildMemoryAdmissionInput(state.Input);
+        BuildMemoryAdmissionInput(state.Input, /*frameTick=*/true);
         const u32 previousLevel = state.Governor.GetSnapshot().Level;
         const MemoryAdmissionSnapshot& snapshot = state.Governor.Tick(state.Input);
         if (snapshot.Level != previousLevel)
@@ -313,15 +328,28 @@ namespace OloEngine
             s_Data.Settings.Deferred.MSAASampleCount = realized.MsaaSamples;
         PostProcessSettings& post = s_Data.PostProcess;
         post.SSGIHalfResolution = realized.SSGIHalfResolution;
-        post.ReSTIRGI.Enabled = realized.Has(MemoryTechnique::ReSTIRGI);
-        post.ReSTIRDI.Enabled = realized.Has(MemoryTechnique::ReSTIRDI);
-        post.ReSTIRPT.Enabled = realized.Has(MemoryTechnique::ReSTIRPT);
-        post.RayTracedReflection.Enabled = realized.Has(MemoryTechnique::RayTracedReflections);
-        post.SSGIEnabled = realized.Has(MemoryTechnique::SSGI);
-        post.SSREnabled = realized.Has(MemoryTechnique::SSR);
-        post.MotionBlurEnabled = realized.Has(MemoryTechnique::MotionBlur);
-        post.DOFEnabled = realized.Has(MemoryTechnique::DepthOfField);
-        post.BloomEnabled = realized.Has(MemoryTechnique::Bloom);
+        // Only a technique the request runs and the realization removed is switched off:
+        // one that is on but cannot run here keeps its own stand-down reason.
+        const auto removed = [&requested, &realized](const MemoryTechnique technique)
+        { return requested.Has(technique) && !realized.Has(technique); };
+        if (removed(MemoryTechnique::ReSTIRGI))
+            post.ReSTIRGI.Enabled = false;
+        if (removed(MemoryTechnique::ReSTIRDI))
+            post.ReSTIRDI.Enabled = false;
+        if (removed(MemoryTechnique::ReSTIRPT))
+            post.ReSTIRPT.Enabled = false;
+        if (removed(MemoryTechnique::RayTracedReflections))
+            post.RayTracedReflection.Enabled = false;
+        if (removed(MemoryTechnique::SSGI))
+            post.SSGIEnabled = false;
+        if (removed(MemoryTechnique::SSR))
+            post.SSREnabled = false;
+        if (removed(MemoryTechnique::MotionBlur))
+            post.MotionBlurEnabled = false;
+        if (removed(MemoryTechnique::DepthOfField))
+            post.DOFEnabled = false;
+        if (removed(MemoryTechnique::Bloom))
+            post.BloomEnabled = false;
         if (requested.Has(MemoryTechnique::RayTracedShadows) && !realized.Has(MemoryTechnique::RayTracedShadows) && s_Data.Shadow)
         {
             // The whole-technique fallback of ray-traced shadows is the shadow maps.
@@ -386,7 +414,7 @@ namespace OloEngine
             return;
 
         // The request as it will be once the graph has the new size.
-        BuildMemoryAdmissionInput(state.Input);
+        BuildMemoryAdmissionInput(state.Input, /*frameTick=*/false);
         const f32 renderScale = UpscaleModeToRenderScale(s_Data.PostProcess.Upscale);
         for (auto& view : state.Input.Views)
         {
@@ -430,19 +458,27 @@ namespace OloEngine
         return s_Data.MemoryAdmission.Governor.GetSnapshot();
     }
 
-    bool Renderer3D::IsMemoryTechniqueRealized(const RendererViewResident& view, const MemoryTechnique technique)
+    bool Renderer3D::IsMemoryTechniqueWithheld(const RendererViewResident& view, const MemoryTechnique technique)
     {
-        // What the view last rendered with, when the governor has reduced it; the request
-        // otherwise (a view that has not drawn, or the lever off).
-        if (view.MemoryQuality.Allocated && !Levers::RendererMemoryAdmissionOff() &&
-            s_Data.MemoryAdmission.Governor.GetSnapshot().IsReduced())
-            return view.MemoryQuality.Allocated->Has(technique);
-        return CaptureMemoryQualityRequest(view).Has(technique);
+        // THIS frame's decision: the view's request at the level the governor chose at the
+        // top of the frame, exactly as ApplyRealizedMemoryQuality derives it. Not the
+        // allocation of the last frame, which lags a level change by one frame.
+        if (Levers::RendererMemoryAdmissionOff())
+            return false;
+        const MemoryQualityConfig requested = CaptureMemoryQualityRequest(view);
+        if (!requested.Has(technique))
+            return false;
+        return !ReduceMemoryQuality(requested, s_Data.MemoryAdmission.Governor.GetSnapshot().Level).Has(technique);
     }
 
     void Renderer3D::SetMemoryBudgetOverride(const std::optional<u64> bytes)
     {
-        s_Data.MemoryAdmission.BudgetOverrideBytes = bytes;
+        auto& state = s_Data.MemoryAdmission;
+        // The device figure was not polled while an override stood in for it: take a
+        // fresh one when the device's budget comes back.
+        if (state.BudgetOverrideBytes && !bytes)
+            state.DevicePolled = false;
+        state.BudgetOverrideBytes = bytes;
     }
 
     std::optional<u64> Renderer3D::GetMemoryBudgetOverride()

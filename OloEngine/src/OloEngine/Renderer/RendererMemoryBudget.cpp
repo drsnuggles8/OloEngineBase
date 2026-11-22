@@ -204,10 +204,18 @@ namespace OloEngine
             return transition;
         }
 
-        const u64 measuredPixels = Pixels(inventory.DisplayWidth, inventory.DisplayHeight);
-        const u64 targetPixels = Pixels(target.DisplayWidth, target.DisplayHeight);
+        // Pass targets and transients live partly at the display size (the post chain)
+        // and partly at the scene band (the lit scene, the AO chains). They are measured
+        // as one figure, so a change is priced by whichever of the two grows more: an
+        // upscale preset switched off at an unchanged display is not free.
         const u64 scaled = inventory.NodeTargetBytes + inventory.TransientDemandBytes + inventory.OtherHistoryBytes;
-        transition.NewBytes += ScaleBytes(scaled, measuredPixels, targetPixels);
+        const u64 byDisplay = ScaleBytes(scaled, Pixels(inventory.DisplayWidth, inventory.DisplayHeight),
+                                         Pixels(target.DisplayWidth, target.DisplayHeight));
+        const bool sceneMeasured = inventory.SceneWidth != 0u && inventory.SceneHeight != 0u;
+        const u64 byScene = sceneMeasured ? ScaleBytes(scaled, Pixels(inventory.SceneWidth, inventory.SceneHeight),
+                                                       Pixels(target.SceneWidth, target.SceneHeight))
+                                          : byDisplay;
+        transition.NewBytes += std::max(byDisplay, byScene);
         if (allocated)
             transition.ReleasedBytes += scaled + inventory.TransientSlackBytes;
         return transition;
@@ -276,7 +284,7 @@ namespace OloEngine
     }
 
     RendererMemoryGovernor::LevelEstimate RendererMemoryGovernor::EstimateLevel(const MemoryAdmissionInput& input,
-                                                                               const u32 level) const
+                                                                                const u32 level) const
     {
         // A view that has not drawn yet has no measurement of its own. Another view of the
         // same renderer runs the same passes at another size, so its pixel-proportional
@@ -304,6 +312,8 @@ namespace OloEngine
             {
                 borrowed.DisplayWidth = measuredView->DisplayWidth;
                 borrowed.DisplayHeight = measuredView->DisplayHeight;
+                borrowed.SceneWidth = measuredView->SceneWidth;
+                borrowed.SceneHeight = measuredView->SceneHeight;
                 borrowed.NodeTargetBytes = measuredView->NodeTargetBytes;
                 borrowed.TransientDemandBytes = measuredView->TransientDemandBytes;
                 borrowed.OtherHistoryBytes = measuredView->OtherHistoryBytes;
@@ -333,11 +343,33 @@ namespace OloEngine
         return estimate;
     }
 
-    void RendererMemoryGovernor::AdmitFresh(const MemoryAdmissionInput& input, const u64 limit, const u64 budget)
+    u64 RendererMemoryGovernor::LearnedClimbBytes(const u32 level) const
     {
+        u64 bytes = 0;
+        for (u32 rung = level; rung < std::min(m_Level, kMemoryLadderRungCount); ++rung)
+            bytes += m_LearnedRungBytes[rung];
+        return bytes;
+    }
+
+    void RendererMemoryGovernor::ForgetLearning()
+    {
+        m_LearnedRungBytes.fill(0u);
+        m_RecoveryBackoffShift = 0;
+        m_DescentUnmeasured = false;
+    }
+
+    void RendererMemoryGovernor::AdmitFresh(const MemoryAdmissionInput& input, const u64 limit, const u64 budget,
+                                            const bool keepLearned)
+    {
+        if (!keepLearned)
+            ForgetLearning();
         const u32 floor = Canonical(input, kMemoryLadderRungCount);
         const bool requestedFitsSteady = EstimateLevel(input, 0u).SteadyBytes <= limit;
 
+        // A changed request under an unchanged budget (a resize, a settings edit, a new
+        // view) is admitted afresh, but levels above the one in force still pay what the
+        // rungs between were measured to cost: otherwise a technique whose memory the
+        // model cannot see looks free on every readmission and quality flips back up.
         u32 chosen = floor;
         bool found = false;
         for (u32 level = 0; level <= kMemoryLadderRungCount; ++level)
@@ -345,7 +377,8 @@ namespace OloEngine
             if (level > 0u && SameRealization(input, level, level - 1u))
                 continue;
             const LevelEstimate estimate = EstimateLevel(input, level);
-            if (estimate.SteadyBytes <= limit && estimate.PeakBytes <= budget)
+            const u64 learned = LearnedClimbBytes(level);
+            if (estimate.SteadyBytes + learned <= limit && estimate.PeakBytes + learned <= budget)
             {
                 chosen = level;
                 found = true;
@@ -360,8 +393,6 @@ namespace OloEngine
         m_OverAtFloor = !found && EstimateLevel(input, floor).SteadyBytes > limit;
         m_SettleTicks = m_Policy.SettleFrames;
         m_RecoveryProgress = 0;
-        m_RecoveryBackoffShift = 0;
-        m_LearnedClimbBytes = 0;
         m_ClimbOutstanding = false;
         m_DescentUnmeasured = false;
         m_Snapshot.PeakResidentBytes = 0;
@@ -437,9 +468,11 @@ namespace OloEngine
         const MemoryBudgetObservation& observed = input.Budget;
         const bool requestChanged = !m_HasAdmitted || RequestChanged(input);
 
-        // A new budget is new information: what a failed climb taught about the old one
-        // no longer applies. An OS-reported budget drifts by a little every frame, so
-        // only a move larger than the recovery band counts as new.
+        // A new budget is new information: the backoff a failed climb earned under the old
+        // one no longer applies. What each rung was MEASURED to cost does, since a
+        // technique's transients weigh the same under any budget, so that is kept (a
+        // climb that holds clears it). An OS-reported budget drifts by a little every
+        // frame, so only a move larger than the recovery band counts as new.
         bool budgetMoved = observed.BudgetBytes.has_value() != m_BudgetAnchor.has_value();
         if (!budgetMoved && observed.BudgetBytes)
         {
@@ -451,21 +484,23 @@ namespace OloEngine
         {
             m_BudgetAnchor = observed.BudgetBytes;
             m_RecoveryBackoffShift = 0;
-            m_LearnedClimbBytes = 0;
+            m_DescentUnmeasured = false;
             m_RecoveryProgress = 0;
             m_ClimbOutstanding = false;
-            m_DescentUnmeasured = false;
             m_Snapshot.PeakResidentBytes = 0;
         }
 
         const u32 previousLevel = m_Level;
+        bool levelForced = false;
         const u32 recoveryRequired = m_Policy.RecoveryFrames << std::min(m_RecoveryBackoffShift, m_Policy.MaxRecoveryBackoffShift);
         u64 reserve = 0;
 
         if (!observed.BudgetBytes)
         {
             // Nothing to admit against. The request is active and the report says the
-            // budget is unknown: an unenforced budget is not a satisfied one.
+            // budget is unknown: an unenforced budget is not a satisfied one. Not a
+            // recovery: nothing was measured to fit.
+            levelForced = m_Level != 0u;
             m_Level = 0;
             m_SettleTicks = 0;
             m_RecoveryProgress = 0;
@@ -483,7 +518,7 @@ namespace OloEngine
             {
                 if (m_HasAdmitted)
                     ++m_Snapshot.Readmissions;
-                AdmitFresh(input, limit, budget);
+                AdmitFresh(input, limit, budget, /*keepLearned=*/m_HasAdmitted && !budgetMoved);
             }
             else if (!frameTick)
             {
@@ -503,8 +538,8 @@ namespace OloEngine
                     // The last descent has settled. What it gave back beyond the model's
                     // prediction is what climbing past it costs beyond the model's too.
                     m_DescentUnmeasured = false;
-                    if (m_DescentPredictedSteady > live)
-                        m_LearnedClimbBytes += m_DescentPredictedSteady - live;
+                    if (m_DescentPredictedSteady > live && m_DescentLevel > 0u && m_DescentLevel == m_Level)
+                        m_LearnedRungBytes[m_DescentLevel - 1u] += m_DescentPredictedSteady - live;
                 }
                 if (live > limit)
                 {
@@ -516,8 +551,13 @@ namespace OloEngine
                         // climb the difference.
                         ++m_Snapshot.FailedRecoveries;
                         m_RecoveryBackoffShift = std::min(m_RecoveryBackoffShift + 1u, m_Policy.MaxRecoveryBackoffShift);
-                        if (live > m_ClimbPredictedSteady)
-                            m_LearnedClimbBytes = std::max(m_LearnedClimbBytes, live - m_ClimbPredictedSteady);
+                        // Charged to the deepest rung the climb re-enabled, so any later
+                        // climb past it pays, and a shallower one does not.
+                        if (live > m_ClimbPredictedSteady && m_LevelBeforeClimb > 0u)
+                        {
+                            u64& learned = m_LearnedRungBytes[std::min(m_LevelBeforeClimb, kMemoryLadderRungCount) - 1u];
+                            learned = std::max(learned, live - m_ClimbPredictedSteady);
+                        }
                         m_ClimbOutstanding = false;
                         m_Level = std::max(m_Level, std::min(m_LevelBeforeClimb, floor));
                         m_DescentUnmeasured = false; // what this undoes was measured by the climb
@@ -530,6 +570,7 @@ namespace OloEngine
                         m_ClimbOutstanding = false;
                         m_Level = ChooseDescent(input, limit, budget, reserve);
                         m_DescentUnmeasured = true;
+                        m_DescentLevel = m_Level;
                         m_DescentPredictedSteady = EstimateLevel(input, m_Level).SteadyBytes;
                         m_ReducedCause = MemoryAdmissionReason::DeviceBudget;
                         m_SettleTicks = m_Policy.SettleFrames;
@@ -545,9 +586,11 @@ namespace OloEngine
                     m_OverAtFloor = false;
                     if (m_ClimbOutstanding && m_TicksSinceClimb > climbWindow)
                     {
-                        m_ClimbOutstanding = false; // the climb held for a whole run
-                        if (m_Level == 0u)
-                            m_LearnedClimbBytes = 0; // nothing left to climb to
+                        // The climb held for a whole run: the rungs it passed cost what
+                        // the live bytes now show, and nothing more is owed for them.
+                        m_ClimbOutstanding = false;
+                        for (u32 rung = m_Level; rung < std::min(m_LevelBeforeClimb, kMemoryLadderRungCount); ++rung)
+                            m_LearnedRungBytes[rung] = 0;
                     }
                     if (m_Level > 0u)
                     {
@@ -561,8 +604,8 @@ namespace OloEngine
                             if (level > 0u && SameRealization(input, level, level - 1u))
                                 continue;
                             const LevelEstimate estimate = EstimateLevel(input, level);
-                            if (estimate.SteadyBytes + m_LearnedClimbBytes <= climbLimit &&
-                                estimate.PeakBytes + m_LearnedClimbBytes <= budget)
+                            const u64 learned = LearnedClimbBytes(level);
+                            if (estimate.SteadyBytes + learned <= climbLimit && estimate.PeakBytes + learned <= budget)
                             {
                                 candidate = level;
                                 candidateSteady = estimate.SteadyBytes;
@@ -592,7 +635,7 @@ namespace OloEngine
             }
         }
 
-        if (m_Level != previousLevel && !requestChanged)
+        if (m_Level != previousLevel && !requestChanged && !levelForced)
         {
             ++m_Snapshot.Transitions;
             if (m_Level > previousLevel)
