@@ -763,7 +763,7 @@ endif()
 include(cmake/CSharpAssembly.cmake)
 if(OLO_WITH_CSHARP)
     add_subdirectory(OloEngine-ScriptCore)
-    add_subdirectory(OloEditor/SandboxProject/Assets/Scripts)
+    olo_add_project_assemblies(OloProjectScripts)
 endif()
 
 add_subdirectory(OloEditor)
@@ -776,19 +776,15 @@ set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
 # without the latest engine fixes.
 add_dependencies(OloEditor OloRuntime)
 
-# Ensure a targeted `--target OloEditor` build also produces a working C#
-# scripting setup. OloEngine-ScriptCore.dll builds straight into
-# OloEditor/Resources/Scripts/ (OutDir in OloEngine-ScriptCore.csproj) and
-# Sandbox-Scripting.dll is the sample project's game-script assembly the
-# editor loads at startup; without this edge, ScriptEngine::Init silently
-# disables C# scripting because neither DLL exists on disk yet. The C#
-# targets exist whenever OLO_WITH_CSHARP is ON (the Windows default), under
-# every generator.
+add_subdirectory(OloServer)
+
+# All three hosts can launch a loose project and load its scripts.
 if(OLO_WITH_CSHARP)
-    add_dependencies(OloEditor OloEngine-ScriptCore Sandbox-Scripting)
+    foreach(host IN ITEMS OloEditor OloRuntime OloServer)
+        add_dependencies(${host} OloProjectScripts)
+    endforeach()
 endif()
 
-add_subdirectory(OloServer)
 # oloctl (#1125): the CLI frontend over the automation registry. Placed after
 # OloEngine so nlohmann_json::nlohmann_json and httplib::httplib exist, and it
 # links NOTHING else -- see OloCtl/CMakeLists.txt for why that is a constraint.

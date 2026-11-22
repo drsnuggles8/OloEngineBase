@@ -576,19 +576,16 @@ jobs:
     # Issue #1405: the tracked generated C# (Components.Generated.cs,
     # InternalCalls.Generated.cs) is compiled here, by `dotnet build` through the
     # CMake targets, so a codegen change that emits invalid C# fails the PR. The
-    # full build below would compile it too (OloEditor depends on both targets);
-    # this step exists to fail in about a minute, with the C# compiler's error as
-    # the step's own output, instead of after the C++ build. It builds only
-    # OloHeaderTool, runs codegen and compiles the two assemblies; the full build
-    # then finds all of that up to date.
+    # full build reuses the assemblies compiled by this early check.
     - name: Build C# scripting assemblies
       shell: pwsh
       run: |
         dotnet --list-sdks
-        cmake --build "${{github.workspace}}/build" --config ${{env.BUILD_TYPE}} --target Sandbox-Scripting
+        cmake --build "${{github.workspace}}/build" --config ${{env.BUILD_TYPE}} --target OloProjectScripts
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         foreach ($dll in @('OloEditor/Resources/Scripts/OloEngine-ScriptCore.dll',
-                           'OloEditor/SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll')) {
+                           'OloEditor/SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll',
+                           'OloEditor/KestrelProject/Assets/Scripts/Binaries/Kestrel-Scripting.dll')) {
           if (-not (Test-Path $dll)) { Write-Host "::error::$dll was not produced"; exit 1 }
           Write-Host ('  {0}  {1:N0} bytes' -f $dll, (Get-Item $dll).Length)
         }

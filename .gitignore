@@ -29,6 +29,8 @@ __pycache__
 # The C# assemblies are tracked SDK-style projects built by `dotnet build` (#1405).
 !OloEngine-ScriptCore/OloEngine-ScriptCore.csproj
 !OloEditor/SandboxProject/Assets/Scripts/Sandbox-Scripting.csproj
+!OloEditor/KestrelProject/Assets/Scripts/Kestrel-Scripting.csproj
+/OloEditor/userprefs/recent-project
 **.nsight-gfxproj
 **.DotSettings
 **.user
@@ -254,6 +256,7 @@ scripts/steam/generated/
 .island-source/
 # Save games a Play session writes into the sandbox project.
 OloEditor/SandboxProject/Saves/
+OloEditor/KestrelProject/Saves/
 # The showcase dog's coat as Blender grows it (build_dog_groom.py): ~60 MB of Alembic curves,
 # cooked into the committed Grooms/Dog/Dog.ologroom. Outside SandboxProject/Assets for the
 # reason above.

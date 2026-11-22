@@ -37,6 +37,11 @@ namespace OloEngine
          */
         void OnImGuiRender(bool& isOpen);
 
+        [[nodiscard]] bool IsBuildInProgress() const
+        {
+            return m_IsBuildInProgress.load(std::memory_order_acquire);
+        }
+
       private:
         /**
          * @brief Render build settings section

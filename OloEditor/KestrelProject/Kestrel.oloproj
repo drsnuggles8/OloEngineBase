@@ -1,0 +1,5 @@
+Project:
+  Name: KESTREL
+  StartScene: Scenes/KestrelStart.olo
+  AssetDirectory: Assets
+  ScriptModulePath: Scripts/Binaries/Kestrel-Scripting.dll

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/EntryPoint.h"
 
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Core/BuildInfo.h"
@@ -14,6 +15,7 @@
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ProjectSelection.h"
 #include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneTransition.h"
@@ -26,6 +28,8 @@
 #include "OloEngine/UI/UINavigationSystem.h"
 
 #include <filesystem>
+#include <algorithm>
+#include <cctype>
 #include <optional>
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
@@ -54,6 +58,21 @@ namespace OloEngine
             RenderCommand::Clear();
             Application::Get().GetWindow().SwapBuffers();
 
+            const auto commandLine = Application::Get().GetSpecification().CommandLineArgs;
+            const auto launch = ParseProjectLaunchArguments(commandLine.Count, commandLine.Args);
+            if (!launch.MissingValueFor.empty())
+            {
+                OLO_CORE_ERROR("[Runtime] Missing path after {}", launch.MissingValueFor);
+                Application::Get().Close();
+                return;
+            }
+
+            const auto& workingDirectory = Application::GetStartupWorkingDirectory();
+            const auto selection = ResolveProjectSelection(launch, workingDirectory);
+            const std::filesystem::path packPath = "Assets/AssetPack.olopack";
+            const bool usePackage = selection.Source == ProjectSelectionSource::SandboxFallback &&
+                                    HasPackagedLayout(packPath, selection.Path);
+
             // Mount an in-memory project rooted at the game directory BEFORE
             // anything loads. A shipped game has no .oloproj — the build
             // pipeline flattens it into game.manifest + the asset pack — but the
@@ -70,7 +89,7 @@ namespace OloEngine
             // The manifest is read once here and handed to each consumer, so
             // the project config, the start scene and the rendering mode can't
             // disagree about what the file said.
-            const YAML::Node manifest = LoadGameManifest();
+            const YAML::Node manifest = usePackage ? LoadGameManifest() : YAML::Node{};
 
             // Build identity (#894) — read from the manifest first so a shipped
             // build (which may be OLDER than the engine that's now reading it,
@@ -108,32 +127,44 @@ namespace OloEngine
                 OLO_CORE_INFO("[Runtime] Build: {}", buildId);
             }
 
-            MountGameProject(manifest);
-            SaveGameManager::Initialize();
-
-            // Set up runtime asset manager with pack-based loading
-            auto runtimeAssetManager = Ref<RuntimeAssetManager>::Create();
-            Project::SetAssetManager(runtimeAssetManager);
-
-            // Load the asset pack (textures, meshes, etc.)
-            if (const std::filesystem::path packPath = "Assets/AssetPack.olopack"; std::filesystem::exists(packPath))
+            if (usePackage)
             {
-                if (!runtimeAssetManager->LoadAssetPack(packPath))
+                MountGameProject(manifest, workingDirectory);
+                auto assets = Ref<RuntimeAssetManager>::Create();
+                Project::SetAssetManager(assets);
+                if (!std::filesystem::exists(packPath))
                 {
-                    OLO_CORE_WARN("[Runtime] Failed to load asset pack: {} (continuing without packed assets)", packPath.string());
+                    OLO_CORE_WARN("[Runtime] No asset pack found at: {}", packPath.string());
                 }
-                else
+                else if (assets->LoadAssetPack(packPath))
                 {
                     OLO_CORE_INFO("[Runtime] Asset pack loaded successfully");
                 }
             }
             else
             {
-                OLO_CORE_WARN("[Runtime] No asset pack found at: {}", packPath.string());
+                const auto project = Project::Load(selection.Path);
+                if (!project)
+                {
+                    OLO_CORE_ERROR("[Runtime] Could not open project '{}'", selection.Path.string());
+                    Application::Get().Close();
+                    return;
+                }
+                auto assets = Ref<EditorAssetManager>::Create();
+                assets->Initialize(/*startFileWatcher=*/false);
+                Project::SetAssetManager(assets);
+                OLO_CORE_INFO("[Runtime] Opened project '{}' at '{}'", project->GetConfig().Name, selection.Path.string());
             }
 
-            // Find the start scene — check manifest first, then scan Scenes/ directory
-            std::filesystem::path startScenePath = FindStartScene(manifest);
+            const auto& config = Project::GetActive()->GetConfig();
+            ScriptEngine::SetProjectAssembly(config.ScriptModulePath);
+            SaveGameManager::Initialize();
+            m_InputActionsPath = Project::GetInputActionMapPath();
+            m_SceneRoot = usePackage ? workingDirectory : Project::GetAssetDirectory();
+
+            std::filesystem::path startScenePath = usePackage ? FindStartScene(manifest) : config.StartScene;
+            if (!launch.Scene.empty())
+                startScenePath = workingDirectory / launch.Scene;
             if (startScenePath.empty())
             {
                 OLO_CORE_ERROR("[Runtime] No scene files found. Cannot start game.");
@@ -168,14 +199,11 @@ namespace OloEngine
                 {
                     Renderer3D::OnWindowResize(fbWidth, fbHeight);
                 }
-
-                // Lazy 3D initialization draws its own shader-loading screen
-                // after Application restored the title for the initial renderer.
-                const auto& specification = Application::Get().GetSpecification();
-                Application::Get().GetWindow().SetTitle(Renderer::GetAPI() == RendererAPI::API::Vulkan
-                                                            ? specification.Name + " [Vulkan]"
-                                                            : specification.Name);
             }
+            // Lazy 3D initialization may have put a loading message in the title.
+            Application::Get().GetWindow().SetTitle(Renderer::GetAPI() == RendererAPI::API::Vulkan
+                                                        ? config.Name + " [Vulkan]"
+                                                        : config.Name);
 
             // Input maps must exist before scene scripts receive OnCreate: the
             // Drift menu selects the Menu context there, and gameplay scripts
@@ -203,9 +231,9 @@ namespace OloEngine
         // Drift's Vehicle map remain intact for the settings panel to edit.
         void LoadInputActions()
         {
-            if (std::filesystem::exists(kInputActionsPath))
+            if (std::filesystem::exists(m_InputActionsPath))
             {
-                if (auto loaded = InputActionSerializer::DeserializeContexts(kInputActionsPath); loaded && !loaded->empty())
+                if (auto loaded = InputActionSerializer::DeserializeContexts(m_InputActionsPath); loaded && !loaded->empty())
                 {
                     InputActionManager::ReplaceAllContextMaps(*loaded);
 
@@ -231,7 +259,7 @@ namespace OloEngine
                     }
                     else
                     {
-                        OLO_CORE_INFO("[Runtime] Loaded input bindings from {}", kInputActionsPath.string());
+                        OLO_CORE_INFO("[Runtime] Loaded input bindings from {}", m_InputActionsPath.string());
                     }
                     return;
                 }
@@ -252,7 +280,7 @@ namespace OloEngine
             {
                 if (targetContext)
                 {
-                    m_RebindMenu.Open(*m_ActiveScene, *targetContext, kInputActionsPath);
+                    m_RebindMenu.Open(*m_ActiveScene, *targetContext, m_InputActionsPath);
                 }
                 else
                 {
@@ -271,7 +299,7 @@ namespace OloEngine
                 m_PrevCursorMode = Input::GetCursorMode();
                 Input::SetCursorMode(CursorMode::Normal);
                 m_RebindMenu.Open(*m_ActiveScene, contextToEdit == InputContextType::Menu ? InputContextType::Gameplay : contextToEdit,
-                                  kInputActionsPath);
+                                  m_InputActionsPath);
             }
         }
 
@@ -455,13 +483,10 @@ namespace OloEngine
         /// `AssetDirectory` really matters at runtime — it is what turns a
         /// project-relative `LuaScriptComponent::ScriptFile` into a real file —
         /// but Name/StartScene are filled in so diagnostics read sensibly.
-        static void MountGameProject(const YAML::Node& manifest)
+        static void MountGameProject(const YAML::Node& manifest, const std::filesystem::path& gameRoot)
         {
             ProjectConfig config;
             config.AssetDirectory = "Assets";
-
-            std::error_code ec;
-            const auto gameRoot = std::filesystem::current_path(ec);
 
             try
             {
@@ -483,9 +508,60 @@ namespace OloEngine
                 OLO_CORE_WARN("[Runtime] Failed to read project config from manifest: {}", e.what());
             }
 
-            Project::NewInMemory(ec ? std::filesystem::path{} : gameRoot, config);
+            config.ScriptModulePath = PackagedScriptAssembly(manifest, gameRoot / "Resources" / "Scripts");
+            Project::NewInMemory(gameRoot, config);
             OLO_CORE_INFO("[Runtime] Mounted game project '{}' at '{}' (assets: '{}')",
                           config.Name, Project::GetProjectDirectory().string(), Project::GetAssetDirectory().string());
+        }
+
+        static bool HasPackagedLayout(const std::filesystem::path& pack, const std::filesystem::path& fallback)
+        {
+            std::error_code error;
+            return std::filesystem::is_regular_file("game.manifest", error) ||
+                   std::filesystem::is_regular_file(pack, error) ||
+                   (std::filesystem::is_directory("Scenes", error) && !std::filesystem::is_regular_file(fallback, error));
+        }
+
+        static std::filesystem::path PackagedScriptAssembly(const YAML::Node& manifest, const std::filesystem::path& directory)
+        {
+            if (manifest.IsMap() && manifest["ScriptAssembly"])
+            {
+                const auto assembly = manifest["ScriptAssembly"];
+                if (assembly.IsScalar())
+                {
+                    const std::filesystem::path filename(assembly.Scalar());
+                    if (filename.empty())
+                        return {};
+                    if (filename == filename.filename() && HasAssemblyExtension(filename))
+                        return directory / filename;
+                }
+                OLO_CORE_ERROR("[Runtime] Invalid ScriptAssembly in game.manifest");
+                return {};
+            }
+
+            // Older packages shipped a single app assembly with no manifest key.
+            std::filesystem::path legacyAssembly;
+            std::error_code error;
+            for (std::filesystem::directory_iterator entry(directory, error), end; entry != end && !error; entry.increment(error))
+            {
+                const auto& path = entry->path();
+                if (path.filename() == "OloEngine-ScriptCore.dll" || !HasAssemblyExtension(path) ||
+                    !entry->is_regular_file(error))
+                    continue;
+                if (!legacyAssembly.empty())
+                {
+                    OLO_CORE_ERROR("[Runtime] Multiple project assemblies in '{}' without a manifest selection", directory.string());
+                    return {};
+                }
+                legacyAssembly = path;
+            }
+            return error ? std::filesystem::path{} : legacyAssembly;
+        }
+
+        static bool HasAssemblyExtension(const std::filesystem::path& path)
+        {
+            return std::ranges::equal(path.extension().string(), std::string_view(".dll"), [](unsigned char actual, char expected)
+                                      { return std::tolower(actual) == expected; });
         }
 
         /// Read and parse `game.manifest` once per launch.
@@ -507,7 +583,11 @@ namespace OloEngine
 
             try
             {
-                return YAML::LoadFile(manifestPath.string());
+                auto manifest = YAML::LoadFile(manifestPath.string());
+                if (manifest.IsMap())
+                    return manifest;
+                OLO_CORE_WARN("[Runtime] Expected a mapping in game.manifest");
+                return {};
             }
             catch (const std::exception& e)
             {
@@ -606,11 +686,12 @@ namespace OloEngine
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
 
-        // In-game input rebind menu (issue #475). Toggled with F1; persists to kInputActionsPath.
+        // In-game input rebind menu (issue #475). Toggled with F1.
         RuntimeInputRebindMenu m_RebindMenu;
         bool m_MenuContextPushed = false;
         CursorMode m_PrevCursorMode = CursorMode::Normal;
-        static inline const std::filesystem::path kInputActionsPath{ "Config/InputActions.yaml" };
+        std::filesystem::path m_InputActionsPath;
+        std::filesystem::path m_SceneRoot;
 
         void ReloadScene()
         {
@@ -636,7 +717,7 @@ namespace OloEngine
         {
             // The game's data directory is the working directory (that is where
             // game.manifest and Scenes/ are looked up from at startup).
-            const auto resolved = SceneTransition::ResolveScenePath(request);
+            const auto resolved = SceneTransition::ResolveScenePath(request, m_SceneRoot);
             if (resolved.empty())
             {
                 OLO_CORE_ERROR("[Runtime] Scene switch to '{}' failed: no matching scene file under the game directory. "

@@ -59,7 +59,7 @@ first line (the project scaffold) follows from the user's layout decision. A con
 `- [ ] …` at once, so `lint` reports it until it gains its `(#N)` when its issues are filed, and it is
 ticked when all of them close. Draft lines nobody has confirmed stay out until the user agrees.
 
-- [ ] Project scaffold: `OloEditor/KestrelProject` with its own `.oloproj`, asset directory and script assembly, buildable and packageable next to SandboxProject, with general project selection (#1730)
+- [x] Project scaffold: `OloEditor/KestrelProject` with its own `.oloproj`, asset directory and script assembly, buildable and packageable next to SandboxProject, with general project selection (#1730)
 - [ ] Real terrain import: Copernicus GLO-30 elevation data turned into a full-scale terrain for one real mountain (about 10×10 km), with the attribution line (#1732)
 - [ ] The mountain at strategy-camera distance within budget: terrain level of detail, distant forest, streaming (#1733, #1734)
 - [ ] Seasons and climate: a full year, weather drawn from the location's climate (#1735, #1736)

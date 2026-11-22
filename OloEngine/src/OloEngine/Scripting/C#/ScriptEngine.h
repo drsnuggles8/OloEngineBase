@@ -203,8 +203,9 @@ namespace OloEngine
         static void Init(bool enableDebugging = false);
         static void Shutdown();
 
-        static bool LoadAssembly(const std::filesystem::path& filepath);
-        static bool LoadAppAssembly(const std::filesystem::path& filepath);
+        // Switch project assemblies before deserializing the first scene.
+        // An empty path clears the old project and leaves the core loaded.
+        static bool SetProjectAssembly(const std::filesystem::path& filepath);
 
         // Reload the app (and core) assemblies into a fresh app domain. Returns true
         // on a clean reload, false if an assembly failed to load (the app domain is
@@ -240,6 +241,9 @@ namespace OloEngine
       private:
         static void InitMono();
         static void ShutdownMono();
+        static bool LoadAssembly(const std::filesystem::path& filepath);
+        static bool LoadAppAssembly(const std::filesystem::path& filepath);
+        static bool RebuildAssemblyDomain();
 
         static MonoObject* InstantiateClass(MonoClass* monoClass);
         static void LoadAssemblyClasses();

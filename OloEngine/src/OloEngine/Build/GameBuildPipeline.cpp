@@ -1889,6 +1889,10 @@ namespace OloEngine
         // project without one does in the editor.
         if (const auto project = Project::GetActive())
         {
+            const auto scriptAssembly = IsScriptingAvailableOnPlatform(settings.TargetPlatform)
+                                            ? project->GetConfig().ScriptModulePath.filename().generic_string()
+                                            : std::string{};
+            out << YAML::Key << "ScriptAssembly" << YAML::Value << scriptAssembly;
             out << YAML::Key << "QualityTiering" << YAML::Value;
             SerializeQualityTiering(out, project->GetConfig().QualityTiering);
         }

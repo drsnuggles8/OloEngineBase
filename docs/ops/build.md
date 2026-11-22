@@ -171,30 +171,49 @@ Use the pre-configured tasks in `.vscode/tasks.json`:
 - `build-oloruntime-debug` / `run-oloruntime-debug`
 
 ### Working Directory
-Always run OloEditor / OloRuntime from the `OloEditor/` directory — asset paths,
-shader files, and Mono assemblies are resolved relative to it.
+Run the development apps from `OloEditor/` so engine assets, shaders and the
+Mono core assembly resolve. Run a packaged runtime from its game directory.
+
+### Selecting a project
+
+From `OloEditor/`, pass `--project KestrelProject/Kestrel.oloproj` to
+`OloEditor`, `OloRuntime` or `OloServer`. A positional `.oloproj` is also
+accepted. To start a particular scene, pass its path positionally or with
+`--scene`. With no project argument, the apps search the scene's parent
+directories for an `.oloproj`. The editor then tries the project last opened
+through **File > Open > Project**. The final fallback is
+`SandboxProject/Sandbox.oloproj`. The dedicated server also accepts its
+existing `--project <directory>` syntax and can start without a scene.
+
+The runtime can run loose project assets during development. To ship KESTREL,
+open the project in the editor and use **Build > Build Game**, then launch the
+resulting runtime without flags from the output directory. A packaged runtime
+uses `game.manifest`, which names the staged C# assembly and the start scene,
+and `Assets/AssetPack.olopack`.
 
 ### C# Scripting (Mono)
-The two C# assemblies are SDK-style projects built by `dotnet build`, under **every**
+The C# assemblies are SDK-style projects built by `dotnet build`, under **every**
 generator (`dev-cached`, `clangcl`, `msvc`; issue #1405):
 
 | Assembly | Project | Output |
 |---|---|---|
 | `OloEngine-ScriptCore` | `OloEngine-ScriptCore/OloEngine-ScriptCore.csproj` | `OloEditor/Resources/Scripts/` |
 | `Sandbox-Scripting` | `OloEditor/SandboxProject/Assets/Scripts/Sandbox-Scripting.csproj` | `OloEditor/SandboxProject/Assets/Scripts/Binaries/` |
+| `Kestrel-Scripting` | `OloEditor/KestrelProject/Assets/Scripts/Kestrel-Scripting.csproj` | `OloEditor/KestrelProject/Assets/Scripts/Binaries/` |
 
-The CMake targets of the same names run `dotnet build` on them (`cmake/CSharpAssembly.cmake`),
-and `OloEditor` depends on both, so `cmake --build build-cached --target OloEditor` also
-produces the assemblies the editor loads. `OloEngine-ScriptCore` runs after `GenerateBindings`,
-which writes `Components.Generated.cs` and `InternalCalls.Generated.cs`. To check the C# alone:
-`cmake --build build-cached --config Debug --target Sandbox-Scripting` (the Windows CI job
-runs this step before the full build).
+The CMake targets of the same names run `dotnet build` on each project
+(`cmake/CSharpAssembly.cmake`). CMake discovers projects under
+`OloEditor/*Project/Assets/Scripts/` and groups them under `OloProjectScripts`,
+a dependency of all three hosts. `OloEngine-ScriptCore` runs after
+`GenerateBindings`, which writes `Components.Generated.cs` and
+`InternalCalls.Generated.cs`. For a C#-only check, build the `OloProjectScripts`
+target as Windows CI does before building the C++ hosts.
 
 Each project compiles every `.cs` under its source folder, so a new script file needs no
 build-file edit. References come from the Mono class libraries in `OloEditor/mono/lib/mono/4.5`,
 the ones the embedded runtime loads, so no .NET Framework targeting pack is needed. You can
 also open or build a `.csproj` from an IDE with plain `dotnet build`. Build `OloEngine-ScriptCore`
-before `Sandbox-Scripting`, which references the built DLL. The static Mono libraries are
+before any project script assembly, which references the built DLL. The static Mono libraries are
 bundled under `OloEngine/mono/lib/`.
 
 C# scripting is Windows-only at runtime (ADR 0015). `OLO_WITH_CSHARP` defaults ON on Windows and
@@ -378,7 +397,8 @@ cd OloEditor && ../bin/Debug/OloEditor/OloEditor
 | `OloEngine-Tests`         | GoogleTest test suite                                                      |
 | `OloEngine-LuaScriptCore` | Lua / Sol2 scripting bindings (built on all platforms)                     |
 | `OloEngine-ScriptCore`    | C# / Mono scripting API, `dotnet build` under any generator (`OLO_WITH_CSHARP`) |
-| `Sandbox-Scripting`       | The Sandbox project's C# game scripts, built after `OloEngine-ScriptCore`  |
+| `OloProjectScripts`      | All discovered project C# assemblies and `OloEngine-ScriptCore`           |
+| `Sandbox-Scripting`, `Kestrel-Scripting` | Individual project script assemblies |
 | `GenerateBindings`        | Custom target that runs `OloHeaderTool` to regenerate C++ / C# glue        |
 
 ---

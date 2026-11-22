@@ -39,7 +39,7 @@ Metallic and dielectric PBR spheres (a roughness sweep) reflecting a procedural 
 | Target / directory | What it is |
 | --- | --- |
 | `OloEngine/` | The engine static library (`OloEngine`). All subsystems live under `src/OloEngine/<Subsystem>/`; platform glue under `src/Platform/`. |
-| `OloEditor/` | ImGui-based editor (`OloEditor`). Panels under `src/`, runtime assets under `assets/`, the engine's sample project under `SandboxProject/`, and KESTREL, the game, under `KestrelProject/` once its scaffold lands ([ADR 0027](docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md), #1730). |
+| `OloEditor/` | ImGui-based editor (`OloEditor`). Panels under `src/`, engine assets under `assets/`, the engine's sample project under `SandboxProject/`, and KESTREL under `KestrelProject/`. [Selecting a project](docs/ops/build.md#selecting-a-project) |
 | `OloRuntime/` | Standalone game runtime (`OloRuntime`) that loads what the editor builds. |
 | `OloServer/` | Headless dedicated server (`OloServer`) — the one target that also runs on WSL2. |
 | `OloEngine-ScriptCore/` | C# scripting API library, built with `dotnet build` under any generator; C# scripting runs on Windows only. |

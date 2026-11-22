@@ -642,6 +642,8 @@
 		"OloEngine/HAL/ThreadManager.h"
 		
 		"OloEngine/Project/Project.cpp"
+		"OloEngine/Project/ProjectSelection.cpp"
+		"OloEngine/Project/ProjectSelection.h"
 		"OloEngine/Project/ContentPath.h"
 		"OloEngine/Project/Project.h"
 		"OloEngine/Project/ProjectSerializer.cpp"

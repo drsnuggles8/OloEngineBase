@@ -16,7 +16,7 @@
 # error, not a quiet skip: a skipped assembly is exactly the silent
 # "[ScriptEngine] OloEngine-ScriptCore assembly unavailable" this file exists to remove.
 
-option(OLO_WITH_CSHARP "Build the C# scripting assemblies (OloEngine-ScriptCore, Sandbox-Scripting) with the .NET SDK" ${WIN32})
+option(OLO_WITH_CSHARP "Build the engine and project C# scripting assemblies with the .NET SDK" ${WIN32})
 
 if(OLO_WITH_CSHARP)
     find_program(OLO_DOTNET_EXECUTABLE dotnet)
@@ -120,4 +120,23 @@ function(olo_add_csharp_assembly target)
     )
     add_custom_target(${target} DEPENDS "${_marker}" SOURCES "${arg_PROJECT}" ${_sources})
     set_target_properties(${target} PROPERTIES FOLDER "Scripting")
+endfunction()
+
+# A project assembly follows the same layout as ScriptModulePath in its
+# descriptor: <name>.csproj compiles Source/ to Binaries/<name>.dll.
+function(olo_add_project_assemblies target)
+    add_custom_target(${target})
+    set_target_properties(${target} PROPERTIES FOLDER "Scripting")
+    add_dependencies(${target} OloEngine-ScriptCore)
+    file(GLOB projects CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/OloEditor/*Project/Assets/Scripts/*.csproj")
+    foreach(project IN LISTS projects)
+        get_filename_component(name "${project}" NAME_WE)
+        get_filename_component(directory "${project}" DIRECTORY)
+        olo_add_csharp_assembly(${name}
+            PROJECT "${project}"
+            OUTPUT "${directory}/Binaries/${name}.dll"
+            SOURCES "${directory}/Source/*.cs"
+            DEPENDS OloEngine-ScriptCore)
+        add_dependencies(${target} ${name})
+    endforeach()
 endfunction()

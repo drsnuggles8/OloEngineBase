@@ -29,6 +29,7 @@
 #include <cstring>
 #include <exception>
 #include <format>
+#include <fstream>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -55,6 +56,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Project/ProjectSelection.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneCameraFraming.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -112,6 +114,34 @@ namespace
     // directory. Shared by the menu item and the olo_editor_build_shader_pack
     // hook (issue #1131) so the two cannot disagree about the path they report.
     constexpr char kShaderPackOutputPath[] = "assets/ShaderPack.osp";
+    constexpr char kRecentProjectSettingsPath[] = "userprefs/recent-project";
+
+    std::filesystem::path ReadRecentProject(const std::filesystem::path& workingDirectory)
+    {
+        std::ifstream file(workingDirectory / kRecentProjectSettingsPath, std::ios::binary);
+        std::u8string path;
+        for (char byte = 0; file.get(byte);)
+            path.push_back(static_cast<char8_t>(byte));
+        try
+        {
+            return std::filesystem::path(path);
+        }
+        catch (const std::filesystem::filesystem_error&)
+        {
+            OLO_CORE_WARN("[Editor] Could not read a project path from {}", kRecentProjectSettingsPath);
+            return {};
+        }
+    }
+
+    void RememberProject(const std::filesystem::path& path)
+    {
+        const auto& workingDirectory = OloEngine::Application::GetStartupWorkingDirectory();
+        const auto encodedPath = (workingDirectory / path).lexically_normal().u8string();
+        const std::string_view bytes(reinterpret_cast<const char*>(encodedPath.data()), encodedPath.size());
+        OloEngine::AtomicWriteOptions options;
+        options.CreateParentDirectories = true;
+        (void)OloEngine::FileSystem::WriteFileAtomically(workingDirectory / kRecentProjectSettingsPath, bytes, options);
+    }
 
     // Interprets ImGui drag-drop payload bytes as a UTF-8 path.
     [[nodiscard]] std::filesystem::path PathFromUtf8Payload(const ImGuiPayload& payload)
@@ -391,44 +421,27 @@ namespace OloEngine
         fbSpec.Height = 720;
         m_Framebuffer = Framebuffer::Create(fbSpec);
 
-        // The project path is the first POSITIONAL argument. Skipping the
-        // `--flag` family matters as soon as the app takes any flag of its own
-        // (`--rhi=vulkan`, `--smoke-test`): argv[1] was read unconditionally, so
-        // a leading flag was opened as a project file and the editor came up
-        // with no project at all ("Failed to load project file '--rhi=vulkan'").
-        const char* projectFilePath = nullptr;
-        if (const auto commandLineArgs = Application::Get().GetSpecification().CommandLineArgs; commandLineArgs.Count > 1)
+        const auto commandLine = Application::Get().GetSpecification().CommandLineArgs;
+        const auto launch = ParseProjectLaunchArguments(commandLine.Count, commandLine.Args);
+        if (!launch.MissingValueFor.empty())
         {
-            for (int i = 1; i < commandLineArgs.Count; ++i)
-            {
-                if (const char* arg = commandLineArgs[i]; arg != nullptr && arg[0] != '-')
-                {
-                    projectFilePath = arg;
-                    break;
-                }
-            }
+            OLO_CORE_ERROR("[Editor] Missing path after {}", launch.MissingValueFor);
+            Application::Get().Close();
+            return;
         }
-        if (projectFilePath != nullptr)
+
+        const auto& workingDirectory = Application::GetStartupWorkingDirectory();
+        const auto selection = ResolveProjectSelection(launch, workingDirectory, ReadRecentProject(workingDirectory));
+        const auto launchScene = launch.Scene.empty() ? std::filesystem::path{} : workingDirectory / launch.Scene;
+        bool opened = OpenProject(selection.Path, launchScene);
+        if (!opened && selection.Source == ProjectSelectionSource::Recent)
+            opened = OpenProject(ResolveProjectSelection({}, workingDirectory).Path, launchScene);
+        if (!opened && selection.Source == ProjectSelectionSource::SandboxFallback && launchScene.empty())
+            opened = OpenProject();
+        if (!opened)
         {
-            OpenProject(projectFilePath);
-        }
-        else
-        {
-            // Resolve against the startup working directory so the path is
-            // stable even if the CWD changes at runtime.
-            const auto defaultProject = Application::Get().GetStartupWorkingDirectory() / "SandboxProject" / "Sandbox.oloproj";
-            if (std::filesystem::exists(defaultProject) && OpenProject(defaultProject))
-            {
-                OLO_CORE_INFO("Loaded default project: {0}", defaultProject.string());
-            }
-            else if (!OpenProject())
-            {
-                Application::Get().Close();
-            }
-            else
-            {
-                // No additional handling required.
-            }
+            Application::Get().Close();
+            return;
         }
         m_EditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
@@ -593,8 +606,7 @@ namespace OloEngine
                 }
                 // Available: scripting is initialized so a reload could be attempted.
                 // Ok: whether the assembly actually loaded (false when the freshly-built
-                // app assembly fails to load — e.g. a compile error — leaving the entity
-                // classes stale). Report both distinctly rather than always claiming success.
+                // app assembly fails to load). Report both distinctly.
                 const bool reloaded = ScriptEngine::ReloadAssembly();
                 result.Available = true;
                 result.Ok = reloaded;
@@ -4502,11 +4514,18 @@ namespace OloEngine
                                                      { m_SceneHierarchyPanel.SetSelectedEntity(boneEntity); });
     }
 
+    bool EditorLayer::IsProjectBuildInProgress() const
+    {
+        return m_McpAssetPackBuilding->load() ||
+               (m_AssetPackBuilderPanel && m_AssetPackBuilderPanel->IsBuildInProgress()) ||
+               (m_BuildGamePanel && m_BuildGamePanel->IsBuildInProgress());
+    }
+
     void EditorLayer::NewProject()
     {
-        if (m_McpAssetPackBuilding->load())
+        if (IsProjectBuildInProgress())
         {
-            OLO_CORE_WARN("Finish or cancel the MCP asset-pack build before changing projects.");
+            OLO_CORE_WARN("Finish or cancel the current build before changing projects.");
             return;
         }
         if (!ConfirmDiscardChanges())
@@ -4520,7 +4539,8 @@ namespace OloEngine
         }
 
         Project::New();
-        NewScene();
+        ScriptEngine::SetProjectAssembly({});
+        ResetEditorScene();
         m_DialogueEditorPanel.NewDialogue();
         m_SkillTreeEditorPanel.NewTree();
         m_ShowSkillTreeEditor = false;
@@ -4536,8 +4556,11 @@ namespace OloEngine
 
     bool EditorLayer::OpenProject()
     {
-        if (m_McpAssetPackBuilding->load())
+        if (IsProjectBuildInProgress())
+        {
+            OLO_CORE_WARN("Finish or cancel the current build before changing projects.");
             return false;
+        }
         if (!ConfirmDiscardChanges())
         {
             return false;
@@ -4547,21 +4570,29 @@ namespace OloEngine
         const char* initialDir = ec ? nullptr : cwd.c_str();
         if (std::string filepath = FileDialogs::OpenFile("OloEngine Project (*.oloproj)\0*.oloproj\0", initialDir); !filepath.empty())
         {
-            OpenProject(filepath);
-            return true;
+            if (OpenProject(filepath))
+            {
+                RememberProject(filepath);
+                return true;
+            }
         }
         return false;
     }
 
-    bool EditorLayer::OpenProject(const std::filesystem::path& path)
+    bool EditorLayer::OpenProject(const std::filesystem::path& path, const std::filesystem::path& launchScene)
     {
-        if (m_McpAssetPackBuilding->load())
+        if (IsProjectBuildInProgress())
         {
-            OLO_CORE_WARN("Finish or cancel the MCP asset-pack build before changing projects.");
+            OLO_CORE_WARN("Finish or cancel the current build before changing projects.");
             return false;
         }
-        if (Project::Load(path))
+        if (m_SceneState != SceneState::Edit)
+            OnSceneStop();
+
+        if (auto project = Project::Load(path, /*shutdownPreviousAssets=*/true))
         {
+            OLO_CORE_INFO("[Editor] Opened project '{}' at '{}'", project->GetConfig().Name, path.string());
+            ScriptEngine::SetProjectAssembly(project->GetConfig().ScriptModulePath);
             auto editorAssetManager = Ref<EditorAssetManager>::Create();
             editorAssetManager->Initialize();
             Project::SetAssetManager(editorAssetManager);
@@ -4581,9 +4612,13 @@ namespace OloEngine
                 QuestDatabase::LoadFromDirectory(questsDir.string());
             }
 
-            auto startScenePath = Project::GetAssetFileSystemPath(Project::GetActive()->GetConfig().StartScene);
-            OLO_ASSERT(std::filesystem::exists(startScenePath));
-            OpenScene(startScenePath);
+            const auto& startScenePath = launchScene.empty() ? project->GetConfig().StartScene : launchScene;
+            if (startScenePath.empty() || !OpenScene(startScenePath))
+            {
+                if (!launchScene.empty())
+                    return false;
+                ResetEditorScene();
+            }
 
             m_DialogueEditorPanel.NewDialogue();
             m_SkillTreeEditorPanel.NewTree();
@@ -4659,7 +4694,11 @@ namespace OloEngine
         {
             return;
         }
+        ResetEditorScene();
+    }
 
+    void EditorLayer::ResetEditorScene()
+    {
         Ref<Scene> newScene = Ref<Scene>::Create();
         // A new scene keeps the live renderer settings, as it always has; record
         // the path it is drawn with so the scene and the renderer agree (#1601).

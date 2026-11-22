@@ -1293,6 +1293,7 @@ add_executable(OloEngine-Tests
 		Scene/ComponentEditTrackerTest.cpp
 		# Shipped-game project mount + asset-relative script path contract (issue #642)
 		RuntimeProjectMountTest.cpp
+		ProjectSelectionTest.cpp
 		# Build target platform contract: naming, host-only support, fail-loud gate (issue #891)
 		Build/GameBuildPipelineTest.cpp
 		# Floating-origin rebase cost characterization over N entities (issue #613)
