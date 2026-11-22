@@ -299,4 +299,26 @@ namespace OloEngine::SceneTransition
         const auto project = Project::GetActive();
         ApplySceneRenderSettings(scene, project ? &project->GetConfig().QualityTiering : nullptr);
     }
+
+    void PublishSceneWorldSettings(const Scene& scene)
+    {
+        Renderer3D::GetSnowSettings() = scene.GetSnowSettings();
+        Renderer3D::GetSkinDiffusionSettings() = scene.GetSkinDiffusionSettings();
+        Renderer3D::GetFogSettings() = scene.GetFogSettings();
+        Renderer3D::GetWindSettings() = scene.GetWindSettings();
+        Renderer3D::GetSnowAccumulationSettings() = scene.GetSnowAccumulationSettings();
+        Renderer3D::GetSnowEjectaSettings() = scene.GetSnowEjectaSettings();
+        Renderer3D::GetPrecipitationSettings() = scene.GetPrecipitationSettings();
+    }
+
+    void CaptureRendererWorldSettings(Scene& scene)
+    {
+        scene.SetSnowSettings(Renderer3D::GetSnowSettings());
+        scene.SetSkinDiffusionSettings(Renderer3D::GetSkinDiffusionSettings());
+        scene.SetFogSettings(Renderer3D::GetFogSettings());
+        scene.SetWindSettings(Renderer3D::GetWindSettings());
+        scene.SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
+        scene.SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
+        scene.SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+    }
 } // namespace OloEngine::SceneTransition

@@ -146,6 +146,11 @@ namespace OloEngine::Functional
             m_Scene->OnPhysics3DStop();
         }
         m_Scene.Reset();
+        // The world goes with its scene: whatever it published into the
+        // renderer (a WeatherSystem pushes fog, wind and precipitation every
+        // tick) is the renderer's scene state, and the renderer's scene switch
+        // drops it (#1689), as SetUp does for the world this test inherited.
+        Renderer3D::ResetSceneState();
         // Physics3DSystem singleton is intentionally left alive across tests
         // within a process — CreateInstance/DestroyInstance is per-process,
         // not per-test, and JoltScene Initialize/Shutdown handles per-test

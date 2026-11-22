@@ -1008,6 +1008,10 @@ namespace OloEngine
         // measures object motion against itself rather than against whatever
         // entity happened to hold the same id before.
         //
+        // The scene's render settings (fog, wind, snow, weather, skin) are in
+        // that state too (#1689): a host publishes the incoming scene's after
+        // this, and a scene that never publishes fog draws none.
+        //
         // Not the view (a scene change is not a camera reset), not the frame
         // clock (visible content being replaced does not restart sampling
         // sequences or time), and not the GPU Scene records, which

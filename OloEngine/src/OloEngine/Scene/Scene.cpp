@@ -137,6 +137,7 @@
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Scene/ModelImporter.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Scene/Physics2DTasks.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
@@ -1719,6 +1720,10 @@ namespace OloEngine
         // entity id and would otherwise hand the new world's entities the old
         // world's previous transforms for one frame.
         Renderer3D::ResetSceneState();
+        // ...and this scene's world settings back on top of that reset (#1689):
+        // the reset drops what the previous world published, and the scene that
+        // starts running draws with its own fog, wind and weather.
+        SceneTransition::PublishSceneWorldSettings(*this);
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -2204,6 +2209,7 @@ namespace OloEngine
         WaterSpraySystem::Reset();
         // Same renderer scene reset as OnRuntimeStart, for the same reason.
         Renderer3D::ResetSceneState();
+        SceneTransition::PublishSceneWorldSettings(*this);
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
