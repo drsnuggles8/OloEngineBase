@@ -141,6 +141,22 @@ TEST_F(WaterBuoyancyTest, LightBodySettlesAtWaterline)
     EXPECT_TRUE(std::isfinite(Y(box)));
 }
 
+TEST_F(WaterBuoyancyTest, ParentedWaterSupportsTheSameRestHeightAsItsRootTwin)
+{
+    SpawnWater(4.0f, 0.0f);
+    Entity childWater = SpawnWater(-4.0f, 0.0f);
+    Entity rig = GetScene().CreateEntity("Water Rig");
+    rig.GetComponent<TransformComponent>().Translation = { 400.0f, 8.0f, 0.0f };
+    childWater.SetParent(rig);
+    Entity rootBox = SpawnBuoyantBox({ 0.0f, 9.0f, 0.0f }, kFloatingMass);
+    Entity childBox = SpawnBuoyantBox({ 400.0f, 9.0f, 0.0f }, kFloatingMass);
+
+    EnablePhysics3D();
+    TickFor(15.0f);
+    EXPECT_NEAR(Y(rootBox), 4.0f, 0.35f);
+    EXPECT_NEAR(Y(childBox), Y(rootBox), 0.02f);
+}
+
 TEST_F(WaterBuoyancyTest, FloatHeightTracksTheWaterPlane)
 {
     // Same body, but the water plane is raised by 3 m — it must float 3 m higher.

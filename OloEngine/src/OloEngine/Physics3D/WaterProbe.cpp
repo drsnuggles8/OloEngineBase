@@ -102,7 +102,7 @@ namespace OloEngine::WaterProbe
             if (!wc.m_Enabled)
                 continue;
 
-            if (const std::optional<Volume> w = MakeVolume(waterEntity.GetComponent<TransformComponent>().GetTransform(), wc))
+            if (const std::optional<Volume> w = MakeVolume(scene->ComputeWorldTransform(e), wc))
                 waters.push_back(*w);
         }
         return waters;
