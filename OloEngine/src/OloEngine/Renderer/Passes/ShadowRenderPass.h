@@ -315,6 +315,18 @@ namespace OloEngine
         void DropWorldCache() override;
         [[nodiscard]] bool HoldsWorldCache() const override;
 
+        // The foliage VSM invalidation rotation runs on m_FoliageVsmFrame
+        // (#1580); a sequence restart rewinds it with every other pass's own
+        // index (#1348), so two paired arms rotate through the same layers.
+        void ResetFrameSequence(u32 sequenceSeed) override
+        {
+            m_FoliageVsmFrame = static_cast<u64>(sequenceSeed) * kFrameSequenceSeedStride;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return m_FoliageVsmFrame;
+        }
+
       private:
         // Fills m_GroomCasters from this frame's published groom requests.
         //
