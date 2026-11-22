@@ -517,6 +517,12 @@ namespace OloEngine
             return m_Settings.Enabled && m_Initialized;
         }
 
+        // Release the current backend's sampling stand-ins (#1655), and only
+        // those: a test that selects another backend for its own device releases
+        // what it created there before that device goes away, and leaves the
+        // renderer's backend's set alone.
+        void ReleaseInertSamplingBindingsForCurrentBackend();
+
         // The shadow system as a whole was switched off (ShadowSettings::Enabled).
         //
         // A separate flag rather than clearing Settings.Enabled, because that one
@@ -1101,13 +1107,31 @@ namespace OloEngine
         // initialised. The shader cannot index the two SSBOs in this state —
         // vsmShadowFactor returns early on VSM_ENABLED == 0 — but "cannot" should
         // rest on a bound buffer, not on the null block happening to read zeros.
+        //
+        // One set PER BACKEND (#1655). A buffer belongs to the backend that
+        // created it, and the test binary runs both in one process: the OpenGL
+        // renderer made the set first, a Vulkan suite's PBR replay then bound
+        // those GL buffers from a recording worker, and the GL driver faulted
+        // reading a context that thread does not have. The live resources are
+        // the same: ResourcesBelongToCurrentBackend says whether they may be
+        // bound, and when they may not, the current backend's stand-ins are.
+        struct InertSamplingSet
+        {
+            Ref<StorageBuffer> PageTable;
+            Ref<StorageBuffer> LocalLights;
+            Ref<StorageBuffer> HPB; // BindHPBForDeclaredReader, VSM off
+            Ref<UniformBuffer> Globals;
+            Ref<UniformBuffer> Pass;
+        };
         void EnsureInertSamplingBindings();
         void EnsureInertHPB();
-        Ref<StorageBuffer> m_InertPageTable;
-        Ref<StorageBuffer> m_InertLocalLights;
-        Ref<StorageBuffer> m_InertHPB; // BindHPBForDeclaredReader, VSM off
-        Ref<UniformBuffer> m_InertGlobalsUBO;
-        Ref<UniformBuffer> m_InertPassUBO;
+        void BindInertSampling();
+        [[nodiscard]] InertSamplingSet& InertSetForCurrentBackend();
+        [[nodiscard]] bool ResourcesBelongToCurrentBackend() const;
+        std::array<InertSamplingSet, 3> m_InertSets{}; // indexed by RendererAPI::API
+        // The backend CreateResources made the live resources on; 0 (None)
+        // without them.
+        u32 m_ResourceBackend = 0;
 
         Ref<StorageBuffer> m_PageTable;     // kTotalVirtualPages uints
         Ref<StorageBuffer> m_MetaTable;     // physical page -> owner

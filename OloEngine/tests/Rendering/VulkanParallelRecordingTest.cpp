@@ -1200,19 +1200,12 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     // Vulkan suites that follow — the hazard VulkanPassSuiteTest documents.
     // `Renderer3D::BeginScene` re-homes its own buffers when it next draws.
     //
-    // After an OpenGL renderer test initialised Renderer3D in this process,
-    // CommandDispatch replays against that backend's state and this test dies
-    // with an access violation (#1655; reproduced on master with
-    // GPUResourceQueueAsyncComputeShader + RenderGraphOutOfBandSchedule run
-    // first). Same precondition, same honest skip as
-    // VulkanDrawPath.ProductionFrustumCullWritesRootDataForIndirectDraw: the
-    // test keeps its full strength in any Vulkan-filtered run.
-    if (Renderer3D::HasInitialized())
-    {
-        GTEST_SKIP() << "Renderer3D was initialised earlier in this process (an OpenGL renderer test); the bucket "
-                        "replay would dispatch against that backend's state (#1655). Run this tenant in a "
-                        "Vulkan-filtered invocation.";
-    }
+    // It runs after an OpenGL renderer test too (#1655). PBR dispatch binds
+    // the renderer's VSM sampling buffers, and once the GL renderer had made
+    // them, this replay bound GL buffers from a Vulkan recording worker and
+    // the GL driver faulted. The VSM now keeps its sampling stand-ins per
+    // backend and never binds resources another backend owns, so this test
+    // gets Vulkan ones of its own and releases them below.
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     VulkanFrameArena::Get().BeginFrame(0);
@@ -1223,20 +1216,19 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     struct Restore
     {
         bool OwnsFrameData;
-        bool OwnsShadowSampling;
         ~Restore()
         {
             CommandDispatch::Shutdown();
-            // PBR dispatch lazily creates inert VSM sampling buffers even
-            // without Renderer3D::Init. A filtered Vulkan run owns those
-            // allocations and must release them before its device goes away;
-            // a full-suite run must preserve the live GL renderer's buffers.
-            if (OwnsShadowSampling)
-                Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
+            // PBR dispatch lazily creates inert VSM sampling buffers on the
+            // backend that binds them. The Vulkan ones are this test's and go
+            // before its device does; the GL renderer's, when a GL test ran
+            // first, stay (still Vulkan-selected here: the selection outlives
+            // this guard).
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindingsForCurrentBackend();
             if (OwnsFrameData)
                 FrameDataBufferManager::Shutdown();
         }
-    } restore{ ownsFrameData, !Renderer3D::HasInitialized() };
+    } restore{ ownsFrameData };
     auto& frameData = FrameDataBufferManager::Get();
     frameData.Reset();
 
