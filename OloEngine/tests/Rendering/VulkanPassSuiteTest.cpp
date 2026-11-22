@@ -15606,7 +15606,7 @@ TEST_F(VulkanPassSuite, ATexture3DUploadedInsideAFrameIsRecordedAndLandsInTheSam
     SubmitFrame(
         [&]()
         {
-            volume->SetData(halves.data(), static_cast<u32>(bytes));
+            EXPECT_TRUE(volume->SetData(halves.data(), static_cast<u32>(bytes))) << "the in-frame upload was not recorded";
             afterUpload = api.LayoutTracker().CurrentLayout(image, whole);
 
             // Readback tail, through the engine barrier so the tracker stays true.

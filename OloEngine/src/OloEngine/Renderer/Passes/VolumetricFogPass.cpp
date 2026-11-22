@@ -66,7 +66,8 @@ namespace OloEngine
         if (m_DensityVolumePlaceholder)
         {
             const f32 zero = 0.0f;
-            m_DensityVolumePlaceholder->SetData(&zero, sizeof(zero));
+            // A failed upload is logged by SetData; the placeholder is then unwritten.
+            (void)m_DensityVolumePlaceholder->SetData(&zero, sizeof(zero));
         }
 
         m_FroxelUBO = UniformBuffer::Create(

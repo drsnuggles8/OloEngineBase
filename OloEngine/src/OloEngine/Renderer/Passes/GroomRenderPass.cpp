@@ -318,7 +318,8 @@ namespace OloEngine
         if (m_CoatPlaceholder)
         {
             const std::array<f32, 4> zero{ 0.0f, 0.0f, 0.0f, 0.0f };
-            m_CoatPlaceholder->SetData(zero.data(), static_cast<u32>(zero.size() * sizeof(f32)));
+            // A failed upload is logged by SetData.
+            (void)m_CoatPlaceholder->SetData(zero.data(), static_cast<u32>(zero.size() * sizeof(f32)));
         }
         // The body's (#1533): no occupancy, and the sky open upward -- the
         // encoded (0, 1, 0), which reads as all of every lobe open. A zero
@@ -329,7 +330,7 @@ namespace OloEngine
         if (m_CoatBodyPlaceholder)
         {
             const std::array<u8, 4> open{ 128u, 255u, 128u, 0u };
-            m_CoatBodyPlaceholder->SetData(open.data(), static_cast<u32>(open.size()));
+            (void)m_CoatBodyPlaceholder->SetData(open.data(), static_cast<u32>(open.size()));
         }
 
         // One zeroed record at SSBO_GROOM_DEFORMATION for every draw that reads
@@ -2418,8 +2419,16 @@ namespace OloEngine
             if (bodyTexture)
             {
                 const auto bodyUploadStart = std::chrono::steady_clock::now();
-                bodyTexture->SetData(volume.Body.data(), static_cast<u32>(volume.Body.size() * sizeof(glm::u8vec4)));
+                const bool bodyUploaded =
+                    bodyTexture->SetData(volume.Body.data(), static_cast<u32>(volume.Body.size() * sizeof(glm::u8vec4)));
                 m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(bodyUploadStart);
+                // An unwritten body is no bake: the coat keeps the volume it
+                // holds, its keys and any shared bake unchanged, and asks again
+                // (SetData has said why).
+                if (!bodyUploaded)
+                {
+                    return false;
+                }
             }
             else
             {
@@ -2506,9 +2515,10 @@ namespace OloEngine
         // pass executes once per camera and every camera's draws in one frame
         // share one submission. Everything bound before that is submitted, and
         // both backends order an upload after the reads already submitted --
-        // GL by its own rules, Vulkan because SetData is a one-shot on the
-        // same queue whose barrier's first scope is everything submitted
-        // before it. The bake's dimensions move with the pose, so a slot whose
+        // GL by its own rules, Vulkan because the upload is recorded on the
+        // frame's command buffer after the draws already recorded (#1594), or
+        // outside a frame is a one-shot on the same queue whose barrier's
+        // first scope is everything submitted before it. The bake's dimensions move with the pose, so a slot whose
         // texture is the wrong size or format gets a new texture instead, and
         // the old one's Ref is dropped into the deferred deletion as before.
         const u32 frame = m_FrameState.FrameIndex;
@@ -2567,17 +2577,27 @@ namespace OloEngine
 
         const auto uploadStart = std::chrono::steady_clock::now();
         CacheEntry::CoatVolumeSlot& slot = entry.CoatRing[target];
+        // A FAILED UPLOAD IS NO BAKE: the entry keeps the volume it holds, its
+        // keys, its ring and any shared bake, and the caller records nothing
+        // and publishes nothing. A new texture goes into its slot only once it
+        // holds the bake; an in-place rewrite that fails wrote nothing (both
+        // backends refuse before writing), so the slot keeps its old texels.
         if (!inPlace)
         {
             Ref<Texture3D> texture = Texture3D::Create(spec);
-            if (!texture)
+            if (!texture || !texture->SetData(texels, static_cast<u32>(texelBytes)))
             {
+                m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(uploadStart);
                 return false;
             }
             slot.Texture = texture;
             slot.Bound = false;
         }
-        slot.Texture->SetData(texels, static_cast<u32>(texelBytes));
+        else if (!slot.Texture->SetData(texels, static_cast<u32>(texelBytes)))
+        {
+            m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(uploadStart);
+            return false;
+        }
         m_Stats.CoatShadow.BakeUploadMicroseconds += MicrosecondsSince(uploadStart);
 
         entry.CoatSlot = target;
@@ -2816,8 +2836,12 @@ namespace OloEngine
         // change is a different segment set, so it is a rebuild, not drift --
         // which also keeps a coat whose drift rebake is switched off shadowed
         // across the one stride change its first full bake makes.
-        const bool bakeSourceMatches =
-            entry.CoatBakedFromPose == deformed && (!deformed || entry.CoatBakedStride == entry.CoatPoseStride);
+        // And the FULL pose it was subset from: a topology change (another
+        // strand budget or level under one entry) is a different segment set
+        // whose subsets cannot be paired, so it is a rebuild, not drift.
+        const bool sameFullPose = !deformed || entry.CoatBakedFullSegments == entry.CoatFullPoseSegments;
+        const bool bakeSourceMatches = entry.CoatBakedFromPose == deformed &&
+                                       (!deformed || (entry.CoatBakedStride == entry.CoatPoseStride && sameFullPose));
 
         // ── The drift bound (#1426) ──────────────────────────────────
         //
@@ -2829,7 +2853,7 @@ namespace OloEngine
         // budget defers keeps drawing its volume, and the stale bound below has
         // to know how far it has fallen behind.
         f32 driftVoxels = 0.0f;
-        if (deformed && entry.CoatVolume && entry.CoatBakedFromPose)
+        if (deformed && entry.CoatVolume && entry.CoatBakedFromPose && sameFullPose)
         {
             const auto driftStart = std::chrono::steady_clock::now();
             driftVoxels = GroomCoatShadow::CoatDriftInVoxels(
@@ -3123,6 +3147,7 @@ namespace OloEngine
                         GroomCoatShadow::CaptureCoatPose(drawnPose, entry.CoatBakedPose);
                         entry.CoatBakedFromPose = true;
                         entry.CoatBakedStride = entry.CoatPoseStride;
+                        entry.CoatBakedFullSegments = entry.CoatFullPoseSegments;
                         driftVoxels = 0.0f;
                         ++m_Stats.CoatShadow.DeformedRebakes;
                         m_Stats.CoatShadow.MaxBakeStride = std::max(m_Stats.CoatShadow.MaxBakeStride, entry.CoatPoseStride);

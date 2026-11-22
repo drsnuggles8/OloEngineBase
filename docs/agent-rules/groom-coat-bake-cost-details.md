@@ -146,7 +146,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.
     Inside one, an upload that cannot be recorded (the staging allocation failed) is refused with an
     error, never handed to the one-shot: that would execute before the frame's command buffer, and
-    an earlier upload to the same image recorded in the frame would copy over it.
+    an earlier upload to the same image recorded in the frame would copy over it. `Texture3D::SetData`
+    returns whether it wrote, and a bake whose volume or body upload failed fails: the coat keeps
+    the volume it holds and its bake keys, and nothing is published to its herd.
 
 11. **A rest bake's walk is kept across resolutions and baked at the subset** (#1594). A rest bake
     reads the coat at rest: with coat authoring the drawn strands' walk

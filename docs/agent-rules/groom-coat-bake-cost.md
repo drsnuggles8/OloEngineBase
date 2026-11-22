@@ -48,7 +48,7 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     (`VulkanRendererAPI::RecordStagedImageUpload`, #1594), never the blocking one-shot: a one-shot
     waits for every frame in flight, a GPU frame or more of stall per bake whatever the bake's own
     cost. Outside a frame the one-shot stays; inside one, an upload that cannot be recorded is
-    refused with an error rather than handed to the one-shot.
+    refused with an error rather than handed to the one-shot, and the bake that asked fails.
     [Details](groom-coat-bake-cost-details.md#the-rules)
 11. **A rest bake's walk is kept across resolutions and baked at the subset** (`AcquireRestWalk`,
     #1594): the walk does not depend on the grid, and the stride follows rule 4 from the walk's

@@ -422,7 +422,12 @@ namespace OloEngine
                            spec.Width, spec.Height, spec.Depth);
             return false;
         }
-        texture->SetData(rawVolume.Density.data(), static_cast<u32>(rawVolume.Density.size() * sizeof(f32)));
+        if (!texture->SetData(rawVolume.Density.data(), static_cast<u32>(rawVolume.Density.size() * sizeof(f32))))
+        {
+            OLO_CORE_ERROR("VolumeSerializer::BuildVolumeAsset - the density upload failed ({}x{}x{})", spec.Width,
+                           spec.Height, spec.Depth);
+            return false;
+        }
 
         auto volume = Ref<VolumeAsset>::Create();
         volume->m_Texture = texture;

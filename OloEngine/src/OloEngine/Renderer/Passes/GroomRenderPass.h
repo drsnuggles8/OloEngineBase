@@ -1060,6 +1060,11 @@ namespace OloEngine
             /// The stride the RESIDENT volume was baked at. A different stride
             /// is a different segment set, so it is a rebuild, never drift.
             u32 CoatBakedStride = 1;
+            /// The FULL pose's segment count the pose bake was taken from: a
+            /// subset is only comparable with another subset of the same full
+            /// pose (MaxCoatPoseDriftAcrossStrides), so a topology change is a
+            /// rebuild, never a drift measured across it.
+            sizet CoatBakedFullSegments = 0;
             /// The GPU path's subset of the rest stream's pose segments at
             /// CoatPoseSubsetStride, radii already scaled. Rebuilt when the
             /// stride or the stream changes; empty at a stride of 1.

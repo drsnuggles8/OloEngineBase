@@ -218,16 +218,19 @@ namespace OloEngine
         // The drift of a pose taken at one bake-subset stride from a bake made
         // at another (#1594): a coat whose rebuild the budget deferred keeps
         // its volume, and the stride may have changed under it (a resolution
-        // change re-measures with a full bake). Every subset keeps the segments
+        // change takes the stride scaled from the coat's measured occupancy,
+        // rule 4). Every subset keeps the segments
         // CoatBakeKeepsSegment keeps of the FULL pose, in order, so a stride-1
         // side is matched to the other side's kept indices, and two subsets are
         // compared on the segments both keep. +INFINITY when they share none,
         // or the counts do not match, as MaxCoatPoseDrift.
         // PRECONDITION: both sides were taken from the same full pose (one
         // segment order and count). Against a full side the count is checked;
-        // two subsets cannot check it -- neither knows the full count -- so a
-        // topology change between them pairs unrelated segments, which reads as
-        // a large drift and rebakes rather than hiding a stale volume.
+        // two subsets cannot check it -- neither knows the full count -- and a
+        // midpoint distance between unrelated segments can be small, so a
+        // topology change is NOT detected here. The caller guarantees it:
+        // GroomRenderPass records the full count a pose bake came from and
+        // rebuilds on a different one instead of measuring drift across it.
         [[nodiscard]] f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
                                                         std::span<const CoatSegment> pose, u32 poseStride);
 
