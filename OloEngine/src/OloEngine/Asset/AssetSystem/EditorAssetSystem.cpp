@@ -22,15 +22,27 @@ namespace OloEngine
 
     void EditorAssetSystem::Stop()
     {
+        TUniqueLock<FMutex> lock(m_LoadTasksMutex);
         m_Running = false;
     }
 
     void EditorAssetSystem::StopAndWait()
     {
-        Stop();
-        // We can't easily wait for all launched tasks here without tracking them all.
-        // But since they are background tasks, they will eventually finish or be cleaned up by the scheduler.
-        // For now, we just set m_Running to false which prevents new tasks from doing work if they check it.
+        TArray<Tasks::FTask> pending;
+        {
+            TUniqueLock<FMutex> lock(m_LoadTasksMutex);
+            m_Running = false;
+            pending = m_LoadTasks;
+        }
+
+        // Workers hold this system and resolve paths through the active project.
+        // Wait lets the scheduler execute unstarted tasks inline, where they
+        // see the stop flag and return without loading.
+        for (auto& task : pending)
+            task.Wait();
+
+        TUniqueLock<FMutex> lock(m_LoadTasksMutex);
+        m_LoadTasks.Reset();
     }
 
     void EditorAssetSystem::QueueAssetLoad(const AssetMetadata& metadata)
@@ -41,6 +53,7 @@ namespace OloEngine
             return;
         }
 
+        TUniqueLock<FMutex> tasksLock(m_LoadTasksMutex);
         if (!m_Running)
         {
             return;
@@ -66,92 +79,101 @@ namespace OloEngine
         // Check if this asset type supports async loading (two-phase loading)
         bool supportsAsync = AssetImporter::SupportsAsyncLoading(metadata.Type);
 
-        // Launch async task
-        Tasks::Launch("LoadAsset", [this, metadata, supportsAsync]()
-                      {
-            if (!m_Running)
+        m_LoadTasks.RemoveAll([](const Tasks::FTask& task)
+                              { return task.IsCompleted(); });
+        m_LoadTasks.Add(Tasks::Launch("LoadAsset", [this, metadata, supportsAsync]()
+                                      { RunQueuedLoad(metadata, supportsAsync); }, Tasks::ETaskPriority::BackgroundNormal));
+    }
+
+    void EditorAssetSystem::RunQueuedLoad(const AssetMetadata& metadata, bool supportsAsync)
+    {
+        struct DecrementOnExit
+        {
+            std::atomic<sizet>& Count;
+            ~DecrementOnExit()
             {
-                m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed);
-                return;
+                Count.fetch_sub(1, std::memory_order_relaxed);
             }
+        } completion{ m_ActiveTaskCount };
 
-            OLO_PROFILER_SCOPE("Asset Load Task");
+        if (!m_Running)
+            return;
 
-            // Remove from pending set now that we're processing it
+        OLO_PROFILER_SCOPE("Asset Load Task");
+
+        // Remove from pending set now that we're processing it
+        {
+            TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
+            m_PendingAssets.erase(metadata.Handle);
+        }
+
+        if (supportsAsync)
+        {
+            // Two-phase loading: Load raw data on worker thread (no GPU resources)
+            // GPU finalization will happen on main thread when assets are retrieved
+
+            RawAssetData rawData;
+            if (AssetImporter::TryLoadRawData(metadata, rawData))
             {
-                TUniqueLock<FMutex> lock(m_PendingAssetsMutex);
-                m_PendingAssets.erase(metadata.Handle);
-            }
+                // Queue raw data for main thread finalization
+                PendingRawAsset pendingAsset;
+                pendingAsset.Metadata = metadata;
+                pendingAsset.RawData = std::move(rawData);
+                pendingAsset.SerializerType = metadata.Type;
 
-            if (supportsAsync)
-            {
-                // Two-phase loading: Load raw data on worker thread (no GPU resources)
-                // GPU finalization will happen on main thread when assets are retrieved
-
-                RawAssetData rawData;
-                if (AssetImporter::TryLoadRawData(metadata, rawData))
                 {
-                    // Queue raw data for main thread finalization
-                    PendingRawAsset pendingAsset;
-                    pendingAsset.Metadata = metadata;
-                    pendingAsset.RawData = std::move(rawData);
-                    pendingAsset.SerializerType = metadata.Type;
-
-                    {
-                        TUniqueLock<FMutex> lock(m_PendingRawAssetsMutex);
-                        m_PendingRawAssets.push(std::move(pendingAsset));
-                    }
-
-                    // Update telemetry
-                    m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-
-                    OLO_CORE_TRACE("EditorAssetSystem: Raw asset data loaded (pending GPU finalization) | handle={}",
-                                   (u64)metadata.Handle);
+                    TUniqueLock<FMutex> lock(m_PendingRawAssetsMutex);
+                    m_PendingRawAssets.push(std::move(pendingAsset));
                 }
-                else
-                {
-                    // Failed to load raw data
-                    m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load raw asset data for asset {}",
-                                   (u64)metadata.Handle);
-                }
+
+                // Update telemetry
+                m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+
+                OLO_CORE_TRACE("EditorAssetSystem: Raw asset data loaded (pending GPU finalization) | handle={}",
+                               (u64)metadata.Handle);
             }
             else
             {
-                // Traditional loading: Load complete asset including GPU resources
-                // NOTE: This path is for assets that don't support async loading
-                // They will create GPU resources on the calling thread which may cause issues
-                // if called from a non-main thread. Consider moving to main thread queue.
-
-                Ref<Asset> asset = GetAsset(metadata);
-
-                if (asset)
-                {
-                    EditorAssetLoadResponse response;
-                    response.Metadata = metadata;
-                    response.AssetRef = asset;
-                    response.NeedsGPUFinalization = false;
-
-                    TUniqueLock<FMutex> lock(m_ReadyAssetsMutex);
-                    m_ReadyAssets.push(response);
-
-                    // Update telemetry
-                    m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-
-                    OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={}",
-                                   (u64)metadata.Handle);
-                }
-                else
-                {
-                    // Update telemetry for failed loads
-                    m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
-
-                    OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {}",
-                                   (u64)metadata.Handle);
-                }
+                // Failed to load raw data
+                m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+                OLO_CORE_ERROR("EditorAssetSystem: Failed to load raw asset data for asset {}",
+                               (u64)metadata.Handle);
             }
+        }
+        else
+        {
+            // Traditional loading: Load complete asset including GPU resources
+            // NOTE: This path is for assets that don't support async loading
+            // They will create GPU resources on the calling thread which may cause issues
+            // if called from a non-main thread. Consider moving to main thread queue.
 
-            m_ActiveTaskCount.fetch_sub(1, std::memory_order_relaxed); }, Tasks::ETaskPriority::BackgroundNormal);
+            Ref<Asset> asset = GetAsset(metadata);
+
+            if (asset)
+            {
+                EditorAssetLoadResponse response;
+                response.Metadata = metadata;
+                response.AssetRef = asset;
+                response.NeedsGPUFinalization = false;
+
+                TUniqueLock<FMutex> lock(m_ReadyAssetsMutex);
+                m_ReadyAssets.push(response);
+
+                // Update telemetry
+                m_LoadedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+
+                OLO_CORE_TRACE("EditorAssetSystem: Asset loaded | handle={}",
+                               (u64)metadata.Handle);
+            }
+            else
+            {
+                // Update telemetry for failed loads
+                m_FailedAssetsCount.fetch_add(1, std::memory_order_relaxed);
+
+                OLO_CORE_ERROR("EditorAssetSystem: Failed to load asset {}",
+                               (u64)metadata.Handle);
+            }
+        }
     }
 
     Ref<Asset> EditorAssetSystem::GetAsset(const AssetMetadata& metadata)
