@@ -233,8 +233,10 @@ class VulkanDrawPath : public ::testing::Test
         // released before it goes: left alive they trip the allocator's leak
         // check at teardown (a Debug abort) or dangle into the next Vulkan
         // fixture (an access violation in a Release run; #1358, found running
-        // the lavapipe job in filter order). Same guard as VulkanPassSuite:
-        // never strip the statics from a live GL renderer.
+        // the lavapipe job in filter order). The buffers are kept per backend
+        // (#1655), so this fixture's Vulkan set goes whether or not a GL
+        // renderer is up, and a live GL renderer keeps its own.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindings(RendererAPI::API::Vulkan);
         if (!Renderer3D::HasInitialized())
             Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
         VulkanPipelineBuilder::Get().ReleaseAll();

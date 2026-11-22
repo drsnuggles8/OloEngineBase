@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RGPreparedPass.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 // Included, not forward-declared: `Ref<T>`'s destructor calls RefUtils::Release,
 // which needs T complete wherever ~VirtualShadowMap is instantiated. Since
 // ShadowMap.h includes this header, "wherever" is every consumer of the shadow
@@ -517,18 +518,18 @@ namespace OloEngine
             return m_Settings.Enabled && m_Initialized;
         }
 
+        // Release one backend's sampling stand-ins (#1655), and only those: a
+        // test that selects Vulkan beside a live OpenGL renderer releases the
+        // set its dispatch made there before its device or its allocator goes
+        // away, and leaves the renderer's GL set alone.
+        void ReleaseInertSamplingBindings(RendererAPI::API backend);
+
         // The page cache is a world cache (#1665): pages of the scene's caster
         // depth, kept while nothing invalidates them. A scene switch at the same
         // sun direction and render origin would otherwise keep the previous
         // world's shadows in every page the new casters do not happen to touch.
         // Marks every page stale, the same full invalidate Init and a light-space
         // change take; the next frame frees and re-renders them.
-        // Release the current backend's sampling stand-ins (#1655), and only
-        // those: a test that selects another backend for its own device releases
-        // what it created there before that device goes away, and leaves the
-        // renderer's backend's set alone.
-        void ReleaseInertSamplingBindingsForCurrentBackend();
-
         void InvalidateAllPages()
         {
             m_FullInvalidate = true;

@@ -1207,9 +1207,11 @@ namespace OloEngine
         return m_ResourceBackend == static_cast<u32>(Renderer::GetAPI());
     }
 
-    void VirtualShadowMap::ReleaseInertSamplingBindingsForCurrentBackend()
+    void VirtualShadowMap::ReleaseInertSamplingBindings(const RendererAPI::API backend)
     {
-        InertSetForCurrentBackend() = {};
+        const auto index = static_cast<sizet>(backend);
+        if (index < m_InertSets.size())
+            m_InertSets[index] = {};
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,

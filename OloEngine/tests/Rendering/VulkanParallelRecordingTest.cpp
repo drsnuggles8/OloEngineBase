@@ -1222,9 +1222,8 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
             // PBR dispatch lazily creates inert VSM sampling buffers on the
             // backend that binds them. The Vulkan ones are this test's and go
             // before its device does; the GL renderer's, when a GL test ran
-            // first, stay (still Vulkan-selected here: the selection outlives
-            // this guard).
-            Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindingsForCurrentBackend();
+            // first, stay.
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindings(RendererAPI::API::Vulkan);
             if (OwnsFrameData)
                 FrameDataBufferManager::Shutdown();
         }
