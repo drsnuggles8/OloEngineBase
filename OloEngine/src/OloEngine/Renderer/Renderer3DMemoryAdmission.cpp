@@ -272,6 +272,7 @@ namespace OloEngine
         // steady growth made room the landing check (ReplacementFits) never found.
         for (const auto& reload : state.PendingReloads)
             input.PendingNewBytes += reload.NewBytes + reload.UploadBytes;
+        input.LandedReplacementBytes = state.LandedReplacementBytes;
         input.OptionalDetailBytes = RepresentationStreaming::Get().GetOptionalResidentGpuBytes();
         state.KnownOptionalDetailBytes = std::max(state.KnownOptionalDetailBytes, input.OptionalDetailBytes);
         input.KnownOptionalDetailBytes = state.KnownOptionalDetailBytes;
@@ -302,6 +303,9 @@ namespace OloEngine
             return;
         }
 
+        // Reloads that fit land first, so this frame's decision sees them resident: a
+        // reload applied after it would add its storage to a level admitted without it.
+        ProcessPendingReloads();
         BuildMemoryAdmissionInput(state.Input, /*frameTick=*/true);
         const u32 previousLevel = state.Governor.GetSnapshot().Level;
         const MemoryAdmissionSnapshot& snapshot = state.Governor.Tick(state.Input);
@@ -315,7 +319,6 @@ namespace OloEngine
                           snapshot.PredictedPeakBytes / (1024ull * 1024ull));
         }
         ApplyWorldMemoryQuality();
-        ProcessPendingReloads();
     }
 
     bool Renderer3D::ReplacementFits(const u64 newBytes, const u64 releasedBytes, const u64 uploadBytes)
@@ -360,6 +363,7 @@ namespace OloEngine
         if (Levers::RendererMemoryAdmissionOff() || ReplacementFits(newBytes, releasedBytes, uploadBytes))
         {
             texture->ApplyReload(image);
+            state.LandedReplacementBytes += newBytes > releasedBytes ? newBytes - releasedBytes : 0u;
             ++state.ReloadStats.AppliedImmediately;
             return true;
         }
@@ -399,6 +403,7 @@ namespace OloEngine
             }
             if (it->Texture)
                 it->Texture->ApplyReload(it->Image);
+            state.LandedReplacementBytes += it->NewBytes > it->ReleasedBytes ? it->NewBytes - it->ReleasedBytes : 0u;
             ++(fits ? state.ReloadStats.AppliedDeferred : state.ReloadStats.AppliedAtFloor);
             if (!fits)
                 OLO_CORE_WARN("[MemoryAdmission] reload of '{}' applied at the floor, over budget", it->Texture ? it->Texture->GetPath() : std::string_view{});
@@ -664,13 +669,8 @@ namespace OloEngine
         state.DevicePolled = false;
         state.TicksSincePoll = 0;
         state.KnownOptionalDetailBytes = 0;
-        // A reset forgets the decision a waiting reload depended on: apply what waits.
-        for (auto& reload : state.PendingReloads)
-        {
-            if (reload.Texture)
-                reload.Texture->ApplyReload(reload.Image);
-        }
-        state.PendingReloads.clear();
+        // A waiting reload keeps waiting: it lands when it fits, as before the reset, and
+        // its pending charge drives the reset governor to make the room again.
         state.ReloadStats = {};
         RepresentationStreaming::Get().SetOptionalDetailWithheld(false);
     }

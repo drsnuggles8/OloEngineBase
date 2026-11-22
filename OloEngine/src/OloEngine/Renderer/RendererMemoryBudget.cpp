@@ -585,8 +585,16 @@ namespace OloEngine
                     // The last descent has settled. What it gave back beyond the model's
                     // prediction is what climbing past it costs beyond the model's too.
                     m_DescentUnmeasured = false;
-                    if (m_DescentPredictedSteady > live && m_DescentLevel > 0u && m_DescentLevel == m_Level)
-                        m_LearnedRungBytes[m_DescentLevel - 1u] += m_DescentPredictedSteady - live;
+                    // Like with like: the prediction without the pending charge it carried,
+                    // against the live bytes without what replacements added since. A reload
+                    // landing (or queueing) during the settle run then neither inflates nor
+                    // hides what the rung gave back.
+                    const u64 predicted = m_DescentPredictedSteady > m_DescentPendingBytes ? m_DescentPredictedSteady - m_DescentPendingBytes : 0u;
+                    const u64 landed = input.LandedReplacementBytes - std::min(input.LandedReplacementBytes, m_DescentLandedBytes);
+                    const u64 observedLive = observed.LiveBytes();
+                    const u64 measured = observedLive > landed ? observedLive - landed : 0u;
+                    if (predicted > measured && m_DescentLevel > 0u && m_DescentLevel == m_Level)
+                        m_LearnedRungBytes[m_DescentLevel - 1u] += predicted - measured;
                 }
                 if (live > limit)
                 {
@@ -618,6 +626,8 @@ namespace OloEngine
                         m_Level = ChooseDescent(input, limit, budget, reserve);
                         m_DescentUnmeasured = true;
                         m_DescentLevel = m_Level;
+                        m_DescentPendingBytes = pendingGrowth;
+                        m_DescentLandedBytes = input.LandedReplacementBytes;
                         m_DescentPredictedSteady = EstimateLevel(input, m_Level).SteadyBytes;
                         m_ReducedCause = MemoryAdmissionReason::DeviceBudget;
                         m_SettleTicks = m_Policy.SettleFrames;

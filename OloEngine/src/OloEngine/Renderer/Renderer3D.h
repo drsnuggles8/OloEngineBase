@@ -3267,6 +3267,8 @@ namespace OloEngine
             // a pixel array, which TArray would relocate bitwise.
             std::vector<PendingTextureReload> PendingReloads;
             DeferredReloadStats ReloadStats;
+            // Running total of the net bytes landed reloads added (MemoryAdmissionInput).
+            u64 LandedReplacementBytes = 0;
             RendererMemoryGovernor Governor;
             // Renderer3D::SetMemoryBudgetOverride.
             std::optional<u64> BudgetOverrideBytes;

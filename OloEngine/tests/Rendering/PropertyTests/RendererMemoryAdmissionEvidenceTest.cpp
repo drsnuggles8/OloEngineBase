@@ -626,11 +626,19 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
 // -------------------------------------------------------------------------------------
 namespace
 {
-    void WriteSolidPng(const std::filesystem::path& file, const u32 size, const u8 value)
+    // Red `left` on the left half, `right` on the right: an image that tells its sides apart.
+    void WriteSolidPng(const std::filesystem::path& file, const u32 size, const u8 left, const u8 right)
     {
-        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4u, value);
-        for (sizet alpha = 3; alpha < pixels.size(); alpha += 4)
-            pixels[alpha] = 255u;
+        std::vector<u8> pixels(static_cast<sizet>(size) * size * 4u, 0u);
+        for (u32 y = 0; y < size; ++y)
+        {
+            for (u32 x = 0; x < size; ++x)
+            {
+                u8* texel = pixels.data() + (static_cast<sizet>(y) * size + x) * 4u;
+                texel[0] = x < size / 2u ? left : right;
+                texel[3] = 255u;
+            }
+        }
         ASSERT_NE(::stbi_write_png(file.string().c_str(), static_cast<int>(size), static_cast<int>(size), 4, pixels.data(), static_cast<int>(size * 4u)), 0)
             << "could not write " << file.string();
     }
@@ -648,7 +656,7 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadThatDoesNotFitWaitsForRoomAndN
     constexpr u32 kOldSize = 1024;
     constexpr u32 kNewSize = 2048;
     const std::filesystem::path file = TempFile("memory-admission-reload.png");
-    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kOldSize, 64));
+    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kOldSize, 64, 64));
     Ref<Texture2D> asset = Texture2D::Create(file.string());
     ASSERT_TRUE(asset && asset->IsLoaded());
     ASSERT_EQ(asset->GetWidth(), kOldSize);
@@ -667,18 +675,45 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadThatDoesNotFitWaitsForRoomAndN
     ASSERT_FALSE(Renderer3D::GetMemoryAdmission().IsReduced());
 
     // The artist saves a larger image, and the editor reloads it.
-    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kNewSize, 192));
+    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kNewSize, 200, 40));
     tracker.BeginPeakWindow();
     ASSERT_TRUE(Texture2D::ReloadInPlace(asset)) << "the reload was refused";
     EXPECT_EQ(asset->GetWidth(), kOldSize) << "a reload that does not fit was applied at once";
     EXPECT_EQ(Renderer3D::GetDeferredReloadStats().Pending, 1u);
+    // The red channel at a column, on the middle row, as the texture holds it now.
+    const auto redAt = [&](const u32 x) -> f32
+    {
+        std::array<f32, 4> texel{ -1.0f, -1.0f, -1.0f, -1.0f };
+        bool read = false;
+        RunInFrame([&]()
+                   { read = RenderCommand::ReadTextureSubImage(asset->GetRHIHandle(), 0, static_cast<i32>(x),
+                                                               static_cast<i32>(asset->GetHeight() / 2u), 0, 1, 1, 1,
+                                                               RHI::Format::RGBA32Float, sizeof(texel), texel.data()); });
+        EXPECT_TRUE(read) << "could not read the texture back";
+        return texel[0];
+    };
+    EXPECT_NEAR(redAt(1u), 64.0f / 255.0f, 1.5f / 255.0f) << "the old pixels are not the ones on screen while the reload waits";
 
     // The governor makes room; the upload lands once there is room for it.
     u32 framesUntilApplied = 0;
+    const auto trace = [&](const char* what)
+    {
+        const MemoryAdmissionSnapshot& s = Renderer3D::GetMemoryAdmission();
+        std::cout << "[ reload ] " << what << " frame " << framesUntilApplied << ": resident " << tracker.GetGpuResidentBytes() << " retiring "
+                  << tracker.GetGpuRetiringBytes() << " level " << s.Level << " pending " << Renderer3D::GetDeferredReloadStats().Pending
+                  << " width " << asset->GetWidth() << '\n';
+    };
+    trace("requested");
     while (asset->GetWidth() != kNewSize && framesUntilApplied < 4u * kConvergeFrames)
     {
         RunFrames(1);
         ++framesUntilApplied;
+        trace("waiting");
+    }
+    for (u32 after = 0; after < 6u; ++after)
+    {
+        RunFrames(1);
+        trace("after");
     }
     EXPECT_EQ(asset->GetWidth(), kNewSize) << "the deferred reload never landed";
     const Renderer3D::DeferredReloadStats statsAfter = Renderer3D::GetDeferredReloadStats();
@@ -690,6 +725,10 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadThatDoesNotFitWaitsForRoomAndN
     // Never over the budget on the way: not while waiting, not at the upload, not after.
     const u64 peak = tracker.BuildReport().Gpu.WindowPeakBytes;
     EXPECT_LE(peak, budget) << "the reload evaded the budget: resident peaked at " << peak << " against " << budget;
+    // The new pixels, the right way round. Read after the peak was taken: a readback makes a
+    // temporary copy of the whole level, which is the test's storage, not the renderer's.
+    EXPECT_NEAR(redAt(1u), 200.0f / 255.0f, 1.5f / 255.0f) << "the left half did not land";
+    EXPECT_NEAR(redAt(kNewSize - 2u), 40.0f / 255.0f, 1.5f / 255.0f) << "the right half did not land (or the image is mirrored)";
     const MemoryAdmissionSnapshot settled = Renderer3D::GetMemoryAdmission();
     EXPECT_TRUE(settled.IsReduced()) << "room was made for the reload by reducing quality";
     EXPECT_LE(LiveBytes(), budget - kReserveBytes);
@@ -909,6 +948,9 @@ TEST_F(RendererMemoryAdmissionTransitions, ReSTIRPTGivesItsPoolsBackWhenItIsSwit
 
     if (!RenderCommand::SupportsRayTracing())
         GTEST_SKIP() << "ReSTIR PT needs hardware ray queries (Vulkan with a ray-tracing device)";
+    // An ample budget: under the device's own, admission could take ReSTIR PT's rung before
+    // its pools exist, and the test would read that as a missing allocation.
+    InjectAmpleBudget();
     Renderer3D::GetPostProcessSettings().ReSTIRPT.Enabled = true;
     RunFrames(8);
     const u64 engaged = poolBytes();

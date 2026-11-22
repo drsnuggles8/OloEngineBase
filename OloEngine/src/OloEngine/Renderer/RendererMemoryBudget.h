@@ -283,6 +283,11 @@ namespace OloEngine
         // for them and no climb takes it; not to the peak, since they land later.
         u64 PendingNewBytes = 0;
         u64 PendingReleasedBytes = 0;
+        // A running total of the bytes landed replacements added to the live total (new
+        // storage minus what it replaced). What a descent gave back is measured net of what
+        // landed meanwhile, so a reload landing during a settle run is not learned as a
+        // rung's cost, nor hides one.
+        u64 LandedReplacementBytes = 0;
     };
 
     struct MemoryAdmissionViewDecision
@@ -432,6 +437,10 @@ namespace OloEngine
         // The last descent, until the frame that measures what it really gave back.
         bool m_DescentUnmeasured = false;
         u32 m_DescentLevel = 0;
+        // The pending charge the descent's prediction carried, and the landed total when it
+        // was made: both are taken out of the comparison that measures the descent.
+        u64 m_DescentPendingBytes = 0;
+        u64 m_DescentLandedBytes = 0;
         u64 m_DescentPredictedSteady = 0;
     };
 
