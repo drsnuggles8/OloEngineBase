@@ -48,6 +48,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md): a generator fix and its golden rebake ship in the same PR.
 - [generated-evidence-stays-out-of-git.md](generated-evidence-stays-out-of-git.md): commit what a test reads, never what it writes; evidence output stays in its ignored directory.
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
+- [evidence-captures-count-frames-not-wall-time.md](evidence-captures-count-frames-not-wall-time.md): wait for a streamed load without ticking, or settle streaming before frame-counted arms; a capture after a ticking wall-clock wait depends on load speed.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
 - [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path, and leave the active project as the test found it.
 - [renderer-state-machine-harness.md](renderer-state-machine-harness.md): a new renderer cache, lever or execution mode joins the state-machine manifest as an operation or an equivalence pair.
@@ -109,7 +110,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [groom-ray-traced-proxies.md](groom-ray-traced-proxies.md): a groom proxy occludes other receivers and never its own coat.
 - [groom-card-coverage.md](groom-card-coverage.md): cook a card as wide as its members cover, never their sum.
 - [groom-coat-colour.md](groom-coat-colour.md): a groom's root UVs are in the engine's runtime texture convention (v up).
-- [groom-coat-bake-cost.md](groom-coat-bake-cost.md): split a bake's time by stage before cutting it.
+- [groom-coat-bake-cost.md](groom-coat-bake-cost.md): split a bake's time by stage before cutting it; share a rest bake across a herd and cap bakes per frame.
 - [groom-gpu-strand-deformation.md](groom-gpu-strand-deformation.md): build a bound coat's stream once in each root's bind frame and move it in the vertex shader, keeping the CPU rebuild as a bit-exact reference.
 - [groom-scene-lighting-and-wetness.md](groom-scene-lighting-and-wetness.md): light a coat from the rung of the ambient ladder its body takes and from the Forward+ cluster lists where they are live.
 - [multi-animal-scheduling-budgets.md](multi-animal-scheduling-budgets.md): share one frame's work out among a POPULATION of animals, in calibrated units and never in a clock reading.

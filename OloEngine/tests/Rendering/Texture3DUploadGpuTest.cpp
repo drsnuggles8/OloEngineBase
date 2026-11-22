@@ -50,7 +50,7 @@ namespace OloEngine::Tests
             expected[i] = static_cast<f32>(i) * 0.25f - 11.0f;
             halves[i] = glm::packHalf1x16(expected[i]);
         }
-        volume->SetData(halves.data(), static_cast<u32>(halves.size() * sizeof(u16)));
+        EXPECT_TRUE(volume->SetData(halves.data(), static_cast<u32>(halves.size() * sizeof(u16))));
 
         std::vector<f32> readBack(channels, -1.0f);
         glGetTextureImage(volume->GetRendererID(), 0, GL_RGBA, GL_FLOAT,
@@ -62,9 +62,11 @@ namespace OloEngine::Tests
         }
 
         // A FLOAT buffer is the wrong size for this format and is refused
-        // whole, leaving the volume as it was, rather than half-read.
+        // whole, leaving the volume as it was, rather than half-read -- and
+        // the refusal is reported, so a caller does not treat it as a bake.
         const std::vector<f32> floats(channels, 99.0f);
-        volume->SetData(floats.data(), static_cast<u32>(floats.size() * sizeof(f32)));
+        EXPECT_FALSE(volume->SetData(floats.data(), static_cast<u32>(floats.size() * sizeof(f32))))
+            << "a refused upload reported success";
         glGetTextureImage(volume->GetRendererID(), 0, GL_RGBA, GL_FLOAT,
                           static_cast<GLsizei>(readBack.size() * sizeof(f32)), readBack.data());
         for (u32 i = 0; i < channels; ++i)

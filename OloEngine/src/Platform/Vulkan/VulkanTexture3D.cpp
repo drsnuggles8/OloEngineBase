@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
@@ -145,7 +146,7 @@ namespace OloEngine
         RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
     }
 
-    void VulkanTexture3D::SetData(const void* data, u32 size)
+    bool VulkanTexture3D::SetData(const void* data, u32 size)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -153,7 +154,7 @@ namespace OloEngine
         if (device == nullptr || m_Image == VK_NULL_HANDLE)
         {
             OLO_CORE_ERROR("VulkanTexture3D::SetData: no live device/image, dropping upload");
-            return;
+            return false;
         }
 
         const sizet bytesPerTexel = Texture3DFormatBytesPerTexel(m_Specification.Format);
@@ -161,7 +162,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanTexture3D::SetData: format {} has no client-upload path",
                            static_cast<u32>(m_Specification.Format));
-            return;
+            return false;
         }
         const u64 expected = static_cast<u64>(m_Specification.Width) * m_Specification.Height *
                              m_Specification.Depth * bytesPerTexel;
@@ -169,7 +170,34 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanTexture3D::SetData: got {} bytes, expected {} ({}x{}x{}) — dropping the upload",
                            size, expected, m_Specification.Width, m_Specification.Height, m_Specification.Depth);
-            return;
+            return false;
+        }
+
+        // INSIDE A FRAME, a copy recorded on the frame's command buffer (#1594).
+        // A coat volume is baked mid-frame, and a one-shot here executes after
+        // every frame already submitted and waits for all of them: on the live
+        // editor that was a GPU frame or more of CPU stall per bake, so a camera
+        // cut's dozens of bakes stalled for seconds whatever their CPU cost.
+        // The staged copy ends in the sampled layout (a volume is bound through
+        // a persistent heap slot), and the registry is seeded with it, as the
+        // one-shot arm below does: the heap resolver serves only a texture at
+        // rest in that layout, and a later tracker registers from the registry.
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+        {
+            if (vk->RecordStagedImageUpload(m_Image, 0u, 0u, m_Specification.Width, m_Specification.Height, data, size,
+                                            m_Specification.Depth, true))
+            {
+                VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
+                return true;
+            }
+            // NEVER the one-shot inside a frame: it executes before the frame's
+            // command buffer, so an earlier upload to this image recorded in the
+            // same frame would copy over it, and the texture would silently
+            // hold the older texels. The upload is refused, said here.
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: the in-frame upload could not be recorded ({}x{}x{}, {} bytes); "
+                           "the texture keeps its previous contents",
+                           m_Specification.Width, m_Specification.Height, m_Specification.Depth, size);
+            return false;
         }
 
         // Host staging buffer — destroyed right after the blocking one-shot.
@@ -193,7 +221,7 @@ namespace OloEngine
                                    &stagingOut) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture3D::SetData: staging allocation failed ({} bytes)", size);
-            return;
+            return false;
         }
         std::memcpy(stagingOut.pMappedData, data, size);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, size);
@@ -233,6 +261,11 @@ namespace OloEngine
             // reasoning as VulkanTexture2D::UploadPixels).
             VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
+        else
+        {
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: the one-shot upload failed; the texture keeps its previous contents");
+        }
+        return ok;
     }
 } // namespace OloEngine
 

@@ -104,8 +104,26 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CoatDeformedRebakes = 0;
         f32 CoatMaxDriftVoxels = 0.0f;
         u64 CoatBakeMicroseconds = 0;
+        // The bake split by stage (#1445), so a live cell says which part of a
+        // slow bake is slow -- binning, or the upload (#1594).
+        u64 CoatBakeSegmentMicroseconds = 0;
+        u64 CoatBakeBinMicroseconds = 0;
+        u64 CoatBakePackMicroseconds = 0;
+        u64 CoatBakeUploadMicroseconds = 0;
+        u64 CoatBakeBodyMicroseconds = 0;
         u32 CoatResolutionInForce = 0;
         u64 CoatResidentBytes = 0;
+        // Shared rest bakes and the per-frame rebuild budget (#1594).
+        u32 CoatSharedBakesReused = 0;
+        u32 CoatSharedVolumes = 0;
+        u32 CoatRebuildBudget = 0;
+        u32 CoatRebuildsDeferred = 0;
+        u32 CoatRebuildsForced = 0;
+        u32 CoatRestWalksReused = 0;
+        u32 CoatMaxRestBakeStride = 0;
+        u32 CoatDrawnFromDeferredVolume = 0;
+        u32 CoatRebuildsWaiting = 0;
+        u32 CoatOldestRebuildWaitFrames = 0;
 
         // ── Scene-shadow casting (#1323, #1533 E1) ─────────────────────
         u32 GroomsAskedToCast = 0;
@@ -230,8 +248,26 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "deformedRebakes", snapshot.CoatDeformedRebakes },
             { "maxDriftVoxels", snapshot.CoatMaxDriftVoxels },
             { "bakeMicroseconds", snapshot.CoatBakeMicroseconds },
+            { "bakeSegmentMicroseconds", snapshot.CoatBakeSegmentMicroseconds },
+            { "bakeBinMicroseconds", snapshot.CoatBakeBinMicroseconds },
+            { "bakePackMicroseconds", snapshot.CoatBakePackMicroseconds },
+            { "bakeUploadMicroseconds", snapshot.CoatBakeUploadMicroseconds },
+            { "bakeBodyMicroseconds", snapshot.CoatBakeBodyMicroseconds },
             { "resolutionInForce", snapshot.CoatResolutionInForce },
             { "residentBytes", snapshot.CoatResidentBytes },
+            // #1594: rest bakes taken from another coat, the shared bakes
+            // resident, and the rebuild budget -- deferred rebuilds this frame,
+            // coats drawn from a deferred (stale) volume, and the queue.
+            { "sharedBakesReused", snapshot.CoatSharedBakesReused },
+            { "sharedVolumes", snapshot.CoatSharedVolumes },
+            { "rebuildBudget", snapshot.CoatRebuildBudget },
+            { "rebuildsDeferred", snapshot.CoatRebuildsDeferred },
+            { "rebuildsForced", snapshot.CoatRebuildsForced },
+            { "restWalksReused", snapshot.CoatRestWalksReused },
+            { "maxRestBakeStride", snapshot.CoatMaxRestBakeStride },
+            { "drawnFromDeferredVolume", snapshot.CoatDrawnFromDeferredVolume },
+            { "rebuildsWaiting", snapshot.CoatRebuildsWaiting },
+            { "oldestRebuildWaitFrames", snapshot.CoatOldestRebuildWaitFrames },
         };
 
         // What the coats cast into the scene's shadow maps. segmentsCast over

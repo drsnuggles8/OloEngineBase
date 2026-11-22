@@ -3,8 +3,9 @@
 > The rules from this guide, without the stories: [groom-coat-bake-cost.md](groom-coat-bake-cost.md).
 
 Read before touching `GroomRenderPass::{AcquireDrawnPose, AcquireCoatVolume, BakeCoatVolume}`,
-`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments}` or
-`CoatRebakePolicy::BakeSegmentsPerOccupiedVoxel`. Why a bound coat is baked from its drawn pose at
+`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments, CoatRebuildBudget}`,
+`GroomRenderPass::SharedCoatVolume`, `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`,
+`VulkanTexture3D::SetData` or `VulkanRendererAPI::RecordStagedImageUpload`. Why a bound coat is baked from its drawn pose at
 all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 ## The rules
@@ -25,18 +26,38 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    strand when the segment count divides by the stride). Each kept radius is scaled by
    segments / kept, the achieved fraction, so the expected fibre area in every voxel is unchanged.
 
-4. **The stride comes from the coat's own occupancy, measured by a full bake.** Rule 4 of the
-   static guide says a voxel holding too few fibres stores a sample, not an average. The first bake
-   of an entry is full; it records how many voxels it occupied, and the stride is the one that
-   leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. A shadow-LOD resolution change
-   re-measures with one full bake, so a coat first baked coarse at range is not held at that
-   stride up close.
+4. **The stride comes from the coat's own occupancy, measured by its first full bake.** Rule 4 of
+   the static guide says a voxel holding too few fibres stores a sample, not an average. The first
+   bake of an entry is full; it records how many voxels it occupied, and the stride is the one that
+   leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. At another resolution the
+   measurement is scaled, not re-measured (#1594): `EstimateCoatOccupiedVoxels` scales a finer grid
+   by the cube (each voxel splits into ratio^3, of which a coat occupies at most all: never fewer
+   voxels than the coat has, so a coat first baked coarse at range is not held at that stride up
+   close) and a coarser one by the square (a coat's surface: right for a shell or a pelt). Every
+   bake then teaches the measurement (`UpdateCoatOccupancy`): a full bake measures it, a subset
+   that counted more than the estimate raises it (a subset only undercounts -- a sparse coat on a
+   coarser grid, a first full bake in a compact pose, another coat's width scale), and a densely
+   sampled one replaces an estimate scaled from another grid -- never a measurement at its own grid,
+   which a subset only undercounts: adopting that shrinks the occupancy bake after bake, grows the
+   stride, and rebakes a still coat on a different subset every frame. "Densely sampled" is an
+   aggregate test, `kept >= BakeSegmentsPerOccupiedVoxel x occupied`, not a per-voxel one. A
+   subset at a new grid that neither passes it nor counts more than the estimate leaves the scaled
+   estimate in place, and later bakes there keep its stride until one does. The estimate may itself
+   ask for stride 1; that bake is full and measures. So usually only the first bake at a new grid
+   takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
+   and measured: a walking coat's forced rebakes after the cut put nearly every segment into the
+   grid, 100 ms a bake for five frames in a row. The pose takes the stride for the resolution it
+   will be baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
+   `AResolutionChangeEstimatesOccupancyOnTheSafeSide` and `ABakeCorrectsTheOccupancyEstimateBothWays`
+   pin both halves. It used to re-measure with one full bake, and live at the acceptance scene's
+   camera cut that full bake of a walking coat -- forced by its drift (rule 9) -- was 250 ms of
+   binning in one frame.
 
 5. **A ring slot may be rewritten in place only when no unsubmitted recording can read it.**
    `BakeCoatVolume` never rewrites a slot bound on this tick or the one before (a split-screen frame
    runs the pass once per camera). Older reads are in submitted frames: GL orders the upload after
-   them, and Vulkan's `SetData` is a one-shot on the same queue, whose barrier's first scope is
-   everything submitted before it. A slot of the wrong size gets a new texture, and the old one
+   them, and Vulkan's upload (rule 10) is a copy on the same queue whose barrier's first scope is
+   everything submitted and recorded before it. A slot of the wrong size gets a new texture, and the old one
    goes to the deferred deletion as before. Every slot is counted in `CoatBytes`.
 
 6. **Pack RGBA16F.** It halves the volume. It was RGBA32F only because the GL backend handed
@@ -51,6 +72,98 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    resolutions and every change forced a full rebake (#1646). The pass
    sets `DensityVolumeSettings::RadiusExtent` to kept/full;
    `GroomCoatShadowDeformed.ASubsetBakesOnTheFullPosesGrid` pins it.
+
+8. **One rest bake serves every coat that would bake it** (#1594). At the acceptance scene's
+   `population-dolly` cut about 44 foxes crossed a coat-LOD step in one frame and each rebuilt its
+   volume, 40-50 ms apiece, all of them the same bake: the same asset, build and step, and the same
+   body placed through a matrix that differs between animals only by float noise. A rest bake
+   reads nothing else (`SharedCoatVolumeKey`: the asset with its curve and point counts, so an
+   asset filled in place under one address is another bake, and its build, the width scale, the
+   resolution, the body's surface by content), so the first coat to need one bakes it and
+   publishes it as a `SharedCoatVolume`, and every later coat with an equal key and a body placed
+   within `kBodyPlacementToleranceVoxels` takes it (`CoatShadow.SharedBakesReused`). Per-coat
+   state that is not baked -- the pose, wetness, colour, the transform -- stays out of the key,
+   so it cannot leak through the bake. The key is the resolution, not the step: two steps that
+   give one resolution give one volume. A shared texture is never rewritten in place (another
+   coat may be reading it), its bytes are counted once by the bake (`CoatVolumeBytes`, the memory
+   report's "shared coat rest bakes" row with the per-coat charge it avoids), and it is given back
+   when the last coat holding it lets go. A pose bake is the coat's own pose and is never shared.
+
+9. **At most `CoatRebakePolicy::MaxRebuildsPerFrame` bakes run a frame** (#1594), default 2. It
+   is the backstop for a scene of mixed assets, where sharing does not help. **Why 2**, from the
+   acceptance scene's population-dolly cut (Release Vulkan editor, rules 8, 10 and 11 in force):
+   a deferrable bake there costs 7-40 ms (a herd rest bake at the subset; 110 ms only for a coat's
+   first walk), the frame around it ~33 ms, and the cut queues up to 16 bakes, which drain in 8
+   frames at 2 a frame (the log's "59 deferrals, at most 16 waiting at once", 8 frames). One a frame
+   would leave those coats on their old volume for 16 frames, half a second, to save about one
+   bake's 7-40 ms in each; four would put up to ~160 ms of bakes into a single frame, the hitch
+   the budget exists to cut. Drift rebakes are forced past it either way.
+   `GroomCoatShadow::CoatRebuildBudget` keeps the deferred coats in the order they were first
+   deferred and reserves the budget for the oldest at each frame start; a newcomer bakes only with
+   budget left after every unserved reservation, so a deferred coat is served within
+   ceil(position / budget) frames of being drawn, however many coats keep asking in front of it.
+   The budget is the physical frame's (`GroomFrameState::FrameIndex`): every view's pass of one
+   frame spends one budget, and a coat waiting in one view keeps its place while another renders
+   (keyed on the pass tick, two views alternated reservations and no waiting coat ever baked).
+   `kMaxPassesPerFrame` passes of an unchanged frame index start the next frame anyway, for a host
+   that never advances it. The ticket is the COAT's -- its entity and asset, not the geometry
+   cache key, which a card hand-over or a streamed level changes -- so a coat keeps its place when
+   its step or tier changes while it waits, and a herd mate that takes another's shared bake leaves
+   the queue. A grant that cannot bake (the resident-volume budget held it back) is refunded and
+   the coat rejoins the queue behind the coats already waiting (`Refund`; put back at the front, a
+   coat the resident budget kept refusing held the only reservation and starved the rest); a width scale that bakes nothing asks for none. A coat
+   drawing a shared bake with nothing to bake keeps its slot without admission. A second view's
+   pass adds only the frame's new deferrals to the logged wave.
+   Reservations are decided before the frame knows who will ask, so on the frame a camera cuts away
+   from waiting coats their reservations go unused and the coats now in view wait one frame more. A deferred coat draws the volume it already holds if it is the right kind (a
+   pose bake for a posed coat, a rest bake for one at rest), at that volume's resolution, and is
+   counted in `DrawnFromDeferredVolume`; one holding nothing falls back as
+   `RepresentationNotBuilt`. **A rebake due on drift is never deferred**: it is forced
+   (`RebuildsForced`), always runs and spends the budget the frame's other rebuilds would take.
+   The earlier objection to a budget -- "it needs the stale bound's prioritisation" -- was right:
+   with a plain budget of two, `TheMovingCoatShadowFollowsTheWalk`'s three walking coats drew
+   volumes 1.8 voxels behind their pose against the 0.5 bound and went stale on some frames. So
+   the budget defers only resolution and source changes (a camera cut's, an arrival's), whose
+   waiting volume is still within the drift bound; the drift policy already paces the rest. A
+   waiting pose bake's drift is measured even across a stride change
+   (`MaxCoatPoseDriftAcrossStrides`; a resolution change changes the stride under a waiting coat,
+   rule 4), so a coat that moves while it waits is forced too. Two subsets are compared on the
+   segments both keep: reported as infinite, every pose-baked coat whose stride changed at a cut was
+   forced past the budget. Deferrals, the queue and its oldest wait are in
+   `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
+   deferrals is logged when it starts and when it drains.
+
+10. **On Vulkan, a bake inside a frame records its upload on the frame's command buffer**
+    (#1594). `VulkanTexture3D::SetData` used a blocking one-shot submit, which executes after every
+    frame already submitted and makes the CPU wait for all of them. Live on the acceptance scene
+    (Release Vulkan editor, the GPU busy with another worktree's sweep) the population-dolly cut's
+    `Groom::CoatVolume` calls read 80-400 ms each with no child scope -- the bake's own stages are
+    a few to tens of milliseconds -- so the two bakes a frame the budget allowed still cost
+    300-470 ms. Inside a recording bracket the upload is now
+    `VulkanRendererAPI::RecordStagedImageUpload`: staging, a barrier into TRANSFER_DST from the
+    tracked layout, the copy, and a barrier back to the sampled layout with the tracker updated,
+    since a coat volume is bound through a persistent heap slot that carries no per-draw transition.
+    The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.
+    Inside one, an upload that cannot be recorded (the staging allocation failed) is refused with an
+    error, never handed to the one-shot: that would execute before the frame's command buffer, and
+    an earlier upload to the same image recorded in the frame would copy over it. `Texture3D::SetData`
+    returns whether it wrote, and a bake whose volume or body upload failed fails: the coat keeps
+    the volume it holds and its bake keys, and nothing is published to its herd.
+
+11. **A rest bake's walk is kept across resolutions and baked at the subset** (#1594). A rest bake
+    reads the coat at rest: with coat authoring the drawn strands' walk
+    (`BuildGroomRestCentrelines`), without it the asset sampled at the strand budget's stride.
+    Neither depends on the grid, yet every coat-LOD step change produced it again -- 35-85 ms of each
+    rest bake at the acceptance scene's camera cut, under no named scope -- and binned all of it at
+    the finer grid. `AcquireRestWalk` keeps it per source (the asset, its build and coat digest, the
+    streamed level, authored or sampled), without the width scale; at least
+    `kRestWalksAlwaysKept`, and past that as many as fit `kRestWalkBytes`, the least recently used
+    out first, all given back after `kCoatBodyIdleFrames` without a bake, and counted in
+    `CpuBakeInputBytes` and the memory report's CPU row. The walk's first bake is full and records
+    its occupancy; later bakes take rule 4's stride from it, scaled to their resolution, with rule
+    7's `RadiusExtent` so the subset keeps the full grid. A coat that shares a bake (rule 8) may take
+    one made at another stride: both are the same coat within rule 4's error.
+    `CoatShadow.RestWalksReused` and `MaxRestBakeStride` count it.
 
 ## Measured
 
@@ -81,14 +194,48 @@ bake's own 0.024:
 The error grows smoothly as the voxels empty, and the target of 8 keeps it under a tenth of the
 representation's own error.
 
+## Measured at the camera cut (#1594)
+
+The acceptance scene's `coats-closeup` -> `population-dolly` cut, Release Vulkan editor,
+`scripts/perf/acceptance-live.py --keep-series` with the CPU scope ring armed (1850 frames x 1024
+events) before each cut. Master and branch arms alternated, and only renderer-advanced frames are
+counted. A hitch is a frame in the first 120 after the cut over 300 ms or over twice the ring's
+p50; its owner is the scope with the most self time.
+
+At the final head, arms in branch, master, branch order, plus one branch arm after merging master:
+
+| | master | branch |
+|---|---|---|
+| worst frame after the cut (forward / forward+ / deferred) | 1058-1133 ms | 607-721 ms |
+| worst frame after the cut (hybrid) | 1293-1462 ms (earlier rounds) | 958-979 ms |
+| hitches owned by `Groom::CoatVolume` | every one (7-9 a cell) | none (0 of 58, all four paths, before and after merging master) |
+| hitches whose top self-time scope is under `Groom::CoatVolume` | every one | 3 of 58, by 1.5-5 ms |
+| largest single `CoatVolume` call | 297-301 ms | 78-116 ms |
+| population-dolly p95 (forward / forward+ / deferred) | 64.9-65.4 ms | 48.8-50.0 ms |
+
+The branch's worst frame is now `ShadowPass::CollectGrooms` (226-406 ms self) and `GroomPass`.
+The three frames topped by a scope under the coat volume each hold a forced drift rebake of a walking
+coat at the new, finer grid, once with a coat's first rest bake: `CoatBin` 117.9 ms against
+`CollectGrooms` 116.4 ms, and 183 ms against `GroomPass` 178 ms twice. Its first bake there
+takes rule 4's safe-side cube estimate, which keeps more segments than the coat needs until the bake
+corrects it. The coat-volume subtree's summed self time also exceeds the single top owner in the
+one or two frames that hold a coat's first rest walk and bake after the cut. Each rule's share, in
+the order they landed:
+
+- Sharing and the budget (rules 8, 9) cut the per-frame `CoatVolume` from 700-900 ms to
+  240-340 ms. Single calls were still 80-400 ms with no child scope: the Vulkan wait (rule 10).
+- The recorded upload (rule 10) cut the upload stage to 0.1-1.2 ms. A walking coat's full
+  re-measure then showed up as one 250 ms bake (rule 4), and each rest bake re-walked the coat for
+  35-85 ms (rule 11).
+- With rules 4 and 11, no hitch is the coat volume's, and after +8 the largest pose bake is
+  0.7-4 ms a frame.
+
 ## Not done, and why
 
 - **Multithreaded binning.** After the subset it is 4.8 ms for three coats. Order-independent
   binning is only deterministic with a fixed partition and a fixed merge order, which costs a
   per-partition volume; not worth it at this size.
-- **A per-frame rebake budget.** With every coat rebaking every frame for 11.5 ms total, a
-  budget that lets coats lag would buy little, and it needs the stale bound's prioritisation.
-- **Vulkan's blocking upload.** `VulkanTexture3D::SetData` waits on a fence per bake, so on
-  Vulkan each rebake drains the queue. The ring does not change that; a recorded, in-frame upload
-  would. Live on Vulkan (Release editor, `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms
-  a frame for three walking coats, so it is not worth that change yet.
+- **Vulkan's blocking upload** was left out at first: live on Vulkan (Release editor,
+  `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms a frame for three walking coats. It is
+  done now (rule 10): at the acceptance scene's camera cuts, with the GPU busy, single bakes read
+  80-400 ms with no child scope, the CPU waiting on the queue.

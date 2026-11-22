@@ -127,6 +127,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/Texture3D.h"
+#include <glm/gtc/packing.hpp>
+#include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "OloEngine/Renderer/PlanarReflection.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -15521,6 +15523,134 @@ TEST_F(VulkanPassSuite, GroomExpandGuidesKernelMatchesTheCpuExpansion)
     const Comparison tampered = Compare(run(budget, broken), ExpandOnCpu(budget), true);
     ASSERT_EQ(tampered.WrongSlots.size(), 1u) << "the broken weight was not caught, or it leaked into other slots";
     EXPECT_EQ(tampered.WrongSlots.front(), broken);
+}
+
+// =============================================================================
+// A 3D texture uploaded INSIDE a frame is a copy recorded on that frame's
+// command buffer (#1594), not a blocking one-shot: a coat volume baked mid-frame
+// took the one-shot every time, and each one waited for every frame in flight
+// to drain -- a GPU frame or more of CPU stall per bake at a camera cut.
+//
+// Contract: the texels land bit for bit (read back raw at the frame's tail),
+// the upload leaves the image in the sampled layout in the tracker straight
+// away (a volume is bound through a persistent heap slot, which no bind-time
+// transition reaches), the registry is seeded with that layout (the heap
+// resolver serves only a texture at rest in it), and no stub is hit.
+// =============================================================================
+TEST_F(VulkanPassSuite, ATexture3DUploadedInsideAFrameIsRecordedAndLandsInTheSampledLayout)
+{
+    VulkanFrameArena::Get().BeginFrame(0);
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    Texture3DSpecification spec;
+    spec.Width = 4u;
+    spec.Height = 3u;
+    spec.Depth = 5u;
+    spec.Format = Texture3DFormat::RGBA16F;
+    spec.Repeat = false;
+    Ref<Texture3D> volume = Texture3D::Create(spec);
+    ASSERT_TRUE(volume);
+    const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(volume->GetRHIHandle());
+    ASSERT_NE(native, 0u);
+    const auto image = reinterpret_cast<VkImage>(native);
+
+    // Quarter steps are exact in a half, so the readback compares bit for bit.
+    const sizet channels = static_cast<sizet>(spec.Width) * spec.Height * spec.Depth * 4u;
+    std::vector<u16> halves(channels);
+    for (sizet i = 0; i < channels; ++i)
+    {
+        halves[i] = glm::packHalf1x16(static_cast<f32>(i) * 0.25f - 30.0f);
+    }
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(channels * sizeof(u16));
+
+    VkBuffer readbackBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory readbackMemory = VK_NULL_HANDLE;
+    {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = bytes;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        ASSERT_EQ(vkCreateBuffer(m_Device->GetDevice(), &bufferInfo, nullptr, &readbackBuffer), VK_SUCCESS);
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(m_Device->GetDevice(), readbackBuffer, &requirements);
+        VkPhysicalDeviceMemoryProperties memoryProperties{};
+        vkGetPhysicalDeviceMemoryProperties(m_Device->GetPhysicalDevice(), &memoryProperties);
+        u32 memoryType = UINT32_MAX;
+        constexpr VkMemoryPropertyFlags kHostFlags =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        for (u32 i = 0; i < memoryProperties.memoryTypeCount; ++i)
+        {
+            if ((requirements.memoryTypeBits & (1u << i)) != 0u &&
+                (memoryProperties.memoryTypes[i].propertyFlags & kHostFlags) == kHostFlags)
+            {
+                memoryType = i;
+                break;
+            }
+        }
+        ASSERT_NE(memoryType, UINT32_MAX) << "no host-visible coherent memory type for the volume readback";
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = requirements.size;
+        allocInfo.memoryTypeIndex = memoryType;
+        ASSERT_EQ(vkAllocateMemory(m_Device->GetDevice(), &allocInfo, nullptr, &readbackMemory), VK_SUCCESS);
+        ASSERT_EQ(vkBindBufferMemory(m_Device->GetDevice(), readbackBuffer, readbackMemory, 0), VK_SUCCESS);
+    }
+
+    const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    const VkImageLayout sampled = VulkanDevice::Get()->GetSampledImageLayout();
+    VkImageLayout afterUpload = VK_IMAGE_LAYOUT_MAX_ENUM;
+    // No gtest fatals inside the recording bracket (a fatal there skips
+    // EndRecording and cascades): the lambda only records what it saw.
+    SubmitFrame(
+        [&]()
+        {
+            EXPECT_TRUE(volume->SetData(halves.data(), static_cast<u32>(bytes))) << "the in-frame upload was not recorded";
+            afterUpload = api.LayoutTracker().CurrentLayout(image, whole);
+
+            // Readback tail, through the engine barrier so the tracker stays true.
+            RHI::Barrier toCopy{};
+            toCopy.Resource = volume->GetRHIHandle();
+            toCopy.Before = RHI::Access::ShaderSampleRead;
+            toCopy.After = RHI::Access::TransferRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toCopy, 1 });
+            VkBufferImageCopy region{};
+            region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+            region.imageExtent = { spec.Width, spec.Height, spec.Depth };
+            vkCmdCopyImageToBuffer(m_Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readbackBuffer, 1, &region);
+            VkMemoryBarrier2 toHost{};
+            toHost.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            toHost.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            toHost.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toHost.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+            toHost.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &toHost;
+            vkCmdPipelineBarrier2(m_Cmd, &dep);
+        });
+
+    EXPECT_EQ(afterUpload, sampled) << "the in-frame upload did not leave the volume in the sampled layout";
+    const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+    ASSERT_NE(info, nullptr);
+    EXPECT_EQ(info->InitialLayout, sampled) << "the registry was not seeded with the sampled layout, so the heap "
+                                               "resolver refuses the volume";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
+
+    void* mapped = nullptr;
+    ASSERT_EQ(vkMapMemory(m_Device->GetDevice(), readbackMemory, 0, VK_WHOLE_SIZE, 0, &mapped), VK_SUCCESS);
+    const auto* readBack = static_cast<const u16*>(mapped);
+    sizet wrong = 0;
+    for (sizet i = 0; i < channels; ++i)
+    {
+        wrong += readBack[i] != halves[i] ? 1u : 0u;
+    }
+    vkUnmapMemory(m_Device->GetDevice(), readbackMemory);
+    vkDestroyBuffer(m_Device->GetDevice(), readbackBuffer, nullptr);
+    vkFreeMemory(m_Device->GetDevice(), readbackMemory, nullptr);
+    EXPECT_EQ(wrong, 0u) << "the recorded upload did not land the texels it was handed";
 }
 
 #endif // OLO_WITH_VULKAN

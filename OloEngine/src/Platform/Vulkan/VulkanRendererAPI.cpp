@@ -455,7 +455,7 @@ namespace OloEngine
     }
 
     bool VulkanRendererAPI::RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
-                                                    const void* data, u64 sizeBytes)
+                                                    const void* data, u64 sizeBytes, u32 depth, bool settleSampled)
     {
         auto& ctx = Ctx();
         if (ctx.Cmd == VK_NULL_HANDLE || image == VK_NULL_HANDLE || data == nullptr || sizeBytes == 0u)
@@ -505,12 +505,37 @@ namespace OloEngine
         VulkanAddressCommands::CmdCopyRangeToImage(
             ctx.Cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, sizeBytes, image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u }, { 0, 0, 0 },
-            { width, height, 1u });
+            { width, height, std::max(depth, 1u) });
 
-        // Left in TRANSFER_DST with the tracker in agreement; the bind-time
-        // visibility seam transitions to the sampled layout at the next sample.
-        // The frame consumes the copy at submit — the staging buffer takes
-        // deferred reclaim, never an inline destroy.
+        if (settleSampled)
+        {
+            // Back to the sampled layout HERE, not at a later bind (#1594): a
+            // volume is bound through a persistent heap slot, which carries no
+            // per-draw layout transition, so the image must already be readable.
+            const VkImageLayout sampled = device->GetSampledImageLayout();
+            VkImageMemoryBarrier2 toRead{};
+            toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            toRead.dstStageMask = kAllStages;
+            toRead.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+            toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toRead.newLayout = sampled;
+            toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toRead.image = image;
+            toRead.subresourceRange = range;
+            VkDependencyInfo toReadDep{};
+            toReadDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            toReadDep.imageMemoryBarrierCount = 1u;
+            toReadDep.pImageMemoryBarriers = &toRead;
+            ctx.RecordBarrier(toReadDep);
+            ctx.Tracker.SetLayout(image, range, sampled);
+        }
+        // Otherwise left in TRANSFER_DST with the tracker in agreement; the
+        // bind-time visibility seam transitions to the sampled layout at the
+        // next sample. The frame consumes the copy at submit — the staging
+        // buffer takes deferred reclaim, never an inline destroy.
         VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
         return true;
     }

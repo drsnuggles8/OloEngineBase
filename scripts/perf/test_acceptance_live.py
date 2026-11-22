@@ -10,8 +10,8 @@ acceptance = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(acceptance)
 
 
-def snapshot(index, *, parked=False, ticking=True, updates=None, generation=7):
-    return {"renderFrameNumber": index, "renderFrameGeneration": generation, "liveness": {"frameIndex": index if updates is None else updates, "iconified": parked, "ticking": ticking}, "fps": 3}
+def snapshot(index, *, parked=False, ticking=True, updates=None, generation=7, unready=False):
+    return {"renderFrameNumber": index, "renderFrameGeneration": generation, "liveness": {"frameIndex": index if updates is None else updates, "iconified": parked, "ticking": ticking, "captureUnready": unready}, "fps": 3}
 
 
 class CameraWindowTest(unittest.TestCase):
@@ -54,6 +54,19 @@ class CameraWindowTest(unittest.TestCase):
         with patch.object(acceptance.time, "monotonic", side_effect=[0, 301]):
             with self.assertRaisesRegex(RuntimeError, "did not complete"):
                 acceptance.finish_frame_window(client, 100, 120, 100, 7)
+
+    def test_a_throttle_skipped_tick_is_retried_not_fatal(self):
+        # #1594: captureUnready is set on every edit-mode tick the render
+        # throttle skipped; one probe landing there aborted whole live arms.
+        client = self.client([snapshot(220, unready=True), snapshot(221)])
+        with patch.object(acceptance.time, "sleep"):
+            self.assertEqual(acceptance.finish_frame_window(client, 100, 120, 100, 7), 221)
+
+    def test_an_editor_unready_for_too_long_is_rejected(self):
+        client = self.client([snapshot(220, unready=True)] * 3)
+        with patch.object(acceptance.time, "sleep"), patch.object(acceptance.time, "monotonic", side_effect=[0, 1, 10]):
+            with self.assertRaisesRegex(RuntimeError, "unready"):
+                acceptance.live_frame_probe(client)
 
     def test_parked_editor_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "parked"):

@@ -544,6 +544,75 @@ namespace OloEngine::GroomCoatShadow
         return MaxCoatPoseDriftFrom(bakedMidpoints, SegmentPose{ pose });
     }
 
+    f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
+                                      std::span<const CoatSegment> pose, u32 poseStride)
+    {
+        bakedStride = std::max(bakedStride, 1u);
+        poseStride = std::max(poseStride, 1u);
+        if (bakedStride == poseStride)
+        {
+            return MaxCoatPoseDrift(bakedMidpoints, pose);
+        }
+        if (bakedStride == 1u)
+        {
+            // The bake is the full pose: compare the pose's subset with the
+            // bake's segments that subset keeps.
+            TArray<glm::vec3> kept;
+            kept.Reserve(static_cast<i32>(bakedMidpoints.size() / poseStride + 1u));
+            for (sizet s = 0; s < bakedMidpoints.size(); ++s)
+            {
+                if (CoatBakeKeepsSegment(static_cast<u32>(s), poseStride))
+                {
+                    kept.Add(bakedMidpoints[s]);
+                }
+            }
+            return MaxCoatPoseDrift({ kept.GetData(), static_cast<sizet>(kept.Num()) }, pose);
+        }
+        if (poseStride == 1u)
+        {
+            // The pose is full: compare the bake's subset with the pose's
+            // segments it kept.
+            TArray<CoatSegment> kept;
+            kept.Reserve(static_cast<i32>(pose.size() / bakedStride + 1u));
+            for (sizet s = 0; s < pose.size(); ++s)
+            {
+                if (CoatBakeKeepsSegment(static_cast<u32>(s), bakedStride))
+                {
+                    kept.Add(pose[s]);
+                }
+            }
+            return MaxCoatPoseDrift(bakedMidpoints,
+                                    std::span<const CoatSegment>{ kept.GetData(), static_cast<sizet>(kept.Num()) });
+        }
+        // Two different subsets: both keep the FULL pose's segments in order,
+        // so walking the full indices pairs the segments both keep. Measured
+        // rather than reported as infinite: an unmeasurable drift forced every
+        // pose-baked coat whose stride changed at a camera cut past the rebuild
+        // budget, and with drift rebakes off marked it stale.
+        TArray<glm::vec3> pairedBaked;
+        TArray<CoatSegment> pairedPose;
+        sizet baked = 0;
+        sizet posed = 0;
+        for (u32 s = 0; baked < bakedMidpoints.size() && posed < pose.size() && s < std::numeric_limits<u32>::max(); ++s)
+        {
+            const bool inBake = CoatBakeKeepsSegment(s, bakedStride);
+            const bool inPose = CoatBakeKeepsSegment(s, poseStride);
+            if (inBake && inPose)
+            {
+                pairedBaked.Add(bakedMidpoints[baked]);
+                pairedPose.Add(pose[posed]);
+            }
+            baked += inBake ? 1u : 0u;
+            posed += inPose ? 1u : 0u;
+        }
+        if (pairedBaked.IsEmpty())
+        {
+            return std::numeric_limits<f32>::infinity();
+        }
+        return MaxCoatPoseDrift({ pairedBaked.GetData(), static_cast<sizet>(pairedBaked.Num()) },
+                                std::span<const CoatSegment>{ pairedPose.GetData(), static_cast<sizet>(pairedPose.Num()) });
+    }
+
     void CoatPoseFromStrandVertices(std::span<const GroomStrandVertex> vertices, std::vector<CoatSegment>& outPose)
     {
         outPose.clear();
@@ -617,6 +686,50 @@ namespace OloEngine::GroomCoatShadow
         // Bounded so a pathological count cannot wrap the u32; a stride this
         // large keeps nothing on any coat that has a volume at all.
         return static_cast<u32>(std::clamp(stride, 1.0, 65536.0));
+    }
+
+    u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept
+    {
+        if (measured == 0u || measuredResolution == 0u || resolution == 0u)
+        {
+            return 0u;
+        }
+        if (resolution == measuredResolution)
+        {
+            return measured;
+        }
+        // A finer grid by the cube (each voxel splits into ratio^3, of which a
+        // coat occupies at most all), a coarser one by the square (a coat's
+        // surface; a sparser coat is corrected by UpdateCoatOccupancy).
+        const f64 ratio = static_cast<f64>(resolution) / static_cast<f64>(measuredResolution);
+        const f64 scaled = static_cast<f64>(measured) * (ratio > 1.0 ? ratio * ratio * ratio : ratio * ratio);
+        return static_cast<u32>(std::clamp(std::ceil(scaled), 1.0, static_cast<f64>(std::numeric_limits<u32>::max())));
+    }
+
+    CoatOccupancy UpdateCoatOccupancy(CoatOccupancy measured, u32 observed, u32 resolution, u32 stride,
+                                      u64 keptSegments, f32 segmentsPerOccupiedVoxel) noexcept
+    {
+        if (observed == 0u || resolution == 0u)
+        {
+            return measured;
+        }
+        const u32 estimate = EstimateCoatOccupiedVoxels(measured.Voxels, measured.Resolution, resolution);
+        const bool full = stride <= 1u;
+        const bool undercounted = observed > estimate;
+        const bool denselySampled = std::isfinite(segmentsPerOccupiedVoxel) && segmentsPerOccupiedVoxel > 0.0f &&
+                                    static_cast<f64>(keptSegments) >=
+                                        static_cast<f64>(segmentsPerOccupiedVoxel) * static_cast<f64>(observed);
+        // A dense count replaces only an estimate SCALED FROM ANOTHER GRID: at
+        // the grid it was measured on, a subset's count is the measurement
+        // undercounted, and adopting it shrank the occupancy, grew the stride,
+        // rebaked a different subset and shrank it again -- a coat whose volume
+        // changed every frame while nothing moved.
+        const bool scaled = measured.Resolution != resolution;
+        if (measured.Voxels == 0u || full || undercounted || (scaled && denselySampled))
+        {
+            return { observed, resolution };
+        }
+        return measured;
     }
 
     bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept

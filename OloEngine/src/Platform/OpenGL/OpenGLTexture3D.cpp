@@ -153,14 +153,14 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
     }
 
-    void OpenGLTexture3D::SetData(const void* data, u32 size)
+    bool OpenGLTexture3D::SetData(const void* data, u32 size)
     {
         OLO_PROFILE_FUNCTION();
 
         if (m_RendererID == 0)
         {
             OLO_CORE_ERROR("OpenGLTexture3D::SetData: texture failed to create, dropping upload");
-            return;
+            return false;
         }
 
         const sizet bytesPerTexel = Texture3DFormatBytesPerPixel(m_Specification.Format);
@@ -169,7 +169,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("OpenGLTexture3D::SetData: got {} bytes, expected {} ({}x{}x{}) — dropping the upload",
                            size, expected, m_Width, m_Height, m_Depth);
-            return;
+            return false;
         }
 
         GLenum clientFormat = GL_RGBA;
@@ -179,6 +179,7 @@ namespace OloEngine
         glTextureSubImage3D(m_RendererID, 0, 0, 0, 0,
                             static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), static_cast<GLsizei>(m_Depth),
                             clientFormat, clientType, data);
+        return true;
     }
 
     // (The Texture3D::Create factory moved to Renderer/Texture3D.cpp — the

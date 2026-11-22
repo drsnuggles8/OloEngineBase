@@ -1259,17 +1259,37 @@ namespace OloEngine::Tests
             EXPECT_GT(stats.GuidePointsSimulated, 0u);
             EXPECT_GT(stats.Memory.DeformBufferBytes, 0u);
         };
-        const auto waitForDetail = [&]()
+        // Every wait lets the worker finish the loads already queued WITHOUT
+        // ticking, then ticks a bounded number of frames. A wait that ticked
+        // until the load landed advanced the body pose and the simulation by
+        // however many frames the load took in wall time, so the Detail,
+        // Pressure and Reload captures changed from run to run and from
+        // binary to binary (#1594's sweep: a different phase differed each
+        // round while Pending, captured before any wait, never did).
+        const auto drainLoads = [&]()
         {
             const auto deadline = std::chrono::steady_clock::now() + kLoadHookFailAfter;
             while (std::chrono::steady_clock::now() < deadline)
             {
+                const auto loads = budget.GetStats();
+                if (loads.PendingLoads <= loads.CompletedUnretrievedLoads)
+                    return true;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            return false;
+        };
+        constexpr u32 kMaxFramesToLand = 64;
+        const auto waitForDetail = [&]()
+        {
+            for (u32 frames = 0; frames < kMaxFramesToLand; ++frames)
+            {
+                if (!drainLoads())
+                    return false;
                 tick();
                 if (HasFatalFailure())
                     return false;
                 if (pass->GetStreamingStats().DetailDraws == 1u)
                     return true;
-                std::this_thread::yield();
             }
             return false;
         };
@@ -1321,15 +1341,14 @@ namespace OloEngine::Tests
         const u64 entityLimitedBytes = fullCharge - detail.Memory.DeformBufferBytes / 2u;
         streaming.RepresentationResidentMegabytes = static_cast<f32>(static_cast<f64>(entityLimitedBytes) / 1048576.0);
         bool ready = false;
-        const auto deadline = std::chrono::steady_clock::now() + kLoadHookFailAfter;
-        do
+        for (u32 frames = 0; frames < kMaxFramesToLand && !ready && !HasFatalFailure(); ++frames)
         {
             tick();
+            ASSERT_TRUE(drainLoads()) << "the reload never finished on its worker";
             const auto stats = budget.GetStats();
             ready = pass->GetStreamingStats().DetailDraws != 0u ||
                     (pass->GetStreamingStats().Pending == 0u && stats.HeldCompletedLoads != 0u);
-            std::this_thread::yield();
-        } while (!ready && !HasFatalFailure() && std::chrono::steady_clock::now() < deadline);
+        }
         ASSERT_TRUE(ready);
         EXPECT_EQ(pass->GetStreamingStats().DetailDraws, 0u) << "entity backing escaped admission";
         EXPECT_EQ(pass->GetStreamingStats().FallbackDraws, 1u);

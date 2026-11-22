@@ -49,6 +49,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/CoatRebuildBudget.h"
 #include "OloEngine/Groom/GroomCasterPose.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
@@ -833,6 +834,72 @@ namespace OloEngine
             u64 BytesCountedTick = 0;
         };
 
+        /// EVERYTHING A REST BAKE READS (#1594), so two coats with equal keys bake
+        /// the same volume: the asset and its build (CacheKey's fields), the
+        /// width scale, the resolution and the body's surface by content. The
+        /// body's placement is matched beside the key, within
+        /// GroomCoatShadow::kBodyPlacementToleranceVoxels, as the body bakes are
+        /// (#1646): every fox's body-to-coat matrix is one matrix evaluated
+        /// through its own world transform. Field by field, never hashed alone,
+        /// so a collision cannot hand one coat another's volume.
+        struct SharedCoatVolumeKey
+        {
+            u64 Handle = 0;
+            const GroomAsset* Groom = nullptr;
+            /// The asset's curves and points, as RestWalk keys them: an asset
+            /// filled in place under the same address is another bake.
+            u32 CurveCount = 0;
+            u32 PointCount = 0;
+            u32 MaxStrands = 0;
+            u32 MaxSegments = 0;
+            u32 MaxWidthCompensationBits = 0;
+            u32 WidthScaleBits = 0;
+            u64 CoatDigest = 0;
+            u64 StreamingKey = 0;
+            u64 Binding = 0;
+            u32 Representation = 0;
+            u32 Resolution = 0;
+            /// The segments-per-voxel floor the rest bake's subset was taken at.
+            u32 PerVoxelBits = 0;
+            u64 BodySurfaceHash = 0;
+            u32 BodyVertexCount = 0;
+            u32 BodyIndexCount = 0;
+            bool GuidesOnly = false;
+            bool HasBody = false;
+
+            [[nodiscard]] auto operator==(const SharedCoatVolumeKey&) const -> bool = default;
+        };
+
+        /// ONE REST BAKE SHARED BY EVERY COAT THAT WOULD BAKE IT (#1594): the
+        /// herd case, the move #1646 made for body bakes. Written once and never
+        /// rewritten in place, since other coats may be reading it; held by the
+        /// entries that draw it and by the pass's list, and given back when no
+        /// entry holds it. Its bytes are in m_CacheBytes once, here.
+        struct SharedCoatVolume : public RefCounted
+        {
+            SharedCoatVolumeKey Key;
+            /// The asset the key names by address, held so the address cannot
+            /// be reused by another asset while this bake can still match it.
+            Ref<GroomAsset> Asset;
+            glm::mat4 SurfaceToGroom{ 1.0f };
+            glm::vec3 SurfaceLo{ 0.0f };
+            glm::vec3 SurfaceHi{ 0.0f };
+            Ref<Texture3D> Volume;
+            Ref<Texture3D> Body;
+            glm::vec3 BoundsMin{ 0.0f };
+            glm::vec3 BoundsMax{ 0.0f };
+            f32 VoxelSize = 0.0f;
+            u32 BodyVoxels = 0;
+            u64 Bytes = 0;
+            u64 BuiltTick = 0;
+            /// The cache tick a draw last used it, the tick its bytes were last
+            /// counted in the stats, and the frame a draw last bound it.
+            u64 UsedTick = 0;
+            u64 BytesCountedTick = 0;
+            u32 LastBoundFrame = 0;
+            bool Bound = false;
+        };
+
         // One groom's GPU geometry, keyed by asset handle.
         /// Coat volumes kept per coat (#1445): enough that a coat rebaking every
         /// frame always finds a slot no recording still to be submitted reads.
@@ -896,6 +963,11 @@ namespace OloEngine
             /// The width scale the bake was made at. It multiplies the cooked
             /// diameters and therefore the density stored, so it invalidates.
             f32 CoatWidthScale = 0.0f;
+            /// The segments-per-voxel floor a REST bake took its subset at
+            /// (CoatRebakePolicy::BakeSegmentsPerOccupiedVoxel): a pose bake's
+            /// stride follows the policy every frame, a rest bake's only when it
+            /// is made, so changing the policy invalidates it.
+            u32 CoatBakedPerVoxelBits = 0;
             /// The coat authoring (GroomCoatDigest) an un-posed bake was made
             /// with (#1533): a rest or static volume is built from the drawn walk,
             /// which the coat shapes, so re-authoring the coat rebuilds it.
@@ -988,6 +1060,11 @@ namespace OloEngine
             /// The stride the RESIDENT volume was baked at. A different stride
             /// is a different segment set, so it is a rebuild, never drift.
             u32 CoatBakedStride = 1;
+            /// The FULL pose's segment count the pose bake was taken from: a
+            /// subset is only comparable with another subset of the same full
+            /// pose (MaxCoatPoseDriftAcrossStrides), so a topology change is a
+            /// rebuild, never a drift measured across it.
+            sizet CoatBakedFullSegments = 0;
             /// The GPU path's subset of the rest stream's pose segments at
             /// CoatPoseSubsetStride, radii already scaled. Rebuilt when the
             /// stride or the stream changes; empty at a stride of 1.
@@ -1015,6 +1092,17 @@ namespace OloEngine
             };
             std::array<CoatVolumeSlot, kCoatVolumeRing> CoatRing;
             u32 CoatSlot = 0;
+            /// The shared rest bake this coat draws (#1594), or null. While set,
+            /// CoatVolume and CoatBody are its textures, the ring is empty and
+            /// CoatBytes is zero: the bytes are the shared bake's, counted once.
+            Ref<SharedCoatVolume> CoatShared;
+            /// The rest body's content hash (SharedCoatVolumeKey::
+            /// BodySurfaceHash), kept for the surface it was taken from: a coat
+            /// waiting for its bake asks for its key every frame, and hashing
+            /// the whole body each time was tens of thousands of vertices a
+            /// coat a frame.
+            u64 CoatBodyHash = 0;
+            u64 CoatBodyHashSource = 0;
 
             // ── GPU deformation (#1427) ─────────────────────────────
 
@@ -1269,7 +1357,20 @@ namespace OloEngine
         /// produced nothing.
         /// Sets CoatBakeStride from the current rebake policy and the coat's
         /// measured occupancy (#1445).
-        void RefreshCoatBakeStride(CacheEntry& entry) const noexcept;
+        void RefreshCoatBakeStride(CacheEntry& entry, u32 resolution) const noexcept;
+
+        /// The coat-LOD step and resolution this frame gives `request`'s coat,
+        /// with the hysteresis state it would leave: computed, not applied, so
+        /// the drawn pose can take the stride for the resolution AcquireCoatVolume
+        /// will then bake at (#1594).
+        struct CoatLodChoice
+        {
+            u32 Requested = 0;
+            u32 StableFrames = 0;
+            u32 LodStep = 0;
+            u32 Resolution = 0;
+        };
+        [[nodiscard]] CoatLodChoice ChooseCoatLod(const GroomStrandRequest& request, const CacheEntry& entry) const;
 
         /// GroomCardFibreByGroup for this request's LOD level, measured once
         /// per level and shared by every entry and stream that draws it.
@@ -1344,6 +1445,92 @@ namespace OloEngine
         static constexpr u64 kCoatBodyIdleFrames = 3600;
         std::vector<CoatBodyBake> m_CoatBodyBakes;
         u64 m_CoatBodyUsedTick = 0;
+
+        /// The shared rest bakes (#1594), a handful at a time: a herd's coats
+        /// at each resolution they draw at. See SharedCoatVolume.
+        TArray<Ref<SharedCoatVolume>> m_SharedCoatVolumes;
+        /// The key a rest bake of `request` at `resolution` would have, over
+        /// `body` (null for a coat with no bound surface). The body's hash is
+        /// kept on `entry` for the surface it came from.
+        [[nodiscard]] SharedCoatVolumeKey MakeSharedCoatVolumeKey(const GroomStrandRequest& request, CacheEntry& entry,
+                                                                  u32 resolution, const GroomDeformationInputs* body) const;
+        /// The shared bake with `key`, placed within the body tolerance of
+        /// `body`; null when there is none.
+        [[nodiscard]] Ref<SharedCoatVolume> FindSharedCoatVolume(const SharedCoatVolumeKey& key,
+                                                                 const GroomDeformationInputs* body) const;
+        /// Points `entry` at `shared`, giving back the volume it held of its own
+        /// (and its slot in `residentVolumes`).
+        void AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared, u32& residentVolumes);
+        /// Moves the volume `entry` has just baked into a new shared bake under
+        /// `key`, and attaches `entry` to it. False, publishing nothing, when
+        /// the body's placement cannot be matched (a surface with no bounds).
+        bool PublishSharedCoatVolume(CacheEntry& entry, const Ref<GroomAsset>& asset, const SharedCoatVolumeKey& key,
+                                     const GroomDeformationInputs* body);
+        /// Drops every shared bake no entry holds, and its bytes.
+        void PruneSharedCoatVolumes();
+
+        /// A COAT'S REST WALK, KEPT ACROSS RESOLUTIONS (#1594). A rest bake
+        /// walks the coat's drawn strands at rest (BuildGroomRestCentrelines),
+        /// which no resolution changes, yet every coat-LOD step change walked
+        /// it again: 35-85 ms a bake at a camera cut. Kept per walk -- the
+        /// asset, its build and coat digest, the streamed level -- as segments
+        /// without the width scale, with the occupancy the walk's first full
+        /// bake measured, from which later bakes take their subset (the pose
+        /// bake's rule 4). At least kRestWalksAlwaysKept, and past that as many
+        /// as fit kRestWalkBytes, the least recently used out first; all given
+        /// back after kCoatBodyIdleFrames without a bake.
+        struct RestWalk : public RefCounted
+        {
+            u64 Handle = 0;
+            Ref<GroomAsset> Asset;
+            u32 MaxStrands = 0;
+            u32 MaxSegments = 0;
+            u32 MaxWidthCompensationBits = 0;
+            u64 CoatDigest = 0;
+            u64 StreamingKey = 0;
+            bool GuidesOnly = false;
+            /// The drawn strands' walk (coat authoring) or the asset sampled at
+            /// the strand budget's stride (none): the two sources of a rest bake.
+            bool Authored = false;
+            /// The asset's curves and points when it was walked: an asset filled
+            /// in place under the same address (a streamed level arriving) is
+            /// another walk.
+            u32 CurveCount = 0;
+            u32 PointCount = 0;
+            TArray<GroomCoatShadow::CoatSegment> Segments;
+            u32 OccupiedVoxels = 0;
+            u32 OccupancyResolution = 0;
+            u64 UsedTick = 0;
+            [[nodiscard]] u64 Bytes() const noexcept
+            {
+                return static_cast<u64>(Segments.GetAllocatedSize());
+            }
+        };
+        static constexpr i32 kRestWalksAlwaysKept = 2;
+        static constexpr u64 kRestWalkBytes = 64ull * 1024ull * 1024ull;
+        TArray<Ref<RestWalk>> m_RestWalks;
+        u64 m_RestWalkUsedTick = 0;
+        /// The rest walk `request` draws, found or walked.
+        RestWalk& AcquireRestWalk(const GroomStrandRequest& request, const GroomCoatContext& coat);
+        /// Drops every walk whose asset only the walk still holds.
+        void PruneRestWalks();
+
+        /// THE PER-FRAME REBUILD BUDGET (#1594): CoatRebakePolicy::
+        /// MaxRebuildsPerFrame bakes a frame, the rest deferred in order. Its
+        /// frame is GroomFrameState::FrameIndex, which every view of one frame
+        /// shares, with the pass tick as its guard against a host that never
+        /// advances it (CoatRebuildBudget::kMaxPassesPerFrame).
+        GroomCoatShadow::CoatRebuildBudget m_CoatRebuildBudget;
+        /// The deferral counts into the stats, and the log line when a wave of
+        /// deferred rebuilds starts and when it has drained.
+        void ReportCoatRebuildBudget();
+        bool m_CoatDeferralWave = false;
+        u64 m_CoatDeferralWaveStartTick = 0;
+        u32 m_CoatDeferralWavePeak = 0;
+        u64 m_CoatDeferralWaveTotal = 0;
+        /// The frame's deferrals already added to the wave: every view's pass
+        /// reports the frame's running count, so only what is new is added.
+        u32 m_CoatDeferralsReported = 0;
         /// THE SCRATCH IS GIVEN BACK WHEN IT IDLES (#1533). Each group keeps the
         /// capacity of the largest job it served, so a coat that rebakes or
         /// re-poses every frame never reallocates; a coat that did its job once

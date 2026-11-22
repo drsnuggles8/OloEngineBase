@@ -161,8 +161,9 @@ namespace OloEngine
                     ringDemand += *bytes;
             }
             // The body's texture (#1533) is bound with the coat's slot, so it
-            // is in demand exactly when that slot is.
-            if (entry.CoatBody)
+            // is in demand exactly when that slot is. A shared rest bake's body
+            // (#1594) is the bake's, counted once in its own row below.
+            if (entry.CoatBody && !entry.CoatShared)
             {
                 const auto bytes = Texture3DBytes(*entry.CoatBody);
                 if (!bytes)
@@ -197,6 +198,44 @@ namespace OloEngine
             row.ActiveDemandBytes = entryDemand;
             rows.Add(std::move(row));
         }
+        // --- Shared coat rest bakes (#1594): counted once ------------------------------
+        {
+            u64 capacity = 0;
+            u64 demand = 0;
+            u64 perCoatChargeAvoided = 0;
+            bool complete = true;
+            for (const Ref<SharedCoatVolume>& shared : m_SharedCoatVolumes)
+            {
+                // The bake's own bytes, as m_CacheBytes counts them: its volume
+                // and the body it marked.
+                const auto volumeBytes = shared->Volume ? Texture3DBytes(*shared->Volume) : std::optional<u64>{ 0u };
+                const auto bodyBytes = shared->Body ? Texture3DBytes(*shared->Body) : std::optional<u64>{ 0u };
+                if (!volumeBytes || !bodyBytes)
+                {
+                    complete = false;
+                    continue;
+                }
+                const u64 bytes = *volumeBytes + *bodyBytes;
+                capacity += bytes;
+                if (shared->Bound && shared->LastBoundFrame == frame)
+                    demand += bytes;
+                // The list holds one reference; every other is a coat drawing it.
+                const u64 holders = shared->GetRefCount() > 1 ? shared->GetRefCount() - 1 : 0;
+                if (holders > 1)
+                    perCoatChargeAvoided += (holders - 1) * bytes;
+            }
+            MemoryCapacityRow row;
+            row.Owner = "GroomRenderPass";
+            row.Category = "Groom shared coat rest bakes (once per bake)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            row.CapacityBytes = capacity;
+            row.ActiveDemandBytes = demand;
+            row.AliasSavingsBytes = perCoatChargeAvoided;
+            if (!complete)
+                row.UnknownReason = "a shared coat volume's format has no known size; capacity undercounts";
+            rows.Add(std::move(row));
+        }
         {
             MemoryCapacityRow row;
             row.Owner = "GroomRenderPass";
@@ -225,6 +264,8 @@ namespace OloEngine
             cpuBytes += VectorBytes(bake.Body);
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
+        for (const Ref<RestWalk>& walk : m_RestWalks)
+            cpuBytes += walk->Bytes();
         {
             MemoryCapacityRow row;
             row.Owner = "GroomRenderPass";

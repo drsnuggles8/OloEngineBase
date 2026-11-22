@@ -7028,8 +7028,23 @@ namespace OloEngine::MCP
             snapshot.CoatDeformedRebakes = coat.DeformedRebakes;
             snapshot.CoatMaxDriftVoxels = coat.MaxDriftVoxels;
             snapshot.CoatBakeMicroseconds = coat.BakeMicroseconds;
+            snapshot.CoatBakeSegmentMicroseconds = coat.BakeSegmentMicroseconds;
+            snapshot.CoatBakeBinMicroseconds = coat.BakeBinMicroseconds;
+            snapshot.CoatBakePackMicroseconds = coat.BakePackMicroseconds;
+            snapshot.CoatBakeUploadMicroseconds = coat.BakeUploadMicroseconds;
+            snapshot.CoatBakeBodyMicroseconds = coat.BakeBodyMicroseconds;
             snapshot.CoatResolutionInForce = coat.ResolutionInForce;
             snapshot.CoatResidentBytes = coat.ResidentBytes;
+            snapshot.CoatSharedBakesReused = coat.SharedBakesReused;
+            snapshot.CoatSharedVolumes = coat.SharedVolumes;
+            snapshot.CoatRebuildBudget = coat.RebuildBudget;
+            snapshot.CoatRebuildsDeferred = coat.RebuildsDeferred;
+            snapshot.CoatRebuildsForced = coat.RebuildsForced;
+            snapshot.CoatRestWalksReused = coat.RestWalksReused;
+            snapshot.CoatMaxRestBakeStride = coat.MaxRestBakeStride;
+            snapshot.CoatDrawnFromDeferredVolume = coat.DrawnFromDeferredVolume;
+            snapshot.CoatRebuildsWaiting = coat.RebuildsWaiting;
+            snapshot.CoatOldestRebuildWaitFrames = coat.OldestRebuildWaitFrames;
 
             const GroomShadowCasterStats& sceneShadow = groom.SceneShadow;
             snapshot.GroomsAskedToCast = sceneShadow.GroomsAskedToCast;
@@ -9945,6 +9960,21 @@ namespace OloEngine::MCP
                                             .Prop("deformedRebakes", Schema::Int().Min(0))
                                             .Prop("maxDriftVoxels", Schema::Number())
                                             .Prop("bakeMicroseconds", Schema::Int().Min(0))
+                                            .Prop("bakeSegmentMicroseconds", Schema::Int().Min(0))
+                                            .Prop("bakeBinMicroseconds", Schema::Int().Min(0))
+                                            .Prop("bakePackMicroseconds", Schema::Int().Min(0))
+                                            .Prop("bakeUploadMicroseconds", Schema::Int().Min(0))
+                                            .Prop("bakeBodyMicroseconds", Schema::Int().Min(0))
+                                            .Prop("sharedBakesReused", Schema::Int().Min(0))
+                                            .Prop("sharedVolumes", Schema::Int().Min(0))
+                                            .Prop("rebuildBudget", Schema::Int().Min(0))
+                                            .Prop("rebuildsDeferred", Schema::Int().Min(0))
+                                            .Prop("rebuildsForced", Schema::Int().Min(0))
+                                            .Prop("restWalksReused", Schema::Int().Min(0))
+                                            .Prop("maxRestBakeStride", Schema::Int().Min(0))
+                                            .Prop("drawnFromDeferredVolume", Schema::Int().Min(0))
+                                            .Prop("rebuildsWaiting", Schema::Int().Min(0))
+                                            .Prop("oldestRebuildWaitFrames", Schema::Int().Min(0))
                                             .Prop("resolutionInForce", Schema::Int().Min(0))
                                             .Prop("residentBytes", Schema::Int().Min(0)))
                     .Prop("sceneShadow", Schema::Object()

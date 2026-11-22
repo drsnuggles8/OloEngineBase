@@ -477,6 +477,39 @@ namespace OloEngine
         /// into the same grid (GroomRenderPass's body bakes, #1559), not marked again.
         u32 BodyBakesReused = 0;
 
+        // ── Shared rest bakes and the rebuild budget (#1594) ────────────
+
+        /// Coats this frame that took a rest bake another coat had already
+        /// made (the same asset, build, resolution and body), instead of
+        /// baking their own. Not in Rebuilds.
+        u32 SharedBakesReused = 0;
+        /// Shared rest bakes resident at the end of the frame.
+        u32 SharedVolumes = 0;
+        /// CoatRebakePolicy::MaxRebuildsPerFrame in force; zero is no limit.
+        u32 RebuildBudget = 0;
+        /// Rebuilds the budget deferred this frame. Each such coat drew the
+        /// volume it already held (DrawnFromDeferredVolume) or, holding none,
+        /// fell back as RepresentationNotBuilt.
+        u32 RebuildsDeferred = 0;
+        /// Rebakes due on drift this frame, which the budget never defers (a
+        /// deferred one is a shadow sliding off a moving coat) and which spend
+        /// it; the only bakes that take a frame past RebuildBudget.
+        u32 RebuildsForced = 0;
+        /// Coats shadowed this frame by a volume whose rebuild is deferred: a
+        /// stale volume, counted so it is never silent.
+        u32 DrawnFromDeferredVolume = 0;
+        /// Deferred rebuilds still queued, and how many frames the oldest has
+        /// waited. A number that climbs without bound is starvation.
+        u32 RebuildsWaiting = 0;
+        u32 OldestRebuildWaitFrames = 0;
+        /// Rest bakes this frame that took a kept walk (one an earlier bake of
+        /// the same coat made, at this resolution or another) instead of
+        /// walking the coat again; and
+        /// the largest subset stride a rest bake took this frame (0 when none
+        /// baked).
+        u32 RestWalksReused = 0;
+        u32 MaxRestBakeStride = 0;
+
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
             ByReason[static_cast<sizet>(decision.Reason)] += 1u;
@@ -536,7 +569,14 @@ namespace OloEngine
                    BakeBinMicroseconds == other.BakeBinMicroseconds && BakePackMicroseconds == other.BakePackMicroseconds &&
                    BakeUploadMicroseconds == other.BakeUploadMicroseconds && DriftMicroseconds == other.DriftMicroseconds &&
                    MaxBakeStride == other.MaxBakeStride && BodyVoxelsInForce == other.BodyVoxelsInForce &&
-                   BakeBodyMicroseconds == other.BakeBodyMicroseconds && BodyBakesReused == other.BodyBakesReused;
+                   BakeBodyMicroseconds == other.BakeBodyMicroseconds && BodyBakesReused == other.BodyBakesReused &&
+                   SharedBakesReused == other.SharedBakesReused && SharedVolumes == other.SharedVolumes &&
+                   RebuildBudget == other.RebuildBudget && RebuildsDeferred == other.RebuildsDeferred &&
+                   RebuildsForced == other.RebuildsForced &&
+                   DrawnFromDeferredVolume == other.DrawnFromDeferredVolume &&
+                   RebuildsWaiting == other.RebuildsWaiting &&
+                   OldestRebuildWaitFrames == other.OldestRebuildWaitFrames &&
+                   RestWalksReused == other.RestWalksReused && MaxRestBakeStride == other.MaxRestBakeStride;
         }
     };
 } // namespace OloEngine

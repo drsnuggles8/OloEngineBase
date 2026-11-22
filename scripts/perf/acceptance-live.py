@@ -70,11 +70,28 @@ def sum_sub_passes(sub_passes: list) -> dict:
     return out
 
 
+CAPTURE_UNREADY_RETRY_S = 5.0
+
+
 def live_frame_probe(client: Client) -> dict:
-    probe = client.tool("olo_perf_snapshot")
-    live = probe.get("liveness") or {}
-    if live.get("iconified") or live.get("captureUnready"):
-        raise RuntimeError("Cannot sample a parked or unready editor")
+    # captureUnready is also set on every edit-mode tick the viewport render
+    # throttle skipped -- about 45% of ticks on the acceptance scene -- so one
+    # probe landing on such a tick aborted a whole arm (#1594). It is retried
+    # for a few seconds; an iconified editor, or one unready for that long, is
+    # still refused.
+    deadline = None
+    while True:
+        probe = client.tool("olo_perf_snapshot")
+        live = probe.get("liveness") or {}
+        if live.get("iconified"):
+            raise RuntimeError("Cannot sample a parked or unready editor")
+        if not live.get("captureUnready"):
+            break
+        if deadline is None:
+            deadline = time.monotonic() + CAPTURE_UNREADY_RETRY_S
+        elif time.monotonic() >= deadline:
+            raise RuntimeError("Cannot sample a parked or unready editor")
+        time.sleep(0.1)
     # ticking is diagnostic: a genuine >750ms hitch can make it false.
     # Bound progress with the window timeout instead of discarding that hitch.
     if not isinstance(probe.get("renderFrameNumber"), int) or not isinstance(probe.get("renderFrameGeneration"), int):

@@ -65,7 +65,10 @@ namespace OloEngine
         // sub-region upload for volumes. `size` must exactly match the
         // expected byte count or the upload is dropped (logged, not asserted
         // in release — this is reachable from asset import of untrusted data).
-        virtual void SetData(const void* data, u32 size) = 0;
+        // True when the texels were uploaded (copied, or recorded on the
+        // frame's command buffer); false when nothing was written, said in
+        // the log, and the texture keeps its previous contents.
+        [[nodiscard]] virtual bool SetData(const void* data, u32 size) = 0;
 
         static Ref<Texture3D> Create(const Texture3DSpecification& spec);
     };

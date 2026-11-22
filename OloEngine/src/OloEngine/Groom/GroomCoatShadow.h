@@ -215,6 +215,25 @@ namespace OloEngine
         [[nodiscard]] f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints,
                                            std::span<const CoatSegment> pose) noexcept;
 
+        // The drift of a pose taken at one bake-subset stride from a bake made
+        // at another (#1594): a coat whose rebuild the budget deferred keeps
+        // its volume, and the stride may have changed under it (a resolution
+        // change takes the stride scaled from the coat's measured occupancy,
+        // rule 4). Every subset keeps the segments
+        // CoatBakeKeepsSegment keeps of the FULL pose, in order, so a stride-1
+        // side is matched to the other side's kept indices, and two subsets are
+        // compared on the segments both keep. +INFINITY when they share none,
+        // or the counts do not match, as MaxCoatPoseDrift.
+        // PRECONDITION: both sides were taken from the same full pose (one
+        // segment order and count). Against a full side the count is checked;
+        // two subsets cannot check it -- neither knows the full count -- and a
+        // midpoint distance between unrelated segments can be small, so a
+        // topology change is NOT detected here. The caller guarantees it:
+        // GroomRenderPass records the full count a pose bake came from and
+        // rebuilds on a different one instead of measuring drift across it.
+        [[nodiscard]] f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
+                                                        std::span<const CoatSegment> pose, u32 poseStride);
+
         // A GroomStrandMesh stream's drawn pose as centrelines — corners 0 and 2
         // of each segment. `outPose` is cleared first; a stream whose length is
         // not a multiple of four yields nothing.
@@ -257,6 +276,13 @@ namespace OloEngine
             /// sweep in GroomCoatShadowDeformed.ASubsetBakeKeepsTheShadowItReplaces.
             f32 BakeSegmentsPerOccupiedVoxel = 8.0f;
 
+            /// Coat-volume bakes the pass makes per frame, over every coat
+            /// (#1594, GroomCoatShadow::CoatRebuildBudget); zero is no limit. A
+            /// coat over it keeps drawing the volume it holds, its rebuild is
+            /// deferred and counted, and the oldest deferred coats go first.
+            /// groom-coat-bake-cost-details.md (rule 9) says how 2 was chosen.
+            u32 MaxRebuildsPerFrame = 2;
+
             /// Bit-exact per float, per cpp-coding-quality §2a: a defaulted
             /// operator== here would be a float `==`. Field by field rather
             /// than a whole-object memcmp, because the trailing bool leaves
@@ -266,7 +292,8 @@ namespace OloEngine
                 return Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
                        Math::BitwiseEqual(StaleDriftVoxels, other.StaleDriftVoxels) &&
                        RebakeOnDrift == other.RebakeOnDrift &&
-                       Math::BitwiseEqual(BakeSegmentsPerOccupiedVoxel, other.BakeSegmentsPerOccupiedVoxel);
+                       Math::BitwiseEqual(BakeSegmentsPerOccupiedVoxel, other.BakeSegmentsPerOccupiedVoxel) &&
+                       MaxRebuildsPerFrame == other.MaxRebuildsPerFrame;
             }
         };
 
@@ -309,6 +336,40 @@ namespace OloEngine
         // zero (nothing measured yet), or when the target is zero (off).
         [[nodiscard]] u32 CoatBakeSubsetStride(u64 segments, u32 occupiedVoxels,
                                                f32 segmentsPerOccupiedVoxel) noexcept;
+
+        // The voxels a coat measured to occupy at `measuredResolution` would
+        // occupy at `resolution` (#1594), so a resolution change needs no full
+        // bake to re-measure: at a camera cut that full bake of a walking coat
+        // was 250 ms of binning in one frame. A finer grid splits each voxel
+        // into ratio^3, of which a coat occupies at most all, so it is scaled by
+        // the cube: never fewer voxels than the coat has. A coarser grid is
+        // scaled by the square, a coat's surface: right for a shell or a pelt,
+        // which shrink by the square or the cube, and an underestimate only for
+        // a sparse coat -- which UpdateCoatOccupancy corrects after the one
+        // bake. Keeping the whole measurement for a coarser grid instead put
+        // nearly every segment of a walking coat into its rebakes after a cut,
+        // 100 ms each, frame after frame. Zero when nothing was measured.
+        [[nodiscard]] u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept;
+
+        // What a bake teaches the occupancy (#1594). `observed` is the voxels a
+        // bake of `keptSegments` segments at `resolution` occupied; it replaces
+        // the measurement when it is one: a full bake (stride 1), a bake that
+        // occupied MORE than the estimate (a subset only undercounts, so the
+        // estimate was low -- a sparse coat on a coarser grid, a first full
+        // bake in a compact pose, another coat's width scale), or -- only when
+        // the estimate was scaled from another grid -- a bake that kept at least
+        // `segmentsPerOccupiedVoxel` segments in each voxel it occupied, which
+        // samples the coat densely enough to count it (an estimate that was
+        // high). At the measurement's own grid a subset's count only undercounts
+        // it, and adopting it would shrink the occupancy bake after bake.
+        // Otherwise the measurement stands.
+        struct CoatOccupancy
+        {
+            u32 Voxels = 0;
+            u32 Resolution = 0;
+        };
+        [[nodiscard]] CoatOccupancy UpdateCoatOccupancy(CoatOccupancy measured, u32 observed, u32 resolution, u32 stride,
+                                                        u64 keptSegments, f32 segmentsPerOccupiedVoxel) noexcept;
 
         // Is the segment at `index` in the stride's subset? Always true at a
         // stride of 1.

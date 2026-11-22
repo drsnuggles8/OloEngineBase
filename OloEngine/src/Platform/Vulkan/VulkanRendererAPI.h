@@ -200,8 +200,12 @@ namespace OloEngine
         // when a recording is live (the IBL cache load runs mid-frame on
         // this backend); false when no recording is open or staging failed —
         // callers then take their blocking one-shot arm.
+        // `depth` > 1 uploads a 3D image's whole extent (#1594). `settleSampled`
+        // ends in the sampled layout, tracker in agreement, for an image bound
+        // through a persistent heap slot, which no bind-time transition reaches.
         [[nodiscard]] bool RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
-                                                   const void* data, u64 sizeBytes);
+                                                   const void* data, u64 sizeBytes, u32 depth = 1u,
+                                                   bool settleSampled = false);
         [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
         {
             return Ctx().Tracker;
