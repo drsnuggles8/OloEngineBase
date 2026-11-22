@@ -1,0 +1,190 @@
+{
+  "exe": "build-cached/OloEngine/tests/Release/OloEngine-Tests.exe",
+  "editorExe": "bin/Release/OloEditor/OloEditor.exe",
+  "buildConfig": "Release",
+  "compiler": "clang-cl",
+  "gateMs": 16.667,
+  "repeats": 3,
+  "maxRetries": 2,
+  "timeoutSeconds": 1800,
+  "mcpPort": 7391,
+  "shaderRoot": "OloEditor/assets/shaders",
+  "assetRoot": "OloEditor/SandboxProject/Assets",
+  "newGpuProcessUtilMax": 5,
+  "idleGpuUtilMax": 30,
+  "contentionWaitSeconds": 900,
+  "cells": [
+    {
+      "id": "gl-forward",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-forward-repeat",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-forward-diffusion-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-diffusion-off.yaml"
+    },
+    {
+      "id": "gl-forward-skin-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-skin-off.yaml"
+    },
+    {
+      "id": "gl-forward-plus",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-forward-plus-repeat",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-forward-plus-diffusion-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus-diffusion-off.yaml"
+    },
+    {
+      "id": "gl-forward-plus-skin-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus-skin-off.yaml"
+    },
+    {
+      "id": "gl-deferred",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-deferred-repeat",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "gl-deferred-diffusion-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-diffusion-off.yaml"
+    },
+    {
+      "id": "gl-deferred-skin-off",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-skin-off.yaml"
+    },
+    {
+      "id": "gl-deferred-upscale-quality",
+      "host": "gl",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-upscale-quality.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-forward",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-forward-repeat",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-forward-diffusion-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-diffusion-off.yaml"
+    },
+    {
+      "id": "vk-forward-skin-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-skin-off.yaml"
+    },
+    {
+      "id": "vk-forward-plus",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-forward-plus-repeat",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-forward-plus-diffusion-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus-diffusion-off.yaml"
+    },
+    {
+      "id": "vk-forward-plus-skin-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-forward-plus-skin-off.yaml"
+    },
+    {
+      "id": "vk-deferred",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-deferred-repeat",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    },
+    {
+      "id": "vk-deferred-diffusion-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-diffusion-off.yaml"
+    },
+    {
+      "id": "vk-deferred-skin-off",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-skin-off.yaml"
+    },
+    {
+      "id": "vk-deferred-upscale-quality",
+      "host": "vulkan",
+      "manifest": "OloEditor/assets/benchmark/manifests/skin-dominant-deferred-upscale-quality.yaml",
+      "requirePasses": [
+        "SkinDiffusionPass"
+      ]
+    }
+  ]
+}

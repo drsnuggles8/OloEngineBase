@@ -24,6 +24,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -128,5 +129,10 @@ namespace OloEngine
         f32 m_DepthLinearizeA = -1.0f;
         f32 m_DepthLinearizeB = -0.2f;
         u32 m_ActiveProfileCount = 0;
+
+        // The kernel UBO's row in the renderer memory report (#1396). Declared LAST so it
+        // unregisters before the members its reporter reads are destroyed
+        // (renderer-memory-accounting.md). The transients live in RenderGraph's rows.
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
 } // namespace OloEngine

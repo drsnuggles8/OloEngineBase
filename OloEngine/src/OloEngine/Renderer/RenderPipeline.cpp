@@ -82,11 +82,17 @@ namespace OloEngine
         // scene colour holds one term, and the diffusion's add would put the
         // skin's diffuse difference into it. This gate is also how the tap
         // reaches the frame-graph fingerprint (SkinDiffusionEnabled is hashed).
+        //
+        // OFF WHEN NO ASSIGNED PROFILE DIFFUSES (#1396). The pass already skipped
+        // both draws then, but only after the graph had allocated its scratch and
+        // both input snapshots and run the two full-screen snapshot copies: 41.5 MB
+        // of transients at 1080p in every scene without skin, measured by
+        // SkinMemoryEvidence. Gating here keeps all three sites in step.
         [[nodiscard]] bool SkinDiffusionRunsThisFrame(const SkinDiffusionSettings& settings, RenderingPath path,
                                                       MaterialDebugView materialDebug, i32 deferredDebugChannel,
-                                                      LightingTap lightingTap) noexcept
+                                                      LightingTap lightingTap, bool anyProfileDiffuses) noexcept
         {
-            if (!settings.Enabled || LightingTapReplacesSceneColor(lightingTap))
+            if (!settings.Enabled || !anyProfileDiffuses || LightingTapReplacesSceneColor(lightingTap))
                 return false;
             const bool deferred = path == RenderingPath::Deferred;
             const bool isolatingAMaterialView = (materialDebug != MaterialDebugView::None) &&
@@ -1414,7 +1420,8 @@ namespace OloEngine
             effective.Enabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path,
                                                            data.PostProcess.MaterialDebug,
                                                            static_cast<i32>(data.Settings.Deferred.DebugChannel),
-                                                           data.PostProcess.LightingDebugTap);
+                                                           data.PostProcess.LightingDebugTap,
+                                                           Renderer3D::GetSkinProfileTable().AnyAssignedSlotDiffuses());
             PostProcessPasses.SkinDiffusion->SetSettings(effective);
             // P[1][1] and the clip planes, straight off the frame's projection.
             // Taken from the matrix rather than from a stored field of view so a
@@ -3170,7 +3177,8 @@ namespace OloEngine
         config.FXAAEnabled = post.FXAAEnabled;
         config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
                                                                  static_cast<i32>(data.Settings.Deferred.DebugChannel),
-                                                                 post.LightingDebugTap);
+                                                                 post.LightingDebugTap,
+                                                                 Renderer3D::GetSkinProfileTable().AnyAssignedSlotDiffuses());
         config.SelectionOutlineActive = data.EnableSelectionOutline && !data.Frame.SelectionOutlineEntityIDs.IsEmpty();
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;

@@ -90,6 +90,21 @@ namespace OloEngine
         m_UBO = UniformBuffer::Create(SkinDiffusionUBOData::GetSize(), ShaderBindingLayout::UBO_SSS, "SkinDiffusionParams");
         m_CachedValid.fill(false);
         m_CachedQuality = SkinDiffusionQuality::Count;
+
+        // Demand is "the pass drew last frame": m_Target is set only after both draws, and
+        // the enable switch covers a frame the graph culled the pass in (no Execute to
+        // clear m_Target).
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "SkinDiffusion";
+            row.Category = "Kernel UBO (SkinDiffusionParams: per-slot radius and tap weights)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            const u64 bytes = m_UBO ? static_cast<u64>(SkinDiffusionUBOData::GetSize()) : 0u;
+            row.CapacityBytes = bytes;
+            row.ActiveDemandBytes = (m_Settings.Enabled && m_Target && m_ActiveProfileCount > 0u) ? bytes : 0u;
+            rows.Add(std::move(row)); });
     }
 
     void SkinDiffusionPass::UpdateKernels()
