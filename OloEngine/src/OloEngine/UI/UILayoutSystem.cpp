@@ -292,7 +292,7 @@ namespace OloEngine
                 continue;
             }
 
-            const glm::vec3 worldPos = targetEntity.GetComponent<TransformComponent>().Translation + anchor.m_WorldOffset;
+            const glm::vec3 worldPos = scene.ComputeWorldPosition(targetEntity) + anchor.m_WorldOffset;
 
             // Project world position to clip space
             const glm::vec4 clipPos = cameraVP * glm::vec4(worldPos, 1.0f);
