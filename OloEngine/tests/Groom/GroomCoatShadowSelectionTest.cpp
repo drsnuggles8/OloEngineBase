@@ -683,7 +683,7 @@ TEST(GroomCoatShadowSelection, TheRebuildQueueForgetsCoatsThatStopAskingAndShare
 // A deferred pose bake keeps drawing its volume across a stride change (#1594),
 // so its drift has to be measurable across one: the full bake against the
 // subset pose and the subset bake against the full pose give the same answer as
-// the same stride, and two different subsets are incomparable.
+// the same stride, and two different subsets are compared where they overlap.
 TEST(GroomCoatShadowSelection, DriftIsMeasuredAcrossABakeSubsetStrideChange)
 {
     using GroomCoatShadow::CoatSegment;
@@ -723,9 +723,62 @@ TEST(GroomCoatShadowSelection, DriftIsMeasuredAcrossABakeSubsetStrideChange)
         << "a subset bake against the full pose";
     EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedFull, 1u, moved, 1u),
                     GroomCoatShadow::MaxCoatPoseDrift(bakedFull, moved));
-    EXPECT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedSubset, kStride, subsetMoved, 5u),
-              std::numeric_limits<f32>::infinity())
-        << "two different subsets cannot be compared";
+    // Two different subsets are compared on the segments both keep -- an
+    // infinite drift forced every pose-baked coat whose stride changed at a
+    // camera cut past the rebuild budget. The expectation is computed here, on
+    // the full poses, independently of the walk that pairs them.
+    constexpr u32 kOtherStride = 5u;
+    std::vector<CoatSegment> otherMoved;
+    (void)GroomCoatShadow::SubsampleCoatSegments(moved, kOtherStride, otherMoved);
+    f32 sharedDrift = 0.0f;
+    u32 shared = 0;
+    for (u32 s = 0; s < static_cast<u32>(full.size()); ++s)
+    {
+        if (GroomCoatShadow::CoatBakeKeepsSegment(s, kStride) && GroomCoatShadow::CoatBakeKeepsSegment(s, kOtherStride))
+        {
+            const glm::vec3 before = 0.5f * (full[s].A + full[s].B);
+            const glm::vec3 after = 0.5f * (moved[s].A + moved[s].B);
+            sharedDrift = std::max(sharedDrift, glm::length(after - before));
+            ++shared;
+        }
+    }
+    ASSERT_GT(shared, 0u);
+    ASSERT_GT(sharedDrift, 0.0f);
+    EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedSubset, kStride, otherMoved, kOtherStride), sharedDrift)
+        << "a subset bake against another subset's pose";
+    // And unmoved, the two subsets agree exactly where they overlap.
+    std::vector<CoatSegment> otherFull;
+    (void)GroomCoatShadow::SubsampleCoatSegments(full, kOtherStride, otherFull);
+    EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedSubset, kStride, otherFull, kOtherStride), 0.0f);
+}
+
+// A GRANT THAT DOES NOT BAKE IS GIVEN BACK (#1594): a coat the resident-volume
+// budget holds back after the rebuild budget granted it would otherwise spend
+// one of the frame's few bakes on nothing and lose its place in the queue.
+TEST(GroomCoatShadowSelection, AGrantThatCannotBakeIsRefundedAndTheCoatKeepsItsPlace)
+{
+    using GroomCoatShadow::CoatRebuildBudget;
+    CoatRebuildBudget budget;
+    budget.SetPerFrame(1u);
+    EXPECT_TRUE(budget.BeginFrame(1u, 1u)) << "the first pass of a frame starts it";
+    EXPECT_FALSE(budget.BeginFrame(1u, 2u)) << "a second view's pass of the same frame does not";
+    // Coat 5 waits from frame 1; coat 1 is granted, then held back.
+    EXPECT_TRUE(budget.Request(1u));
+    EXPECT_FALSE(budget.Request(5u));
+    budget.Refund(1u, false);
+    EXPECT_EQ(budget.GrantedThisFrame(), 0u) << "the grant went back to the frame";
+    EXPECT_EQ(budget.Waiting(), 2u);
+    // Next frame the refunded coat is first in line, ahead of the coat that
+    // was deferred in the same frame, and a newcomer waits behind both.
+    EXPECT_TRUE(budget.BeginFrame(2u, 3u));
+    EXPECT_FALSE(budget.Request(9u)) << "a newcomer took the refunded coat's turn";
+    EXPECT_TRUE(budget.Request(1u)) << "the refunded coat lost its place";
+    EXPECT_FALSE(budget.Request(5u));
+    // A refunded forced bake gives back its forced count too.
+    budget.Force(7u);
+    EXPECT_EQ(budget.ForcedThisFrame(), 1u);
+    budget.Refund(7u, true);
+    EXPECT_EQ(budget.ForcedThisFrame(), 0u);
 }
 
 // A REBAKE DUE ON DRIFT IS FORCED (#1594): a moving coat's rebake always runs

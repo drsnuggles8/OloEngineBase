@@ -3,6 +3,8 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 
+#include <algorithm>
+
 namespace OloEngine::GroomCoatShadow
 {
     // THE PER-FRAME COAT-VOLUME REBUILD BUDGET (#1594).
@@ -56,12 +58,13 @@ namespace OloEngine::GroomCoatShadow
         /// Starts the frame `frameId` names, from the pass tick `passTick`
         /// that is running it. Every pass of one frame id -- one per view --
         /// spends the same budget; kMaxPassesPerFrame passes of an unchanged id
-        /// start the next frame anyway.
-        void BeginFrame(u64 frameId, u64 passTick)
+        /// start the next frame anyway. True when this call started a frame,
+        /// so a per-pass report can count the frame's deferrals once.
+        bool BeginFrame(u64 frameId, u64 passTick)
         {
             if (m_Started && frameId == m_FrameId && passTick - m_FrameStartTick < kMaxPassesPerFrame)
             {
-                return;
+                return false;
             }
             m_Started = true;
             m_FrameId = frameId;
@@ -84,6 +87,7 @@ namespace OloEngine::GroomCoatShadow
             m_Granted = 0;
             m_Deferred = 0;
             m_Forced = 0;
+            return true;
         }
 
         /// A bake that must run this frame (see the class comment): granted
@@ -130,6 +134,28 @@ namespace OloEngine::GroomCoatShadow
                 m_Waiting.Add({ key, m_Frame, true, false });
             }
             return false;
+        }
+
+        /// A bake granted this frame (by Request or Force) that will not run
+        /// after all -- the resident-volume budget held it back. The grant goes
+        /// back to the frame, and the coat waits at the FRONT of the queue, so
+        /// a bake that could not run does not cost it its place.
+        void Refund(u64 key, bool forced)
+        {
+            if (m_Granted > 0u)
+            {
+                --m_Granted;
+            }
+            if (forced && m_Forced > 0u)
+            {
+                --m_Forced;
+            }
+            if (IndexOf(key) != INDEX_NONE)
+            {
+                return;
+            }
+            const u64 since = m_Waiting.IsEmpty() ? m_Frame : std::min(m_Frame, m_Waiting[0].Since);
+            m_Waiting.Insert(Waiter{ key, since, true, false }, 0);
         }
 
         /// Bakes granted (forced ones included), forced, and requests

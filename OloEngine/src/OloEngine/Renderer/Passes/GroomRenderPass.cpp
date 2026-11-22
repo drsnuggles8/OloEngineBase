@@ -1908,6 +1908,7 @@ namespace OloEngine
     std::optional<u64> GroomRenderPass::ReclaimLeastRecentlyUsedCoatVolume()
     {
         CacheEntry* oldest = nullptr;
+        u64 oldestUse = 0;
         for (auto& [key, entry] : m_Cache)
         {
             if (!entry.CoatVolume)
@@ -1922,9 +1923,14 @@ namespace OloEngine
             {
                 continue;
             }
-            if (oldest == nullptr || entry.LastUsedFrame < oldest->LastUsedFrame)
+            // A shared bake is as recent as its most recent holder: ranked by
+            // the holder found first, one herd mate long off screen released
+            // the bake every herd mate still in view draws.
+            const u64 lastUse = entry.CoatShared ? std::max(entry.LastUsedFrame, entry.CoatShared->UsedTick) : entry.LastUsedFrame;
+            if (oldest == nullptr || lastUse < oldestUse)
             {
                 oldest = &entry;
+                oldestUse = lastUse;
             }
         }
         if (oldest == nullptr)
@@ -1965,6 +1971,8 @@ namespace OloEngine
         SharedCoatVolumeKey key;
         key.Handle = static_cast<u64>(request.Handle);
         key.Groom = request.Groom.Raw();
+        key.CurveCount = request.Groom->GetCurveCount();
+        key.PointCount = request.Groom->GetPointCount();
         key.MaxStrands = request.Build.MaxStrands;
         key.MaxSegments = request.Build.MaxSegments;
         key.MaxWidthCompensationBits = std::bit_cast<u32>(request.Build.MaxWidthCompensation);
@@ -2826,9 +2834,15 @@ namespace OloEngine
         // it. A pose bake is the coat's own pose and is never shared.
         const bool shareable = bakeAtRest && !deformed;
         // The coat's ticket in the rebuild budget below: its own, not the
-        // bake's, so a coat keeps its place in the queue when its step or tier
-        // changes while it waits.
-        const u64 ticket = CacheKey(request, entry.GpuDeformed) ^ 0x1594ull;
+        // bake's -- the entity and its asset, never the geometry cache key,
+        // which a strand-to-card hand-over or a streamed level changes -- so a
+        // coat keeps its place in the queue when its step or tier changes
+        // while it waits. A request with no entity (a preview) falls back to
+        // the cache key.
+        const u64 ticket = request.EntityID >= 0
+                               ? ((static_cast<u64>(static_cast<u32>(request.EntityID)) << 32u) ^
+                                  (static_cast<u64>(request.Handle) * 0x9E3779B97F4A7C15ull) ^ 0x1594ull)
+                               : CacheKey(request, entry.GpuDeformed) ^ 0x1594ull;
         SharedCoatVolumeKey shareKey;
         bool attached = false;
         if (needsRebuild && shareable && aboveFloor)
@@ -2867,7 +2881,11 @@ namespace OloEngine
         // the frame's other rebuilds would take. What the budget defers is a
         // resolution or source change -- a camera cut's, an arrival's -- whose
         // waiting volume is still within the drift bound of its pose.
-        const bool wantsBake = needsRebuild && !attached && aboveFloor;
+        // A width scale that is not a positive finite number bakes nothing
+        // (the bake below refuses it), so it asks for no ticket: asking, it
+        // took one of the frame's few every frame and baked nothing.
+        const bool bakeableWidth = std::isfinite(request.WidthScale) && request.WidthScale > 0.0f;
+        const bool wantsBake = needsRebuild && !attached && aboveFloor && bakeableWidth;
         bool deferred = false;
         if (wantsBake)
         {
@@ -2900,9 +2918,12 @@ namespace OloEngine
         // genuinely exhausted — and that is what gets reported.
         // A coat drawing a shared bake that other coats also draw makes a NEW
         // volume when it bakes -- the old one stays, held by the others -- so
-        // it is admitted like a newcomer, or the resident caps would not hold.
+        // a bake of its own is admitted like a newcomer, or the resident caps
+        // would not hold. Drawing the shared bake with nothing to bake, it is
+        // resident: admitted every frame, it reclaimed other coats' volumes
+        // for a bake that never ran, and counted as deferred when refused.
         const bool sharesItsVolume = entry.CoatShared && entry.CoatShared->GetRefCount() > 2u;
-        const bool alreadyResident = entry.CoatVolume != nullptr && !sharesItsVolume;
+        const bool alreadyResident = entry.CoatVolume != nullptr && !(sharesItsVolume && wantsBake);
         bool heldBack = false;
         if (alreadyResident)
         {
@@ -2934,6 +2955,12 @@ namespace OloEngine
             {
                 inputs.GrantedSlot = 0u;
                 heldBack = true;
+            }
+            // A bake the budget granted that will not run gives its grant back
+            // and keeps the coat's place at the front of the queue.
+            if (wantsBake && (heldBack || !admitted))
+            {
+                m_CoatRebuildBudget.Refund(ticket, poseMoved);
             }
         }
 
@@ -3508,7 +3535,10 @@ namespace OloEngine
         // host that leaves the frame index fixed: kMaxPassesPerFrame passes of
         // one index start the next frame anyway.
         m_CoatRebuildBudget.SetPerFrame(m_CoatRebakePolicy.MaxRebuildsPerFrame);
-        m_CoatRebuildBudget.BeginFrame(m_FrameState.FrameIndex, m_CacheTick);
+        if (m_CoatRebuildBudget.BeginFrame(m_FrameState.FrameIndex, m_CacheTick))
+        {
+            m_CoatDeferralsReported = 0;
+        }
 
         // A FADING COAT'S TWO TIERS ARE DRAWN PREPASS, PREPASS, SHADE, SHADE
         // (#1612), not prepass-shade per tier. The two tiers cover the same
@@ -4335,15 +4365,19 @@ namespace OloEngine
         coat.RebuildsWaiting = m_CoatRebuildBudget.Waiting();
         coat.OldestRebuildWaitFrames = m_CoatRebuildBudget.OldestWaitFrames();
         coat.SharedVolumes = static_cast<u32>(m_SharedCoatVolumes.Num());
+        // The frame's deferrals are counted across its views; a second view's
+        // pass adds only those made since the first reported.
+        const u32 newDeferrals = coat.RebuildsDeferred - std::min(coat.RebuildsDeferred, m_CoatDeferralsReported);
+        m_CoatDeferralsReported = coat.RebuildsDeferred;
         // Said when a wave of deferred rebuilds starts and when it has drained,
         // not per frame: the counts per frame are in the stats. A stale volume
         // drawn while it waits is never silent.
-        if (coat.RebuildsDeferred > 0u && !m_CoatDeferralWave)
+        if (newDeferrals > 0u && !m_CoatDeferralWave)
         {
             m_CoatDeferralWave = true;
             m_CoatDeferralWaveStartTick = m_CacheTick;
             m_CoatDeferralWavePeak = coat.RebuildsWaiting;
-            m_CoatDeferralWaveTotal = coat.RebuildsDeferred;
+            m_CoatDeferralWaveTotal = newDeferrals;
             OLO_CORE_INFO("GroomRenderPass: {} coat-volume rebuild(s) are over the budget of {} a frame and wait, the "
                           "oldest first; {} coat(s) draw the volume they already hold meanwhile",
                           coat.RebuildsWaiting, coat.RebuildBudget, coat.DrawnFromDeferredVolume);
@@ -4351,7 +4385,7 @@ namespace OloEngine
         else if (m_CoatDeferralWave)
         {
             m_CoatDeferralWavePeak = std::max(m_CoatDeferralWavePeak, coat.RebuildsWaiting);
-            m_CoatDeferralWaveTotal += coat.RebuildsDeferred;
+            m_CoatDeferralWaveTotal += newDeferrals;
             if (coat.RebuildsWaiting == 0u)
             {
                 m_CoatDeferralWave = false;

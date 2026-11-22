@@ -220,8 +220,9 @@ namespace OloEngine
         // its volume, and the stride may have changed under it (a resolution
         // change re-measures with a full bake). Every subset keeps the segments
         // CoatBakeKeepsSegment keeps of the FULL pose, in order, so a stride-1
-        // side is matched to the other side's kept indices. +INFINITY when
-        // neither stride is 1, or the counts do not match, as MaxCoatPoseDrift.
+        // side is matched to the other side's kept indices, and two subsets are
+        // compared on the segments both keep. +INFINITY when they share none,
+        // or the counts do not match, as MaxCoatPoseDrift.
         [[nodiscard]] f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
                                                         std::span<const CoatSegment> pose, u32 poseStride);
 

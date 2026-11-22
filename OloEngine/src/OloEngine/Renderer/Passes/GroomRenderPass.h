@@ -846,6 +846,10 @@ namespace OloEngine
         {
             u64 Handle = 0;
             const GroomAsset* Groom = nullptr;
+            /// The asset's curves and points, as RestWalk keys them: an asset
+            /// filled in place under the same address is another bake.
+            u32 CurveCount = 0;
+            u32 PointCount = 0;
             u32 MaxStrands = 0;
             u32 MaxSegments = 0;
             u32 MaxWidthCompensationBits = 0;
@@ -1512,6 +1516,9 @@ namespace OloEngine
         u64 m_CoatDeferralWaveStartTick = 0;
         u32 m_CoatDeferralWavePeak = 0;
         u64 m_CoatDeferralWaveTotal = 0;
+        /// The frame's deferrals already added to the wave: every view's pass
+        /// reports the frame's running count, so only what is new is added.
+        u32 m_CoatDeferralsReported = 0;
         /// THE SCRATCH IS GIVEN BACK WHEN IT IDLES (#1533). Each group keeps the
         /// capacity of the largest job it served, so a coat that rebakes or
         /// re-poses every frame never reallocates; a coat that did its job once

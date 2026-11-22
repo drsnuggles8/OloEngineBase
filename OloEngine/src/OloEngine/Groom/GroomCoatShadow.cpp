@@ -584,7 +584,33 @@ namespace OloEngine::GroomCoatShadow
             return MaxCoatPoseDrift(bakedMidpoints,
                                     std::span<const CoatSegment>{ kept.GetData(), static_cast<sizet>(kept.Num()) });
         }
-        return std::numeric_limits<f32>::infinity();
+        // Two different subsets: both keep the FULL pose's segments in order,
+        // so walking the full indices pairs the segments both keep. Measured
+        // rather than reported as infinite: an unmeasurable drift forced every
+        // pose-baked coat whose stride changed at a camera cut past the rebuild
+        // budget, and with drift rebakes off marked it stale.
+        TArray<glm::vec3> pairedBaked;
+        TArray<CoatSegment> pairedPose;
+        sizet baked = 0;
+        sizet posed = 0;
+        for (u32 s = 0; baked < bakedMidpoints.size() && posed < pose.size() && s < std::numeric_limits<u32>::max(); ++s)
+        {
+            const bool inBake = CoatBakeKeepsSegment(s, bakedStride);
+            const bool inPose = CoatBakeKeepsSegment(s, poseStride);
+            if (inBake && inPose)
+            {
+                pairedBaked.Add(bakedMidpoints[baked]);
+                pairedPose.Add(pose[posed]);
+            }
+            baked += inBake ? 1u : 0u;
+            posed += inPose ? 1u : 0u;
+        }
+        if (pairedBaked.IsEmpty())
+        {
+            return std::numeric_limits<f32>::infinity();
+        }
+        return MaxCoatPoseDrift({ pairedBaked.GetData(), static_cast<sizet>(pairedBaked.Num()) },
+                                std::span<const CoatSegment>{ pairedPose.GetData(), static_cast<sizet>(pairedPose.Num()) });
     }
 
     void CoatPoseFromStrandVertices(std::span<const GroomStrandVertex> vertices, std::vector<CoatSegment>& outPose)

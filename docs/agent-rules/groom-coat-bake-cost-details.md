@@ -73,7 +73,8 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    `population-dolly` cut about 44 foxes crossed a coat-LOD step in one frame and each rebuilt its
    volume, 40-50 ms apiece, all of them the same bake: the same asset, build and step, and the same
    body placed through a matrix that differs between animals only by float noise. A rest bake
-   reads nothing else (`SharedCoatVolumeKey`: the asset and its build, the width scale, the
+   reads nothing else (`SharedCoatVolumeKey`: the asset with its curve and point counts, so an
+   asset filled in place under one address is another bake, and its build, the width scale, the
    resolution, the body's surface by content), so the first coat to need one bakes it and
    publishes it as a `SharedCoatVolume`, and every later coat with an equal key and a body placed
    within `kBodyPlacementToleranceVoxels` takes it (`CoatShadow.SharedBakesReused`). Per-coat
@@ -101,8 +102,13 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    frame spends one budget, and a coat waiting in one view keeps its place while another renders
    (keyed on the pass tick, two views alternated reservations and no waiting coat ever baked).
    `kMaxPassesPerFrame` passes of an unchanged frame index start the next frame anyway, for a host
-   that never advances it. The ticket is the COAT's, so a coat keeps its place when its step or
-   tier changes while it waits, and a herd mate that takes another's shared bake leaves the queue.
+   that never advances it. The ticket is the COAT's -- its entity and asset, not the geometry
+   cache key, which a card hand-over or a streamed level changes -- so a coat keeps its place when
+   its step or tier changes while it waits, and a herd mate that takes another's shared bake leaves
+   the queue. A grant that cannot bake (the resident-volume budget held it back) is refunded and
+   the coat waits at the front (`Refund`); a width scale that bakes nothing asks for none. A coat
+   drawing a shared bake with nothing to bake keeps its slot without admission. A second view's
+   pass adds only the frame's new deferrals to the logged wave.
    Reservations are decided before the frame knows who will ask, so on the frame a camera cuts away
    from waiting coats their reservations go unused and the coats now in view wait one frame more. A deferred coat draws the volume it already holds if it is the right kind (a
    pose bake for a posed coat, a rest bake for one at rest), at that volume's resolution, and is
@@ -116,7 +122,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    waiting volume is still within the drift bound; the drift policy already paces the rest. A
    waiting pose bake's drift is measured even across a stride change
    (`MaxCoatPoseDriftAcrossStrides`; a resolution change changes the stride under a waiting coat,
-   rule 4), so a coat that moves while it waits is forced too. Deferrals, the queue and its oldest wait are in
+   rule 4), so a coat that moves while it waits is forced too. Two subsets are compared on the
+   segments both keep: reported as infinite, every pose-baked coat whose stride changed at a cut was
+   forced past the budget. Deferrals, the queue and its oldest wait are in
    `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
    deferrals is logged when it starts and when it drains.
 
