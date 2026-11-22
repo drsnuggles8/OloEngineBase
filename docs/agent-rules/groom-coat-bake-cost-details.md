@@ -184,20 +184,21 @@ events) before each cut. Master and branch arms alternated, and only renderer-ad
 counted. A hitch is a frame in the first 120 after the cut over 300 ms or over twice the ring's
 p50; its owner is the scope with the most self time.
 
-At the final head, arms in branch, master, branch order:
+At the final head, arms in branch, master, branch order, plus one branch arm after merging master:
 
 | | master | branch |
 |---|---|---|
 | worst frame after the cut (forward / forward+ / deferred) | 1058-1133 ms | 607-721 ms |
 | worst frame after the cut (hybrid) | 1293-1462 ms (earlier rounds) | 958-979 ms |
-| hitches owned by `Groom::CoatVolume` | every one (7-9 a cell) | none (0 of 39) |
-| hitches whose top self-time scope is under `Groom::CoatVolume` | every one | 1 of 39, by 1.5 ms |
+| hitches owned by `Groom::CoatVolume` | every one (7-9 a cell) | none (0 of 58, all four paths, before and after merging master) |
+| hitches whose top self-time scope is under `Groom::CoatVolume` | every one | 3 of 58, by 1.5-5 ms |
 | largest single `CoatVolume` call | 297-301 ms | 78-116 ms |
 | population-dolly p95 (forward / forward+ / deferred) | 64.9-65.4 ms | 48.8-50.0 ms |
 
 The branch's worst frame is now `ShadowPass::CollectGrooms` (226-406 ms self) and `GroomPass`.
-The one frame topped by a scope under the coat volume is a forced drift rebake of a walking coat
-at the new, finer grid: `CoatBin` 117.9 ms against `CollectGrooms` 116.4 ms. Its first bake there
+The three frames topped by a scope under the coat volume each hold a forced drift rebake of a walking
+coat at the new, finer grid, once with a coat's first rest bake: `CoatBin` 117.9 ms against
+`CollectGrooms` 116.4 ms, and 183 ms against `GroomPass` 178 ms twice. Its first bake there
 takes rule 4's safe-side cube estimate, which keeps more segments than the coat needs until the bake
 corrects it. The coat-volume subtree's summed self time also exceeds the single top owner in the
 one or two frames that hold a coat's first rest walk and bake after the cut. Each rule's share, in
