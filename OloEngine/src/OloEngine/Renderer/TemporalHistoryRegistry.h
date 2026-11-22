@@ -342,6 +342,19 @@ namespace OloEngine
 
         [[nodiscard]] TArray<TemporalHistorySnapshot> Snapshot() const;
 
+        // Calls `fn(const TemporalHistoryKey&, const TemporalHistoryDescriptor&)`
+        // for every history that holds a texture. Snapshot() without the copies:
+        // memory admission (#1343) sums these after a frame.
+        template<typename TFunc>
+        void ForEachTextureBackedHistory(TFunc&& fn) const
+        {
+            for (const Entry& entry : m_Entries)
+            {
+                if (entry.Texture)
+                    fn(entry.Key, entry.Descriptor);
+            }
+        }
+
         // Which histories exist and which of them hold a usable previous frame,
         // as one key (issue #1333). That is what decides whether a history is
         // IMPORTED and read, so it is a render-graph declaration input. The

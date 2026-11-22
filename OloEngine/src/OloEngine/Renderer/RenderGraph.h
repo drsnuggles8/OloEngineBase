@@ -690,6 +690,23 @@ namespace OloEngine
         // histories per effect. Registered with RendererMemoryTracker by Init().
         void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
 
+        // The screen-sized bytes this graph holds that no formula derives from a
+        // configuration (issue #1343): what memory admission rescales for a
+        // resize. Format estimates, cheap enough to take after a frame.
+        struct ScreenMemoryUsage
+        {
+            // Persistent pass targets (the scene MRT, the AO chains, the post
+            // chain); pooled transients a pass borrowed are not among them.
+            u64 NodeTargetBytes = 0;
+            // What the last completed frame acquired from the transient pool,
+            // and what the pool holds beyond that.
+            u64 TransientDemandBytes = 0;
+            u64 TransientSlackBytes = 0;
+            // Texture-backed registry histories, by TemporalHistoryEffect.
+            std::array<u64, 10> HistoryBytesByEffect{};
+        };
+        [[nodiscard]] ScreenMemoryUsage MeasureScreenMemory() const;
+
         // Queue a texture extraction that explicitly writes back into a named
         // imported history resource for the next frame. The callback receives
         // the resolved source texture ID after Execute() completes.

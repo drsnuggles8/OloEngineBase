@@ -124,6 +124,13 @@ namespace OloEngine
         // node-registration recipe.
         BuildRenderPipelineGraph(inputs, path);
 
+        // The G-Buffer is the Deferred path's alone. It used to outlive a switch
+        // away from Deferred for the rest of the process, and kept being resized
+        // with the scene target: 44 bytes a pixel per sample that no pass read.
+        // The next Deferred frame builds a new one (PrepareDeferredResources).
+        if (path != RenderingPath::Deferred && s_Data.Pipeline->FrameCorePasses.Scene)
+            s_Data.Pipeline->FrameCorePasses.Scene->ReleaseGBuffer();
+
         FinalizeConfiguredRenderGraph(path);
     }
 } // namespace OloEngine

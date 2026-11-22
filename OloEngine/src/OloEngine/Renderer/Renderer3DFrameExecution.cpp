@@ -81,10 +81,11 @@ namespace OloEngine
         // the final geometry depth now that the whole graph has executed.
         //
         // The G-Buffer branch MUST be gated on the deferred path being active,
-        // not merely on the G-Buffer existing: `SceneRenderPass` is a
-        // process-global pass object whose `m_GBuffer` is lazily created on the
-        // first Deferred frame and never released, so after any Deferred render
-        // `GetGBuffer()` stays non-null for the rest of the process. In
+        // not merely on the G-Buffer existing: `SceneRenderPass::m_GBuffer` is
+        // lazily created on the first Deferred frame and outlives the frames a
+        // path switch is in flight (it is released when the graph is next
+        // configured for another path, #1343), so `GetGBuffer()` can be non-null
+        // on a frame that did not write it. In
         // Forward/Forward+ the scene renders to `GetTarget()`, NOT the G-Buffer,
         // so reading the retained-but-stale G-Buffer depth here builds the HZB
         // from a prior Deferred scene's depth — a false occlusion cull that

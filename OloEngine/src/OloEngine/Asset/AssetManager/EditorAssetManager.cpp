@@ -396,7 +396,9 @@ namespace OloEngine
                     existing = it->second;
             }
 
-            if (auto texture = existing.As<Texture2D>(); texture && texture->Reload())
+            // Through the renderer's reload gate: under memory pressure the upload waits
+            // for room (#1764), and the old pixels stay on screen until then.
+            if (auto texture = existing.As<Texture2D>(); texture && Texture2D::ReloadInPlace(texture))
             {
                 OLO_CORE_TRACE("Reloaded texture in place: {} (handle {})", path.string(), (u64)assetHandle);
                 asset = existing; // same cached object, refreshed contents — Refs stay valid

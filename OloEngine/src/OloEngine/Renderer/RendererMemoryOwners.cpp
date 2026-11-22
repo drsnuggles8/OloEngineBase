@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RendererMemoryOwners.h"
 
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
@@ -216,10 +217,17 @@ namespace OloEngine::RendererMemoryOwners
             AppendRayTracingRows(rows);
             if (const GroomRenderPass* groom = Renderer3D::GetGroomRenderPass())
                 groom->AppendMemoryCapacityRows(rows); });
+        // Requested against realized quality under the budget (#1343).
+        RendererMemoryTracker::GetInstance().SetAdmissionReporter(&Renderer3D::ReportMemoryAdmission);
+        // Hot reloads go through memory admission (#1764).
+        Texture2D::SetReloadGate([](Ref<Texture2D> texture)
+                                 { return Renderer3D::HasInitialized() ? Renderer3D::ReloadTextureInPlace(texture) : texture->Reload(); });
     }
 
     void Unregister()
     {
+        Texture2D::SetReloadGate(nullptr);
+        RendererMemoryTracker::GetInstance().SetAdmissionReporter(nullptr);
         Handle().Reset();
     }
 } // namespace OloEngine::RendererMemoryOwners

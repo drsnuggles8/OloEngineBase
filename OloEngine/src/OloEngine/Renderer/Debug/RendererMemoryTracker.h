@@ -115,6 +115,11 @@ namespace OloEngine
         // RendererAPI::ObserveDeviceMemory). Returns false when there is no device to ask.
         using BackendObserver = bool (*)(BackendMemoryObservation&);
 
+        // The renderer's memory admission state (issue #1343): requested against realized
+        // quality and the reason. Returns false when nothing is admitting. Renderer3D
+        // installs one; BuildReport calls it on the report thread.
+        using AdmissionReporter = bool (*)(MemoryAdmissionSnapshot&);
+
       public:
         static RendererMemoryTracker& GetInstance();
 
@@ -186,6 +191,8 @@ namespace OloEngine
 
         // @brief Live + retiring physical GPU bytes: what the device holds for the renderer.
         u64 GetGpuResidentBytes() const;
+        // @brief The retiring part of that: released by its owner, not yet freed.
+        u64 GetGpuRetiringBytes() const;
         // Physical retiring backing of one owner, without invoking capacity
         // reporters. Admission may call this from inside a capacity report.
         [[nodiscard]] u64 GetOwnerGpuRetiringBytes(std::string_view owner) const;
@@ -230,6 +237,9 @@ namespace OloEngine
         void SetBackendObserver(BackendObserver observer);
         // The default observer: RenderCommand's live RendererAPI::ObserveDeviceMemory.
         static bool ObserveActiveRendererAPI(BackendMemoryObservation& out);
+
+        // The admission reporter; nullptr clears it.
+        void SetAdmissionReporter(AdmissionReporter reporter);
 
         // Bracket a backend allocation or free whose tracker call is not atomic with the
         // allocator's own bookkeeping. BuildReport reports Racing instead of a false
@@ -299,6 +309,7 @@ namespace OloEngine
         u64 m_NextReporterHandle = 1;
         // Defaults to asking the live RendererAPI; tests substitute a fake.
         BackendObserver m_BackendObserver = &ObserveActiveRendererAPI;
+        AdmissionReporter m_AdmissionReporter = nullptr;
 
         std::atomic<u32> m_ExternalMutationsInFlight{ 0 };
         std::atomic<u64> m_ExternalMutationEpoch{ 0 };

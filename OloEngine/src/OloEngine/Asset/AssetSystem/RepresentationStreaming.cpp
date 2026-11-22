@@ -265,7 +265,7 @@ namespace OloEngine
             uploadAdded = descriptor.UploadBytes > existing->second.UploadBytes ? descriptor.UploadBytes - existing->second.UploadBytes : 0;
         }
         if (!pinned &&
-            (m_OptionalResidentOverflow ||
+            (m_Stats.OptionalDetailWithheld || m_OptionalResidentOverflow ||
              !Fits(m_Stats.OptionalResidentGpuBytes, m_Stats.RetiringGpuBytes, m_Stats.MaxResidentGpuBytes) ||
              !Fits(m_Stats.OptionalResidentGpuBytes + m_Stats.RetiringGpuBytes, gpuAdded, m_Stats.MaxResidentGpuBytes)))
         {
@@ -356,9 +356,14 @@ namespace OloEngine
     {
         if (m_RetiringGpuBytesProvider)
             m_Stats.RetiringGpuBytes = m_RetiringGpuBytesProvider();
-        return m_OptionalResidentOverflow ||
+        return m_Stats.OptionalDetailWithheld || m_OptionalResidentOverflow ||
                (m_Stats.MaxResidentGpuBytes != 0 &&
                 !Fits(m_Stats.OptionalResidentGpuBytes, m_Stats.RetiringGpuBytes, m_Stats.MaxResidentGpuBytes));
+    }
+
+    void FRepresentationStreamingBudget::SetOptionalDetailWithheld(const bool withheld)
+    {
+        m_Stats.OptionalDetailWithheld = withheld;
     }
 
     void FRepresentationStreamingBudget::SetRetiringGpuBytes(u64 bytes)

@@ -839,3 +839,40 @@ TEST_F(RendererMemoryAccountingEvidence, AGroomAndALawnLeaveNoPooledFramebufferB
     usePath(RenderingPath::Deferred);
     expectPoolsHoldEverything("Deferred, with the groom gone");
 }
+
+// ---------------------------------------------------------------------------------------
+// The G-Buffer is the Deferred path's alone (#1343): leaving the path gives its storage
+// back, a resize off the path does not bring it back, and returning to Deferred builds it
+// again. It used to stay allocated, and follow every resize, for the rest of the process.
+// ---------------------------------------------------------------------------------------
+TEST_F(RendererMemoryAccountingEvidence, LeavingTheDeferredPathReleasesTheGBuffer)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    RendererSettings& settings = Renderer3D::GetRendererSettings();
+    settings.Path = RenderingPath::Deferred;
+    Renderer3D::ApplyRendererSettings();
+    RunFrames(kDrainFrames + 2);
+    const u64 deferredBytes = OwnerLiveGpuBytes(Report(), "GBuffer");
+    ASSERT_GT(deferredBytes, 0u) << "the Deferred path built no G-Buffer: the test has no subject";
+
+    settings.Path = RenderingPath::Forward;
+    Renderer3D::ApplyRendererSettings();
+    RunFrames(kDrainFrames + 2);
+    EXPECT_EQ(OwnerLiveGpuBytes(Report(), "GBuffer"), 0u)
+        << "the G-Buffer outlived the Deferred path: " << deferredBytes << " bytes that no forward pass reads";
+    EXPECT_EQ(RendererMemoryTracker::GetInstance().GetOwnerGpuRetiringBytes("GBuffer"), 0u)
+        << "the released G-Buffer was retired but never freed";
+
+    ResizeRenderTarget(512, 384);
+    RunFrames(kDrainFrames + 2);
+    EXPECT_EQ(OwnerLiveGpuBytes(Report(), "GBuffer"), 0u) << "a resize on the forward path rebuilt the G-Buffer";
+    ResizeRenderTarget(256, 256);
+    RunFrames(kDrainFrames + 2);
+
+    settings.Path = RenderingPath::Deferred;
+    Renderer3D::ApplyRendererSettings();
+    RunFrames(kDrainFrames + 2);
+    EXPECT_EQ(OwnerLiveGpuBytes(Report(), "GBuffer"), deferredBytes) << "returning to Deferred did not rebuild the G-Buffer";
+    std::cout << "[ memory ] Deferred -> Forward -> Deferred: G-Buffer " << deferredBytes << " B, 0 B off the path\n";
+}

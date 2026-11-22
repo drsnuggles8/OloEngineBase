@@ -12,8 +12,76 @@
 #include "Platform/Vulkan/VulkanTransientResources.h"
 #endif
 
+#include <stb_image/stb_image.h>
+
+#include <cstring>
+
 namespace OloEngine
 {
+    namespace
+    {
+        Texture2D::ReloadGate s_ReloadGate = nullptr;
+    } // namespace
+
+    void Texture2D::SetReloadGate(const ReloadGate gate)
+    {
+        s_ReloadGate = gate;
+    }
+
+    bool Texture2D::ReloadInPlace(Ref<Texture2D> texture)
+    {
+        if (!texture)
+            return false;
+        return s_ReloadGate ? s_ReloadGate(texture) : texture->Reload();
+    }
+
+    bool Texture2D::DecodeReloadSource(DecodedImage& out) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // The same refusals as the backends' Reload(): a cooked container is a build
+        // artifact, and only the uncompressed upload path can replace storage in place.
+        if (IsCompressedFormat(GetSpecification().Format) || GetPath().empty())
+            return false;
+        const std::filesystem::path readPath = ResolveStoredSourcePath(GetPath());
+        if (readPath.empty())
+            return false;
+
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        // The backends' loaders flip on load; a reload must match or the texture mirrors.
+        ::stbi_set_flip_vertically_on_load_thread(1);
+        stbi_uc* data = ::stbi_load(readPath.string().c_str(), &width, &height, &channels, 0);
+        ::stbi_set_flip_vertically_on_load_thread(0);
+        if (!data || width <= 0 || height <= 0 || channels <= 0)
+        {
+            OLO_CORE_ERROR("Texture2D::DecodeReloadSource: failed to re-read '{}' (from '{}')", GetPath(), readPath.string());
+            if (data)
+                ::stbi_image_free(data);
+            return false;
+        }
+        out.Width = static_cast<u32>(width);
+        out.Height = static_cast<u32>(height);
+        out.Channels = static_cast<u32>(channels);
+        const sizet bytes = static_cast<sizet>(out.Width) * out.Height * out.Channels;
+        out.Pixels.SetNumUninitialized(static_cast<i32>(bytes));
+        std::memcpy(out.Pixels.GetData(), data, bytes);
+        ::stbi_image_free(data);
+        return true;
+    }
+
+    bool Texture2D::ApplyReload(const DecodedImage& image)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!image.IsValid() || IsCompressedFormat(GetSpecification().Format))
+            return false;
+        // The path is copied first: Invalidate stores it into the member it may point at.
+        const std::string path(GetPath());
+        Invalidate(path, image.Width, image.Height, image.Pixels.GetData(), image.Channels);
+        return IsLoaded();
+    }
+
     std::filesystem::path Texture2D::ResolveStoredSourcePath(std::string_view sourcePath)
     {
         // One implementation for every stored content path (#1496): the path's

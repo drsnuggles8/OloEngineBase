@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/String.h"
+#include "OloEngine/Renderer/RendererMemoryBudget.h"
 
 #include <functional>
 #include <optional>
@@ -171,6 +172,9 @@ namespace OloEngine
         TArray<MemoryCapacityRow> Capacity;
         MemoryReconciliation Reconciliation;
         BackendMemoryObservation Observation;
+        // Requested against realized quality under the memory budget (issue #1343).
+        // Empty when no renderer is admitting (a headless process, a unit test).
+        std::optional<MemoryAdmissionSnapshot> Admission;
     };
 
     // @brief Attributes every allocation made on this thread, while it lives, to `owner`.

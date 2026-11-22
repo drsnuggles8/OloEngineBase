@@ -229,6 +229,12 @@ namespace OloEngine
                 qt.Preset = QualityPreset::Custom;
             }
         }
+        // The combo shows the REQUEST. Under a memory budget the renderer may be
+        // drawing less than it (#1343); the request itself is never edited.
+        if (Renderer3D::GetMemoryAdmission().IsReduced())
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Reduced by the memory budget — see Statistics > Memory");
+        }
     }
 
     void RendererSettingsPanel::DrawShadowControls(QualityTieringSettings& qt, bool& changed)

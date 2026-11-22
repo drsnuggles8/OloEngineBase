@@ -715,6 +715,21 @@ namespace OloEngine
                     DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.LiveBytes)).c_str(),
                     DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.RetiringBytes)).c_str());
         ImGui::Text("GPU peak: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(report.Gpu.PeakBytes)).c_str());
+        // Whether the frame renders what was asked for (#1343). The settings panels show the
+        // REQUEST; under a memory budget the renderer may be drawing less, and this says so.
+        if (!report.Admission)
+        {
+            ImGui::TextDisabled("Quality: as requested (memory admission is not running)");
+        }
+        else if (report.Admission->IsReduced())
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "Quality: REDUCED by the memory budget (%s, level %u of %u)",
+                               ToString(report.Admission->Reason), report.Admission->Level, report.Admission->FloorLevel);
+        }
+        else
+        {
+            ImGui::TextUnformatted("Quality: as requested");
+        }
         ImGui::Text("CPU tracked: %s", DebugUtils::FormatMemorySize(static_cast<sizet>(report.Cpu.ResidentBytes())).c_str());
         ImGui::Text("Reconciliation: %s   Residency: %s", ToString(report.Reconciliation.Status),
                     ToString(report.Observation.Residency));

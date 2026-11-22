@@ -5,6 +5,7 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpCpuScopes.h"
 #include "MCP/McpFrameHistory.h"
+#include "MCP/McpMemoryBudget.h"
 #include "MCP/McpPassTimings.h"
 #include "MCP/McpPipelineReadiness.h"
 #include "OloEngine/Core/Application.h"
@@ -27,7 +28,7 @@
 #include <string>
 #include <vector>
 
-// Performance MCP tools: olo_memory_report and the olo_perf_* family (snapshot,
+// Performance MCP tools: olo_memory_report, olo_memory_budget_set and the olo_perf_* family (snapshot,
 // bottlenecks, frame history, frame capture, per-pass GPU timings, CPU scopes).
 // Split out of the McpTools.cpp monolith (issue #357).
 
@@ -112,6 +113,28 @@ namespace OloEngine::MCP
                     out["ownerDetail"] = Json{ { "owner", drillOwner }, { "known", true }, { "largest", std::move(largest) } };
                 }
                 return out; });
+            return ToolResult::Structured(j);
+        }
+
+        // ---- olo_memory_budget_set (main-marshaled; runtime state only) -------
+        // The pressure-injection seam of memory admission (#1343). The override is
+        // written on the main thread, where the governor reads it once per frame;
+        // the reply's admission block is the same JSON olo_memory_report emits.
+        ToolResult Handle_MemoryBudgetSet(IAutomationHost& host, const Json& args)
+        {
+            MemoryBudget::Args parsed;
+            if (const auto error = MemoryBudget::ParseArgs(args, parsed))
+                return ToolResult::Error(*error);
+
+            Json j = host.MarshalRead([parsed]() -> Json
+                                      {
+                Renderer3D::SetMemoryBudgetOverride(parsed.OverrideBytes);
+
+                RendererMemoryReport report;
+                if (MemoryAdmissionSnapshot admission; Renderer3D::ReportMemoryAdmission(admission))
+                    report.Admission = std::move(admission);
+                Json summary = RendererMemorySummaryToJson(report);
+                return MemoryBudget::BuildResponse(Renderer3D::GetMemoryBudgetOverride(), std::move(summary["admission"])); });
             return ToolResult::Structured(j);
         }
 
@@ -569,7 +592,12 @@ namespace OloEngine::MCP
                 "Scene, ray tracing, groom) with alias savings. 'backend.reconciliation' compares tracked committed "
                 "bytes with the allocator's own total (Vulkan/VMA: reconciled / untracked / overCounted; OpenGL: "
                 "notObservable). 'backend.residency.status' is osReported, allocatorHeuristic or unknown. Any byte "
-                "value that cannot be measured is null with an unknownReason, never 0. Pass 'owner' (an owners[] "
+                "value that cannot be measured is null with an unknownReason, never 0. 'admission' (issue #1343) is "
+                "memory admission against the device budget: per view the 'requested' quality beside the 'realized' "
+                "one, 'reduced', the 'reason' (admitted, budgetUnknown, deviceBudget, transitionOverlap, "
+                "recoveryHold, overBudgetAtFloor), 'level' of 'floorLevel', the 'activeRungs' of the reduction "
+                "ladder, the budget with its source, and the transition counters; null when no renderer is "
+                "admitting. Inject a budget with olo_memory_budget_set. Pass 'owner' (an owners[] "
                 "name, e.g. \"Unattributed\") to get that owner's largest allocations in 'ownerDetail'.";
             tool.InputSchema = Schema::Object()
                                    .Prop("owner", Schema::String().Desc("Owner row to drill into; its largest live allocations are listed in ownerDetail."))
@@ -605,6 +633,9 @@ namespace OloEngine::MCP
                                          .Prop("residency", Schema::Object()
                                                                 .Prop("status", Schema::String())
                                                                 .Prop("heaps", Schema::Array(Schema::Object()))))
+                    .Prop("admission", Schema::NullableObject().Desc("Requested vs realized quality under the memory budget (#1343): reduced, reason, level, "
+                                                                     "floorLevel, activeRungs, budget, predicted, recovery, counters, views[]. Null when no "
+                                                                     "renderer is admitting."))
                     .Prop("owners", Schema::Array(Schema::Object()
                                                       .Prop("owner", Schema::String())
                                                       .Prop("lifetime", Schema::String())
@@ -644,6 +675,39 @@ namespace OloEngine::MCP
                     .Required({ "units", "gpu", "cpu", "aliases", "backend", "owners", "capacity", "byType", "longLivedAllocations" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_memory_budget_set";
+            tool.Toolset = "perf";
+            tool.Title = "Inject a renderer memory budget";
+            // Runtime state only: the override lives in the renderer for this
+            // session, is never serialized, and `clear: true` takes it back. So it
+            // is not a consented write (the class of olo_editor_pause and the
+            // viewport / render overrides), and there is nothing for the undo
+            // stack to hold. Idempotent: the same budget twice is the same state.
+            tool.ProjectWrite = false;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Undo = Automation::AutomationUndo::None;
+            tool.Description =
+                "Inject a device memory budget into the renderer's memory admission (issue #1343), to drive a "
+                "quality reduction and its recovery on a live editor. 'megabytes' (MiB, > 0, at most 1048576) "
+                "replaces whatever budget the device reports; 'clear: true' removes the injected budget (OLO_RENDERER_MEMORY_BUDGET_MB applies again when set, otherwise the device's own). "
+                "Pass exactly one of the two. Under a budget the requested configuration does not fit, the governor "
+                "reduces quality along one fixed ladder (pooled transient slack, SSGI history resolution, MSAA "
+                "samples, optional groom / vegetation detail, then each optional technique's fallback) and climbs "
+                "back only after a stable run of frames with headroom. The requested settings are never edited: "
+                "read requested vs realized quality, the reason and the active rungs from 'admission' here or in "
+                "olo_memory_report. The decision is taken at the NEXT frame, so the 'admission' in this reply is "
+                "the one that was in force before the new budget was judged; call olo_memory_report a few frames "
+                "later for the result. Session-global and ephemeral: nothing is saved, it is not an undo-stack "
+                "entry, and it needs no write consent.";
+            tool.InputSchema = MemoryBudget::InputSchema();
+            tool.OutputSchema = MemoryBudget::OutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_MemoryBudgetSet;
             registry.Register(std::move(tool));
         }
 

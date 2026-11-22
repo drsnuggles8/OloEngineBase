@@ -99,6 +99,11 @@ namespace OloEngine
             return m_GBuffer;
         }
 
+        // Drop the G-Buffer. The next PrepareDeferredResources builds a new one
+        // at the size and sample count it is given. For a path that left
+        // Deferred, and for a resize admitted at another sample count (#1343).
+        void ReleaseGBuffer();
+
         // Ensure the deferred G-buffer exists and matches the current scene
         // framebuffer dimensions before graph blackboard population/import.
         void PrepareDeferredResources(u32 sampleCount);

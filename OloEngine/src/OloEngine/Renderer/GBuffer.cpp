@@ -166,6 +166,31 @@ namespace OloEngine
         return total;
     }
 
+    std::optional<u64> GBuffer::EstimateBytes(u32 width, u32 height, u32 sampleCount)
+    {
+        if (width == 0 || height == 0)
+            return 0;
+        width = std::min(width, kMaxGBufferSize);
+        height = std::min(height, kMaxGBufferSize);
+        // Create's rule for a count it does not support. The device cap is the caller's:
+        // Renderer3D clamps the setting to it before asking (CaptureMemoryQualityRequest).
+        if (sampleCount != 1 && sampleCount != 2 && sampleCount != 4 && sampleCount != 8)
+            sampleCount = 1;
+
+        auto total = RendererMemoryFormat::FramebufferBytes(BuildSpec(width, height, sampleCount));
+        if (!total)
+            return std::nullopt;
+        if (sampleCount > 1)
+        {
+            // The single-sample resolve target Recreate() builds beside the MSAA one.
+            const auto resolve = RendererMemoryFormat::FramebufferBytes(BuildSpec(width, height, 1));
+            if (!resolve)
+                return std::nullopt;
+            *total += *resolve;
+        }
+        return total;
+    }
+
     void GBuffer::Resolve()
     {
         OLO_PROFILE_FUNCTION();

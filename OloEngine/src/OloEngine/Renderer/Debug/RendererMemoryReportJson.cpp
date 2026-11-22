@@ -50,6 +50,78 @@ namespace OloEngine
                 { "residency", Json{ { "status", ToString(report.Observation.Residency) }, { "heaps", std::move(heaps) } } },
             };
         }
+        [[nodiscard]] Json QualityConfig(const MemoryQualityConfig& config)
+        {
+            Json techniques = Json::array();
+            for (u32 index = 0; index < kMemoryTechniqueCount; ++index)
+            {
+                const auto technique = static_cast<MemoryTechnique>(index);
+                if (config.Has(technique))
+                    techniques.push_back(ToString(technique));
+            }
+            return Json{ { "path", ToToken(config.Path) },
+                         { "displayWidth", config.DisplayWidth },
+                         { "displayHeight", config.DisplayHeight },
+                         { "sceneWidth", config.SceneWidth },
+                         { "sceneHeight", config.SceneHeight },
+                         { "msaaSamples", config.MsaaSamples },
+                         { "ssgiHalfResolution", config.SSGIHalfResolution },
+                         { "transientPoolSpare", config.TransientPoolSpare },
+                         { "optionalDetail", config.OptionalDetail },
+                         { "techniques", std::move(techniques) } };
+        }
+
+        // Requested against realized quality (#1343). null when no renderer is admitting.
+        [[nodiscard]] Json Admission(const std::optional<MemoryAdmissionSnapshot>& admission)
+        {
+            if (!admission)
+                return nullptr;
+            const MemoryAdmissionSnapshot& snapshot = *admission;
+
+            Json rungs = Json::array();
+            for (u32 rung = 0; rung < kMemoryLadderRungCount; ++rung)
+            {
+                if ((snapshot.ActiveRungMask & (1u << rung)) != 0u)
+                    rungs.push_back(kMemoryLadder[rung].Name);
+            }
+            Json views = Json::array();
+            for (const auto& view : snapshot.Views)
+            {
+                views.push_back(Json{ { "view", view.View },
+                                      { "reduced", view.IsReduced() },
+                                      { "requested", QualityConfig(view.Requested) },
+                                      { "realized", QualityConfig(view.Realized) } });
+            }
+            return Json{
+                { "reduced", snapshot.IsReduced() },
+                { "reason", ToString(snapshot.Reason) },
+                { "level", snapshot.Level },
+                { "floorLevel", snapshot.FloorLevel },
+                { "activeRungs", std::move(rungs) },
+                { "budget",
+                  Json{ { "source", ToString(snapshot.BudgetSource) },
+                        { "bytes", OptionalBytes(snapshot.BudgetBytes) },
+                        { "reserveBytes", snapshot.ReserveBytes },
+                        { "residentBytes", snapshot.ResidentBytes },
+                        { "retiringBytes", snapshot.RetiringBytes } } },
+                { "predicted",
+                  Json{ { "steadyBytes", snapshot.PredictedSteadyBytes },
+                        { "peakBytes", snapshot.PredictedPeakBytes },
+                        { "complete", snapshot.EstimateComplete } } },
+                { "recovery",
+                  Json{ { "progressFrames", snapshot.RecoveryProgressFrames }, { "requiredFrames", snapshot.RecoveryRequiredFrames } } },
+                { "counters",
+                  Json{ { "ticks", snapshot.Ticks },
+                        { "transitions", snapshot.Transitions },
+                        { "degradations", snapshot.Degradations },
+                        { "recoveries", snapshot.Recoveries },
+                        { "failedRecoveries", snapshot.FailedRecoveries },
+                        { "readmissions", snapshot.Readmissions },
+                        { "ticksAtLevel", snapshot.TicksAtLevel },
+                        { "peakResidentBytes", snapshot.PeakResidentBytes } } },
+                { "views", std::move(views) },
+            };
+        }
     } // namespace
 
     nlohmann::json RendererMemorySummaryToJson(const RendererMemoryReport& report)
@@ -58,7 +130,8 @@ namespace OloEngine
                      { "gpu", Totals(report.Gpu) },
                      { "cpu", Totals(report.Cpu) },
                      { "aliases", Json{ { "count", report.AliasCount }, { "logicalBytes", report.AliasLogicalBytes }, { "orphanCount", report.OrphanAliasCount } } },
-                     { "backend", Backend(report) } };
+                     { "backend", Backend(report) },
+                     { "admission", Admission(report.Admission) } };
     }
 
     nlohmann::json RendererMemoryReportToJson(const RendererMemoryReport& report)
