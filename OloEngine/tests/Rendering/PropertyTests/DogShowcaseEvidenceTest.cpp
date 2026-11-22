@@ -4261,10 +4261,11 @@ namespace OloEngine::Tests
         static constexpr u32 kEveryClipMeasured = 2;
         // TheCoatStaysOnTheBodyThroughEveryClip reads ONE held frame per
         // measurement (#1659): on the shipped coat, through every clip and view,
-        // no part read bald above 0.10 against 0.25 or floating above 0.0012
-        // against 0.02 on two-frame averages, and one frame moved those to
-        // 0.104 and 0.0011 (worst coverage 0.370 -> 0.379). The
-        // local-failure plants keep two: the stale hind leg reads bald 0.27-0.44
+        // one frame moved the worst part's bald share and floating share by
+        // under 0.005 from two-frame averages, and with the solver taking every
+        // step no part reads bald above 0.072 against 0.25 or floating above
+        // 0.003 against 0.02 (worst coverage 0.374). The
+        // local-failure plants keep two: the stale hind leg reads bald 0.27-0.43
         // against the same 0.25, too near to halve its samples.
         static constexpr u32 kCoatStaysMeasured = 1;
 
