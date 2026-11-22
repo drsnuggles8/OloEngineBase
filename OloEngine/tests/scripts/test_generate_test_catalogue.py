@@ -102,6 +102,29 @@ class DurationReportTest(unittest.TestCase):
         self.assertNotIn("override:", output.getvalue())
         self.assertIn("(case_budget_debug_s in", output.getvalue())
 
+    def test_a_debug_gate_without_a_debug_ceiling_counts_the_case(self):
+        # No case_budget_debug_s at all, or one without the case's layer and a
+        # default: the Debug gate must not pass the 301 s case unjudged.
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="Evidence" name="Gates" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        for table in (None, {}, {"L3": 60}):
+            with self.subTest(table=table):
+                self.cfg.pop("case_budget_debug_s", None)
+                if table is not None:
+                    self.cfg["case_budget_debug_s"] = table
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output), patch.object(catalogue, "suite_layers",
+                                                                      return_value={"Evidence": "L8"}):
+                    failed = catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=True)
+                self.assertEqual(failed, 1)
+                self.assertIn("NO CEILING  Evidence.Gates", output.getvalue())
+        # Release keeps an uncovered case reported, not counted.
+        self.cfg.pop("case_budget_s", None)
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(catalogue, "suite_layers",
+                                                                     return_value={"Evidence": "L8"}):
+            self.assertEqual(catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=False), 0)
+
     def test_a_budget_table_needs_finite_positive_seconds(self):
         for table in ("case_budget_s", "case_budget_debug_s"):
             for value in (0, -1, float("inf"), float("nan"), True, "300"):

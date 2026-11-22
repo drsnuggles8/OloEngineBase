@@ -544,6 +544,16 @@ def report_durations(cfg, effective, xml_path, github, top, debug=False):
         process_init += init
     rows.sort(reverse=True)
     over = [r for r in rows if r[2] is not None and r[0] > r[2]]
+    # A Debug gate is a ceiling for every case: a case its table does not
+    # cover (the table missing, empty, or without its layer and a default) is
+    # counted, or an absent table would pass every case unjudged. Release
+    # keeps its uncovered cases as reported only.
+    unjudged = [r for r in rows if r[2] is None] if debug else []
+    if unjudged:
+        print(f"{len(unjudged)} case(s) have no Debug ceiling: {table} in {CATALOGUE_PATH.name} has neither "
+              f"their layer nor a default.")
+        for seconds, layer, _, name in unjudged:
+            print(f"  {seconds:8.1f} s  {layer:<11} NO CEILING  {name}")
     shown = sorted(over + [r for r in rows if r not in over][:top], reverse=True)
     total = sum(r[0] for r in rows) + process_init
     sources = table if debug else f"{table} / case_budget_overrides"
@@ -559,7 +569,7 @@ def report_durations(cfg, effective, xml_path, github, top, debug=False):
         if github and mark == "OVER":
             print(f"::warning title=Test over its case budget::{name} took {seconds:.0f} s, "
                   f"over its {budget:.0f} s budget ({layer})")
-    return len(over)
+    return len(over) + len(unjudged)
 
 
 def main():
