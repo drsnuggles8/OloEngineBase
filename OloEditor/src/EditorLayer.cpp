@@ -4516,7 +4516,7 @@ namespace OloEngine
 
     bool EditorLayer::IsProjectBuildInProgress() const
     {
-        return m_McpAssetPackBuilding->load() ||
+        return m_McpAssetPackBuilding->load() || m_BuildInProgress.load() ||
                (m_AssetPackBuilderPanel && m_AssetPackBuilderPanel->IsBuildInProgress()) ||
                (m_BuildGamePanel && m_BuildGamePanel->IsBuildInProgress());
     }
