@@ -274,6 +274,11 @@ namespace OloEngine::Benchmark
         // renderer setting no scene serializes; the #1259 acceptance gate is
         // measured with them on, so a manifest has to be able to pin them.
         std::optional<bool> VirtualShadowMapsEnabled;
+        // The skin diffusion pass's master switch (SkinDiffusionSettings::Enabled),
+        // applied on top of the scene's own SkinDiffusion block. #1396's skin-off
+        // control arm must be the SAME scene file with this off, not a second scene
+        // that could drift, so the manifest pins it.
+        std::optional<bool> SkinDiffusionEnabled;
         std::optional<u32> MSAASampleCount;
         std::optional<UpscaleMode> Upscale;
         std::optional<UpscalerTechnique> UpscaleTechnique;

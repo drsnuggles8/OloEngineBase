@@ -80,6 +80,20 @@ namespace OloEngine
         // Number of slots handed out so far.
         [[nodiscard]] u32 GetAssignedSlotCount() const;
 
+        // Whether any assigned slot's profile evaluates screen-space diffusion
+        // (SkinEvaluatesScreenSpaceDiffusion). The render pipeline gates the
+        // diffusion's scratch target and input snapshots on it (#1396): without
+        // it, a scene with no skin allocated both and copied two full-screen
+        // snapshots every frame for a pass that then drew nothing.
+        //
+        // STICKY LIKE THE SLOTS, DELIBERATELY. It answers "has this scene resolved a
+        // diffusing profile since its load", not "this frame": the GPU-scene path
+        // resolves a material's profile when the material changes, not every frame,
+        // so a per-frame answer would switch the diffusion off under a static head
+        // still on screen. The cost of the latch: deleting every skin material in an
+        // editor session keeps the targets until the scene reloads (Reset()).
+        [[nodiscard]] bool AnyAssignedSlotDiffuses() const;
+
         // How many resolves fell back, by reason, since the last Reset(). The
         // "countably" half of the house rule — a test asserts on these rather
         // than scraping the log.

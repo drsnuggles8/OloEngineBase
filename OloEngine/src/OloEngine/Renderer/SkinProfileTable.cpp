@@ -3,7 +3,9 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/SkinDiffusion.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace OloEngine
@@ -148,6 +150,18 @@ namespace OloEngine
     {
         std::scoped_lock lock(m_Mutex);
         return m_NextSlot;
+    }
+
+    bool SkinProfileTable::AnyAssignedSlotDiffuses() const
+    {
+        std::scoped_lock lock(m_Mutex);
+        const u32 assigned = std::min(m_NextSlot, kMaxSkinProfileSlots);
+        for (u32 slot = 0; slot < assigned; ++slot)
+        {
+            if (SkinEvaluatesScreenSpaceDiffusion(m_Parameters[slot].EvaluationModel))
+                return true;
+        }
+        return false;
     }
 
     u64 SkinProfileTable::GetFallbackCount(SkinProfileFallbackReason reason) const

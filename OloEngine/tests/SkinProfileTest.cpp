@@ -747,6 +747,34 @@ namespace OloEngine::Tests
         EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::AssetMissing), 0u);
     }
 
+    // #1396: the render pipeline declares the diffusion's targets only when an assigned
+    // slot diffuses. A split-only (version 0) profile holds a slot and must not count.
+    TEST_F(SkinProfileTableTest, AnyAssignedSlotDiffusesOnlyOnceADiffusingProfileHoldsASlot)
+    {
+        const auto makeProfile = [](const char* name, SkinEvaluationModel model)
+        {
+            auto profile = Ref<SkinProfile>::Create();
+            profile->SetName(name);
+            SkinProfileParameters parameters = SkinProfile::DefaultParameters();
+            parameters.EvaluationModel = model;
+            EXPECT_TRUE(profile->SetParameters(parameters));
+            return AssetManager::AddMemoryOnlyAsset<SkinProfile>(profile);
+        };
+
+        SkinProfileTable table;
+        EXPECT_FALSE(table.AnyAssignedSlotDiffuses()) << "an empty table diffuses nothing";
+
+        (void)table.Resolve(makeProfile("SplitOnly", SkinEvaluationModel::DiffuseSpecularSplit));
+        ASSERT_EQ(table.GetAssignedSlotCount(), 1u);
+        EXPECT_FALSE(table.AnyAssignedSlotDiffuses()) << "a version-0 profile does not diffuse";
+
+        (void)table.Resolve(makeProfile("Diffusing", SkinEvaluationModel::ScreenSpaceDiffusion));
+        EXPECT_TRUE(table.AnyAssignedSlotDiffuses());
+
+        table.Reset();
+        EXPECT_FALSE(table.AnyAssignedSlotDiffuses()) << "a scene load must drop the gate with the slots";
+    }
+
     TEST_F(SkinProfileTableTest, AnUnassignedSlotYieldsTheNeutralDefaults)
     {
         SkinProfileTable table;
