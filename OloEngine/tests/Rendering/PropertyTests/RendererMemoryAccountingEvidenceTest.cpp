@@ -861,6 +861,8 @@ TEST_F(RendererMemoryAccountingEvidence, LeavingTheDeferredPathReleasesTheGBuffe
     RunFrames(kDrainFrames + 2);
     EXPECT_EQ(OwnerLiveGpuBytes(Report(), "GBuffer"), 0u)
         << "the G-Buffer outlived the Deferred path: " << deferredBytes << " bytes that no forward pass reads";
+    EXPECT_EQ(RendererMemoryTracker::GetInstance().GetOwnerGpuRetiringBytes("GBuffer"), 0u)
+        << "the released G-Buffer was retired but never freed";
 
     ResizeRenderTarget(512, 384);
     RunFrames(kDrainFrames + 2);

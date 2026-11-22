@@ -172,7 +172,10 @@ namespace OloEngine
             return 0;
         width = std::min(width, kMaxGBufferSize);
         height = std::min(height, kMaxGBufferSize);
-        sampleCount = std::max(sampleCount, 1u);
+        // Create's rule for a count it does not support. The device cap is the caller's:
+        // Renderer3D clamps the setting to it before asking (CaptureMemoryQualityRequest).
+        if (sampleCount != 1 && sampleCount != 2 && sampleCount != 4 && sampleCount != 8)
+            sampleCount = 1;
 
         auto total = RendererMemoryFormat::FramebufferBytes(BuildSpec(width, height, sampleCount));
         if (!total)

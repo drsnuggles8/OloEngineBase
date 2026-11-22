@@ -183,15 +183,17 @@ namespace OloEngine
             StandDown("disabled");
             return;
         }
-        if (participatingMedia)
-        {
-            StandDown("participating media unsupported");
-            return;
-        }
+        // The path first: off Deferred the pools are unusable whatever else holds, and the
+        // media stand-down below keeps them.
         if (!deferredPathActive)
         {
             releasePools();
             StandDown("deferred path required");
+            return;
+        }
+        if (participatingMedia)
+        {
+            StandDown("participating media unsupported");
             return;
         }
         if (!RenderCommand::SupportsRayTracing() || !m_RayTracingScene || !m_RayTracingScene->IsAvailable())

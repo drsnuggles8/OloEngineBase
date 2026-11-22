@@ -150,11 +150,12 @@ namespace OloEngine::Tests
                 return LiveBytes() + RetiringBytes();
             }
 
-            [[nodiscard]] MemoryAdmissionInput Input(const std::optional<u64> budget) const
+            [[nodiscard]] MemoryAdmissionInput Input(const std::optional<u64> budget,
+                                                     const MemoryBudgetSource source = MemoryBudgetSource::Injected) const
             {
                 MemoryAdmissionInput input;
                 input.Budget.BudgetBytes = budget;
-                input.Budget.Source = budget ? MemoryBudgetSource::Injected : MemoryBudgetSource::None;
+                input.Budget.Source = budget ? source : MemoryBudgetSource::None;
                 input.Budget.ResidentBytes = ResidentBytes();
                 input.Budget.RetiringBytes = RetiringBytes();
                 input.Views = m_Views;
@@ -532,6 +533,22 @@ namespace OloEngine::Tests
         EXPECT_EQ(transition.ReleasedBytes, 60u * kMiB);
     }
 
+    TEST(RendererMemoryFootprint, ARotatedViewportOfTheSameAreaReallocatesItsHistories)
+    {
+        const MemoryQualityConfig landscape = MakeConfig(RenderingPath::Deferred, 1920u, 1080u, 1u, kTechSSR);
+        const MemoryQualityConfig portrait = MakeConfig(RenderingPath::Deferred, 1080u, 1920u, 1u, kTechSSR);
+        ViewMemoryInventory inventory;
+        inventory.DisplayWidth = 1920u;
+        inventory.DisplayHeight = 1080u;
+        inventory.SceneWidth = 1920u;
+        inventory.SceneHeight = 1080u;
+        inventory.TechniqueHistoryBytes[static_cast<u32>(MemoryTechnique::SSR)] = 1920ull * 1080ull * 8u;
+        const MemoryTransition rotation = EstimateViewTransition(&landscape, portrait, inventory);
+        // Same pixel count, different extent: the SSR history is new storage, the old one retires.
+        EXPECT_GE(rotation.NewBytes, 1920ull * 1080ull * 8u + EstimateGBufferBytes(portrait));
+        EXPECT_GE(rotation.ReleasedBytes, 1920ull * 1080ull * 8u + EstimateGBufferBytes(landscape));
+    }
+
     TEST(RendererMemoryFootprint, AViewThatHasNotDrawnReportsAnIncompleteEstimateNotAZero)
     {
         const MemoryQualityConfig config = MakeConfig(RenderingPath::Deferred, 1280u, 720u, 4u, kTechSSR);
@@ -828,15 +845,19 @@ namespace OloEngine::Tests
         renderer.HiddenBytesPerTechnique = 200ull * kMiB;
         renderer.AddView(1, MakeConfig(RenderingPath::Forward, 1920u, 1080u, 1u, kTechBloom));
         const u64 budget = 850ull * kMiB;
-        (void)Drive(governor, renderer, budget, 12);
+        for (u32 frame = 0; frame < 12; ++frame)
+            renderer.Render(governor.Tick(renderer.Input(budget, MemoryBudgetSource::OsReported)));
+        ASSERT_FALSE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::Bloom)) << "the scenario needs bloom reduced";
+        EXPECT_EQ(governor.GetSnapshot().BudgetSource, MemoryBudgetSource::OsReported);
 
         // The budget wobbles by a megabyte a frame, as an OS-reported one does.
         for (u32 frame = 0; frame < 400; ++frame)
         {
             const u64 wobble = (frame % 3u) * kMiB;
-            const MemoryAdmissionSnapshot& decision = governor.Tick(renderer.Input(budget + wobble));
+            const MemoryAdmissionSnapshot& decision = governor.Tick(renderer.Input(budget + wobble, MemoryBudgetSource::OsReported));
             renderer.Render(decision);
         }
+        EXPECT_FALSE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::Bloom)) << "the reduction did not hold";
         EXPECT_EQ(governor.GetSnapshot().Recoveries, 0u) << "budget noise reset what the descent had measured";
         EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 0u);
     }
@@ -890,13 +911,17 @@ namespace OloEngine::Tests
         // both go to 1x.
         renderer.AddView(2, config);
         renderer.ResetPeak();
-        (void)Drive(governor, renderer, budget, 30);
+        // The first decision after the view appears, before it has drawn: its pass targets
+        // are priced from the first view's measurement (same path), so the estimate is whole.
+        const MemoryAdmissionSnapshot first = governor.Tick(renderer.Input(budget));
+        EXPECT_TRUE(first.EstimateComplete) << "the view that had not drawn was priced without its pass targets";
+        renderer.Render(first);
+        (void)Drive(governor, renderer, budget, 29);
         const MemoryAdmissionSnapshot twoViews = governor.GetSnapshot();
         ASSERT_EQ(twoViews.Views.Num(), 2);
         EXPECT_TRUE(twoViews.IsReduced());
         EXPECT_EQ(twoViews.Views[0].Realized, twoViews.Views[1].Realized) << "one ladder level applies to every view";
         EXPECT_EQ(twoViews.Views[0].Realized.MsaaSamples, 1u);
-        EXPECT_TRUE(twoViews.EstimateComplete) << "the view that had not drawn was priced without its pass targets";
         EXPECT_LE(renderer.LiveBytes(), budget - 16ull * kMiB);
         EXPECT_LE(renderer.PeakResident(), budget) << "the second view's targets were allocated past the budget";
 
@@ -1034,6 +1059,23 @@ namespace OloEngine::Tests
         EXPECT_FALSE(after.IsReduced());
         EXPECT_EQ(after.Recoveries, before.Recoveries) << "nothing was measured to fit; this is not a recovery";
         EXPECT_EQ(after.Transitions, before.Transitions);
+    }
+
+    TEST(RendererMemoryGovernor, ABudgetThatBecomesKnownJudgesTheRequestInForce)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.AddView(1, MakeConfig(RenderingPath::Deferred, 1920u, 1080u, 4u, kTechSSR));
+        (void)Drive(governor, renderer, std::nullopt, 6);
+        ASSERT_EQ(governor.GetSnapshot().Reason, MemoryAdmissionReason::BudgetUnknown);
+
+        // The request does not change; a budget it does not fit appears. That is a fresh
+        // admission, not "admitted" against a budget that never judged it.
+        const MemoryAdmissionSnapshot judged = governor.Readmit(renderer.Input(700ull * kMiB));
+        EXPECT_TRUE(judged.IsReduced());
+        EXPECT_NE(judged.Reason, MemoryAdmissionReason::Admitted);
+        EXPECT_EQ(judged.Transitions, 0u) << "an admission is not a governor transition";
     }
 
     TEST(RendererMemoryGovernor, ReasonCodesHaveStableSpellings)

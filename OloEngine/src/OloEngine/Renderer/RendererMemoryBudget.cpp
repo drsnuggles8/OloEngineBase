@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/ReSTIR/ReSTIRPTGPU.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace OloEngine
 {
@@ -37,6 +38,15 @@ namespace OloEngine
             if (technique == MemoryTechnique::SSGI && config.SSGIHalfResolution)
                 return Pixels((config.SceneWidth + 1u) / 2u, (config.SceneHeight + 1u) / 2u);
             return Pixels(config.SceneWidth, config.SceneHeight);
+        }
+
+        // The band's extent. Two bands of equal area are still different storage: a rotated
+        // viewport reallocates every history at the new width and height.
+        [[nodiscard]] std::pair<u32, u32> TechniqueBand(const MemoryTechnique technique, const MemoryQualityConfig& config)
+        {
+            if (technique == MemoryTechnique::SSGI && config.SSGIHalfResolution)
+                return { (config.SceneWidth + 1u) / 2u, (config.SceneHeight + 1u) / 2u };
+            return { config.SceneWidth, config.SceneHeight };
         }
 
         [[nodiscard]] bool SameSceneBand(const MemoryQualityConfig& a, const MemoryQualityConfig& b)
@@ -167,7 +177,7 @@ namespace OloEngine
             const auto technique = static_cast<MemoryTechnique>(index);
             const bool on = target.Has(technique);
             const bool was = allocated && allocated->Has(technique);
-            const bool sameBand = was && on && TechniqueBandPixels(technique, *allocated) == TechniqueBandPixels(technique, target);
+            const bool sameBand = was && on && TechniqueBand(technique, *allocated) == TechniqueBand(technique, target);
             if (on == was && (!on || sameBand))
                 continue;
 
@@ -286,18 +296,19 @@ namespace OloEngine
     RendererMemoryGovernor::LevelEstimate RendererMemoryGovernor::EstimateLevel(const MemoryAdmissionInput& input,
                                                                                 const u32 level) const
     {
-        // A view that has not drawn yet has no measurement of its own. Another view of the
-        // same renderer runs the same passes at another size, so its pixel-proportional
-        // owners are priced from that one instead of being left out.
-        const ViewMemoryInventory* measuredView = nullptr;
-        for (const auto& view : input.Views)
+        // A view that has not drawn yet has no measurement of its own. Another view on the
+        // same path runs the same passes at another size, so its pixel-proportional owners
+        // are priced from that one. A view on another path has other passes: borrowing from
+        // it would report a complete estimate that is not, so the estimate stays incomplete.
+        const auto donorFor = [&input](const RenderingPath path) -> const ViewMemoryInventory*
         {
-            if (view.Inventory.IsMeasured())
+            for (const auto& view : input.Views)
             {
-                measuredView = &view.Inventory;
-                break;
+                if (view.Inventory.IsMeasured() && view.Allocated && view.Allocated->Path == path)
+                    return &view.Inventory;
             }
-        }
+            return nullptr;
+        };
 
         MemoryTransition total;
         bool optionalAllocated = false;
@@ -308,7 +319,8 @@ namespace OloEngine
             const MemoryQualityConfig target = ReduceMemoryQuality(view.Requested, level);
             ViewMemoryInventory borrowed;
             const ViewMemoryInventory* inventory = &view.Inventory;
-            if (!view.Inventory.IsMeasured() && measuredView)
+            const ViewMemoryInventory* measuredView = view.Inventory.IsMeasured() ? nullptr : donorFor(target.Path);
+            if (measuredView)
             {
                 borrowed.DisplayWidth = measuredView->DisplayWidth;
                 borrowed.DisplayHeight = measuredView->DisplayHeight;
@@ -399,9 +411,13 @@ namespace OloEngine
         // The requested configuration would fit once the old resources retire: it is only
         // the overlap that does not.
         m_ReducedCause = requestedFitsSteady ? MemoryAdmissionReason::TransitionOverlap : MemoryAdmissionReason::DeviceBudget;
-        m_OverAtFloor = !found && EstimateLevel(input, floor).SteadyBytes > limit;
+        // No level fits both its steady footprint and its replacement peak: the floor is
+        // kept and reported as over budget, even when the floor is level 0 (a resize with
+        // nothing left to reduce whose overlap does not fit).
+        m_OverAtFloor = !found;
         m_SettleTicks = m_Policy.SettleFrames;
         m_RecoveryProgress = 0;
+        m_RecoveryTarget = 0;
         m_ClimbOutstanding = false;
         m_DescentUnmeasured = false;
         m_Snapshot.PeakResidentBytes = 0;
@@ -449,6 +465,15 @@ namespace OloEngine
         const LevelEstimate direct = EstimateLevel(input, target);
         if (direct.PeakBytes <= budget)
             return target;
+        // The shallowest deeper level whose overlap fits beats any that only comes close.
+        for (u32 level = target + 1u; level <= kMemoryLadderRungCount; ++level)
+        {
+            if (SameRealization(input, level, level - 1u))
+                continue;
+            const LevelEstimate estimate = EstimateLevel(input, level);
+            if (estimate.PeakBytes <= budget && estimate.SteadyBytes <= limit)
+                return level;
+        }
         u64 leastNew = direct.NewBytes;
         for (u32 level = target + 1u; level <= kMemoryLadderRungCount; ++level)
         {
@@ -460,7 +485,7 @@ namespace OloEngine
             if (level > target && SameRealization(input, level, level - 1u))
                 continue;
             const LevelEstimate estimate = EstimateLevel(input, level);
-            if (estimate.PeakBytes <= budget || estimate.NewBytes <= leastNew + reserve)
+            if (estimate.NewBytes <= leastNew + reserve)
                 return level;
         }
         return target;
@@ -482,6 +507,9 @@ namespace OloEngine
         // technique's transients weigh the same under any budget, so that is kept (a
         // climb that holds clears it). An OS-reported budget drifts by a little every
         // frame, so only a move larger than the recovery band counts as new.
+        // A budget that becomes known has never judged the request in force: that is a
+        // fresh admission, whatever the request did.
+        const bool budgetAppeared = observed.BudgetBytes.has_value() && !m_BudgetAnchor.has_value();
         bool budgetMoved = observed.BudgetBytes.has_value() != m_BudgetAnchor.has_value();
         if (!budgetMoved && observed.BudgetBytes)
         {
@@ -523,9 +551,9 @@ namespace OloEngine
                                                 static_cast<u64>(static_cast<f64>(budget) * static_cast<f64>(m_Policy.ReserveFraction))));
             const u64 limit = budget - reserve;
 
-            if (requestChanged)
+            if (requestChanged || budgetAppeared)
             {
-                if (m_HasAdmitted)
+                if (m_HasAdmitted && requestChanged)
                     ++m_Snapshot.Readmissions;
                 AdmitFresh(input, limit, budget, /*keepLearned=*/m_HasAdmitted && !budgetMoved);
             }
@@ -623,9 +651,16 @@ namespace OloEngine
                         }
                         if (candidate < m_Level)
                         {
+                            // The run climbs to the deepest level that fitted on any of its
+                            // frames: every counted frame fitted that one, since a deeper
+                            // level costs no more than a shallower one.
+                            m_RecoveryTarget = m_RecoveryProgress == 0u ? candidate : std::max(m_RecoveryTarget, candidate);
                             ++m_RecoveryProgress;
                             if (m_RecoveryProgress >= recoveryRequired)
                             {
+                                if (m_RecoveryTarget != candidate)
+                                    candidateSteady = EstimateLevel(input, m_RecoveryTarget).SteadyBytes;
+                                candidate = m_RecoveryTarget;
                                 m_LevelBeforeClimb = m_Level;
                                 m_ClimbPredictedSteady = candidateSteady;
                                 m_Level = candidate;
@@ -644,7 +679,7 @@ namespace OloEngine
             }
         }
 
-        if (m_Level != previousLevel && !requestChanged && !levelForced)
+        if (m_Level != previousLevel && !requestChanged && !budgetAppeared && !levelForced)
         {
             ++m_Snapshot.Transitions;
             if (m_Level > previousLevel)
@@ -652,7 +687,7 @@ namespace OloEngine
             else
                 ++m_Snapshot.Recoveries;
         }
-        if (m_Level != previousLevel || requestChanged)
+        if (m_Level != previousLevel || requestChanged || budgetAppeared)
             m_Snapshot.TicksAtLevel = 0;
         else if (frameTick)
             ++m_Snapshot.TicksAtLevel;

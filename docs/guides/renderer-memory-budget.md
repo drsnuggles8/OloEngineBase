@@ -100,7 +100,8 @@ Reasons: `admitted`, `budgetUnknown`, `deviceBudget` (the request does not fit),
 ## Driving it
 
 - Live: `olo_memory_budget_set { megabytes: 2048 }`, then `olo_memory_report` a few frames later;
-  `olo_memory_budget_set { clear: true }` gives the device's budget back.
+  `olo_memory_budget_set { clear: true }` removes the injected budget, and the next source in the
+  table above applies: `OLO_RENDERER_MEMORY_BUDGET_MB` when it is set, otherwise the device's.
 - `OLO_RENDERER_MEMORY_ADMISSION_OFF=1` admits everything: the A/B control for a frame that looks
   reduced.
 - Tests: `Renderer3D::SetMemoryBudgetOverride` and `SetMemoryAdmissionPolicy` (short clocks).

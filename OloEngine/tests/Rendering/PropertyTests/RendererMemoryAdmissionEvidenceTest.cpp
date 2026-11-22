@@ -40,6 +40,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RendererMemoryBudget.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -135,8 +136,11 @@ namespace
         const fs::path dir = fs::path("assets") / "tests" / "memory";
         std::error_code ec;
         fs::create_directories(dir, ec);
-        std::ofstream out(dir / (name + ".json"), std::ios::binary | std::ios::trunc);
+        const fs::path file = dir / (name + ".json");
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
         out << RendererMemoryReportToJson(RendererMemoryTracker::GetInstance().BuildReport()).dump(2) << '\n';
+        out.close();
+        EXPECT_FALSE(out.fail()) << "could not write " << file.string();
     }
 
     // Mean 8-bit colour of a square centred on (cx, cy).
@@ -366,7 +370,7 @@ TEST_P(RendererMemoryAdmissionEvidence, InjectedPressureAdmitsACompleteReducedIm
     }
     const u64 liveRequested = LiveBytes();
     std::vector<u8> control;
-    Capture(control);
+    ASSERT_NO_FATAL_FAILURE(Capture(control));
     WriteImage(controlName, control, kSize, kSize);
     ExpectCompleteImage(control, kSize, kSize, "the unreduced control");
 
@@ -412,7 +416,7 @@ TEST_P(RendererMemoryAdmissionEvidence, InjectedPressureAdmitsACompleteReducedIm
     }
     WriteReport(name + "_Floor");
     std::vector<u8> floorImage;
-    Capture(floorImage);
+    ASSERT_NO_FATAL_FAILURE(Capture(floorImage));
     WriteImage(name + "_Floor", floorImage, kSize, kSize);
     ExpectCompleteImage(floorImage, kSize, kSize, "the minimum complete image");
 
@@ -434,7 +438,7 @@ TEST_P(RendererMemoryAdmissionEvidence, InjectedPressureAdmitsACompleteReducedIm
     EXPECT_EQ(liveRecovered, liveRequested) << "a pressure round trip left "
                                             << static_cast<i64>(liveRecovered) - static_cast<i64>(liveRequested) << " bytes behind";
     std::vector<u8> recoveredImage;
-    Capture(recoveredImage);
+    ASSERT_NO_FATAL_FAILURE(Capture(recoveredImage));
     WriteImage(name + "_Recovered", recoveredImage, kSize, kSize);
     ExpectCompleteImage(recoveredImage, kSize, kSize, "the recovered image");
 
@@ -488,7 +492,7 @@ TEST_P(RendererMemoryAdmissionEvidence, InjectedPressureAdmitsACompleteReducedIm
         {
             WriteReport(name + "_Pressure");
             std::vector<u8> pressureImage;
-            Capture(pressureImage);
+            ASSERT_NO_FATAL_FAILURE(Capture(pressureImage));
             WriteImage(name + "_Pressure", pressureImage, kSize, kSize);
             ExpectCompleteImage(pressureImage, kSize, kSize, "the image under pressure");
             std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << cell.Name << ": budget " << budget << " B -> level "
@@ -583,8 +587,21 @@ TEST_F(RendererMemoryAdmissionTransitions, AResizeUnderPressureNeverAllocatesThe
     EXPECT_EQ(admitted.Views[0].Realized.DisplayWidth, kSize) << "the realized size must be the requested one";
     EXPECT_LT(admitted.Views[0].Realized.MsaaSamples, 4u);
     EXPECT_TRUE(admitted.IsReduced());
+    // Bound to the owner itself, not only to the aggregate: once the replaced storage has
+    // retired, the G-Buffer holds exactly the sample count it was admitted at.
+    RunFrames(kSettleFrames);
+    {
+        // GL books the format estimate; Vulkan books VMA's committed sizes, which add
+        // per-attachment alignment (12.6 MB against 11.5 MB here). Either way it is far
+        // from the next sample count up, which is what this distinguishes.
+        const RendererMemoryReport report = tracker.BuildReport();
+        const u64 held = OwnerLiveGpuBytes(report, "GBuffer");
+        const u64 admittedBytes = EstimateGBufferBytes(admitted.Views[0].Realized);
+        EXPECT_GE(held, admittedBytes) << "the G-Buffer holds less than the sample count it was admitted at";
+        EXPECT_LT(held, admittedBytes + admittedBytes / 4u) << "the G-Buffer holds more samples than it was admitted at";
+    }
     std::vector<u8> image;
-    Capture(image);
+    ASSERT_NO_FATAL_FAILURE(Capture(image));
     WriteImage(TestRenderBackend::EvidenceName("MemoryAdmission") + "Deferred_Msaa4_ResizeUnderPressure", image, kSize, kSize);
     ExpectCompleteImage(image, kSize, kSize, "the frame after a resize under pressure");
 
@@ -639,7 +656,11 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadUnderPressureIsChargedWhileIts
     tracker.BeginPeakWindow();
     const u64 residentBeforeReload = tracker.GetGpuResidentBytes();
     const u64 degradationsBeforeReload = Renderer3D::GetMemoryAdmission().Degradations;
-    asset->Resize(2048, 2048);
+    // Texture2D::Invalidate is the storage path a file-backed reload ends in (decoded
+    // pixels in, new storage booked, old storage retired), as in the accounting tests.
+    TArray<u8> reloadedPixels;
+    reloadedPixels.Init(u8{ 128 }, 2048 * 2048 * 4);
+    asset->Invalidate("MemoryAdmissionReload", 2048, 2048, reloadedPixels.GetData(), 4);
     RunFrames(1);
     const MemoryAdmissionSnapshot duringOverlap = Renderer3D::GetMemoryAdmission();
     const u64 answerPredictedPeak = duringOverlap.PredictedPeakBytes;
@@ -661,7 +682,7 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadUnderPressureIsChargedWhileIts
     EXPECT_NE(pressured.Reason, MemoryAdmissionReason::Admitted);
     EXPECT_TRUE(LiveBytes() <= budget - kReserveBytes || pressured.Reason == MemoryAdmissionReason::OverBudgetAtFloor);
     std::vector<u8> image;
-    Capture(image);
+    ASSERT_NO_FATAL_FAILURE(Capture(image));
     WriteImage(TestRenderBackend::EvidenceName("MemoryAdmission") + "Deferred_Msaa4_ReloadUnderPressure", image, kSize, kSize);
     ExpectCompleteImage(image, kSize, kSize, "the frame after a reload under pressure");
 
@@ -810,7 +831,7 @@ TEST_F(RendererMemoryAdmissionTransitions, TwoViewsOfOneFrameShareTheBudget)
     EXPECT_LT(twoViews.Views[0].Realized.MsaaSamples, 4u);
     EXPECT_LE(LiveBytes(), budget - kReserveBytes) << "the two views together do not fit the budget they share";
     std::vector<u8> image;
-    Capture(image);
+    ASSERT_NO_FATAL_FAILURE(Capture(image));
     WriteImage(TestRenderBackend::EvidenceName("MemoryAdmission") + "Deferred_Msaa4_TwoViews", image, kSize, kSize);
     ExpectCompleteImage(image, kSize, kSize, "the main view while a second view shares its budget");
     std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << "two views under " << budget << " B: level " << twoViews.Level
@@ -836,9 +857,12 @@ TEST_F(RendererMemoryAdmissionTransitions, TheVulkanBudgetIsRefreshedEveryFrame)
 #if OLO_WITH_VULKAN
     if (!TestRenderBackend::IsVulkanProcess())
         GTEST_SKIP() << "OpenGL reports no device budget; this is the Vulkan process's case";
-    const u64 before = GetVmaFrameAdvanceCount();
-    RunFrames(8);
-    EXPECT_GE(GetVmaFrameAdvanceCount() - before, 8u) << "frames passed without VMA being told: its OS budget is stale";
+    for (u32 frame = 0; frame < 8u; ++frame)
+    {
+        const u64 before = GetVmaFrameAdvanceCount();
+        RunFrames(1);
+        EXPECT_EQ(GetVmaFrameAdvanceCount() - before, 1u) << "frame " << frame << " did not advance VMA exactly once";
+    }
     // With the budget fresh and no override, Vulkan admits against the device's own figure.
     const MemoryAdmissionSnapshot& snapshot = Renderer3D::GetMemoryAdmission();
     EXPECT_TRUE(snapshot.BudgetSource == MemoryBudgetSource::OsReported || snapshot.BudgetSource == MemoryBudgetSource::AllocatorHeuristic)
@@ -871,11 +895,12 @@ TEST_F(RendererMemoryAdmissionTransitions, ReSTIRPTGivesItsPoolsBackWhenItIsSwit
         return 0;
     };
 
+    if (!RenderCommand::SupportsRayTracing())
+        GTEST_SKIP() << "ReSTIR PT needs hardware ray queries (Vulkan with a ray-tracing device)";
     Renderer3D::GetPostProcessSettings().ReSTIRPT.Enabled = true;
     RunFrames(8);
     const u64 engaged = poolBytes();
-    if (engaged == 0u)
-        GTEST_SKIP() << "ReSTIR PT allocated nothing in this process: it needs hardware ray queries (Vulkan with a ray-tracing device)";
+    ASSERT_GT(engaged, 0u) << "a ray-tracing device ran ReSTIR PT without allocating its pools: the test has no subject";
     EXPECT_GE(engaged, static_cast<u64>(kSize) * kSize * 592ull * 4ull);
 
     Renderer3D::GetPostProcessSettings().ReSTIRPT.Enabled = false;
@@ -988,6 +1013,9 @@ TEST_F(RendererMemoryBudgetMeasurement, LowMemoryAndHighResolutionMsaaConfigurat
     const fs::path dir = fs::path("assets") / "tests" / "memory";
     std::error_code ec;
     fs::create_directories(dir, ec);
-    std::ofstream(dir / ("MemoryBudgets_" + std::string(TestRenderBackend::EvidenceBackendPrefix()) + ".json"), std::ios::binary | std::ios::trunc)
-        << out.dump(2) << '\n';
+    const fs::path file = dir / ("MemoryBudgets_" + std::string(TestRenderBackend::EvidenceBackendPrefix()) + ".json");
+    std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+    stream << out.dump(2) << '\n';
+    stream.close();
+    EXPECT_FALSE(stream.fail()) << "could not write " << file.string();
 }

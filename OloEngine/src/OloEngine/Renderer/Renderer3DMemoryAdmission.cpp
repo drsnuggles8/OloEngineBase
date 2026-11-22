@@ -85,7 +85,24 @@ namespace OloEngine
             config.SceneWidth = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(config.DisplayWidth) * renderScale)));
             config.SceneHeight = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(config.DisplayHeight) * renderScale)));
         }
-        config.MsaaSamples = view.Settings.Path == RenderingPath::Deferred ? std::max(view.Settings.Deferred.MSAASampleCount, 1u) : 1u;
+        // The sample count GBuffer::Create will use: a supported count, at most the device's.
+        // Pricing the raw setting would reduce quality for storage that is never allocated.
+        if (view.Settings.Path == RenderingPath::Deferred)
+        {
+            u32 samples = view.Settings.Deferred.MSAASampleCount;
+            if (samples != 1u && samples != 2u && samples != 4u && samples != 8u)
+                samples = 1u;
+            if (const u32 deviceMax = GetMaxMSAASamples(); deviceMax > 0u)
+            {
+                while (samples > 1u && samples > deviceMax)
+                    samples /= 2u;
+            }
+            config.MsaaSamples = samples;
+        }
+        else
+        {
+            config.MsaaSamples = 1u;
+        }
         config.SSGIHalfResolution = view.PostProcess.SSGIHalfResolution;
         config.OptionalDetail = RepresentationStreaming::Get().IsBudgeted();
 
@@ -399,9 +416,11 @@ namespace OloEngine
         const bool changed = !quality.Allocated || !(*quality.Allocated == *quality.FrameRealized);
         quality.Allocated = quality.FrameRealized;
         ++quality.FramesSinceMeasured;
-        // The measurement only matters when there is a budget to admit against.
+        // A changed allocation is always measured: a budget that appears later admits against
+        // this inventory, and one from an older allocation would misprice what is released.
+        // The periodic refresh only matters while there is a budget to admit against.
         const bool budgeted = s_Data.MemoryAdmission.Governor.GetSnapshot().BudgetBytes.has_value();
-        if (budgeted && (changed || !quality.Inventory.IsMeasured() || quality.FramesSinceMeasured >= kInventoryRefreshFrames))
+        if (changed || !quality.Inventory.IsMeasured() || (budgeted && quality.FramesSinceMeasured >= kInventoryRefreshFrames))
             MeasureMemoryInventory(s_Data);
     }
 
@@ -437,6 +456,40 @@ namespace OloEngine
             auto& scene = *s_Data.Pipeline->FrameCorePasses.Scene;
             if (const auto& gbuffer = scene.GetGBuffer(); gbuffer && gbuffer->GetSampleCount() != realized->MsaaSamples)
                 scene.ReleaseGBuffer();
+        }
+
+        // The graph reallocates its targets inside this resize, before any frame draws at
+        // the new size. Record that now, so a second resize before a draw (an editor panel
+        // passes through several sizes) prices the storage this one made, not the last
+        // drawn size's. The measured owners are rescaled to the new size until a frame
+        // measures them.
+        auto& quality = s_Data.MemoryQuality;
+        if (quality.Allocated)
+        {
+            const u32 sceneW = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(width) * renderScale)));
+            const u32 sceneH = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(height) * renderScale)));
+            ViewMemoryInventory& inventory = quality.Inventory;
+            if (inventory.IsMeasured())
+            {
+                const u64 from = static_cast<u64>(inventory.DisplayWidth) * inventory.DisplayHeight;
+                const u64 to = static_cast<u64>(width) * height;
+                const auto scale = [from, to](const u64 bytes)
+                { return from == 0u ? bytes : (bytes / from) * to + ((bytes % from) * to) / from; };
+                inventory.NodeTargetBytes = scale(inventory.NodeTargetBytes);
+                inventory.TransientDemandBytes = scale(inventory.TransientDemandBytes);
+                inventory.TransientSlackBytes = 0u; // the resize clears the pool
+                inventory.OtherHistoryBytes = scale(inventory.OtherHistoryBytes);
+                for (u64& bytes : inventory.TechniqueHistoryBytes)
+                    bytes = scale(bytes);
+                inventory.DisplayWidth = width;
+                inventory.DisplayHeight = height;
+                inventory.SceneWidth = sceneW;
+                inventory.SceneHeight = sceneH;
+            }
+            quality.Allocated->DisplayWidth = width;
+            quality.Allocated->DisplayHeight = height;
+            quality.Allocated->SceneWidth = sceneW;
+            quality.Allocated->SceneHeight = sceneH;
         }
         if (snapshot.IsReduced())
         {

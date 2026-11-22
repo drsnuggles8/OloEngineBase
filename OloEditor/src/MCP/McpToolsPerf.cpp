@@ -694,7 +694,7 @@ namespace OloEngine::MCP
             tool.Description =
                 "Inject a device memory budget into the renderer's memory admission (issue #1343), to drive a "
                 "quality reduction and its recovery on a live editor. 'megabytes' (MiB, > 0, at most 1048576) "
-                "replaces whatever budget the device reports; 'clear: true' gives the device's own budget back. "
+                "replaces whatever budget the device reports; 'clear: true' removes the injected budget (OLO_RENDERER_MEMORY_BUDGET_MB applies again when set, otherwise the device's own). "
                 "Pass exactly one of the two. Under a budget the requested configuration does not fit, the governor "
                 "reduces quality along one fixed ladder (pooled transient slack, SSGI history resolution, MSAA "
                 "samples, optional groom / vegetation detail, then each optional technique's fallback) and climbs "

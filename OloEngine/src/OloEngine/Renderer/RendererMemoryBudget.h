@@ -405,6 +405,10 @@ namespace OloEngine
         bool m_OverAtFloor = false;
         u32 m_SettleTicks = 0;
         u32 m_RecoveryProgress = 0;
+        // The level the current recovery run is climbing to: the deepest that fitted on
+        // every frame of the run, so a frame that only fits a shallower level never
+        // counts toward a climb past it.
+        u32 m_RecoveryTarget = 0;
         u32 m_RecoveryBackoffShift = 0;
 
         // The last climb, until it has held for a whole recovery run: where it came from
