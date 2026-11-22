@@ -19,7 +19,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    segments / kept. [Details](groom-coat-bake-cost-details.md#the-rules)
 4. **The stride comes from the coat's own occupancy, measured by its first full bake,** leaving
    `BakeSegmentsPerOccupiedVoxel` (8) per occupied voxel; at another resolution the measurement is
-   scaled on the safe side (`EstimateCoatOccupiedVoxels`), never re-measured by a full bake.
+   scaled (`EstimateCoatOccupiedVoxels`: the cube finer, the square coarser) rather than re-measured
+   by a mandatory full bake. The estimate may still ask for stride 1; the square can undercount a
+   sparse coat on a coarser grid, which the next bake that counts more corrects.
    [Details](groom-coat-bake-cost-details.md#the-rules)
 5. **Rewrite a ring slot in place only when no unsubmitted recording can read it:** never a slot
    bound on this tick or the one before; a slot of the wrong size gets a new texture.
@@ -45,7 +47,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
 10. **On Vulkan, a bake inside a frame records its upload on the frame's command buffer**
     (`VulkanRendererAPI::RecordStagedImageUpload`, #1594), never the blocking one-shot: a one-shot
     waits for every frame in flight, a GPU frame or more of stall per bake whatever the bake's own
-    cost. [Details](groom-coat-bake-cost-details.md#the-rules)
+    cost. Outside a frame the one-shot stays; inside one, an upload that cannot be recorded is
+    refused with an error rather than handed to the one-shot.
+    [Details](groom-coat-bake-cost-details.md#the-rules)
 11. **A rest bake's walk is kept across resolutions and baked at the subset** (`AcquireRestWalk`,
     #1594): the walk does not depend on the grid, and the stride follows rule 4 from the walk's
     first full bake. [Details](groom-coat-bake-cost-details.md#the-rules)

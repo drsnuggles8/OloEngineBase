@@ -754,31 +754,62 @@ TEST(GroomCoatShadowSelection, DriftIsMeasuredAcrossABakeSubsetStrideChange)
 
 // A GRANT THAT DOES NOT BAKE IS GIVEN BACK (#1594): a coat the resident-volume
 // budget holds back after the rebuild budget granted it would otherwise spend
-// one of the frame's few bakes on nothing and lose its place in the queue.
-TEST(GroomCoatShadowSelection, AGrantThatCannotBakeIsRefundedAndTheCoatKeepsItsPlace)
+// one of the frame's few bakes on nothing and drop out of the queue. It rejoins
+// behind the coats already waiting -- ahead of newcomers, but never holding the
+// head's reservation while the resident budget keeps refusing it.
+TEST(GroomCoatShadowSelection, AGrantThatCannotBakeIsRefundedAndStarvesNoWaiter)
 {
     using GroomCoatShadow::CoatRebuildBudget;
-    CoatRebuildBudget budget;
-    budget.SetPerFrame(1u);
-    EXPECT_TRUE(budget.BeginFrame(1u, 1u)) << "the first pass of a frame starts it";
-    EXPECT_FALSE(budget.BeginFrame(1u, 2u)) << "a second view's pass of the same frame does not";
-    // Coat 5 waits from frame 1; coat 1 is granted, then held back.
-    EXPECT_TRUE(budget.Request(1u));
-    EXPECT_FALSE(budget.Request(5u));
-    budget.Refund(1u, false);
-    EXPECT_EQ(budget.GrantedThisFrame(), 0u) << "the grant went back to the frame";
-    EXPECT_EQ(budget.Waiting(), 2u);
-    // Next frame the refunded coat is first in line, ahead of the coat that
-    // was deferred in the same frame, and a newcomer waits behind both.
-    EXPECT_TRUE(budget.BeginFrame(2u, 3u));
-    EXPECT_FALSE(budget.Request(9u)) << "a newcomer took the refunded coat's turn";
-    EXPECT_TRUE(budget.Request(1u)) << "the refunded coat lost its place";
-    EXPECT_FALSE(budget.Request(5u));
-    // A refunded forced bake gives back its forced count too.
-    budget.Force(7u);
-    EXPECT_EQ(budget.ForcedThisFrame(), 1u);
-    budget.Refund(7u, true);
-    EXPECT_EQ(budget.ForcedThisFrame(), 0u);
+    {
+        CoatRebuildBudget budget;
+        budget.SetPerFrame(1u);
+        EXPECT_TRUE(budget.BeginFrame(1u, 1u)) << "the first pass of a frame starts it";
+        EXPECT_FALSE(budget.BeginFrame(1u, 2u)) << "a second view's pass of the same frame does not";
+        EXPECT_TRUE(budget.Request(1u));
+        budget.Refund(1u, false);
+        EXPECT_EQ(budget.GrantedThisFrame(), 0u) << "the grant went back to the frame";
+        EXPECT_EQ(budget.Waiting(), 1u) << "the refunded coat left the queue";
+        // Next frame it is served ahead of a newcomer.
+        EXPECT_TRUE(budget.BeginFrame(2u, 3u));
+        EXPECT_FALSE(budget.Request(9u)) << "a newcomer took the refunded coat's turn";
+        EXPECT_TRUE(budget.Request(1u)) << "the refunded coat lost its place";
+        // A refunded forced bake gives back its forced count too.
+        budget.Force(7u);
+        EXPECT_EQ(budget.ForcedThisFrame(), 1u);
+        budget.Refund(7u, true);
+        EXPECT_EQ(budget.ForcedThisFrame(), 0u);
+    }
+    // One bake a frame; coat 1 is at the head and the resident budget refuses
+    // it every frame. Coat 2, waiting behind it, is still served -- in either
+    // order of asking. Refunded to the front, coat 1 held the only reservation
+    // for good and coat 2 starved.
+    for (const bool headAsksFirst : { true, false })
+    {
+        CoatRebuildBudget budget;
+        budget.SetPerFrame(1u);
+        (void)budget.BeginFrame(1u, 1u);
+        EXPECT_TRUE(budget.Request(1u));
+        EXPECT_FALSE(budget.Request(2u));
+        budget.Refund(1u, false);
+        u64 servedAt = 0;
+        for (u64 frame = 2u; frame <= 6u && servedAt == 0u; ++frame)
+        {
+            (void)budget.BeginFrame(frame, frame);
+            const auto askHead = [&]()
+            {
+                if (budget.Request(1u))
+                    budget.Refund(1u, false);
+            };
+            if (headAsksFirst)
+                askHead();
+            if (budget.Request(2u))
+                servedAt = frame;
+            if (!headAsksFirst)
+                askHead();
+        }
+        EXPECT_EQ(servedAt, 2u) << "a waiter starved behind a coat the resident budget keeps refusing (head asks "
+                                << (headAsksFirst ? "first" : "second") << ")";
+    }
 }
 
 // A REBAKE DUE ON DRIFT IS FORCED (#1594): a moving coat's rebake always runs

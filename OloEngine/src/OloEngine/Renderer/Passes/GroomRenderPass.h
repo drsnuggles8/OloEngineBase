@@ -859,6 +859,8 @@ namespace OloEngine
             u64 Binding = 0;
             u32 Representation = 0;
             u32 Resolution = 0;
+            /// The segments-per-voxel floor the rest bake's subset was taken at.
+            u32 PerVoxelBits = 0;
             u64 BodySurfaceHash = 0;
             u32 BodyVertexCount = 0;
             u32 BodyIndexCount = 0;
@@ -961,6 +963,11 @@ namespace OloEngine
             /// The width scale the bake was made at. It multiplies the cooked
             /// diameters and therefore the density stored, so it invalidates.
             f32 CoatWidthScale = 0.0f;
+            /// The segments-per-voxel floor a REST bake took its subset at
+            /// (CoatRebakePolicy::BakeSegmentsPerOccupiedVoxel): a pose bake's
+            /// stride follows the policy every frame, a rest bake's only when it
+            /// is made, so changing the policy invalidates it.
+            u32 CoatBakedPerVoxelBits = 0;
             /// The coat authoring (GroomCoatDigest) an un-posed bake was made
             /// with (#1533): a rest or static volume is built from the drawn walk,
             /// which the coat shapes, so re-authoring the coat rebuilds it.

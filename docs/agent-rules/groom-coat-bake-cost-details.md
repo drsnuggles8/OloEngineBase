@@ -36,11 +36,15 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    close) and a coarser one by the square (a coat's surface: right for a shell or a pelt). Every
    bake then teaches the measurement (`UpdateCoatOccupancy`): a full bake measures it, a subset
    that counted more than the estimate raises it (a subset only undercounts -- a sparse coat on a
-   coarser grid, a first full bake in a compact pose, another coat's width scale), and one that kept
-   the floor's segments in every voxel it occupied replaces an estimate scaled from another grid --
-   never a measurement at its own grid, which a subset only undercounts: adopting that shrinks the
-   occupancy bake after bake, grows the stride, and rebakes a still coat on a different subset every
-   frame. So only the first bake at a new grid takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
+   coarser grid, a first full bake in a compact pose, another coat's width scale), and a densely
+   sampled one replaces an estimate scaled from another grid -- never a measurement at its own grid,
+   which a subset only undercounts: adopting that shrinks the occupancy bake after bake, grows the
+   stride, and rebakes a still coat on a different subset every frame. "Densely sampled" is an
+   aggregate test, `kept >= BakeSegmentsPerOccupiedVoxel x occupied`, not a per-voxel one. A
+   subset at a new grid that neither passes it nor counts more than the estimate leaves the scaled
+   estimate in place, and later bakes there keep its stride until one does. The estimate may itself
+   ask for stride 1; that bake is full and measures. So usually only the first bake at a new grid
+   takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
    and measured: a walking coat's forced rebakes after the cut put nearly every segment into the
    grid, 100 ms a bake for five frames in a row. The pose takes the stride for the resolution it
    will be baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
@@ -106,7 +110,8 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    cache key, which a card hand-over or a streamed level changes -- so a coat keeps its place when
    its step or tier changes while it waits, and a herd mate that takes another's shared bake leaves
    the queue. A grant that cannot bake (the resident-volume budget held it back) is refunded and
-   the coat waits at the front (`Refund`); a width scale that bakes nothing asks for none. A coat
+   the coat rejoins the queue behind the coats already waiting (`Refund`; put back at the front, a
+   coat the resident budget kept refusing held the only reservation and starved the rest); a width scale that bakes nothing asks for none. A coat
    drawing a shared bake with nothing to bake keeps its slot without admission. A second view's
    pass adds only the frame's new deferrals to the logged wave.
    Reservations are decided before the frame knows who will ask, so on the frame a camera cuts away
@@ -139,6 +144,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     tracked layout, the copy, and a barrier back to the sampled layout with the tracker updated,
     since a coat volume is bound through a persistent heap slot that carries no per-draw transition.
     The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.
+    Inside one, an upload that cannot be recorded (the staging allocation failed) is refused with an
+    error, never handed to the one-shot: that would execute before the frame's command buffer, and
+    an earlier upload to the same image recorded in the frame would copy over it.
 
 11. **A rest bake's walk is kept across resolutions and baked at the subset** (#1594). A rest bake
     reads the coat at rest: with coat authoring the drawn strands' walk

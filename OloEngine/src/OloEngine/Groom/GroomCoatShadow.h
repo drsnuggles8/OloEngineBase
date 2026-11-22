@@ -223,6 +223,11 @@ namespace OloEngine
         // side is matched to the other side's kept indices, and two subsets are
         // compared on the segments both keep. +INFINITY when they share none,
         // or the counts do not match, as MaxCoatPoseDrift.
+        // PRECONDITION: both sides were taken from the same full pose (one
+        // segment order and count). Against a full side the count is checked;
+        // two subsets cannot check it -- neither knows the full count -- so a
+        // topology change between them pairs unrelated segments, which reads as
+        // a large drift and rebakes rather than hiding a stale volume.
         [[nodiscard]] f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
                                                         std::span<const CoatSegment> pose, u32 poseStride);
 

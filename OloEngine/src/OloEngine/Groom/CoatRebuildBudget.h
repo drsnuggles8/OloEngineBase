@@ -138,8 +138,11 @@ namespace OloEngine::GroomCoatShadow
 
         /// A bake granted this frame (by Request or Force) that will not run
         /// after all -- the resident-volume budget held it back. The grant goes
-        /// back to the frame, and the coat waits at the FRONT of the queue, so
-        /// a bake that could not run does not cost it its place.
+        /// back to the frame, and the coat rejoins the queue BEHIND the coats
+        /// already waiting: ahead of every newcomer, but a coat the resident
+        /// budget keeps refusing never takes the head's reservation frame after
+        /// frame and starves the coats behind it (put back at the front, with
+        /// one bake a frame, it held the only reservation for good).
         void Refund(u64 key, bool forced)
         {
             if (m_Granted > 0u)
@@ -154,8 +157,7 @@ namespace OloEngine::GroomCoatShadow
             {
                 return;
             }
-            const u64 since = m_Waiting.IsEmpty() ? m_Frame : std::min(m_Frame, m_Waiting[0].Since);
-            m_Waiting.Insert(Waiter{ key, since, true, false }, 0);
+            m_Waiting.Add(Waiter{ key, m_Frame, true, false });
         }
 
         /// Bakes granted (forced ones included), forced, and requests

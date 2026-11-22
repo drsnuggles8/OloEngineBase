@@ -1464,6 +1464,7 @@ namespace OloEngine::Tests
             u32 Deferred = 0;
             u32 DrawnFromDeferred = 0;
             u32 FramesWithAFallback = 0;
+            u32 FramesNotAllShadowed = 0;
             u32 MaxWait = 0;
         };
         const auto runUntilSettled = [&](u32 maxFrames)
@@ -1479,6 +1480,7 @@ namespace OloEngine::Tests
                 phase.Deferred += s.RebuildsDeferred;
                 phase.DrawnFromDeferred += s.DrawnFromDeferredVolume;
                 phase.FramesWithAFallback += s.FallbackGrooms > 0u ? 1u : 0u;
+                phase.FramesNotAllShadowed += s.ShadowedGrooms != coatCount ? 1u : 0u;
                 phase.MaxWait = std::max(phase.MaxWait, s.OldestRebuildWaitFrames);
                 EXPECT_EQ(s.RebuildBudget, 1u);
                 if (f >= 8u && s.Rebuilds == 0u && s.RebuildsWaiting == 0u && s.ShadowedGrooms == coatCount)
@@ -1513,6 +1515,9 @@ namespace OloEngine::Tests
         EXPECT_GT(cut.Deferred, 0u) << "the step change deferred nothing: this measures nothing";
         EXPECT_GT(cut.DrawnFromDeferred, 0u) << "a deferred coat did not draw the volume it holds";
         EXPECT_EQ(cut.FramesWithAFallback, 0u) << "a coat went unshadowed while its rebuild waited";
+        // Not only no fallback counted: every coat shadowed on every frame of the
+        // cut (the arrival above legitimately has coats awaiting a first bake).
+        EXPECT_EQ(cut.FramesNotAllShadowed, 0u) << "a frame of the cut drew a coat without its shadow";
         EXPECT_EQ(PassStats().CoatShadow.LodStepInForce, 1u);
         EXPECT_EQ(PassStats().CoatShadow.ShadowedGrooms, coatCount);
         EXPECT_EQ(PassStats().CoatShadow.RebuildsWaiting, 0u) << "a deferred rebuild was never served";

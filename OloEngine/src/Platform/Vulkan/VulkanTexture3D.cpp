@@ -190,6 +190,14 @@ namespace OloEngine
                 VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
                 return;
             }
+            // NEVER the one-shot inside a frame: it executes before the frame's
+            // command buffer, so an earlier upload to this image recorded in the
+            // same frame would copy over it, and the texture would silently
+            // hold the older texels. The upload is refused, said here.
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: the in-frame upload could not be recorded ({}x{}x{}, {} bytes); "
+                           "the texture keeps its previous contents",
+                           m_Specification.Width, m_Specification.Height, m_Specification.Depth, size);
+            return;
         }
 
         // Host staging buffer — destroyed right after the blocking one-shot.

@@ -1445,6 +1445,14 @@ namespace OloEngine
                     entry.CoatPoseSubsetSource = &stream;
                 }
                 evaluate = entry.CoatPoseSubset;
+                // A stride that kept nothing baked the whole coat: say so, or a
+                // bake made at stride 1 reads an unchanged pose as infinite
+                // drift (the cross-stride match keeps nothing of it). The subset
+                // stays cached under the stride that asked for it.
+                if (entry.CoatPoseSubset.size() == stream.PoseSegments.size())
+                {
+                    entry.CoatPoseStride = 1u;
+                }
             }
             // THE POSE THE GPU DRAWS: evaluated from the same packed bytes the
             // vertex shader reads, by the CPU twin of its arithmetic. On the GPU
@@ -1487,6 +1495,12 @@ namespace OloEngine
             RefreshCoatBakeStride(entry, ChooseCoatLod(request, entry).Resolution);
             entry.CoatPoseStride = entry.CoatBakeStride;
             (void)GroomCoatShadow::SubsampleCoatSegments(m_DrawnPoseFull, entry.CoatPoseStride, m_DrawnPose);
+            // The whole coat when the stride kept nothing, labelled so, as on
+            // the GPU path above.
+            if (m_DrawnPose.size() == m_DrawnPoseFull.size())
+            {
+                entry.CoatPoseStride = 1u;
+            }
         }
         m_Stats.DeformedPoseMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - poseStart)
@@ -1983,6 +1997,7 @@ namespace OloEngine
         key.Representation = static_cast<u32>(std::to_underlying(request.Lod.Representation));
         key.Resolution = resolution;
         key.GuidesOnly = request.Build.GuidesOnly;
+        key.PerVoxelBits = std::bit_cast<u32>(m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
         if (body != nullptr && body->Surface.IsUsable())
         {
             key.HasBody = true;
@@ -2215,11 +2230,36 @@ namespace OloEngine
 
     void GroomRenderPass::PruneRestWalks()
     {
-        // A walk whose asset only the walk still holds: the asset was unloaded or
-        // reimported, the walk can never match again, and holding it would keep
-        // the old curves alive.
-        m_RestWalks.RemoveAll([](const Ref<RestWalk>& walk)
-                              { return !walk->Asset || walk->Asset->GetRefCount() <= 1u; });
+        // A walk whose asset only this pass's walks and shared bakes still hold:
+        // the asset was unloaded or reimported, the walk can never match again,
+        // and holding it would keep the old curves alive. Counted per asset --
+        // two walks of one asset (two budgets, two levels) are two references,
+        // and testing for one kept both forever.
+        std::unordered_map<const GroomAsset*, u32> held;
+        for (const Ref<RestWalk>& walk : m_RestWalks)
+        {
+            if (walk->Asset)
+            {
+                ++held[walk->Asset.Raw()];
+            }
+        }
+        for (const Ref<SharedCoatVolume>& shared : m_SharedCoatVolumes)
+        {
+            if (shared->Asset)
+            {
+                ++held[shared->Asset.Raw()];
+            }
+        }
+        m_RestWalks.RemoveAll(
+            [&held](const Ref<RestWalk>& walk)
+            {
+                if (!walk->Asset)
+                {
+                    return true;
+                }
+                const auto it = held.find(walk->Asset.Raw());
+                return it != held.end() && walk->Asset->GetRefCount() <= it->second;
+            });
     }
 
     void GroomRenderPass::PruneSharedCoatVolumes()
@@ -2404,41 +2444,46 @@ namespace OloEngine
         const sizet voxels = static_cast<sizet>(volume.Dimensions.x) * static_cast<sizet>(volume.Dimensions.y) *
                              static_cast<sizet>(volume.Dimensions.z);
         const auto packStart = std::chrono::steady_clock::now();
-        OLO_PERF_SCOPE_AUTO("Groom::CoatPack");
-        constexpr f32 kLargestHalf = 65504.0f;
-        f32 densest = 0.0f;
-        for (const f32 density : volume.Density)
-        {
-            densest = std::max(densest, density);
-        }
-        const bool half = densest < kLargestHalf;
+        bool half = false;
         const void* texels = nullptr;
         sizet texelBytes = 0;
-        if (half)
         {
-            m_CoatPackHalf.resize(voxels * 4u);
-            for (sizet i = 0; i < voxels; ++i)
+            // The scope ends with the packing: the texture's creation and upload
+            // below are the upload stage's, not the pack's, in the CPU scope ring.
+            OLO_PERF_SCOPE_AUTO("Groom::CoatPack");
+            constexpr f32 kLargestHalf = 65504.0f;
+            f32 densest = 0.0f;
+            for (const f32 density : volume.Density)
             {
-                m_CoatPackHalf[i * 4u + 0u] = glm::packHalf1x16(volume.Direction[i].x);
-                m_CoatPackHalf[i * 4u + 1u] = glm::packHalf1x16(volume.Direction[i].y);
-                m_CoatPackHalf[i * 4u + 2u] = glm::packHalf1x16(volume.Direction[i].z);
-                m_CoatPackHalf[i * 4u + 3u] = glm::packHalf1x16(volume.Density[i]);
+                densest = std::max(densest, density);
             }
-            texels = m_CoatPackHalf.data();
-            texelBytes = m_CoatPackHalf.size() * sizeof(u16);
-        }
-        else
-        {
-            m_CoatPackFloat.resize(voxels * 4u);
-            for (sizet i = 0; i < voxels; ++i)
+            half = densest < kLargestHalf;
+            if (half)
             {
-                m_CoatPackFloat[i * 4u + 0u] = volume.Direction[i].x;
-                m_CoatPackFloat[i * 4u + 1u] = volume.Direction[i].y;
-                m_CoatPackFloat[i * 4u + 2u] = volume.Direction[i].z;
-                m_CoatPackFloat[i * 4u + 3u] = volume.Density[i];
+                m_CoatPackHalf.resize(voxels * 4u);
+                for (sizet i = 0; i < voxels; ++i)
+                {
+                    m_CoatPackHalf[i * 4u + 0u] = glm::packHalf1x16(volume.Direction[i].x);
+                    m_CoatPackHalf[i * 4u + 1u] = glm::packHalf1x16(volume.Direction[i].y);
+                    m_CoatPackHalf[i * 4u + 2u] = glm::packHalf1x16(volume.Direction[i].z);
+                    m_CoatPackHalf[i * 4u + 3u] = glm::packHalf1x16(volume.Density[i]);
+                }
+                texels = m_CoatPackHalf.data();
+                texelBytes = m_CoatPackHalf.size() * sizeof(u16);
             }
-            texels = m_CoatPackFloat.data();
-            texelBytes = m_CoatPackFloat.size() * sizeof(f32);
+            else
+            {
+                m_CoatPackFloat.resize(voxels * 4u);
+                for (sizet i = 0; i < voxels; ++i)
+                {
+                    m_CoatPackFloat[i * 4u + 0u] = volume.Direction[i].x;
+                    m_CoatPackFloat[i * 4u + 1u] = volume.Direction[i].y;
+                    m_CoatPackFloat[i * 4u + 2u] = volume.Direction[i].z;
+                    m_CoatPackFloat[i * 4u + 3u] = volume.Density[i];
+                }
+                texels = m_CoatPackFloat.data();
+                texelBytes = m_CoatPackFloat.size() * sizeof(f32);
+            }
         }
         m_Stats.CoatShadow.BakePackMicroseconds += MicrosecondsSince(packStart);
 
@@ -2819,10 +2864,14 @@ namespace OloEngine
             restBody = &restBodyInputs;
         }
         const bool bodyArrived = restBody != nullptr && !entry.CoatBakedWithSurface;
+        // A rest bake took its subset at the policy's segments-per-voxel floor
+        // when it was made; a policy change is another bake, as a width scale is.
+        const u32 perVoxelBits = std::bit_cast<u32>(m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
+        const bool policyChanged = !deformed && entry.CoatVolume && entry.CoatBakedPerVoxelBits != perVoxelBits;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
                                   !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale) || poseMoved ||
-                                  coatChanged || bodyArrived;
+                                  coatChanged || bodyArrived || policyChanged;
         const bool aboveFloor = resolution >= request.CoatLod.MinResolution;
 
         // ── One rest bake for every coat that would bake it (#1594) ──────
@@ -2855,6 +2904,7 @@ namespace OloEngine
                 m_CoatRebuildBudget.Withdraw(ticket);
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
+                entry.CoatBakedPerVoxelBits = perVoxelBits;
                 entry.CoatBakedCoatDigest = request.Build.CoatDigest;
                 entry.CoatMode = request.CoatShadow;
                 ++m_Stats.CoatShadow.SharedBakesReused;
@@ -3062,6 +3112,7 @@ namespace OloEngine
                 {
                     entry.CoatLodStep = lodStep;
                     entry.CoatWidthScale = request.WidthScale;
+                    entry.CoatBakedPerVoxelBits = perVoxelBits;
                     entry.CoatBakedCoatDigest = deformed ? 0u : request.Build.CoatDigest;
                     entry.CoatMode = request.CoatShadow;
                     if (deformed)
