@@ -68,6 +68,20 @@ flight while the two sides were read; read again.
 - **A saving that never shrank.** `CompactionSavedBytes` was a running sum; a retired or
   rebuilt BLAS kept its saving forever. It is derived from resident entries now.
 
+## Admission reads these figures (#1343)
+
+Memory admission ([renderer-memory-budget.md](../guides/renderer-memory-budget.md)) charges a
+budget with **resident** bytes, live plus retiring, so an owner that books a replacement as
+`TrackDeallocation` instead of retire-and-release lets a transition dodge the budget for two
+frames. Two more rules follow from it:
+
+- **A technique that is switched off gives its memory back**, or its whole-technique fallback
+  saves nothing. The G-Buffer outlived the Deferred path and ReSTIR PT kept 4.9 GB of
+  path-record pools at 1080p after it was disabled, until #1343 released both.
+- **Vulkan's OS budget is only as fresh as `vmaSetCurrentFrameIndex`**; the context advances it
+  every frame (`AdvanceVmaFrame`). Without that VMA re-reads the budget after thirty allocator
+  calls, which a steady scene never makes.
+
 ## Negative control
 
 `OLO_FAULT_COUNT_ALIAS_AS_BACKING=1` (`Levers::FaultCountAliasAsBacking`) books every alias

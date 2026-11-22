@@ -32,7 +32,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [renderer-pr-gpu-tests-run-after-merge.md](renderer-pr-gpu-tests-run-after-merge.md): PR CI has no GPU, so run the evidence, CrossPath and Vulkan device suites a renderer change reaches before the PR.
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound.
 - [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably.
-- [renderer-memory-accounting.md](renderer-memory-accounting.md): book each GPU allocation once as physical backing, keep GPU and CPU bytes apart.
+- [renderer-memory-accounting.md](renderer-memory-accounting.md): book each GPU allocation once as physical backing, keep GPU and CPU bytes apart; a switched-off technique gives its memory back, or the memory budget cannot use its fallback.
 - [measure-in-the-frame-the-pixels-came-from.md](measure-in-the-frame-the-pixels-came-from.md): unproject a readback through the camera its frame was drawn with.
 - [completed-frame-perf-windows.md](completed-frame-perf-windows.md): select camera history only after verified renderer progress, and preserve its generation.
 - [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md): a measured number travels with a status saying whether it IS a measurement.

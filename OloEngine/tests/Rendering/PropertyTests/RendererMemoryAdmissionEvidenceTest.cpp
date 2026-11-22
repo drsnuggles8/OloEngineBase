@@ -861,3 +861,111 @@ TEST_F(RendererMemoryAdmissionTransitions, ReSTIRPTGivesItsPoolsBackWhenItIsSwit
     EXPECT_EQ(poolBytes(), 0u) << "ReSTIR PT is off and still holds " << engaged << " bytes of path-record pools";
     std::cout << "[ admission ] " << TestRenderBackend::EvidenceBackendPrefix() << "ReSTIR PT pools: " << engaged << " B while on, 0 B once off\n";
 }
+
+// -------------------------------------------------------------------------------------
+// Criterion 5: real budgets, measured on the machine that runs this. Not in
+// vulkan_scene_filter.txt (a 4K 4x MSAA frame is ~2 GiB of software-rasteriser memory on
+// lavapipe); run it by name on real hardware. Each configuration is rendered as requested
+// and at the floor, then admitted under the device budgets of smaller GPUs, and the
+// results go to assets/tests/memory/MemoryBudgets_<Backend>.json.
+// -------------------------------------------------------------------------------------
+namespace
+{
+    class RendererMemoryBudgetMeasurement : public RendererMemoryAdmissionFixture
+    {
+    };
+} // namespace
+
+TEST_F(RendererMemoryBudgetMeasurement, LowMemoryAndHighResolutionMsaaConfigurationsOnThisDevice)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    struct Config
+    {
+        const char* Name;
+        RenderingPath Path;
+        u32 Width;
+        u32 Height;
+        u32 Msaa;
+        UpscaleMode Upscale;
+    };
+    static constexpr std::array<Config, 3> kConfigs = { {
+        { "LowMemory_Forward_720p_Performance", RenderingPath::Forward, 1280u, 720u, 1u, UpscaleMode::Performance },
+        { "Deferred_1080p_Msaa4", RenderingPath::Deferred, 1920u, 1080u, 4u, UpscaleMode::Off },
+        { "HighRes_Deferred_2160p_Msaa4", RenderingPath::Deferred, 3840u, 2160u, 4u, UpscaleMode::Off },
+    } };
+    static constexpr std::array<u64, 3> kDeviceBudgetsMiB = { 2048u, 4096u, 8192u };
+
+    // The device's own budget: what admission enforces with no override.
+    Renderer3D::SetMemoryBudgetOverride(std::nullopt);
+    RunFrames(4);
+    const MemoryAdmissionSnapshot device = Renderer3D::GetMemoryAdmission();
+    const auto& tracker = RendererMemoryTracker::GetInstance();
+
+    nlohmann::json out;
+    out["backend"] = TestRenderBackend::EvidenceBackendPrefix();
+    out["deviceBudgetSource"] = ToString(device.BudgetSource);
+    out["deviceBudgetBytes"] = device.BudgetBytes ? nlohmann::json(*device.BudgetBytes) : nlohmann::json(nullptr);
+    out["deviceResidentBytes"] = device.ResidentBytes;
+    std::cout << "[ budget ] " << TestRenderBackend::EvidenceBackendPrefix() << "device budget " << device.BudgetBytes.value_or(0) / kMiB << " MiB ("
+              << ToString(device.BudgetSource) << "), resident " << device.ResidentBytes / kMiB << " MiB\n";
+
+    for (const Config& config : kConfigs)
+    {
+        SCOPED_TRACE(config.Name);
+        ResizeRenderTarget(config.Width, config.Height);
+        m_Camera.GetComponent<CameraComponent>().Camera.SetViewportSize(config.Width, config.Height);
+        const u32 msaa = Configure(Cell{ config.Name, config.Path, config.Msaa, config.Upscale, UpscalerTechnique::Spatial });
+        nlohmann::json row;
+        row["name"] = config.Name;
+        row["width"] = config.Width;
+        row["height"] = config.Height;
+        row["msaa"] = msaa;
+
+        InjectAmpleBudget();
+        RunFrames(kConvergeFrames);
+        const u64 requested = tracker.GetGpuResidentBytes();
+        Renderer3D::SetMemoryBudgetOverride(kMiB);
+        RunFrames(kConvergeFrames);
+        const u64 floor = tracker.GetGpuResidentBytes();
+        row["requestedResidentBytes"] = requested;
+        row["floorResidentBytes"] = floor;
+        std::cout << "[ budget ] " << TestRenderBackend::EvidenceBackendPrefix() << config.Name << " (" << msaa << "x): requested "
+                  << requested / kMiB << " MiB, minimum complete image " << floor / kMiB << " MiB\n";
+
+        nlohmann::json admitted = nlohmann::json::array();
+        for (const u64 budgetMiB : kDeviceBudgetsMiB)
+        {
+            // What a GPU with this budget would do. The renderer's own base (assets,
+            // shadow maps, the other tests' resident state) is part of what it holds.
+            InjectAmpleBudget();
+            RunFrames(kConvergeFrames);
+            Renderer3D::SetMemoryBudgetOverride(budgetMiB * kMiB);
+            RunFrames(kConvergeFrames);
+            const MemoryAdmissionSnapshot& snapshot = Renderer3D::GetMemoryAdmission();
+            nlohmann::json rungs = nlohmann::json::array();
+            for (u32 rung = 0; rung < kMemoryLadderRungCount; ++rung)
+                if ((snapshot.ActiveRungMask & (1u << rung)) != 0u)
+                    rungs.push_back(kMemoryLadder[rung].Name);
+            admitted.push_back({ { "budgetMiB", budgetMiB },
+                                 { "reason", ToString(snapshot.Reason) },
+                                 { "level", snapshot.Level },
+                                 { "activeRungs", rungs },
+                                 { "residentBytes", tracker.GetGpuResidentBytes() } });
+            std::cout << "[ budget ] " << TestRenderBackend::EvidenceBackendPrefix() << config.Name << " under " << budgetMiB << " MiB: "
+                      << ToString(snapshot.Reason) << ", level " << snapshot.Level << " of " << snapshot.FloorLevel << ", resident "
+                      << tracker.GetGpuResidentBytes() / kMiB << " MiB, rungs " << rungs.dump() << "\n";
+            EXPECT_TRUE(tracker.GetGpuResidentBytes() <= budgetMiB * kMiB || snapshot.Reason == MemoryAdmissionReason::OverBudgetAtFloor)
+                << "a configuration settled over a budget it was not at the floor of";
+        }
+        row["admittedUnder"] = std::move(admitted);
+        out["configurations"].push_back(std::move(row));
+    }
+    ResizeRenderTarget(kSize, kSize);
+    m_Camera.GetComponent<CameraComponent>().Camera.SetViewportSize(kSize, kSize);
+
+    const fs::path dir = fs::path("assets") / "tests" / "memory";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    std::ofstream(dir / ("MemoryBudgets_" + std::string(TestRenderBackend::EvidenceBackendPrefix()) + ".json"), std::ios::binary | std::ios::trunc)
+        << out.dump(2) << '\n';
+}
