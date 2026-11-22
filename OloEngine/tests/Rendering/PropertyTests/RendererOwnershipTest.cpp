@@ -217,6 +217,30 @@ namespace OloEngine::Tests
             << "a scene reset of a scene that publishes none of them changed: " << changed;
     }
 
+    // A sequence restart rewinds every pass's own index (#1348), so two paired
+    // arms start from the same context. The shadow pass's foliage VSM rotation
+    // (#1580) advanced once a frame and had no restart: the arms rotated
+    // through different layers, and the folded context could not show it.
+    TEST_F(RendererOwnership, ASequenceRestartRewindsEveryPassesOwnIndex)
+    {
+        ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+        shadow.Enabled = true;
+        shadow.VSM.Enabled = true;
+        Renderer3D::GetShadowMap().SetSettings(shadow);
+        if (!Renderer3D::GetShadowMap().GetVirtualShadowMap().IsEnabledAndInitialized())
+            GTEST_SKIP() << "the VSM did not initialise on this device; the rotation only runs on it";
+
+        Renderer3D::ResetFrameSequences(0u);
+        const u64 restarted = Renderer3D::GetFrameSamplingContext().PassSequenceState;
+        RenderMovingFrames(3);
+        ASSERT_NE(Renderer3D::GetFrameSamplingContext().PassSequenceState, restarted)
+            << "the frames advanced no pass's own index, so the restart below would pass on nothing";
+
+        Renderer3D::ResetFrameSequences(0u);
+        EXPECT_EQ(Renderer3D::GetFrameSamplingContext().PassSequenceState, restarted)
+            << "a pass's own index survived the sequence restart";
+    }
+
     TEST_F(RendererOwnership, ViewResetDropsTheViewAndKeepsTheSceneAndTheClock)
     {
         RenderMovingFrames(3);
