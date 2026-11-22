@@ -358,6 +358,7 @@ The logic is right, but when it runs or how long it lives is wrong.
 | [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A per-instance BLAS loop builds one structure twice. |
 | [deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md) | An animated mesh whose records became stageable is built into a rest-pose BLAS and traced T-posed with healthy counters. |
 | [foliage-regeneration-is-async-once-workers-start.md](foliage-regeneration-is-async-once-workers-start.md) | Seven foliage evidence tests passed alone and failed after another suite had started the task workers. |
+| [evidence-captures-count-frames-not-wall-time.md](evidence-captures-count-frames-not-wall-time.md) | A faster branch made a dog coat look three to eight times noisier: a streamed level landed closer to a frame-counted capture. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A `barrier()` only some invocations reach. |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | A shared lazy static released from a conditional teardown. |
 | [per-thread-caches-hand-back-at-thread-exit.md](per-thread-caches-hand-back-at-thread-exit.md) | A test that restarts the scheduler's workers grew past 6 GB on a starved runner: three pools let each exiting worker keep its cache, and its launcher queued finished tasks faster than starved workers discarded them. |
