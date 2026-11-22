@@ -161,6 +161,13 @@ namespace OloEngine
                                                           kMaxSkinProfileSlots * 16,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
+
+        // The skin profile table's share of the controls block (#1396): every per-slot
+        // array the deferred path's skin shading reads. The leaf tables are not skin.
+        constexpr u64 kSkinProfileTableBytes =
+            sizeof(DeferredControlsData::SkinProfileParams) + sizeof(DeferredControlsData::SkinTransmitScatter) +
+            sizeof(DeferredControlsData::SkinTransmitScaling) + sizeof(DeferredControlsData::SkinSpecularLobe) +
+            sizeof(DeferredControlsData::SkinOralLane);
     } // namespace
 
     glm::vec4 DeferredLightingPass::AmbientLadderControls()
@@ -354,6 +361,28 @@ namespace OloEngine
         m_IndirectSpecularShaderMSAA = Shader::Create("assets/shaders/DeferredIndirectSpecular_MSAA.glsl");
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING, "DeferredLightingControls");
+
+        // The skin profile table's row in the renderer memory report (#1396). It is a slice
+        // of the controls UBO, so its bytes are inside that buffer's own booking: an alias
+        // row, never capacity of its own. Demanded when this pass filled the table with at
+        // least one assigned skin slot in the current or the previous physical frame: a
+        // stamp that ages, because a pass the graph stops running (a path switch) never
+        // runs again to clear a flag, and the pending path setting can differ from the
+        // path the graph ran.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "SkinProfileTable";
+            row.Category = "Deferred profile table (a slice of the DeferredLightingControls UBO)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            const u64 bytes = m_ControlsUBO ? kSkinProfileTableBytes : 0u;
+            const u64 serial = Renderer3D::GetPhysicalFrameSerial();
+            const bool inUse = m_SkinTableFillSerial != 0u && m_SkinTableFillSerial + 1u >= serial;
+            row.CapacityBytes = bytes;
+            row.ActiveDemandBytes = inUse ? bytes : 0u;
+            row.AliasSavingsBytes = bytes;
+            rows.Add(std::move(row)); });
 
         OLO_CORE_INFO("DeferredLightingPass: Initialized ({}x{}); writes into scene FB color[0]",
                       spec.Width, spec.Height);
@@ -563,6 +592,8 @@ namespace OloEngine
             // the editor reaches the deferred path on the next one.
             {
                 const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+                // The memory report's demand stamp (#1396): this frame shaded with skin slots.
+                m_SkinTableFillSerial = profiles.GetAssignedSlotCount() > 0u ? Renderer3D::GetPhysicalFrameSerial() : 0u;
                 for (u32 slot = 0; slot < kMaxSkinProfileSlots; ++slot)
                 {
                     const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);

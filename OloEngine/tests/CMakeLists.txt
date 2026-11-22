@@ -750,6 +750,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/MaterialLabVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClosureV2DeferredParityEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDiffusionEvidenceTest.cpp
+		Rendering/PropertyTests/SkinMemoryEvidenceTest.cpp
 		Rendering/PropertyTests/SkinProfileParityEvidenceTest.cpp
 		Rendering/PropertyTests/SkinTransmissionEvidenceTest.cpp
 		Rendering/PropertyTests/SkinLayeredSpecularEvidenceTest.cpp

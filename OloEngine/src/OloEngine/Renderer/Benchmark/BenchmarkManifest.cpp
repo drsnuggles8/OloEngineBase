@@ -612,7 +612,7 @@ namespace OloEngine::Benchmark
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
                                "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
                                "GpuPathTracerSamplesPerFrame", "RayTracedShadowsEnabled", "VirtualShadowMaps",
-                               "MSAASampleCount", "Upscale", "UpscaleTechnique", "LightingTap" },
+                               "SkinDiffusion", "MSAASampleCount", "Upscale", "UpscaleTechnique", "LightingTap" },
                              "RendererSettings", errors);
             if (rs["Path"])
             {
@@ -664,6 +664,16 @@ namespace OloEngine::Benchmark
                 {
                     manifest.RendererSettings.VirtualShadowMapsEnabled = enabled;
                 }
+            }
+            if (rs["SkinDiffusion"])
+            {
+                // Decoded explicitly: a typo must not file a diffusion-off run under
+                // the diffusion-on arm, or the other way round.
+                bool enabled = false;
+                if (!rs["SkinDiffusion"].IsScalar() || !YAML::convert<bool>::decode(rs["SkinDiffusion"], enabled))
+                    errors.Add("RendererSettings.SkinDiffusion must be true or false");
+                else
+                    manifest.RendererSettings.SkinDiffusionEnabled = enabled;
             }
             if (rs["MSAASampleCount"])
             {
