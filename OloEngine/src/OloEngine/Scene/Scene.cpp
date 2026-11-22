@@ -308,38 +308,6 @@ namespace OloEngine
         }
     } // namespace
 
-    // Underwater test (water-ocean.md §7.2). True when `cameraPos`
-    // lies inside the water plane's XZ footprint; writes the signed vertical gap
-    // (still-surface Y − camera Y; positive = camera below the surface) to
-    // `outGap`. Works in the water plane's local space so translated / rotated /
-    // scaled grids are handled uniformly (grid is centred on local origin,
-    // spanning ±size/2 in X/Z at local Y = 0).
-    static bool GetWaterCameraFootprintGap(const glm::mat4& modelMat, const WaterComponent& water,
-                                           const glm::vec3& cameraPos, f32& outGap)
-    {
-        const glm::mat4 invModel = glm::inverse(modelMat);
-        const glm::vec4 localCam = invModel * glm::vec4(cameraPos, 1.0f);
-        if (!std::isfinite(localCam.x) || !std::isfinite(localCam.y) || !std::isfinite(localCam.z))
-            return false;
-        // Sanitize the world sizes before clamping: std::clamp passes NaN through,
-        // which would make halfX/halfZ NaN and the bounds test below always "pass"
-        // (every comparison with NaN is false), wrongly treating the water as
-        // infinite. Fall back to the 0.1f minimum used elsewhere (fail-closed:
-        // a tiny tile the camera won't be inside) so non-finite sizes don't activate fog.
-        const f32 safeSizeX = std::isfinite(water.m_WorldSizeX) ? water.m_WorldSizeX : 0.1f;
-        const f32 safeSizeZ = std::isfinite(water.m_WorldSizeZ) ? water.m_WorldSizeZ : 0.1f;
-        const f32 halfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
-        const f32 halfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
-        if (localCam.x < -halfX || localCam.x > halfX || localCam.z < -halfZ || localCam.z > halfZ)
-            return false;
-        // The plane's height on the vertical through the camera. The foot of the
-        // perpendicular, which this used to be, is the same point for a level tile and
-        // the wrong one for a tilted tile; it stays as the answer for a tile on edge.
-        const glm::vec4 foot = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
-        outGap = UnderwaterFog::TilePlaneYAt(modelMat, cameraPos.x, cameraPos.z, foot.y) - cameraPos.y;
-        return true;
-    }
-
     // Audio listener/source orientation comes from columns of an entity's inverse world
     // transform. A singular (zero-scale) or non-finite transform makes glm::inverse emit
     // NaN/Inf, and normalizing a zero/NaN vector yields NaN — which would poison the 3D
@@ -16267,7 +16235,7 @@ namespace OloEngine
                         continue;
 
                     f32 gap = 0.0f; // surfaceY - cameraY (positive = camera below)
-                    if (!GetWaterCameraFootprintGap(GetWorldTransform(entity), water, cameraPosition, gap))
+                    if (!UnderwaterFog::TryGetTileFootprintGap(GetWorldTransform(entity), water.m_WorldSizeX, water.m_WorldSizeZ, cameraPosition, gap))
                         continue;
 
                     // Activate when the camera is submerged OR within a wave's

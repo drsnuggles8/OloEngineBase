@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace OloEngine
 {
@@ -133,6 +134,37 @@ namespace OloEngine
                 return fallbackY;
             const f32 y = origin.y - (normal.x * (worldX - origin.x) + normal.z * (worldZ - origin.z)) / normal.y;
             return std::isfinite(y) ? y : fallbackY;
+        }
+
+        // A tilted tile's footprint is bounded at the intersection of the
+        // vertical line through the eye with local Y=0.
+        [[nodiscard]] inline bool TryGetTileFootprintGap(const glm::mat4& model, f32 width, f32 depth,
+                                                         const glm::vec3& eye, f32& gap) noexcept
+        {
+            const glm::mat4 inverse = glm::inverse(model);
+            f32 surfaceY = TilePlaneYAt(model, eye.x, eye.z, std::numeric_limits<f32>::quiet_NaN());
+            glm::vec4 localPoint;
+            if (std::isfinite(surfaceY))
+            {
+                localPoint = inverse * glm::vec4(eye.x, surfaceY, eye.z, 1.0f);
+            }
+            else
+            {
+                // A nearly vertical plane has no usable height on the ray.
+                // Retain the local-Y projection used for a tile on edge.
+                localPoint = inverse * glm::vec4(eye, 1.0f);
+                surfaceY = (model * glm::vec4(localPoint.x, 0.0f, localPoint.z, 1.0f)).y;
+            }
+            if (!std::isfinite(localPoint.x) || !std::isfinite(localPoint.z) || !std::isfinite(surfaceY))
+                return false;
+
+            const f32 halfX = std::clamp(std::isfinite(width) ? width : 0.1f, 0.1f, 10000.0f) * 0.5f;
+            const f32 halfZ = std::clamp(std::isfinite(depth) ? depth : 0.1f, 0.1f, 10000.0f) * 0.5f;
+            if (std::abs(localPoint.x) > halfX || std::abs(localPoint.z) > halfZ)
+                return false;
+
+            gap = surfaceY - eye.y;
+            return true;
         }
 
         // The height of the surface DRAWN over the eye: the tile's own plane at the
