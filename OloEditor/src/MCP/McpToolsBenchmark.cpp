@@ -266,6 +266,7 @@ namespace OloEngine::MCP
                 RendererSettings PriorRendererSettings;
                 PostProcessSettings PriorPostProcessSettings;
                 ShadowSettings PriorShadowSettings;
+                SkinDiffusionSettings PriorSkinDiffusionSettings;
                 f32 PriorRenderScale = 1.0f;
                 FString GpuVendor;
                 FString GpuRenderer;
@@ -308,6 +309,7 @@ namespace OloEngine::MCP
                         Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
                         Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
                         Renderer3D::GetShadowMap().SetSettings(state->PriorShadowSettings);
+                        Renderer3D::GetSkinDiffusionSettings() = state->PriorSkinDiffusionSettings;
                         Renderer3D::ApplyRendererSettings();
                         Renderer3D::SetRenderScale(state->PriorRenderScale);
                         if (state->StartedStreamer)
@@ -331,6 +333,7 @@ namespace OloEngine::MCP
                     applied->PriorRendererSettings = Renderer3D::GetRendererSettings();
                     applied->PriorPostProcessSettings = Renderer3D::GetPostProcessSettings();
                     applied->PriorShadowSettings = Renderer3D::GetShadowMap().GetSettings();
+                    applied->PriorSkinDiffusionSettings = Renderer3D::GetSkinDiffusionSettings();
                     applied->PriorRenderScale = Renderer3D::GetRenderScale();
 
                     // The manifest's renderer-side state — ONE shared
@@ -655,6 +658,7 @@ namespace OloEngine::MCP
                     }
                     Renderer3D::GetPostProcessSettings() = applied->PriorPostProcessSettings;
                     Renderer3D::GetShadowMap().SetSettings(applied->PriorShadowSettings);
+                    Renderer3D::GetSkinDiffusionSettings() = applied->PriorSkinDiffusionSettings;
                     Renderer3D::GetRendererSettings() = applied->PriorRendererSettings;
                     Renderer3D::ApplyRendererSettings();
                     Renderer3D::SetRenderScale(applied->PriorRenderScale);

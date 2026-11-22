@@ -175,6 +175,7 @@ SETTING_PINS = (('Path', 'path', 'path'), ('MSAASampleCount', 'msaaSamples', 'ms
                 ('UpscaleTechnique', 'upscaleTechnique', 'upscaleTechnique'),
                 ('RayTracedShadowsEnabled', 'rayTracedShadows', 'rayTracedShadowsRequested'),
                 ('VirtualShadowMaps', 'virtualShadowMaps', 'virtualShadowMaps'),
+                ('SkinDiffusion', 'skinDiffusion', 'skinDiffusion'),
                 ('LightingTap', 'lightingTap', 'lightingTap'))
 
 

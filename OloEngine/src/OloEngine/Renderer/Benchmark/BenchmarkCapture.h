@@ -366,6 +366,7 @@ namespace OloEngine::Benchmark
         UpscalerTechnique Technique = UpscalerTechnique::Spatial;
         bool RayTracedShadowsRequested = false;
         bool VirtualShadowMapsEnabled = false;
+        bool SkinDiffusionEnabled = false;                ///< The switch, not proof a profile diffused (#1396).
         LightingTap LightingDebugTap = LightingTap::None; ///< A tapped run's SceneColor is that term (#1526).
     };
     [[nodiscard]] AppliedConfiguration SnapshotAppliedConfiguration();

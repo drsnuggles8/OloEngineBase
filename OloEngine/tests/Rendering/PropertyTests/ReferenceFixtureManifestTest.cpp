@@ -459,6 +459,34 @@ TEST(ReferenceFixtureManifest, ParsesVirtualShadowMapsAndRefusesNonBooleans)
     EXPECT_NE(refused.find("RendererSettings.VirtualShadowMaps"), std::string::npos) << refused;
 }
 
+// #1396: the skin-cost control arm is the same scene with the diffusion switched off,
+// pinned by the manifest. Same contract as VirtualShadowMaps: absent stays absent, a
+// non-boolean is refused rather than read as "off".
+TEST(ReferenceFixtureManifest, ParsesSkinDiffusionAndRefusesNonBooleans)
+{
+    for (const bool enabled : { true, false })
+    {
+        std::string error;
+        const auto parsed = LoadBenchmarkManifest(
+            WriteManifest("skin", Replaced(ValidV2Manifest(), "Exposure:\n",
+                                           std::string("RendererSettings:\n  SkinDiffusion: ") +
+                                               (enabled ? "true" : "false") + "\nExposure:\n")),
+            error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        ASSERT_TRUE(parsed->RendererSettings.SkinDiffusionEnabled.has_value());
+        EXPECT_EQ(*parsed->RendererSettings.SkinDiffusionEnabled, enabled);
+    }
+
+    std::string error;
+    const auto absent = LoadBenchmarkManifest(WriteManifest("skin-absent", ValidV2Manifest()), error);
+    ASSERT_TRUE(absent.has_value()) << error;
+    EXPECT_FALSE(absent->RendererSettings.SkinDiffusionEnabled.has_value());
+
+    const auto refused = ExpectParseFailure(
+        "skin-typo", Replaced(ValidV2Manifest(), "Exposure:\n", "RendererSettings:\n  SkinDiffusion: of\nExposure:\n"));
+    EXPECT_NE(refused.find("RendererSettings.SkinDiffusion"), std::string::npos) << refused;
+}
+
 // #1259: a camera's frame sequence is motion footage — Count steps of Every
 // frames, each followed by a readback of the named attachments. A sequence
 // beside a timed Measurement block would put readbacks inside the timing, and

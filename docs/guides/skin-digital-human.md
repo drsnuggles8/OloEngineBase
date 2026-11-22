@@ -131,8 +131,12 @@ Forward+ and +16.5% Deferred against the control; the next paragraph says how to
 With the warm-up removed the measured differences come out **within noise and sometimes negative**.
 The full stack cannot really be cheaper than the control, so a negative percentage means the cost
 is below this fixture's noise floor at 384×384 with one head on screen — not that the stack is
-free. Establishing a real per-pass budget needs GPU timer queries on a quiet box and a scene with
-enough skin to dominate the frame. Do not quote these figures as a budget.
+free. Do not quote these figures as a budget.
+
+The budget is [skin-stack-cost-1396](../testing/evidence/skin-stack-cost-1396/README.md) (#1396):
+GPU timer queries per pass, Release, on a quiet RTX 4090 at native 1080p, on a scene of 28 heads
+that is 61–71 % skin, with an identical-arms control, a diffusion-off arm and a skin-off arm, on
+both backends. It also records the stack's memory.
 
 ## Limits
 

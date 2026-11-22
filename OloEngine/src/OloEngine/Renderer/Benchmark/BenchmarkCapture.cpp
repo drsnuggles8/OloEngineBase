@@ -468,6 +468,10 @@ namespace OloEngine::Benchmark
             settings.VSM.Enabled = *wanted.VirtualShadowMapsEnabled;
             Renderer3D::GetShadowMap().SetSettings(settings);
         }
+        if (wanted.SkinDiffusionEnabled)
+        {
+            Renderer3D::GetSkinDiffusionSettings().Enabled = *wanted.SkinDiffusionEnabled;
+        }
         if (wanted.GpuPathTracerEnabled)
         {
             postProcess.GpuPathTracer.Enabled = *wanted.GpuPathTracerEnabled;
@@ -694,6 +698,7 @@ namespace OloEngine::Benchmark
         applied.Technique = Renderer3D::GetPostProcessSettings().Technique;
         applied.RayTracedShadowsRequested = Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
         applied.VirtualShadowMapsEnabled = Renderer3D::GetShadowMap().GetSettings().VSM.Enabled;
+        applied.SkinDiffusionEnabled = Renderer3D::GetSkinDiffusionSettings().Enabled;
         applied.LightingDebugTap = Renderer3D::GetPostProcessSettings().LightingDebugTap;
         return applied;
     }
@@ -1234,8 +1239,8 @@ namespace OloEngine::Benchmark
         // residency validity. Absent rather than empty when the host took none.
         json["memory"] = runInfo.MemoryReport ? RendererMemoryReportToJson(*runInfo.MemoryReport) : nlohmann::json(nullptr);
         json["configuration"] = {
-            { "requested", { { "path", manifest.RendererSettings.Path ? ToToken(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "virtualShadowMaps", manifest.RendererSettings.VirtualShadowMapsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
-            { "selectedSettings", { { "path", ToToken(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "virtualShadowMaps", runInfo.Configuration.VirtualShadowMapsEnabled }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
+            { "requested", { { "path", manifest.RendererSettings.Path ? ToToken(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "virtualShadowMaps", manifest.RendererSettings.VirtualShadowMapsEnabled.value_or(false) }, { "skinDiffusion", manifest.RendererSettings.SkinDiffusionEnabled ? nlohmann::json(*manifest.RendererSettings.SkinDiffusionEnabled) : nlohmann::json(nullptr) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
+            { "selectedSettings", { { "path", ToToken(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "virtualShadowMaps", runInfo.Configuration.VirtualShadowMapsEnabled }, { "skinDiffusion", runInfo.Configuration.SkinDiffusionEnabled }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
             { "production", "unknown without pass and counter evidence" },
             { "consumption", "unknown without downstream evidence" }
         };

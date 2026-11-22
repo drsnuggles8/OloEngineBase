@@ -241,6 +241,19 @@ class RunAnalysisTest(TempCase):
         analysis = acceptance.analyse_run(capture.write(self.root / 'b'), GATE)
         self.assertIn('not recorded', analysis['invalidReasons'][0])
 
+    def test_a_diffusion_off_arm_whose_switch_did_not_apply_is_invalid(self):
+        # #1396: the skin-cost control arm pins SkinDiffusion off; a run that rendered
+        # with it on would otherwise be counted as the control.
+        capture = Capture()
+        capture.manifest = MANIFEST.replace('  MSAASampleCount: 1', '  MSAASampleCount: 1\n  SkinDiffusion: false')
+        capture.result['configuration']['requested']['skinDiffusion'] = False
+        capture.result['configuration']['selectedSettings']['skinDiffusion'] = False
+        self.assertEqual(acceptance.analyse_run(capture.write(self.root / 'ok'), GATE)['invalidReasons'], [])
+        capture.result['configuration']['selectedSettings']['skinDiffusion'] = True
+        reasons = acceptance.analyse_run(capture.write(self.root / 'bad'), GATE)['invalidReasons']
+        self.assertEqual(len(reasons), 1)
+        self.assertIn('skinDiffusion', reasons[0])
+
     def test_truncation_timeout_and_short_runs_are_invalid(self):
         capture = Capture(frames=50, cameras=('stationary',))
         capture.result['measurement']['sampleCount'] = 51

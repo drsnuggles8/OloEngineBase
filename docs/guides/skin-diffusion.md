@@ -149,6 +149,12 @@ input — a test that asserted a number would pass with any of the three dropped
 
 ## What it costs
 
+**The budget is in [skin-stack-cost-1396](../testing/evidence/skin-stack-cost-1396/README.md)**:
+Release, RTX 4090, native 1080p, a frame 61–71 % skin, three counted runs per cell on both
+backends. SkinDiffusionPass is 0.17–0.19 ms on OpenGL and 0.31–0.37 ms on Vulkan, its two snapshot
+copies 0.06–0.07 ms, and the run-to-run spread is a few microseconds on OpenGL. The figures below
+are the first spot measurement, kept for the CPU numbers it took.
+
 Measured in the editor on an **RTX 4090**, Debug build, `Benchmark/ReferenceHead.olo` at
 **1411 × 942**, Medium tier (17 taps), one active profile, six consecutive samples:
 
@@ -165,9 +171,9 @@ here, because kernels are cached per slot and rebuilt only when a profile's auth
 the quality tier change. The first frame after a profile edit was measured at 2.4 ms CPU; every
 frame after it is the number above.
 
-Memory: one full-resolution RGBA16F attachment on the scene framebuffer, allocated every frame
-whether or not the scene has skin in it (10.6 MB at 1411 × 942, ≈16 MB at 1080p), plus one
-full-resolution RGBA16F scratch target declared only when the pass can run.
+Memory: about 55 MiB at 1080p with skin on screen, about 16 MiB without (the hand-off attachment
+below); per resource, and how it scales with render scale and MSAA, in the
+[budget](../testing/evidence/skin-stack-cost-1396/README.md#memory).
 
 The attachment is part of the scene framebuffer because the alternative — switching draw buffers per
 draw, keyed on material kind — is a framebuffer state change per draw. Every shader that renders
@@ -175,8 +181,10 @@ into that framebuffer **writes** the attachment, with zero where it is not skin:
 shader leaves alone is undefined, not zero, and the diffusion would blur the garbage into scene
 colour.
 
-Both fullscreen draws are skipped entirely when no authored profile in the frame asks to be
-diffused, which is the normal state of every scene without a version-1 skin profile in it.
+The whole diffusion (scratch, both snapshots, their copies, both draws) stays out of the frame
+graph until a profile that evaluates screen-space diffusion holds a slot in `SkinProfileTable`;
+the gate is sticky like the slots, so it lasts until the scene reloads
+(`SkinProfileTable::AnyAssignedSlotDiffuses`).
 
 ## Explicit limitations
 
