@@ -651,7 +651,9 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadUnderPressureIsChargedWhileIts
     EXPECT_GT(duringOverlap.Degradations, degradationsBeforeReload) << "admission did not answer the reload's overshoot on the next frame";
     RunFrames(kConvergeFrames);
     const u64 reloadPeak = tracker.BuildReport().Gpu.WindowPeakBytes;
-    const u64 reloadBound = std::max(residentBeforeReload + kNewBytes, answerPredictedPeak);
+    // The reload's own cost is the new storage plus, at most, one more allocation the size of
+    // the old one: the old image stays resident while the backend copies or retires it.
+    const u64 reloadBound = std::max(residentBeforeReload + kNewBytes + kOldBytes, answerPredictedPeak);
     EXPECT_LE(reloadPeak, reloadBound + reloadBound / 100u)
         << "the reload's overshoot grew past both the reload's own bytes and the governor's prediction for its answer";
     const MemoryAdmissionSnapshot pressured = Renderer3D::GetMemoryAdmission();
