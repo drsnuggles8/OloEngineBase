@@ -961,6 +961,33 @@ namespace OloEngine::Tests
         EXPECT_LE(renderer.LiveBytes(), budget - 16ull * kMiB);
     }
 
+    TEST(RendererMemoryGovernor, AReadmissionNeverClimbsOnlyTheRecoveryPathDoes)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.AddView(1, MakeConfig(RenderingPath::Deferred, 2560u, 1440u, 4u, kTechSSR));
+        const u64 budget = 1100ull * kMiB;
+        (void)Drive(governor, renderer, budget, 30);
+        const MemoryAdmissionSnapshot reduced = governor.GetSnapshot();
+        ASSERT_TRUE(reduced.IsReduced());
+
+        // The window shrinks to a size the request fits as asked. The readmission does not
+        // climb (it may stage lower: the smaller targets are new storage while the old ones
+        // are resident); the climb waits for a stable run like any other.
+        MemoryQualityConfig& requested = renderer.Requested(1);
+        requested.DisplayWidth = requested.SceneWidth = 1280u;
+        requested.DisplayHeight = requested.SceneHeight = 720u;
+        const MemoryAdmissionSnapshot readmitted = governor.Readmit(renderer.Input(budget));
+        EXPECT_GE(readmitted.Level, reduced.Level) << "a readmission climbed";
+        renderer.Render(readmitted);
+        (void)Drive(governor, renderer, budget, TestPolicy().SettleFrames + 2u);
+        EXPECT_TRUE(governor.GetSnapshot().IsReduced()) << "the climb did not wait for a stable run";
+        (void)Drive(governor, renderer, budget, 40);
+        EXPECT_FALSE(governor.GetSnapshot().IsReduced());
+        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 0u);
+    }
+
     TEST(RendererMemoryGovernor, AClimbThatHeldIsNotChargedAgainForTheRungsItPassed)
     {
         RendererMemoryGovernor governor;

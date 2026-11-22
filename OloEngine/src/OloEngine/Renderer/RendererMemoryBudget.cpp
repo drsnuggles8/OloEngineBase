@@ -386,6 +386,15 @@ namespace OloEngine
             }
         }
 
+        // A readmission under an unchanged budget may go down, never up. A resize or a
+        // settings edit arrives as a burst of readmissions (an editor panel passes through
+        // several sizes), and the measured inventory cannot see the transients of the
+        // techniques the current level has off, so a fresh prediction above the current
+        // level is optimistic: taking it thrashed 16 -> 0 -> 16 -> 4 live. Climbing is the
+        // recovery path's job: a stable run, charged what the rungs were measured to cost.
+        if (keepLearned)
+            chosen = std::max(chosen, std::min(m_Level, floor));
+
         m_Level = chosen;
         // The requested configuration would fit once the old resources retire: it is only
         // the overlap that does not.
