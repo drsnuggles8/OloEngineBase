@@ -101,6 +101,14 @@ reason the job is worth its minutes:
    message at all** — legal usage, wrong result. The same binary passes all 24 permutations on
    NVIDIA. Re-test on the next Mesa bump and drop the exclusion when it passes.
 
+**The scene step is not launch-bound, and it has a budget.** Suites that render real scenes on
+`vulkan_scene_filter.txt` are fill-bound on lavapipe like the GL job. When the Drift island and
+terrain-shadow suites joined it (#1724) they took ~65 of the step's 90 minutes (DriftEveryIslandPaths
+21, TerrainShadowFromChunks 15, DriftIslandPaths 14, TerrainShadowUntessellated 9; PR #1761's run)
+and the job hit GitHub's 6-hour limit with cases unrun. They moved to the hardware-only ctest entry
+`OloEngine-Tests_VulkanSceneHeavy`, beside `OloEngine-Tests_VulkanPipelineSeed`. Before adding a
+scene suite to the filter, time it on lavapipe; a suite measured in minutes goes to that entry.
+
 Note the asymmetry: (1) is the job doing its job, and (2) is the tax for using a software driver.
 Both look identical in a red run, so attribute a new failure against the hardware arm before
 believing it is an engine regression.
