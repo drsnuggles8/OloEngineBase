@@ -165,8 +165,21 @@ namespace OloEngine
         m_Stats.SceneEpoch = m_SceneEpoch;
         m_Stats.ReservoirBytes = m_Pools[0] ? static_cast<u64>(m_Pools[0]->GetSize()) * 4u : 0u;
         m_Stats.BiasedClamp = m_Settings.RadianceClamp > 0.0f;
+        // The four path-record pools are 592 bytes a pixel each. A technique that is
+        // switched off, or whose path cannot run it, gives them back: they used to stay
+        // allocated until the next resize (4.9 GiB at 1080p). The transient stand-downs
+        // below keep them, so a frame without a TLAS does not reallocate.
+        const auto releasePools = [this]
+        {
+            m_Pools = {};
+            m_Counters.Reset();
+            m_HaveHistory = false;
+            m_HaveCounters = false;
+            m_Stats.ReservoirBytes = 0;
+        };
         if (!m_Stats.Requested)
         {
+            releasePools();
             StandDown("disabled");
             return;
         }
@@ -177,6 +190,7 @@ namespace OloEngine
         }
         if (!deferredPathActive)
         {
+            releasePools();
             StandDown("deferred path required");
             return;
         }
