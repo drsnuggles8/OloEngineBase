@@ -567,26 +567,38 @@ namespace OloEngine
         padding.SlotsComplete = slots > 0u;
         std::vector<f32> guideDisplacement(d.GuideCount(), 0.0f);
         std::vector<f32> guideVariation(d.GuideCount(), 0.0f);
+        // Each guide's farthest point and summed steps, every guide on the
+        // workers (#1659): a guide's own sum runs in point order on one thread,
+        // and the roles' maxima are taken below in guide order, so the padding
+        // is the serial loop's to the bit. Serial, this was a twentieth of a
+        // Debug frame on the showcase dog's 16,580 slots.
+        ParallelFor("GroomCasterPosePadding", static_cast<i32>(d.GuideCount()), 256, [&](i32 index)
+                    {
+                        const auto g = static_cast<u32>(index);
+                        f32 farthest = 0.0f;
+                        f32 variation = 0.0f;
+                        for (u32 p = d.GuideOffsets[g]; p < d.GuideOffsets[g + 1u]; ++p)
+                        {
+                            const f32 length = glm::length(d.Displacements[p]);
+                            if (std::isfinite(length))
+                            {
+                                farthest = std::max(farthest, length);
+                            }
+                            if (p + 1u < d.GuideOffsets[g + 1u])
+                            {
+                                const f32 step = glm::length(d.Displacements[p + 1u] - d.Displacements[p]);
+                                if (std::isfinite(step))
+                                {
+                                    variation += step;
+                                }
+                            }
+                        }
+                        guideDisplacement[g] = farthest;
+                        guideVariation[g] = variation; }, EParallelForFlags::BackgroundPriority);
         for (u32 g = 0; g < d.GuideCount(); ++g)
         {
-            f32 farthest = 0.0f;
-            f32 variation = 0.0f;
-            for (u32 p = d.GuideOffsets[g]; p < d.GuideOffsets[g + 1u]; ++p)
-            {
-                const f32 length = glm::length(d.Displacements[p]);
-                if (std::isfinite(length))
-                {
-                    farthest = std::max(farthest, length);
-                }
-                if (p + 1u < d.GuideOffsets[g + 1u])
-                {
-                    const f32 step = glm::length(d.Displacements[p + 1u] - d.Displacements[p]);
-                    if (std::isfinite(step))
-                    {
-                        variation += step;
-                    }
-                }
-            }
+            const f32 farthest = guideDisplacement[g];
+            const f32 variation = guideVariation[g];
             // The guide's coat role, as CoatOfCurve resolves its curve's. A
             // guide whose curve cannot be named counts for every role.
             u32 role = static_cast<u32>(GroomCoatRole::Unassigned);
@@ -605,8 +617,6 @@ namespace OloEngine
                     padding.Variation[r] = std::max(padding.Variation[r], variation);
                 }
             }
-            guideDisplacement[g] = farthest;
-            guideVariation[g] = variation;
         }
         for (sizet s = 0; s < slots; ++s)
         {

@@ -4597,21 +4597,24 @@ namespace OloEngine
         // written as depth attachments and the copy's own TRANSFER_SRC range.
         // Scoped to the copy, their layout transitions raced those writes: a
         // write-after-write hazard per copy under synchronization validation.
-        // The same all-stages source the transfer transitions above take.
+        // The same all-stages source the transfer transitions above take. A run
+        // in TRANSFER_DST was written by A transfer, not necessarily this copy:
+        // a shadow array's layers are CLEARED in that layout too, and a clear
+        // writes at the CLEAR stage, which COPY does not cover -- the dog's
+        // card hand-over raised a write-after-write hazard per frame on it
+        // (#1659). ALL_TRANSFER covers copy, clear, blit and resolve. The
+        // choice is VulkanBarrierLowering::SettleSourceScope, pinned on the CPU
+        // by VulkanBarrierLowering.ACopySettleWaitsOnTheClearsOfItsShadowArray.
         std::vector<VkImageMemoryBarrier2> toResting;
         ctx.Tracker.ForEachLayoutRun(dstImage, dstWholeRange,
                                      [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                                      {
-                                         const bool written = trackedLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                                         const bool undefined = trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED;
+                                         const VulkanBarrierLowering::StageAccess source =
+                                             VulkanBarrierLowering::SettleSourceScope(trackedLayout);
                                          VkImageMemoryBarrier2 b{};
                                          b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                                         b.srcStageMask = written     ? VK_PIPELINE_STAGE_2_COPY_BIT
-                                                          : undefined ? VK_PIPELINE_STAGE_2_NONE
-                                                                      : kAllStages;
-                                         b.srcAccessMask = written     ? VK_ACCESS_2_TRANSFER_WRITE_BIT
-                                                           : undefined ? VK_ACCESS_2_NONE
-                                                                       : kAllAccess;
+                                         b.srcStageMask = source.StageMask;
+                                         b.srcAccessMask = source.AccessMask;
                                          b.dstStageMask = kAllStages;
                                          b.dstAccessMask = kAllAccess;
                                          b.oldLayout = trackedLayout;

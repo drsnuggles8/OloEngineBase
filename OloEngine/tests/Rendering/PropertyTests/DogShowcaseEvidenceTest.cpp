@@ -30,7 +30,12 @@
 // Editor-preview frames, where the solver does not step, are only stills of a
 // paused pose.
 //
-// RUN IT IN RELEASE: the coat is ~150k strands.
+// EVERY CASE FITS FIVE MINUTES IN DEBUG, run alone (#1659; test_catalogue.json's
+// case_budget_debug_s). The coat is 410k strands, so a Debug frame is mostly
+// CPU: keep per-pixel and per-strand passes on the workers, never through a
+// std::function or a container iterator (each Debug iterator takes one
+// process-wide lock), and measure no more frames than an assertion needs.
+// A sweep of the whole suite is still faster in Release.
 // =============================================================================
 
 #include "../../TestOptions.h"
@@ -93,6 +98,7 @@
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
@@ -582,10 +588,10 @@ namespace OloEngine::Tests
             "OLO_DOG_PELT", "OLO_DOG_LID", "OLO_DOG_FIBRE", "OLO_DOG_POSEBAKE", "OLO_DOG_SHADOW",
             "OLO_DOG_SIM", "OLO_DOG_ABC", "OLO_DOG_REGION_DEBUG", "OLO_DOG_REST_SETTLE_OFF", "OLO_DOG_ASSET_ROOT"
         };
-        static constexpr std::array<const char*, 22> kRecordSwitches{
+        static constexpr std::array<const char*, 23> kRecordSwitches{
             "OLO_DOG_B6_ONLY", "OLO_DOG_B6_MOTION_FLOOR", "OLO_DOG_BODY_SLICES", "OLO_DOG_BREED", "OLO_DOG_COST",
             "OLO_DOG_COST_EXPORT", "OLO_DOG_COST_LAWN", "OLO_DOG_COST_SUB", "OLO_DOG_EXPORT",
-            "OLO_DOG_FOOTAGE", "OLO_DOG_FOOTAGE_ONLY", "OLO_DOG_LIGHTING", "OLO_DOG_LIGHTING_CLIP",
+            "OLO_DOG_FOOTAGE", "OLO_DOG_FOOTAGE_ONLY", "OLO_DOG_HANDOVER_SPLIT", "OLO_DOG_LIGHTING", "OLO_DOG_LIGHTING_CLIP",
             "OLO_DOG_LIGHTING_EXPORT", "OLO_DOG_LOOKDEV", "OLO_DOG_LOOKDEV_CLIP", "OLO_DOG_LOOKDEV_FRAMES",
             "OLO_DOG_LOOKDEV_LAWN", "OLO_DOG_LOOKDEV_OFF", "OLO_DOG_LOOKDEV_ONLY", "OLO_DOG_LOOKDEV_WAG",
             "OLO_DOG_REST_SETTLE"
@@ -1616,13 +1622,16 @@ namespace OloEngine::Tests
             ADD_FAILURE() << "the dog has no clip '" << anim.m_RequestedClip << "'";
         }
 
-        // ADVANCES RUNTIME by `frames` frames of 1/60 s.
-        MotionResult AdvanceRuntime(u32 frames)
+        // ADVANCES RUNTIME by `frames` frames of `seconds` each (1/60 s unless
+        // a caller asks for longer frames: the guide solver takes its fixed
+        // steps, 1/120 s for the dog's coat, up to its catch-up per frame --
+        // AdvanceRuntimeStrided raises that catch-up for its long frames).
+        MotionResult AdvanceRuntime(u32 frames, f32 seconds = 1.0f / 60.0f)
         {
             MotionResult r;
             for (u32 f = 0; f < frames; ++f)
             {
-                RunFrames(1, 1.0f / 60.0f);
+                RunFrames(1, seconds);
                 r.Last = PassStats();
                 r.MinGroomsDeformed = std::min(r.MinGroomsDeformed, r.Last.GroomsDeformed);
                 r.MaxBindingRefused = std::max(r.MaxBindingRefused, r.Last.GroomsBindingRefused);
@@ -1634,6 +1643,48 @@ namespace OloEngine::Tests
                     r.WorstStretch = r.Last.WorstStretchRatio;
                 }
             }
+            return r;
+        }
+
+        // ADVANCES RUNTIME by `frames` sixtieths of a second, drawn every
+        // `stride`th of them (the rest at 1/60 s), with the solver taking EVERY
+        // fixed step (#1659). The dog's coat steps at 120 Hz (InstallDog), so a
+        // frame of 4/60 s owes it 8 steps, and the solver drops arrears past its
+        // catch-up (GroomGuideSimulation: 4 steps by default): at the default,
+        // every such frame integrated half its time and the coat lagged the
+        // clip. The catch-up is raised to what a strided frame owes, within the
+        // solver's limit, for these frames only, and the steps taken are
+        // checked against the clip time.
+        MotionResult AdvanceRuntimeStrided(u32 frames, u32 stride)
+        {
+            auto& sim = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+            const u32 owed = static_cast<u32>(std::ceil((static_cast<f32>(stride) * sim.m_FixedHz / 60.0f) - 1.0e-3f));
+            EXPECT_LE(owed, GroomSimulationLimits::MaxSubsteps)
+                << "a frame of " << stride << "/60 s owes " << owed << " solver steps, past the solver's limit";
+            stride = owed <= GroomSimulationLimits::MaxSubsteps ? stride : 1u;
+            struct CatchUp
+            {
+                GroomSimulationComponent& Sim;
+                u32 Shipped;
+                ~CatchUp()
+                {
+                    Sim.m_MaxSubsteps = Shipped;
+                }
+            } catchUp{ sim, sim.m_MaxSubsteps };
+            sim.m_MaxSubsteps = std::max(sim.m_MaxSubsteps, std::min(owed, GroomSimulationLimits::MaxSubsteps));
+            const u32 strided = stride > 1u ? frames / stride : 0u;
+            MotionResult r = AdvanceRuntime(strided, static_cast<f32>(stride) / 60.0f);
+            const MotionResult rest = AdvanceRuntime(frames - (strided * stride));
+            const f32 dueSteps = static_cast<f32>(frames) * sim.m_FixedHz / 60.0f;
+            EXPECT_GE(static_cast<f32>(r.SolverSteps + rest.SolverSteps) + 1.0f, dueSteps)
+                << "the solver dropped time: " << (r.SolverSteps + rest.SolverSteps) << " steps over " << frames
+                << "/60 s at " << sim.m_FixedHz << " Hz";
+            r.Last = frames > strided * stride ? rest.Last : r.Last;
+            r.MinGroomsDeformed = std::min(r.MinGroomsDeformed, rest.MinGroomsDeformed);
+            r.MaxBindingRefused = std::max(r.MaxBindingRefused, rest.MaxBindingRefused);
+            r.MaxHeldAtRest = std::max(r.MaxHeldAtRest, rest.MaxHeldAtRest);
+            r.SolverSteps += rest.SolverSteps;
+            r.Reseeds += rest.Reseeds;
             return r;
         }
 
@@ -1963,21 +2014,29 @@ namespace OloEngine::Tests
             out.Width = activeWidth;
             out.Height = activeHeight;
             const sizet pixels = static_cast<sizet>(activeWidth) * activeHeight;
+            // EVERY PER-PIXEL PASS BELOW RUNS ON THE ENGINE'S WORKERS, a row each
+            // (#1659): each pixel's value is its own arithmetic, written to its
+            // own slot, so the frame is the serial one's to the bit. Serial, a
+            // 1080p frame's unprojection alone was seconds of a Debug case.
+            const auto eachRow = [activeHeight](const char* name, const auto& row)
+            { ParallelFor(name, static_cast<i32>(activeHeight), 8, [&](i32 y)
+                          { row(static_cast<u32>(y)); }); };
             if (luminance)
             {
                 std::vector<f32> colour(static_cast<sizet>(width) * height * 4u);
                 ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
                 out.Luminance.resize(pixels);
-                for (u32 y = 0; y < activeHeight; ++y)
-                {
-                    for (u32 x = 0; x < activeWidth; ++x)
-                    {
-                        const sizet src = (static_cast<sizet>(y) * width) + x;
-                        out.Luminance[(static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x] =
-                            (0.2126f * colour[src * 4u]) + (0.7152f * colour[(src * 4u) + 1u]) +
-                            (0.0722f * colour[(src * 4u) + 2u]);
-                    }
-                }
+                eachRow("DogReadbackLuminance",
+                        [&](u32 y)
+                        {
+                            for (u32 x = 0; x < activeWidth; ++x)
+                            {
+                                const sizet src = (static_cast<sizet>(y) * width) + x;
+                                out.Luminance[(static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x] =
+                                    (0.2126f * colour[src * 4u]) + (0.7152f * colour[(src * 4u) + 1u]) +
+                                    (0.0722f * colour[(src * 4u) + 2u]);
+                            }
+                        });
             }
             // By RHI handle, so the oracle runs in both processes (#1556).
             std::vector<i32> ids(static_cast<sizet>(width) * height);
@@ -1997,25 +2056,26 @@ namespace OloEngine::Tests
             const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
             out.Ids.assign(pixels, -1);
             out.World.assign(pixels, glm::vec3(std::numeric_limits<f32>::quiet_NaN()));
-            for (u32 y = 0; y < activeHeight; ++y)
-            {
-                for (u32 x = 0; x < activeWidth; ++x)
-                {
-                    const sizet src = (static_cast<sizet>(y) * width) + x;
-                    const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
-                    out.Ids[dst] = ids[src];
-                    if (!(depth[src] < 1.0f))
+            eachRow("DogReadbackWorld",
+                    [&](u32 y)
                     {
-                        continue;
-                    }
-                    // glm::perspective is RH_NO: depth [0, 1] is NDC z [-1, 1].
-                    const glm::vec4 ndc{ ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(activeWidth)) * 2.0f - 1.0f,
-                                         ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(activeHeight)) * 2.0f - 1.0f,
-                                         (depth[src] * 2.0f) - 1.0f, 1.0f };
-                    const glm::vec4 world = inverseViewProjection * ndc;
-                    out.World[dst] = glm::vec3(world) / world.w;
-                }
-            }
+                        for (u32 x = 0; x < activeWidth; ++x)
+                        {
+                            const sizet src = (static_cast<sizet>(y) * width) + x;
+                            const sizet dst = (static_cast<sizet>(activeHeight - 1u - y) * activeWidth) + x;
+                            out.Ids[dst] = ids[src];
+                            if (!(depth[src] < 1.0f))
+                            {
+                                continue;
+                            }
+                            // glm::perspective is RH_NO: depth [0, 1] is NDC z [-1, 1].
+                            const glm::vec4 ndc{ ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(activeWidth)) * 2.0f - 1.0f,
+                                                 ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(activeHeight)) * 2.0f - 1.0f,
+                                                 (depth[src] * 2.0f) - 1.0f, 1.0f };
+                            const glm::vec4 world = inverseViewProjection * ndc;
+                            out.World[dst] = glm::vec3(world) / world.w;
+                        }
+                    });
         }
 
         // Settles `settleFrames` editor-preview frames at `view` (a PAUSED clip),
@@ -2058,10 +2118,10 @@ namespace OloEngine::Tests
                     sum.assign(out.Luminance.size(), 0.0f);
                 }
                 ASSERT_EQ(sum.size(), out.Luminance.size());
-                for (sizet i = 0; i < sum.size(); ++i)
-                {
-                    sum[i] += out.Luminance[i] / static_cast<f32>(frames);
-                }
+                // Each pixel's sum takes its frames in order, on any thread.
+                ParallelFor("DogAverageLinear", static_cast<i32>(sum.size()), 16384,
+                            [&](i32 i)
+                            { sum[static_cast<sizet>(i)] += out.Luminance[static_cast<sizet>(i)] / static_cast<f32>(frames); });
             }
             out.Luminance = std::move(sum);
         }
@@ -2323,8 +2383,6 @@ namespace OloEngine::Tests
             u32 arms = 0;
             const auto arm = [&](bool atRest, bool enabled, LinearFrame& out, const std::string& png)
             {
-                shadow.m_BakeAtRest = atRest;
-                shadow.m_Enabled = enabled;
                 // ONE REPLAY for the four arms. They differ only in what the
                 // shader does with the bake, and CaptureLinear renders
                 // editor-preview frames of a paused clip, which step neither
@@ -2335,25 +2393,42 @@ namespace OloEngine::Tests
                 // matrix is still compared across the arms below.
                 if (arms == 0u)
                 {
+                    // Drawn every fourth sixtieth of a second, the solver taking
+                    // every step (#1659, AdvanceRuntimeStrided): the four arms
+                    // read the state the replay reaches, whatever its pace.
                     if (playOnFrom == 0u)
                     {
-                        (void)StartClip(clip, true, frames);
+                        (void)StartClip(clip, true, 2u);
+                        (void)AdvanceRuntimeStrided(frames > 2u ? frames - 2u : 0u, kEveryClipStride);
                     }
                     else
                     {
                         anim.m_IsPlaying = true;
-                        (void)AdvanceRuntime(frames - playOnFrom);
+                        (void)AdvanceRuntimeStrided(frames - playOnFrom, kEveryClipStride);
                     }
                     anim.m_IsPlaying = false;
                 }
+                // THE ARM'S BAKE FROM HERE, NOT FOR THE REPLAY (#1659). The bake
+                // shades the coat and never moves it, so the replay runs on the
+                // shipped rest bake, which bakes once; replayed on the pose bake,
+                // the coat's volume was rebaked every runtime frame, three
+                // quarters of a Debug case. The pose arm's volume is then baked
+                // at the captured pose itself, where before it was whichever
+                // recent pose the per-frame bake's drift gate had last baked.
+                shadow.m_BakeAtRest = atRest;
+                shadow.m_Enabled = enabled;
                 Renderer3D::ResetFrameSequences();
                 ColdHistory();
                 const glm::mat4 dogWorld = DogWorld();
                 dogWorlds[arms] = dogWorld;
-                CaptureLinear(DogRelative(where, dogWorld), out);
+                // 2 settle + 1 averaged frame an arm (24 + 8 before #1659):
+                // every arm draws the same samples from the same reset, so the
+                // arms' noise cancels -- the floor read 0.0000 in every region
+                // -- and the ratios sat at 0.005-0.10 against bars of 0.25-0.5.
+                CaptureLinear(DogRelative(where, dogWorld), out, 2u, 1u);
                 if (arms++ == 0u && parts != nullptr)
                 {
-                    PoseBody(*parts); // the pose arm's state: the mask is made from its frame
+                    PoseBody(*parts); // the state every arm reads; the mask is made from the pose arm's frame
                 }
                 if (!png.empty())
                 {
@@ -2366,10 +2441,16 @@ namespace OloEngine::Tests
             LinearFrame poseAgain;
             LinearFrame rest;
             LinearFrame off;
-            arm(false, true, pose, pngStem.empty() ? std::string() : pngStem + "Pose");
-            arm(false, true, poseAgain, std::string());
+            // REST FIRST (#1659). A coat holds one volume, so a change of bake
+            // source rebuilds it, and the OFF arm gives it back. In the order
+            // pose, pose again, rest, off, every instant baked three volumes:
+            // the replay's rest bake, the pose bake, and the rest bake again.
+            // Rest right after the replay reads the volume the replay baked,
+            // and the pose pair stays back to back for the noise: two bakes.
             arm(true, true, rest, pngStem.empty() ? std::string() : pngStem + "Rest");
             arm(true, false, off, (pngStem.empty() || !writeOff) ? std::string() : pngStem + "Off");
+            arm(false, true, pose, pngStem.empty() ? std::string() : pngStem + "Pose");
+            arm(false, true, poseAgain, std::string());
             shadow.m_BakeAtRest = true;
             shadow.m_Enabled = true;
             BakeComparison result;
@@ -2398,14 +2479,18 @@ namespace OloEngine::Tests
                 // By the nearest skinned vertex of the body posed in this state.
                 result.HasAnatomical = true;
                 anatomical.assign(pose.Ids.size(), static_cast<u8>(4u));
+                std::vector<u32> nearestOf;
+                std::vector<f32> distanceOf;
+                BodyParts::NearestEach(
+                    parts->Posed, parts->Tree, pose.World, [&](sizet i)
+                    { return mask.Region[i] != static_cast<u8>(CoatRegion::Count); }, nearestOf, distanceOf);
                 for (sizet i = 0; i < pose.Ids.size(); ++i)
                 {
                     if (mask.Region[i] == static_cast<u8>(CoatRegion::Count))
                     {
                         continue;
                     }
-                    f32 distance = 0.0f;
-                    const u32 nearest = BodyParts::Nearest(parts->Posed, parts->Tree, pose.World[i], distance);
+                    const u32 nearest = nearestOf[i];
                     if (nearest == ~0u)
                     {
                         result.AnatomicalLost += 1.0;
@@ -2621,38 +2706,89 @@ namespace OloEngine::Tests
 
             // The nearest of `points` to `p` through `tree`; ~0u when none is
             // within kMaxDistance.
+            //
+            // A LOOP OVER AN EXPLICIT STACK, not a recursive std::function
+            // (#1659): called for every coat pixel of every measured frame, the
+            // recursion through std::function was a fifth of a Debug case.
+            // The visit order is the recursion's: a node, then its near side to
+            // the bottom, then its far side -- tested against the best found
+            // by then, as the recursion tested it after the near side returned
+            // -- so the same queries find the same vertex.
             [[nodiscard]] static u32 Nearest(const std::vector<glm::vec3>& points, const std::vector<u32>& tree,
                                              const glm::vec3& p, f32& outDistance)
             {
+                struct Range
+                {
+                    u32 Lo;
+                    u32 Hi;
+                    u32 Depth;
+                    f32 Gate; // the far side's across^2; negative for a near side, visited unconditionally
+                };
+                // Every range is split at its middle INDEX, whatever the points
+                // hold, so a u32 count is at most 32 levels deep, and each level
+                // leaves at most one far side waiting below its near side: the
+                // stack never holds more than about 66.
+                std::array<Range, 128> stack;
+                u32 top = 0;
                 u32 best = ~0u;
                 f32 bestSquared = kMaxDistance * kMaxDistance;
-                const std::function<void(sizet, sizet, u32)> visit = [&](sizet lo, sizet hi, u32 depth)
+                const glm::vec3* const pts = points.data();
+                const u32* const order = tree.data();
+                stack[top++] = Range{ 0u, static_cast<u32>(tree.size()), 0u, -1.0f };
+                while (top > 0u)
                 {
-                    if (lo >= hi)
+                    const Range r = stack[--top];
+                    if (r.Lo >= r.Hi || !(r.Gate < bestSquared))
                     {
-                        return;
+                        continue;
                     }
-                    const sizet mid = (lo + hi) / 2u;
-                    const u32 index = tree[mid];
-                    const glm::vec3 d = points[index] - p;
-                    const f32 squared = glm::dot(d, d);
+                    const u32 mid = (r.Lo + r.Hi) / 2u;
+                    const u32 index = order[mid];
+                    const glm::vec3& q = pts[index];
+                    const f32 dx = q.x - p.x;
+                    const f32 dy = q.y - p.y;
+                    const f32 dz = q.z - p.z;
+                    const f32 squared = (dx * dx) + (dy * dy) + (dz * dz);
                     if (squared < bestSquared)
                     {
                         bestSquared = squared;
                         best = index;
                     }
-                    const auto axis = static_cast<glm::length_t>(depth % 3u);
-                    const f32 across = p[axis] - points[index][axis];
+                    const u32 axis = r.Depth % 3u;
+                    const f32 across = p[static_cast<glm::length_t>(axis)] - q[static_cast<glm::length_t>(axis)];
                     const bool lowFirst = across < 0.0f;
-                    visit(lowFirst ? lo : mid + 1u, lowFirst ? mid : hi, depth + 1u);
-                    if (across * across < bestSquared)
-                    {
-                        visit(lowFirst ? mid + 1u : lo, lowFirst ? hi : mid, depth + 1u);
-                    }
-                };
-                visit(0u, tree.size(), 0u);
+                    // Far side pushed first, so the near side pops and runs to
+                    // the bottom before the far side's gate is read.
+                    stack[top++] = lowFirst ? Range{ mid + 1u, r.Hi, r.Depth + 1u, across * across }
+                                            : Range{ r.Lo, mid, r.Depth + 1u, across * across };
+                    stack[top++] = lowFirst ? Range{ r.Lo, mid, r.Depth + 1u, -1.0f }
+                                            : Range{ mid + 1u, r.Hi, r.Depth + 1u, -1.0f };
+                }
                 outDistance = best != ~0u ? std::sqrt(bestSquared) : std::numeric_limits<f32>::infinity();
                 return best;
+            }
+
+            // Nearest for every query `wanted(i)` selects, on the engine's
+            // workers (#1659): each answer is Nearest's and lands in its own
+            // slot, so a caller that then walks the pixels in order counts
+            // exactly what it counted querying them one by one. ~0u, with an
+            // infinite distance, where a query is not wanted or finds nothing.
+            template<typename Wanted>
+            static void NearestEach(const std::vector<glm::vec3>& points, const std::vector<u32>& tree,
+                                    const std::vector<glm::vec3>& queries, const Wanted& wanted,
+                                    std::vector<u32>& outNearest, std::vector<f32>& outDistance)
+            {
+                outNearest.assign(queries.size(), ~0u);
+                outDistance.assign(queries.size(), std::numeric_limits<f32>::infinity());
+                ParallelFor("DogNearestEach", static_cast<i32>(queries.size()), 2048,
+                            [&](i32 index)
+                            {
+                                const auto i = static_cast<sizet>(index);
+                                if (wanted(i))
+                                {
+                                    outNearest[i] = Nearest(points, tree, queries[i], outDistance[i]);
+                                }
+                            });
             }
         };
 
@@ -2904,7 +3040,9 @@ namespace OloEngine::Tests
         }
 
         // Skins the body to the pose the skeleton holds now, into world space.
-        void PoseBody(BodyParts& parts)
+        // Poses the body as the scene holds it; `withTree` false skips the
+        // nearest-vertex tree for a caller that never queries the posed body.
+        void PoseBody(BodyParts& parts, bool withTree = true)
         {
             const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
             const glm::mat4 world = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Body));
@@ -2922,25 +3060,35 @@ namespace OloEngine::Tests
                 }
             }
             parts.Posed.resize(parts.Bind.size());
-            for (sizet v = 0; v < parts.Bind.size(); ++v)
+            // Each vertex skinned on its own, on the workers (#1659).
+            ParallelFor("DogPoseBody", static_cast<i32>(parts.Bind.size()), 1024,
+                        [&](i32 index)
+                        {
+                            const auto v = static_cast<sizet>(index);
+                            glm::mat4 skin(0.0f);
+                            f32 total = 0.0f;
+                            for (u32 k = 0; k < 4u; ++k)
+                            {
+                                const f32 w = parts.Weights[v][static_cast<i32>(k)];
+                                const u32 bone = parts.Bones[v][k];
+                                if (w > 0.0f && bone < skeleton.m_FinalBoneMatrices.size())
+                                {
+                                    skin += w * skeleton.m_FinalBoneMatrices[bone];
+                                    total += w;
+                                }
+                            }
+                            const glm::vec4 position((*localPositions)[v], 1.0f);
+                            const glm::vec4 local = total > 0.0f ? (skin / total) * position : position;
+                            parts.Posed[v] = glm::vec3(world * local);
+                        });
+            if (withTree)
             {
-                glm::mat4 skin(0.0f);
-                f32 total = 0.0f;
-                for (u32 k = 0; k < 4u; ++k)
-                {
-                    const f32 w = parts.Weights[v][static_cast<i32>(k)];
-                    const u32 bone = parts.Bones[v][k];
-                    if (w > 0.0f && bone < skeleton.m_FinalBoneMatrices.size())
-                    {
-                        skin += w * skeleton.m_FinalBoneMatrices[bone];
-                        total += w;
-                    }
-                }
-                const glm::vec4 position((*localPositions)[v], 1.0f);
-                const glm::vec4 local = total > 0.0f ? (skin / total) * position : position;
-                parts.Posed[v] = glm::vec3(world * local);
+                BodyParts::BuildTree(parts.Posed, parts.Tree);
             }
-            BodyParts::BuildTree(parts.Posed, parts.Tree);
+            else
+            {
+                parts.Tree.clear(); // no stale tree over the new pose
+            }
         }
 
         // ── What a frame says about the coat on the body (B3, B6) ──
@@ -2995,6 +3143,23 @@ namespace OloEngine::Tests
             std::vector<u8> Fringe;
         };
 
+        // Whether `id` is one of `ids`, by index and never through an iterator:
+        // in a Debug build every std::vector iterator registers with its
+        // container under one process-wide lock, and asked per pixel on the
+        // workers that lock serialised the whole pass (#1659).
+        [[nodiscard]] static bool IsOneOf(const std::vector<i32>& ids, i32 id) noexcept
+        {
+            const i32* const begin = ids.data();
+            for (sizet k = 0, n = ids.size(); k < n; ++k)
+            {
+                if (begin[k] == id)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         void ClassifyFrame(const BodyParts& parts, const LinearFrame& frame, const std::vector<i32>& coatIds,
                            FrameParts& counts, PixelParts* pixels = nullptr) const
         {
@@ -3008,7 +3173,7 @@ namespace OloEngine::Tests
                 for (sizet i = 0; i < frame.Ids.size(); ++i)
                 {
                     const i32 id = frame.Ids[i];
-                    bool dog = id == body || std::ranges::find(coatIds, id) != coatIds.end();
+                    bool dog = id == body || IsOneOf(coatIds, id);
                     for (const Entity& eye : m_Dog.Eyes)
                     {
                         dog = dog || (eye && id == static_cast<i32>(static_cast<u32>(eye)));
@@ -3016,10 +3181,21 @@ namespace OloEngine::Tests
                     pixels->Dog[i] = dog ? 1u : 0u;
                 }
             }
+            // Every coat or body pixel's nearest vertex, ahead of the walk below.
+            std::vector<u32> nearestOf;
+            std::vector<f32> distanceOf;
+            BodyParts::NearestEach(
+                parts.Posed, parts.Tree, frame.World,
+                [&](sizet i)
+                {
+                    const i32 id = frame.Ids[i];
+                    return (id == body || IsOneOf(coatIds, id)) && !std::isnan(frame.World[i].x);
+                },
+                nearestOf, distanceOf);
             for (sizet i = 0; i < frame.Ids.size(); ++i)
             {
                 const i32 id = frame.Ids[i];
-                const bool coat = std::ranges::find(coatIds, id) != coatIds.end();
+                const bool coat = IsOneOf(coatIds, id);
                 if (coat && pixels != nullptr)
                 {
                     const i32 x = static_cast<i32>(i % frame.Width);
@@ -3048,8 +3224,8 @@ namespace OloEngine::Tests
                     counts.NoDepth += coat ? 1.0 : 0.0;
                     continue;
                 }
-                f32 distance = 0.0f;
-                const u32 nearest = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                const f32 distance = distanceOf[i];
+                const u32 nearest = nearestOf[i];
                 if (coat)
                 {
                     counts.CoatPixels += 1.0;
@@ -3099,11 +3275,22 @@ namespace OloEngine::Tests
                                                                                { 240, 220, 90 } } }; // tail
             const i32 body = static_cast<i32>(static_cast<u32>(m_Dog.Body));
             std::vector<u8> rgba(frame.Ids.size() * 4u, 0u);
+            // Every coat or body pixel's nearest vertex first, on the workers.
+            std::vector<u32> nearestOf;
+            std::vector<f32> distanceOf;
+            BodyParts::NearestEach(
+                parts.Posed, parts.Tree, frame.World,
+                [&](sizet i)
+                {
+                    const i32 id = frame.Ids[i];
+                    return (id == body || IsOneOf(coatIds, id)) && !std::isnan(frame.World[i].x);
+                },
+                nearestOf, distanceOf);
             for (sizet i = 0; i < frame.Ids.size(); ++i)
             {
                 u8* px = &rgba[i * 4u];
                 px[3] = 255u;
-                const bool coat = std::ranges::find(coatIds, frame.Ids[i]) != coatIds.end();
+                const bool coat = IsOneOf(coatIds, frame.Ids[i]);
                 if (!coat && frame.Ids[i] != body)
                 {
                     px[0] = px[1] = px[2] = 24u;
@@ -3114,8 +3301,8 @@ namespace OloEngine::Tests
                     px[2] = coat ? 255u : 96u;
                     continue;
                 }
-                f32 distance = 0.0f;
-                const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
+                const f32 distance = distanceOf[i];
+                const u32 v = nearestOf[i];
                 if (v == ~0u)
                 {
                     px[0] = 255u;
@@ -3137,13 +3324,13 @@ namespace OloEngine::Tests
         // `ldr`, when given, receives the last frame's composite.
         FrameParts MeasureAttachment(BodyParts& parts, const View& view, const std::vector<i32>& coatIds, u32 frames,
                                      std::vector<u8>* ldr = nullptr, const std::string& partMap = {},
-                                     std::vector<u8>* partMapOut = nullptr)
+                                     std::vector<u8>* partMapOut = nullptr, u32 settle = 16)
         {
             PoseBody(parts);
             AimRuntimeCamera(view);
             Renderer3D::ResetFrameSequences();
             ColdHistory();
-            HoldRuntime(16);
+            HoldRuntime(settle);
             FrameParts sum;
             LinearFrame frame;
             PixelParts pixels;
@@ -3407,10 +3594,12 @@ namespace OloEngine::Tests
                 }
                 s.DistinctFrames += (!previous.empty() && ldr != previous) ? 1u : 0u;
                 std::vector<f32> luma(static_cast<sizet>(kWidth) * kHeight);
-                for (sizet p = 0; p < luma.size(); ++p)
-                {
-                    luma[p] = ((0.2126f * ldr[p * 4]) + (0.7152f * ldr[(p * 4) + 1]) + (0.0722f * ldr[(p * 4) + 2])) / 255.0f;
-                }
+                ParallelFor("DogRuntimeLuma", static_cast<i32>(luma.size()), 16384,
+                            [&](i32 index)
+                            {
+                                const auto p = static_cast<sizet>(index);
+                                luma[p] = ((0.2126f * ldr[p * 4]) + (0.7152f * ldr[(p * 4) + 1]) + (0.0722f * ldr[(p * 4) + 2])) / 255.0f;
+                            });
                 s.Luma.push_back(std::move(luma));
                 std::swap(previous, ldr);
                 if (parts != nullptr)
@@ -3940,10 +4129,30 @@ namespace OloEngine::Tests
         // `coat` at them (every strand drawn).
         void InstallCoat(Entity coat, const Ref<GroomAsset>& groom)
         {
+            // THE SHIPPED BINDING WHERE IT IS THE ANSWER (#1659). A binding reads
+            // only the roots and the body, and signs only those
+            // (GroomBindingBuilder::SignGroom): a coat whose roots are the
+            // shipped coat's, the stubs of
+            // TheCoatsRootsStayOnTheSkinThroughEveryClip, would cook the shipped
+            // binding over again -- over a minute of a Debug case.
+            if (m_Dog.Binding && m_Dog.Binding->GetSourceSignature() == GroomBindingBuilder::SignGroom(*groom))
+            {
+                auto& gc = coat.GetComponent<GroomComponent>();
+                gc.m_Groom = AssetManager::AddMemoryOnlyAsset<GroomAsset>(groom);
+                gc.m_MaxRenderStrands = groom->GetCurveCount();
+                gc.m_MaxRenderSegments = groom->GetPointCount() - groom->GetCurveCount();
+                coat.GetComponent<GroomBindingComponent>().m_Binding = m_Dog.BindingHandle;
+                return;
+            }
             const Ref<MeshSource> surface = m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
             const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
             GroomBindingBuildSettings bind;
             bind.SurfaceToGroom = glm::mat4(1.0f);
+            // A finer search grid than the default 32 (#1659): it changes which
+            // triangles a root tests, never which one wins
+            // (GroomBindingBuilder.AGridResolutionChangeDoesNotChangeTheResult),
+            // and on the dog's dense head it tests far fewer.
+            bind.GridResolution = 64u;
             std::vector<u8> bytes;
             GroomBindingBuildStats stats;
             Ref<GroomBindingAsset> binding;
@@ -3969,52 +4178,96 @@ namespace OloEngine::Tests
             m_Dog.Coat.GetComponent<GroomBindingComponent>().m_Binding = m_Dog.BindingHandle;
         }
 
-        // A clip's held instants from one view: StartClip, then `steps` times
-        // `framesPerStep` runtime frames and a MeasureAttachment. The binding's
-        // counters ride along in `motion`.
-        std::vector<FrameParts> AttachmentThroughClip(BodyParts& parts, const char* clip, bool loop, u32 steps,
-                                                      u32 framesPerStep, const View& view,
-                                                      const std::vector<i32>& coatIds, MotionResult* motion = nullptr,
-                                                      std::vector<std::vector<u8>>* ldr = nullptr,
-                                                      std::vector<std::vector<u8>>* partMaps = nullptr)
+        // EVERY VIEW FROM ONE PLAYTHROUGH (#1659): the clip played once through
+        // the first view's camera, its LOD settled there, and at each of `steps`
+        // instants the state HELD and measured from every view in turn
+        // (MeasureAttachment pauses the scene, so each view reads the same
+        // state); the camera returns to the first view, held, before the clip
+        // plays on. Each step advances `framesPerStep` sixtieths of a second in
+        // frames of `stride` sixtieths: the solver takes every one of its fixed
+        // steps either way (AdvanceRuntimeStrided), the scene is drawn every
+        // `stride`th sixtieth.
+        // `settle` and `measured` are each measurement's held frames.
+        struct ClipViewsAttachment
         {
-            std::vector<FrameParts> out;
-            // The clip runs through the camera it is measured from, the LOD
-            // settled there first (see RecordRuntime), so a replay of the same
-            // call reaches the same states.
-            AimRuntimeCamera(view);
-            HoldRuntime(8);
+            std::vector<std::vector<FrameParts>> Steps; // per view, per step
+            std::vector<std::vector<std::vector<u8>>> Frames;
+            std::vector<std::vector<std::vector<u8>>> Maps;
+            MotionResult Motion;
+        };
+        ClipViewsAttachment AttachmentThroughClipFromViews(BodyParts& parts, const char* clip, bool loop, u32 steps,
+                                                           u32 framesPerStep, std::span<const View> views,
+                                                           const std::vector<i32>& coatIds, u32 stride, u32 settle,
+                                                           u32 measured, bool images)
+        {
+            ClipViewsAttachment out;
+            out.Steps.resize(views.size());
+            out.Frames.resize(views.size());
+            out.Maps.resize(views.size());
+            AimRuntimeCamera(views.front());
+            // The policy's 4 hold frames settle the first view's tier before the
+            // clip starts (8 before #1659: held frames step nothing, and every
+            // measurement below settles again on its own held frames).
+            HoldRuntime(std::max(settle, 4u));
             (void)StartClip(clip, loop, 2u);
             for (u32 step = 0; step < steps; ++step)
             {
-                const MotionResult m = AdvanceRuntime(framesPerStep);
-                if (motion != nullptr)
+                if (step > 0u && views.size() > 1u)
                 {
-                    motion->MinGroomsDeformed = std::min(motion->MinGroomsDeformed, m.MinGroomsDeformed);
-                    motion->MaxBindingRefused = std::max(motion->MaxBindingRefused, m.MaxBindingRefused);
-                    motion->MaxHeldAtRest = std::max(motion->MaxHeldAtRest, m.MaxHeldAtRest);
-                    motion->Reseeds += m.Reseeds;
-                    motion->SolverSteps += m.SolverSteps;
+                    AimRuntimeCamera(views.front());
+                    HoldRuntime(settle);
                 }
-                std::vector<u8> frame;
-                std::vector<u8> map;
-                out.push_back(MeasureAttachment(parts, view, coatIds, 6, ldr != nullptr ? &frame : nullptr, {},
-                                                partMaps != nullptr ? &map : nullptr));
-                if (HasFatalFailure())
+                const MotionResult m = AdvanceRuntimeStrided(framesPerStep, stride);
+                out.Motion.MinGroomsDeformed = std::min(out.Motion.MinGroomsDeformed, m.MinGroomsDeformed);
+                out.Motion.MaxBindingRefused = std::max(out.Motion.MaxBindingRefused, m.MaxBindingRefused);
+                out.Motion.MaxHeldAtRest = std::max(out.Motion.MaxHeldAtRest, m.MaxHeldAtRest);
+                out.Motion.Reseeds += m.Reseeds;
+                out.Motion.SolverSteps += m.SolverSteps;
+                for (sizet v = 0; v < views.size(); ++v)
                 {
-                    return out;
-                }
-                if (ldr != nullptr)
-                {
-                    ldr->push_back(std::move(frame));
-                }
-                if (partMaps != nullptr)
-                {
-                    partMaps->push_back(std::move(map));
+                    std::vector<u8> frame;
+                    std::vector<u8> map;
+                    out.Steps[v].push_back(MeasureAttachment(parts, views[v], coatIds, measured, images ? &frame : nullptr, {},
+                                                             images ? &map : nullptr, settle));
+                    if (HasFatalFailure())
+                    {
+                        return out;
+                    }
+                    if (images)
+                    {
+                        out.Frames[v].push_back(std::move(frame));
+                        out.Maps[v].push_back(std::move(map));
+                    }
                 }
             }
             return out;
         }
+
+        // THE EVERY-CLIP CASES' PACE (#1659): TheCoatStaysOnTheBodyThroughEveryClip
+        // and TheCoatsRootsStayOnTheSkinThroughEveryClip play every clip of the
+        // dog. They played each clip once per view, drew every 1/60 s, and held
+        // 16 + 6 frames at each of 6 instants: 15,000 frames, 10 and 9 minutes
+        // in Release. Now one playthrough serves both views, drawn every fourth
+        // sixtieth of a second with the solver taking every step, measured at
+        // kEveryClipSteps instants on
+        // kEveryClipSettle + kEveryClipMeasured held frames. The held frames
+        // are the cost (a Debug held frame is ~0.2 s, a strided runtime frame a
+        // quarter of that); coverage is read from the entity ids, which need no
+        // resolve to converge, and both views sit on the near tier, so the
+        // policy's 4 hold frames settle them.
+        static constexpr u32 kEveryClipSteps = 2;
+        static constexpr u32 kEveryClipStride = 4;
+        static constexpr u32 kEveryClipSettle = 4;
+        static constexpr u32 kEveryClipMeasured = 2;
+        // TheCoatStaysOnTheBodyThroughEveryClip reads ONE held frame per
+        // measurement (#1659): on the shipped coat, through every clip and view,
+        // one frame moved the worst part's bald share and floating share by
+        // under 0.005 from two-frame averages, and with the solver taking every
+        // step no part reads bald above 0.072 against 0.25 or floating above
+        // 0.003 against 0.02 (worst coverage 0.374). The
+        // local-failure plants keep two: the stale hind leg reads bald 0.27-0.43
+        // against the same 0.25, too near to halve its samples.
+        static constexpr u32 kCoatStaysMeasured = 1;
 
         // Whether `failures` names `part` -- the check found the planted fault
         // where it was planted.
@@ -4567,7 +4820,11 @@ namespace OloEngine::Tests
         // the summed |change| of (ladder - reference) / reference energy, per
         // cell of the dolly's grid, across the change. The same held pair
         // where nothing changes gives the noise that is left.
-        static constexpr u32 kHeldFrames = 32;
+        // 8 frames averaged (32 before #1659): a held pair passes outright under
+        // the spatial bar, and at 32 frames the change measured 0.012 and the
+        // quiet pair 0.010 against 0.05; noise only adds to a sum of
+        // |differences|, so fewer frames can only raise both.
+        static constexpr u32 kHeldFrames = 8;
         static constexpr u32 kHeldSettle = 12; // past the policy's 4 hold frames
         static constexpr sizet kCells = static_cast<sizet>(kDollyCells) * kDollyCells;
 
@@ -4621,7 +4878,7 @@ namespace OloEngine::Tests
             ColdHistory();
             AimRuntimeCamera(DollyView(from));
             HoldRuntime(16);
-            constexpr u32 kApproach = 24;
+            constexpr u32 kApproach = 16; // 24 before #1659: past the policy's hold and a cross-fade
             for (u32 i = 1; i <= kApproach; ++i)
             {
                 AimRuntimeCamera(DollyView(from * std::pow(before / from, static_cast<f32>(i) / kApproach)));
@@ -5256,8 +5513,18 @@ namespace OloEngine::Tests
     {
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
-        constexpr u32 kWarmup = 90; // 1.5 s: the long hair settles after the re-seed
-        constexpr u32 kFrames = 60;
+        // HALF A SECOND MEASURED, AFTER ONE SECOND OF WARM-UP AT REST AND HALF A
+        // SECOND IN THE WALK (#1659), where every recording warmed up 1.5 s and
+        // measured 1 s: twelve recordings of 158 frames were the case's whole
+        // cost. The resolve converges in about ten frames at the shipped
+        // feedback, and the bars held with room: the shimmer ratios 0.30-0.36
+        // at rest against 0.5, the instability ratios 0.35-0.41 in motion. The
+        // rest clip keeps the longer warm-up because its jitter check reads
+        // the long hair's settling after the re-seed: half a second in, the
+        // swing was 0.28 mm against the 0.5 mm ceiling (0.07 mm after 1.5 s).
+        constexpr u32 kRestWarmup = 60;
+        constexpr u32 kWalkWarmup = 30;
+        constexpr u32 kFrames = 30;
         constexpr u32 kSequenceOffset = 7;                                 // a second draw: every jitter and stochastic sample shifted
         const std::array<View, 2> views{ HeroViews()[0], HeroViews()[3] }; // the face and ears; the tail
         const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
@@ -5270,6 +5537,7 @@ namespace OloEngine::Tests
         for (const char* clip : { "Rest", "Walk" })
         {
             const bool moving = std::string_view(clip) == "Walk";
+            const u32 warmup = moving ? kWalkWarmup : kRestWarmup;
             for (const View& view : views)
             {
                 if (!only.empty() && only != std::string(clip) + ":" + view.Name)
@@ -5278,10 +5546,10 @@ namespace OloEngine::Tests
                 }
                 SCOPED_TRACE(std::string(clip) + " " + view.Name);
                 SetTaa(shippedFeedback);
-                const RuntimeSequence resolved = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
+                const RuntimeSequence resolved = RecordRuntime(clip, view, warmup, kFrames, &parts);
                 ASSERT_FALSE(HasFatalFailure());
                 SetTaa(0.0f);
-                const RuntimeSequence raw = RecordRuntime(clip, view, kWarmup, kFrames, &parts);
+                const RuntimeSequence raw = RecordRuntime(clip, view, warmup, kFrames, &parts);
                 ASSERT_FALSE(HasFatalFailure());
                 // NOT VACUOUS WHERE IT LOOKS (#1533 review): every measured
                 // frame's coat is placed on the body and every region the view
@@ -5297,9 +5565,9 @@ namespace OloEngine::Tests
                 if (moving)
                 {
                     SetTaa(shippedFeedback);
-                    resolvedAgain = RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset);
+                    resolvedAgain = RecordRuntime(clip, view, warmup, kFrames, nullptr, kSequenceOffset);
                     SetTaa(0.0f);
-                    rawAgain = RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset);
+                    rawAgain = RecordRuntime(clip, view, warmup, kFrames, nullptr, kSequenceOffset);
                     ASSERT_FALSE(HasFatalFailure());
                 }
                 SetTaa(shippedFeedback);
@@ -5438,7 +5706,7 @@ namespace OloEngine::Tests
                         SetTaa(0.0f);
                         for (u32 k = 2u; k < 6u; ++k)
                         {
-                            draws.push_back(RecordRuntime(clip, view, kWarmup, kFrames, nullptr, kSequenceOffset * k));
+                            draws.push_back(RecordRuntime(clip, view, warmup, kFrames, nullptr, kSequenceOffset * k));
                         }
                         SetTaa(shippedFeedback);
                         for (sizet n : { sizet(1), sizet(2), sizet(6) })
@@ -5560,25 +5828,37 @@ namespace OloEngine::Tests
             Check c;
             std::vector<f32> eye;
             std::vector<f32> skin;
+            // The eyes' centres once per frame, and every sampled skin pixel's
+            // nearest vertex ahead of the walk, which takes them in pixel order.
+            std::array<glm::vec3, 2> centres{};
+            for (sizet k = 0; k < m_Dog.Eyes.size(); ++k)
+            {
+                if (m_Dog.Eyes[k])
+                {
+                    centres[k] = glm::vec3(GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog.Eyes[k]))[3]);
+                }
+            }
+            std::vector<u32> nearestOf;
+            std::vector<f32> distanceOf;
+            BodyParts::NearestEach(
+                parts.Posed, parts.Tree, frame.World, [&](sizet i)
+                { return frame.Ids[i] == body && (i % 4u) == 0u && !std::isnan(frame.World[i].x); }, nearestOf, distanceOf);
             for (sizet i = 0; i < frame.Ids.size(); ++i)
             {
                 if (std::isnan(frame.World[i].x))
                 {
                     continue;
                 }
-                for (const Entity& e : m_Dog.Eyes)
+                for (sizet k = 0; k < m_Dog.Eyes.size(); ++k)
                 {
-                    if (e && frame.Ids[i] == static_cast<i32>(static_cast<u32>(e)))
+                    if (m_Dog.Eyes[k] && frame.Ids[i] == static_cast<i32>(static_cast<u32>(m_Dog.Eyes[k])))
                     {
-                        const glm::vec3 centre(GetScene().GetWorldTransform(static_cast<entt::entity>(e))[3]);
-                        eye.push_back(glm::distance(frame.World[i], centre));
+                        eye.push_back(glm::distance(frame.World[i], centres[k]));
                     }
                 }
                 if (frame.Ids[i] == body && (i % 4u) == 0u)
                 {
-                    f32 distance = 0.0f;
-                    const u32 v = BodyParts::Nearest(parts.Posed, parts.Tree, frame.World[i], distance);
-                    skin.push_back(v == ~0u ? 0.30f : distance);
+                    skin.push_back(nearestOf[i] == ~0u ? 0.30f : distanceOf[i]);
                 }
             }
             const auto median = [](std::vector<f32>& v)
@@ -6130,10 +6410,13 @@ namespace OloEngine::Tests
         auto& simulation = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
         const f32 shippedFeedback = Renderer3D::GetPostProcessSettings().TAAFeedback;
         SetTaa(0.0f);
+        // The live walk is classified: the lag check below reads where its coat
+        // lies. The suppressed one is not (#1659): only its solver steps, its
+        // swing and its clip time are read.
         const RuntimeSequence raw = RecordRuntime("Walk", HeroViews()[0], 90, kFrames, &parts);
         ASSERT_FALSE(HasFatalFailure());
         simulation.m_Enabled = false;
-        const RuntimeSequence suppressed = RecordRuntime("Walk", HeroViews()[0], 90, kFrames, &parts);
+        const RuntimeSequence suppressed = RecordRuntime("Walk", HeroViews()[0], 90, kFrames, nullptr);
         simulation.m_Enabled = true;
         SetTaa(shippedFeedback);
         ASSERT_FALSE(HasFatalFailure());
@@ -6284,22 +6567,23 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // B7 AT THE CARD HAND-OVER, HELD. The extended dolly crosses the hand-over
-    // (out past 22 m, in under 16 m, at 1920x1080) on a 25-80 px dog, where its
-    // 4-frame windows carry 6% of energy noise and judge a step only to 3x
-    // that. Held, the step is exact: at each distance the coat as shipped,
+    // B7 AT THE CARD HAND-OVER, HELD. A dolly crosses the hand-over (out past
+    // 22 m, in under 16 m, at 1920x1080) on a 25-80 px dog, where its 4-frame
+    // windows carried 6% of energy noise and judged a step only to 3x that;
+    // since #1659 this case alone judges it. Held, the step is exact: at each distance the coat as shipped,
     // which is on cards there, against the same coat told never to hand over
     // (m_CardPixelSize 0.5 px, the smallest the policy keeps -- 0 reads as unset
     // and falls back to 256: strands on the same budgets), both approached from
     // 60 m so each arrives on the same visibility step, both on the same
-    // stochastic frames, averaged over 48 held runtime frames of scene colour
-    // (no temporal resolve). Every strand (LOD off) is printed beside them.
+    // stochastic frames, averaged over 24 held runtime frames of scene colour
+    // (no temporal resolve). Every strand (LOD off) is printed beside them at
+    // 22 m.
     //
     // THE BAR is the near ladder's step: within 5% in coverage and in linear
     // energy, half the criterion's band, at every distance the hand-over can
     // happen at (the golden's 17-27 m, scaled to the dog: in at about 16 m, out
     // at about 22.5 m). Every breed runs it. Where a step comes from is printed
-    // at 22 m (groom-card-coverage.md rule 6), split by the coat's self-shadow,
+    // at 22 m with OLO_DOG_HANDOVER_SPLIT=1 (groom-card-coverage.md rule 6), split by the coat's self-shadow,
     // the sky, the multiple scattering, the fibre model and the scene shadow the
     // coat receives. Unshadowed, a card is darker than its strands in every
     // lobe; the coat's self-shadow darkens the strands more, which offsets most
@@ -6366,7 +6650,10 @@ namespace OloEngine::Tests
             ColdHistory();
             AimRuntimeCamera(DollyView(distance));
             HoldRuntime(24);
-            constexpr u32 kFrames = 48;
+            // 24 frames averaged (48 before #1659): both arms draw the same
+            // stochastic frames, so their noise largely cancels in the ratio,
+            // and the asserted ratios sat 1.4-2.1 points inside the 5-point bar.
+            constexpr u32 kFrames = 24;
             Held out;
             LinearFrame frame;
             for (u32 k = 0; k < kFrames; ++k)
@@ -6394,20 +6681,31 @@ namespace OloEngine::Tests
         };
         const auto ratio = [](f64 a, f64 b)
         { return b > 0.0 ? a / b : 0.0; };
-        // The golden's distances, scaled to the dog: a bigger dog hands over further away (#1558).
-        for (const f32 golden : { 17.0f, 19.0f, 22.0f, 27.0f, 35.0f })
+        // The golden's distances, scaled to the dog: a bigger dog hands over
+        // further away (#1558). The 17-27 m where the hand-over can happen, each
+        // asserted; 35 m, past it and only printed, went with #1659.
+        for (const f32 golden : { 17.0f, 19.0f, 22.0f, 27.0f })
         {
             const f32 distance = golden * s_BreedViewScale;
             const Held cards = hold(distance, shippedLod.m_CardPixelSize, true);
             const Held strands = hold(distance, 0.5f, true);
-            const Held every = hold(distance, shippedLod.m_CardPixelSize, false);
             ASSERT_FALSE(HasFatalFailure());
             std::printf("[dog] hand-over %4.1f m: cards rep %u vis %u (%u drawn) / strands rep %u vis %u (%u drawn) | cards/strands "
-                        "coverage %.3f energy %.3f | cards/every %.3f %.3f | strands/every %.3f %.3f (%.0f px)\n",
+                        "coverage %.3f energy %.3f",
                         distance, cards.Representation, cards.VisibilityStep, cards.Strands, strands.Representation,
                         strands.VisibilityStep, strands.Strands, ratio(cards.Coverage, strands.Coverage),
-                        ratio(cards.Energy, strands.Energy), ratio(cards.Coverage, every.Coverage), ratio(cards.Energy, every.Energy),
-                        ratio(strands.Coverage, every.Coverage), ratio(strands.Energy, every.Energy), every.Coverage);
+                        ratio(cards.Energy, strands.Energy));
+            // Every strand (LOD off), a record beside the two arms, at 22 m only
+            // since #1659: a hold costs a coat-volume bake and a rest stream.
+            if (golden > 21.5f && golden < 22.5f)
+            {
+                const Held every = hold(distance, shippedLod.m_CardPixelSize, false);
+                ASSERT_FALSE(HasFatalFailure());
+                std::printf(" | cards/every %.3f %.3f | strands/every %.3f %.3f (%.0f px)", ratio(cards.Coverage, every.Coverage),
+                            ratio(cards.Energy, every.Energy), ratio(strands.Coverage, every.Coverage),
+                            ratio(strands.Energy, every.Energy), every.Coverage);
+            }
+            std::printf("\n");
             std::fflush(stdout);
             if (golden <= 27.0f)
             {
@@ -6422,7 +6720,12 @@ namespace OloEngine::Tests
         // Where the step comes from (groom-card-coverage.md rule 6), at 22 m:
         // the coat's self-shadow made transparent (kappa 0), the sky's light
         // off, multiple scattering off, and the fibre model off (the unlit
-        // root-to-tip ramp times the coat's tint).
+        // root-to-tip ramp times the coat's tint). A record, not a check, and
+        // twelve more holds: OLO_DOG_HANDOVER_SPLIT=1 prints it (#1659).
+        if (const char* split = std::getenv("OLO_DOG_HANDOVER_SPLIT"); split == nullptr || split[0] != '1')
+        {
+            return;
+        }
         struct Split
         {
             const char* Name;
@@ -6488,9 +6791,9 @@ namespace OloEngine::Tests
     // the same step taken where nothing changed (JudgeDolly).
     //
     // THE CARD HAND-OVER IS PAST 15 m at this resolution, so the 0.6-15 m dolly
-    // never reaches it; an EXTENDED dolly, 15-45 m and back, is recorded and
-    // judged separately and says where it hands over in each direction. And
-    // the negative control: the same 0.6-15 m dolly with the width
+    // never reaches it: TheCardHandOverStepsTheCoatWithinTheNearLaddersBar
+    // holds it at 17-27 m, and since #1659 no case judges the coat past 27 m
+    // (see the cut below). And the negative control: the same 0.6-15 m dolly with the width
     // compensation capped at 1 (the strands thin with no compensation) must be
     // caught by the same judge.
     // =========================================================================
@@ -6515,8 +6818,25 @@ namespace OloEngine::Tests
                    } };
         PoseBody(parts);
 
-        const DollyPath out{ 0.6f, 15.0f, 200u };
-        const DollyPath extended{ 15.0f, 45.0f, 120u };
+        // WHAT #1659 CUT TO FIT FIVE DEBUG MINUTES, where a held 1080p frame
+        // costs about 0.4 s (each one rebakes the coat's volume):
+        //   - 32 frames each way out to 15 m, from 200. The judge pairs the
+        //     ladder with the reference frame by frame at the same distance; it
+        //     had room (worst band 0.025 against 0.10, worst step at a change
+        //     0.007 against 0.05, noise sigma 0.0002), and the changes' 4-frame
+        //     windows now take in their neighbours, which only adds those
+        //     neighbours' steps of a few thousandths.
+        //   - the held spatial step at the FIRST outbound visibility change,
+        //     where the drawn strands change, against one quiet pair; it was
+        //     held at all eight changes and three quiet pairs. The inbound
+        //     changes and the simulation-only ones stay judged by the dolly.
+        //   - the EXTENDED 15-45 m dolly, which judged past B7's 15 m (its last
+        //     run before the cut: 0 failing, 0 undecided, the simulation tier
+        //     changing at 27.6 m and the visibility tier at 41 m). The card
+        //     hand-over it crossed is held at 17-27 m by
+        //     TheCardHandOverStepsTheCoatWithinTheNearLaddersBar; the far tiers
+        //     past 27 m are judged by no case now. That is the coverage given up.
+        const DollyPath out{ 0.6f, 15.0f, 32u };
         const auto record = [&](const DollyPath& path, bool lod, f32 maxWidthCompensation, const Dolly* tilesOf = nullptr)
         {
             auto& lodComponent = m_Dog.Coat.GetComponent<GroomLodComponent>();
@@ -6579,11 +6899,24 @@ namespace OloEngine::Tests
         ReportDolly("0.6-15 m, no width compensation", thinned, reference, caught);
         EXPECT_FALSE(caught.Failures.empty()) << "the dolly's judge passed a ladder with no width compensation";
 
-        // THE SPATIAL STEP, judged on converged maps held either side of every
-        // change, against quiet pairs where nothing changes (between the
-        // changes: at 3 m, 9 m and 12.5 m).
-        const std::array<f32, 3> quietAt{ 3.0f, 9.0f, 12.5f };
-        std::vector<HeldChange> held = HoldEveryChange(out, ladder, verdict.Transitions, quietAt, shippedLod, kHeldFrames);
+        // THE SPATIAL STEP, judged on converged maps held either side of the
+        // first outbound change of the drawn strands (a visibility step or the
+        // tier), against a quiet pair where nothing changes (at 9 m, between
+        // that change and the next one that thins the strands).
+        std::vector<sizet> heldAt;
+        for (const sizet t : verdict.Transitions)
+        {
+            const DollyFrame& now = ladder.Frames[t];
+            const DollyFrame& was = ladder.Frames[t - 1u];
+            if (now.Outbound && (now.VisibilityStep != was.VisibilityStep || now.Representation != was.Representation))
+            {
+                heldAt.push_back(t);
+                break;
+            }
+        }
+        EXPECT_EQ(heldAt.size(), 1u) << "the dolly never thinned the strands on its way out";
+        const std::array<f32, 1> quietAt{ 9.0f };
+        std::vector<HeldChange> held = HoldEveryChange(out, ladder, heldAt, quietAt, shippedLod, kHeldFrames);
         ASSERT_FALSE(HasFatalFailure());
         for (const HeldChange& c : held)
         {
@@ -6600,7 +6933,7 @@ namespace OloEngine::Tests
         {
             std::printf("[dog] held 0.6-15 m: %zu undecided at %u frames; holding %u frames each\n",
                         heldVerdict.Insufficient.size(), kHeldFrames, 4u * kHeldFrames);
-            held = HoldEveryChange(out, ladder, verdict.Transitions, quietAt, shippedLod, 4u * kHeldFrames);
+            held = HoldEveryChange(out, ladder, heldAt, quietAt, shippedLod, 4u * kHeldFrames);
             ASSERT_FALSE(HasFatalFailure());
             heldVerdict = JudgeHeldChanges(held, "0.6-15 m");
         }
@@ -6683,25 +7016,9 @@ namespace OloEngine::Tests
             ReportHeldChanges("0.6-15 m, planted relocation", planted, relocated);
             EXPECT_FALSE(relocated.Failures.empty()) << "the held spatial step did not catch a tuft moved across the change";
         }
-
-        // Past 15 m, labelled as such: where the cards take over.
-        std::vector<Dolly> farLadders;
-        std::vector<Dolly> farReferences;
-        const DollyVerdict extendedVerdict = judgeWithRepeats(extended, "EXTENDED 15-45 m", farLadders, farReferences);
-        ASSERT_FALSE(HasFatalFailure());
-        ReportDolly("EXTENDED 15-45 m", farLadders.front(), farReferences.front(), extendedVerdict);
-        for (const std::string& failure : extendedVerdict.Failures)
-        {
-            ADD_FAILURE() << failure;
-        }
-        // Past the criterion's 15 m and at a few dozen pixels of dog, the
-        // noise is the size of the steps: what it cannot decide is reported,
-        // not counted for or against B7.
-        for (const std::string& undecided : extendedVerdict.Insufficient)
-        {
-            std::printf("[dog] dolly EXTENDED, undecided at this resolution: %s\n", undecided.c_str());
-        }
-        WriteDollyStrip((TestRenderBackend::EvidenceName("DogLodDolly") + "Forward_Extended"), farLadders.front(), farReferences.front());
+        // Past 15 m, where the cards take over, is held, not dollied:
+        // TheCardHandOverStepsTheCoatWithinTheNearLaddersBar at 17-27 m. Past
+        // 27 m nothing judges the coat (see the cut above).
     }
 
     // =========================================================================
@@ -8741,7 +9058,7 @@ namespace OloEngine::Tests
     // object space.) From the views where each motion shows: Idle's head drift,
     // Idle's wag (the plume's secondary motion), the Walk's legs (articulated)
     // and the Sit's folded hind legs against the belly (contact) -- each at
-    // THREE instants of its clip, 20 frames apart, so a motion is followed
+    // TWO instants of its clip, 20 frames apart, so a motion is followed
     // rather than sampled once. A regression record (see CompareRestBake); each
     // instant's coat-wide ratio must stay under half the effect, so a rest bake
     // that stopped tracking a motion at all fails.
@@ -8756,30 +9073,66 @@ namespace OloEngine::Tests
             u32 Frames;
             View Where;
         };
-        const std::array<Case, 4> cases{ {
+        constexpr sizet kCases = 4;
+        const std::array<Case, kCases> cases{ {
             { "IdleHead", "Idle", 120, HeroViews()[2] },
             { "IdleWag", "Idle", 150, HeroViews()[3] },
             { "WalkLegs", "Walk", 45, { "WalkLegs", { 1.45f, 0.30f, 0.20f }, { 0.0f, 0.26f, 0.0f }, 35.0f } },
             { "SitFolded", "Sit", 150, { "SitFolded", { 1.30f, 0.30f, -0.35f }, { 0.0f, 0.22f, -0.10f }, 35.0f } },
         } };
         BodyParts parts = BuildBodyParts();
-        for (const Case& c : cases)
+        constexpr u32 kInstants = 2; // three before #1659
+        // EVERY INSTANT OF ONE CLIP FROM ONE REPLAY, in clip order (#1659):
+        // IdleHead's 120 and 140 and IdleWag's 150 and 170 are one Idle
+        // played on from 120 to 170, where they were two replays from its start.
+        // A comparison steps neither the clip nor the solver (CompareRestBake),
+        // so each instant's state is the replay's; the reports and checks below
+        // then run in the cases' own order.
+        struct Instant
         {
+            sizet Case;
+            u32 Index;
+            u32 Frames;
+        };
+        std::vector<Instant> schedule;
+        for (sizet c = 0; c < cases.size(); ++c)
+        {
+            for (u32 instant = 0; instant < kInstants; ++instant)
+            {
+                schedule.push_back({ c, instant, cases[c].Frames + (20u * instant) });
+            }
+        }
+        std::ranges::stable_sort(schedule, [&](const Instant& a, const Instant& b)
+                                 {
+                                     const int byClip = std::strcmp(cases[a.Case].Clip, cases[b.Case].Clip);
+                                     return byClip != 0 ? byClip < 0 : a.Frames < b.Frames; });
+        std::array<std::array<BakeComparison, kInstants>, kCases> comparisons{};
+        for (sizet s = 0; s < schedule.size(); ++s)
+        {
+            const Instant& at = schedule[s];
+            const Case& c = cases[at.Case];
+            SCOPED_TRACE(std::string(c.Name) + " frame " + std::to_string(at.Frames));
+            // The clip is replayed from its start for its first instant and
+            // plays on to the rest (#1630).
+            const bool playsOn = s > 0u && std::strcmp(cases[schedule[s - 1u].Case].Clip, c.Clip) == 0;
+            comparisons[at.Case][at.Index] =
+                CompareRestBake(c.Clip, at.Frames, c.Where,
+                                at.Index == 0u ? ((TestRenderBackend::EvidenceName("DogCoatBakeLimits") + "Forward_")) + c.Name : std::string(),
+                                false, &parts, playsOn ? schedule[s - 1u].Frames : 0u);
+            ASSERT_FALSE(HasFatalFailure());
+        }
+        for (sizet ci = 0; ci < cases.size(); ++ci)
+        {
+            const Case& c = cases[ci];
             SCOPED_TRACE(c.Name);
             std::array<f64, 4> worst{};
             std::array<f64, 4> worstAnatomical{};
             f64 worstTile = 0.0;
             f64 firstCoatPixels = 0.0;
-            for (u32 instant = 0; instant < 3u; ++instant)
+            for (u32 instant = 0; instant < kInstants; ++instant)
             {
-                // The clip is replayed from its start for the first instant and
-                // plays on to the next two (#1630).
                 const u32 frames = c.Frames + (20u * instant);
-                const BakeComparison comparison =
-                    CompareRestBake(c.Clip, frames, c.Where,
-                                    instant == 0u ? ((TestRenderBackend::EvidenceName("DogCoatBakeLimits") + "Forward_")) + c.Name : std::string(),
-                                    false, &parts, instant == 0u ? 0u : frames - 20u);
-                ASSERT_FALSE(HasFatalFailure());
+                const BakeComparison& comparison = comparisons[ci][instant];
                 ReportRestBake(c.Name, frames, comparison);
                 const BakeRegion& all = comparison.Regions[3];
                 EXPECT_TRUE(all.Measurable()) << "frame " << frames << ": the self-shadow is lost in the noise here";
@@ -8804,10 +9157,10 @@ namespace OloEngine::Tests
                 }
                 worstTile = std::max(worstTile, comparison.TileWorst);
             }
-            std::printf("[dog] rest bake %-9s over three instants: worst face %.3f, torso %.3f, tail %.3f, all %.3f "
+            std::printf("[dog] rest bake %-9s over %u instants: worst face %.3f, torso %.3f, tail %.3f, all %.3f "
                         "(coarse, dog frame); face %.3f, body %.3f, tail %.3f (by the body's parts); worst local tile "
                         "%.3f of the coat's effect\n",
-                        c.Name, worst[0], worst[1], worst[2], worst[3], worstAnatomical[0], worstAnatomical[1],
+                        c.Name, kInstants, worst[0], worst[1], worst[2], worst[3], worstAnatomical[0], worstAnatomical[1],
                         worstAnatomical[2], worstTile);
             std::fflush(stdout);
         }
@@ -8872,21 +9225,20 @@ namespace OloEngine::Tests
                                       ClipCase{ "TurnInPlace", true, AuthoredClipDuration("TurnInPlace") } })
         {
             SCOPED_TRACE(clip.Name);
-            constexpr u32 kSteps = 6;
-            const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kSteps));
-            for (const View& view : views)
+            const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kEveryClipSteps));
+            const ClipViewsAttachment through =
+                AttachmentThroughClipFromViews(parts, clip.Name, clip.Loop, kEveryClipSteps, framesPerStep, views, coat,
+                                               kEveryClipStride, kEveryClipSettle, kCoatStaysMeasured, true);
+            ASSERT_FALSE(HasFatalFailure());
+            EXPECT_EQ(through.Motion.MinGroomsDeformed, 1u) << "the coat stopped following the body";
+            EXPECT_EQ(through.Motion.MaxBindingRefused, 0u) << "the binding was refused mid-clip";
+            EXPECT_EQ(through.Motion.MaxHeldAtRest, 0u) << "roots were held at rest";
+            EXPECT_EQ(through.Motion.Reseeds, 0u) << "the solver re-seeded mid-clip";
+            for (sizet v = 0; v < views.size(); ++v)
             {
+                const View& view = views[v];
                 SCOPED_TRACE(view.Name);
-                MotionResult motion;
-                std::vector<std::vector<u8>> frames;
-                std::vector<std::vector<u8>> maps;
-                const std::vector<FrameParts> steps = AttachmentThroughClip(parts, clip.Name, clip.Loop, kSteps, framesPerStep,
-                                                                            view, coat, &motion, &frames, &maps);
-                ASSERT_FALSE(HasFatalFailure());
-                EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat stopped following the body";
-                EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the binding was refused mid-clip";
-                EXPECT_EQ(motion.MaxHeldAtRest, 0u) << "roots were held at rest";
-                EXPECT_EQ(motion.Reseeds, 0u) << "the solver re-seeded mid-clip";
+                const std::vector<FrameParts>& steps = through.Steps[v];
                 const std::string what = std::string(clip.Name) + " " + view.Name;
                 for (sizet s = 0; s < steps.size(); ++s)
                 {
@@ -8897,8 +9249,10 @@ namespace OloEngine::Tests
                 {
                     ADD_FAILURE() << failure;
                 }
-                WriteStrip(((TestRenderBackend::EvidenceName("DogShowcaseClip") + "Forward_")) + clip.Name + "_" + view.Name, frames, 3u);
-                WriteStrip(((TestRenderBackend::EvidenceName("DogParts") + "Forward_")) + clip.Name + "_" + view.Name, maps, 3u);
+                WriteStrip(((TestRenderBackend::EvidenceName("DogShowcaseClip") + "Forward_")) + clip.Name + "_" + view.Name,
+                           through.Frames[v], kEveryClipSteps);
+                WriteStrip(((TestRenderBackend::EvidenceName("DogParts") + "Forward_")) + clip.Name + "_" + view.Name,
+                           through.Maps[v], kEveryClipSteps);
             }
         }
     }
@@ -8959,12 +9313,39 @@ namespace OloEngine::Tests
             { "Stale", "Sit", false, 40u, HeroViews()[5], BodyPart::LegHindLeft },
         } };
         constexpr u32 kSteps = 3;
+        // The shipped coat through the same clip, steps and camera is one
+        // replay (AttachmentThroughClipFromViews reaches the same states every
+        // call), so a plant that shares its control with the one before reuses
+        // it (#1659): MissingPatch and Displaced both stand on Idle from the
+        // full body.
+        // Paced as the every-clip cases are (#1659): drawn every fourth solver
+        // step, each instant on the shorter held measurement. The plant and its
+        // control are paced alike, and it is the two that are compared.
+        const auto through = [&](const Plant& plant, const std::vector<i32>& ids)
+        {
+            const std::array<View, 1> where{ plant.Where };
+            return AttachmentThroughClipFromViews(parts, plant.Clip, plant.Loop, kSteps, plant.FramesPerStep, where, ids,
+                                                  kEveryClipStride, kEveryClipSettle, kEveryClipMeasured, false)
+                .Steps.front();
+        };
+        std::vector<FrameParts> healthy;
+        const Plant* healthyOf = nullptr;
         for (const Plant& plant : plants)
         {
             SCOPED_TRACE(plant.Name);
             const std::vector<i32> shippedIds{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
-            const std::vector<FrameParts> healthy =
-                AttachmentThroughClip(parts, plant.Clip, plant.Loop, kSteps, plant.FramesPerStep, plant.Where, shippedIds);
+            const auto sameView = [](const View& x, const View& y)
+            {
+                constexpr f32 kSame = 1.0e-6f;
+                return std::string_view(x.Name) == y.Name && x.Head == y.Head && glm::all(glm::lessThan(glm::abs(x.Eye - y.Eye), glm::vec3(kSame))) &&
+                       glm::all(glm::lessThan(glm::abs(x.Target - y.Target), glm::vec3(kSame))) && std::abs(x.Fov - y.Fov) < kSame;
+            };
+            if (healthyOf == nullptr || std::string_view(healthyOf->Clip) != plant.Clip || healthyOf->Loop != plant.Loop ||
+                healthyOf->FramesPerStep != plant.FramesPerStep || !sameView(healthyOf->Where, plant.Where))
+            {
+                healthy = through(plant, shippedIds);
+                healthyOf = &plant;
+            }
             ASSERT_FALSE(HasFatalFailure());
             const std::string healthyWhat = std::string(plant.Name) + " shipped";
             const std::vector<std::string> healthyFailures = JudgeAttachment(healthy, healthyWhat);
@@ -9019,7 +9400,7 @@ namespace OloEngine::Tests
             }
             ASSERT_FALSE(HasFatalFailure());
             const std::vector<FrameParts> planted =
-                AttachmentThroughClip(parts, plant.Clip, plant.Loop, kSteps, plant.FramesPerStep, plant.Where, plantedIds);
+                through(plant, plantedIds);
             if (unbound)
             {
                 GetScene().DestroyEntity(unbound);
@@ -9070,6 +9451,12 @@ namespace OloEngine::Tests
         BodyParts parts = BuildBodyParts();
         constexpr f32 kStub = 0.005f;
         constexpr f64 kStubPartPixels = 100.0;
+        // Two settle frames and one measured a view (#1659): only floating is
+        // judged here, a distance to the skin per pixel of exact held geometry,
+        // which needs neither a converged resolve nor averaging, and both views
+        // stay on the near tier, so no LOD step has to settle.
+        constexpr u32 kStubSettle = 2;
+        constexpr u32 kStubMeasured = 1;
         for (sizet p = 0; p < kBodyParts; ++p)
         {
             parts.Reach[p] = (1.3f * kStub) + 0.015f;
@@ -9138,7 +9525,7 @@ namespace OloEngine::Tests
             bool Loop;
             f32 Seconds;
         };
-        constexpr u32 kSteps = 6;
+        constexpr u32 kSteps = 3; // the stale tail's instants; Idle's wag repeats every three (six before #1659)
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
         for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
@@ -9166,15 +9553,17 @@ namespace OloEngine::Tests
                                       ClipCase{ "TurnInPlace", true, AuthoredClipDuration("TurnInPlace") } })
         {
             SCOPED_TRACE(clip.Name);
-            const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kSteps));
-            for (const View& view : views)
+            const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kEveryClipSteps));
+            const ClipViewsAttachment through =
+                AttachmentThroughClipFromViews(parts, clip.Name, clip.Loop, kEveryClipSteps, framesPerStep, views, coat,
+                                               kEveryClipStride, kStubSettle, kStubMeasured, false);
+            ASSERT_FALSE(HasFatalFailure());
+            EXPECT_EQ(through.Motion.MaxBindingRefused, 0u) << "the stubs' binding was refused mid-clip";
+            for (sizet v = 0; v < views.size(); ++v)
             {
+                const View& view = views[v];
                 SCOPED_TRACE(view.Name);
-                MotionResult motion;
-                const std::vector<FrameParts> steps =
-                    AttachmentThroughClip(parts, clip.Name, clip.Loop, kSteps, framesPerStep, view, coat, &motion);
-                ASSERT_FALSE(HasFatalFailure());
-                EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the stubs' binding was refused mid-clip";
+                const std::vector<FrameParts>& steps = through.Steps[v];
                 const std::string what = std::string("stubs ") + clip.Name + " " + view.Name;
                 for (sizet s = 0; s < steps.size(); ++s)
                 {
@@ -9207,7 +9596,13 @@ namespace OloEngine::Tests
         unbound.GetComponent<GroomBindingComponent>().m_Enabled = false;
         unbound.GetComponent<GroomSimulationComponent>().m_Enabled = false;
         const std::vector<i32> plantedIds{ coat[0], static_cast<i32>(static_cast<u32>(unbound)) };
-        const std::vector<FrameParts> planted = AttachmentThroughClip(parts, "Idle", true, kSteps, 40u, HeroViews()[3], plantedIds);
+        // Paced as the clips above are (#1659): drawn every fourth solver step,
+        // each instant on the shorter held measurement.
+        const std::array<View, 1> tailView{ HeroViews()[3] };
+        const std::vector<FrameParts> planted =
+            AttachmentThroughClipFromViews(parts, "Idle", true, kSteps, 40u, tailView, plantedIds, kEveryClipStride,
+                                           kStubSettle, kStubMeasured, false)
+                .Steps.front();
         GetScene().DestroyEntity(unbound);
         ASSERT_FALSE(HasFatalFailure());
         for (sizet s = 0; s < planted.size(); ++s)
@@ -9945,6 +10340,21 @@ namespace OloEngine::Tests
         constexpr u32 kFrames = 150; // two and a half seconds of each clip
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
+        // THE COAT IS HIDDEN (#1659): the teeth and the tongue are the body's own
+        // vertices, posed from its skeleton, which the coat neither moves nor
+        // reads. Drawn, its simulation, deformation and shadows were nearly all
+        // of 3,750 runtime frames; hidden, the body plays the same clips.
+        auto& strands = m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands;
+        struct ShowCoat
+        {
+            bool& Strands;
+            bool Shipped;
+            ~ShowCoat()
+            {
+                Strands = Shipped;
+            }
+        } showCoat{ strands, strands };
+        strands = false;
         const MeshSource& surface = *m_Dog.Body.GetComponent<MeshComponent>().m_MeshSource;
         const auto& indices = surface.GetIndices();
         std::vector<std::array<u32, 3>> tongue;
@@ -10060,7 +10470,7 @@ namespace OloEngine::Tests
                 {
                     (void)AdvanceRuntime(1u);
                 }
-                PoseBody(parts);
+                PoseBody(parts, /*withTree=*/false); // the tongue's own tree is the one queried
                 for (sizet i = 0; i < tongueVertices.size(); ++i)
                 {
                     tonguePosed[i] = parts.Posed[tongueVertices[i]];
@@ -10424,6 +10834,17 @@ namespace OloEngine::Tests
 
         // Secondary motion, region by region.
         const GroomAsset& groom = *m_Dog.CoatAsset.Groom;
+        // Each group's region once: a curve's region is its group's, and naming
+        // it per guide per frame cost two string copies for each of ~20k guides.
+        std::vector<std::string> regionOfGroup(groom.GetGroupNames().size());
+        for (u32 c = 0; c < groom.GetCurveCount(); ++c)
+        {
+            std::string& region = regionOfGroup[groom.GetCurveGroupIds()[c]];
+            if (region.empty())
+            {
+                region = RegionOfCurve(groom, c);
+            }
+        }
         AimRuntimeCamera(HeroViews()[5]);
         // What each clip must move: the ears where the head moves (the walk, the
         // tilt), the tail where it wags (the walk, the pant), the long feathering
@@ -10457,7 +10878,7 @@ namespace OloEngine::Tests
                 {
                     const u32 curve = sim->GuideCurves[g];
                     const u32 tip = sim->GuideOffsets[g + 1u] - 1u;
-                    tips[RegionOfCurve(groom, curve)].push_back(sim->Curr[tip] - sim->LastTargets[tip]);
+                    tips[regionOfGroup[groom.GetCurveGroupIds()[curve]]].push_back(sim->Curr[tip] - sim->LastTargets[tip]);
                 }
                 for (auto& [region, t] : tips)
                 {

@@ -32,6 +32,7 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomBuilder.h"
+#include "OloEngine/Task/Scheduler.h"
 
 #include <glm/glm.hpp>
 
@@ -239,6 +240,91 @@ TEST(GroomBindingBuilder, BindingTheSamePairTwiceProducesIdenticalRecords)
     // field comparison would miss a difference in the padding that also ships.
     EXPECT_EQ(0, std::memcmp(first->GetRoots().data(), second->GetRoots().data(),
                              first->GetRoots().size() * sizeof(GroomRootBinding)));
+}
+
+// The roots are searched on the scheduler's workers (#1659). Each must still
+// land on its nearest triangle, the lower index between equals -- checked here
+// against every triangle, with the workers running so the batches really run
+// on several threads (with none, the search runs inline).
+TEST(GroomBindingBuilder, TheRootsSearchedOnTheWorkersAreTheNearestTriangles)
+{
+    struct Workers
+    {
+        bool Started = LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u;
+        Workers()
+        {
+            if (Started)
+            {
+                LowLevelTasks::FScheduler::Get().StartWorkers();
+            }
+        }
+        ~Workers()
+        {
+            if (Started)
+            {
+                LowLevelTasks::FScheduler::Get().StopWorkers();
+            }
+        }
+    } workers;
+    ASSERT_GT(LowLevelTasks::FScheduler::Get().GetNumWorkers(), 0u);
+
+    // More roots than one 65,536-root search chunk, so a curve past the first
+    // chunk must be matched to its own chunk's result -- and SCATTERED (the R2
+    // sequence), so consecutive curves land on different triangles and a
+    // result read for a neighbouring curve shows. MakeCoat's roots walk the
+    // diagonal, where neighbours share a triangle and such a slip passes.
+    GridSurface grid = MakeGrid(6u);
+    Ref<GroomAsset> groom;
+    {
+        GroomBuilder builder;
+        std::string why;
+        u16 group = 0;
+        ASSERT_TRUE(builder.AddGroup("coat", group, why)) << why;
+        const std::vector<f32> widths(2u, 0.001f);
+        for (u32 c = 0; c < 70000u; ++c)
+        {
+            const f32 x = 0.05f + (0.9f * std::fmod(0.5f + (0.7548776662f * static_cast<f32>(c)), 1.0f));
+            const f32 z = 0.05f + (0.9f * std::fmod(0.5f + (0.5698402910f * static_cast<f32>(c)), 1.0f));
+            const std::array<glm::vec3, 2> points{ glm::vec3{ x, 0.0f, z }, glm::vec3{ x, 0.1f, z } };
+            GroomCurveInput input;
+            input.Points = points;
+            input.Widths = widths;
+            input.RootUV = { x, z };
+            input.GroupId = group;
+            ASSERT_TRUE(builder.AddCurve(input, why)) << why;
+        }
+        groom = builder.Build(why);
+        ASSERT_TRUE(groom) << why;
+    }
+    ASSERT_TRUE(groom);
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(), "Grid", GroomBindingBuildSettings{}, binding, stats, reason))
+        << reason;
+    ASSERT_EQ(binding->GetRootCount(), groom->GetCurveCount());
+
+    const GroomSurfaceView view = grid.View();
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        const glm::vec3 root = groom->GetPoints()[groom->GetCurveFirstPoint(curve)];
+        f32 best = std::numeric_limits<f32>::max();
+        u32 nearest = 0;
+        for (u32 t = 0; t < view.TriangleCount(); ++t)
+        {
+            const glm::uvec3 c = view.TriangleIndices(t);
+            glm::vec3 barycentric{ 0.0f };
+            bool interior = false;
+            const f32 d = GroomBindingBuilder::ClosestPointOnTriangle(root, view.Position(c.x), view.Position(c.y),
+                                                                      view.Position(c.z), barycentric, interior);
+            if (d < best) // ascending, so the lower index keeps a tie
+            {
+                best = d;
+                nearest = t;
+            }
+        }
+        EXPECT_EQ(binding->GetRoots()[curve].TriangleIndex, nearest) << "curve " << curve;
+    }
 }
 
 TEST(GroomBindingBuilder, AGridResolutionChangeDoesNotChangeTheResult)

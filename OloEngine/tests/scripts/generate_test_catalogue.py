@@ -30,6 +30,9 @@
 #               Print each case's body time beside its layer budget or reasoned
 #               case override, slowest first (#1630, #1668). Lazy renderer init
 #               is reported separately. The AMD nightly runs it on its report.
+#               --debug judges against case_budget_debug_s instead (a Debug
+#               build's per-case ceiling, #1659), and --fail-over exits 1 when a
+#               case is over; without it an overage is reported, not failed.
 #
 # This is the registration mechanism that replaces manual doc edits: every test
 # file (any .cpp declaring >=1 TEST macro) must be in file_layer_map — there are
@@ -98,8 +101,25 @@ LAYER_MARKER_RE = re.compile(
 def load_config():
     with CATALOGUE_PATH.open("r", encoding="utf-8") as f:
         cfg = json.load(f)
+    validate_budget_tables(cfg)
     validate_budget_overrides(cfg)
     return cfg
+
+
+def _is_budget(value):
+    return (not isinstance(value, bool) and isinstance(value, (int, float))
+            and math.isfinite(value) and value > 0)
+
+
+def validate_budget_tables(cfg):
+    """Every layer budget, Release or Debug, is a finite positive number of seconds."""
+    for table in ("case_budget_s", "case_budget_debug_s"):
+        budgets = cfg.get(table, {})
+        if not isinstance(budgets, dict):
+            raise ValueError(f"{table} must map layer ids to seconds")
+        for layer, budget in budgets.items():
+            if not _is_budget(budget):
+                raise ValueError(f"{table}.{layer} must be a finite positive number")
 
 
 def validate_budget_overrides(cfg):
@@ -109,8 +129,7 @@ def validate_budget_overrides(cfg):
             raise ValueError(f"{name}: case budget override needs budget_s and reason")
         budget = override.get("budget_s")
         reason = override.get("reason")
-        if (isinstance(budget, bool) or not isinstance(budget, (int, float))
-                or not math.isfinite(budget) or budget <= 0):
+        if not _is_budget(budget):
             raise ValueError(f"{name}: budget_s must be a finite positive number")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError(f"{name}: case budget override needs a non-empty reason")
@@ -501,14 +520,19 @@ def read_durations(xml_path):
     return cases
 
 
-def report_durations(cfg, effective, xml_path, github, top):
+def report_durations(cfg, effective, xml_path, github, top, debug=False):
     """Print each case's body time beside its layer budget or case override
     (#1630): every case over budget and the `top` slowest of the rest, slowest
     first. A case that outgrows its layer is visible the night it lands, not
-    six hours into a local sweep. Returns the number of cases over budget."""
+    six hours into a local sweep. With `debug`, against the Debug build's
+    ceilings (case_budget_debug_s, #1659); the Release overrides argue a
+    nightly's cost and do not apply there. Returns the number of cases over
+    budget."""
+    validate_budget_tables(cfg)
     validate_budget_overrides(cfg)
-    budgets = cfg.get("case_budget_s", {})
-    overrides = cfg.get("case_budget_overrides", {})
+    table = "case_budget_debug_s" if debug else "case_budget_s"
+    budgets = cfg.get(table, {})
+    overrides = {} if debug else cfg.get("case_budget_overrides", {})
     default = budgets.get("default")
     layers = suite_layers(effective)
     rows = []
@@ -520,10 +544,21 @@ def report_durations(cfg, effective, xml_path, github, top):
         process_init += init
     rows.sort(reverse=True)
     over = [r for r in rows if r[2] is not None and r[0] > r[2]]
+    # A Debug gate is a ceiling for every case: a case its table does not
+    # cover (the table missing, empty, or without its layer and a default) is
+    # counted, or an absent table would pass every case unjudged. Release
+    # keeps its uncovered cases as reported only.
+    unjudged = [r for r in rows if r[2] is None] if debug else []
+    if unjudged:
+        print(f"{len(unjudged)} case(s) have no Debug ceiling: {table} in {CATALOGUE_PATH.name} has neither "
+              f"their layer nor a default.")
+        for seconds, layer, _, name in unjudged:
+            print(f"  {seconds:8.1f} s  {layer:<11} NO CEILING  {name}")
     shown = sorted(over + [r for r in rows if r not in over][:top], reverse=True)
     total = sum(r[0] for r in rows) + process_init
+    sources = table if debug else f"{table} / case_budget_overrides"
     print(f"{len(rows)} cases, {total / 60.0:.1f} min including process init; {len(over)} over their case budget "
-          f"(case_budget_s / case_budget_overrides in {CATALOGUE_PATH.name}).")
+          f"({sources} in {CATALOGUE_PATH.name}).")
     print(f"process renderer init: {process_init:.3f} s (excluded from the triggering case)")
     for seconds, layer, budget, name in shown:
         mark = "OVER" if (budget is not None and seconds > budget) else "    "
@@ -534,7 +569,7 @@ def report_durations(cfg, effective, xml_path, github, top):
         if github and mark == "OVER":
             print(f"::warning title=Test over its case budget::{name} took {seconds:.0f} s, "
                   f"over its {budget:.0f} s budget ({layer})")
-    return len(over)
+    return len(over) + len(unjudged)
 
 
 def main():
@@ -578,7 +613,25 @@ def main():
         action="store_true",
         help="With --durations: also emit a GitHub Actions ::warning:: per case over budget.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="With --durations: the report is a Debug build's; judge it against case_budget_debug_s.",
+    )
+    parser.add_argument(
+        "--fail-over",
+        action="store_true",
+        help="With --durations: exit 1 when any case is over its budget (an overage is otherwise only reported).",
+    )
     args = parser.parse_args()
+    if (args.debug or args.fail_over) and not args.durations:
+        # Without a report there is nothing to judge, and a gate that quietly
+        # judges nothing reads as one that passed.
+        parser.error("--debug and --fail-over judge a --durations report; pass --durations <gtest.xml>")
+    if args.gtest_filter and args.durations:
+        # The filter mode prints and returns before any report is read, so a
+        # duration gate asked for beside it would pass without judging.
+        parser.error("--gtest-filter and --durations are separate modes; run them as two commands")
 
     cfg = load_config()
     files = scan_cpp_files(cfg)
@@ -601,7 +654,9 @@ def main():
         return
 
     if args.durations:
-        report_durations(cfg, effective, args.durations, args.github, args.top)
+        over = report_durations(cfg, effective, args.durations, args.github, args.top, args.debug)
+        if args.fail_over and over > 0:
+            sys.exit(1)
         return
 
     # In --check mode the only thing we enforce is that every test .cpp is

@@ -32,5 +32,7 @@ Gotchas from `Core/`, `Templates/`, `Task/`, `Memory/` and untrusted-input harde
 
 ---
 
+26. **Inside a `ParallelFor` body, index containers through `data()`; never build a `std::` iterator there.** In a Debug build each one registers with its container under one process-wide lock, so the workers queue on it (range-for, `find`, `lower_bound`, `unordered_map::find` all count). [Details](notes-core-and-threading-details.md#18-debug-iterators-serialise-a-parallel-loop)
+
 Full text, with the failures that taught these rules, the measurements and the derivations:
 [notes-core-and-threading-details.md](notes-core-and-threading-details.md).

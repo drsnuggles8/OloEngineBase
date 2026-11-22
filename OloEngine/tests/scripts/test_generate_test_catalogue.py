@@ -86,6 +86,83 @@ class DurationReportTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     catalogue.validate_budget_overrides(self.cfg)
 
+    def test_debug_judges_the_debug_ceiling_and_ignores_release_overrides(self):
+        self.cfg["case_budget_debug_s"] = {"default": 300}
+        self.cfg["case_budget_overrides"] = {
+            "Evidence.Gates": {"budget_s": 400, "reason": "A Release nightly's full coverage."}}
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="Evidence" name="Gates" time="310"/>
+            <testcase classname="Evidence" name="Fits" time="290"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch.object(catalogue, "suite_layers", return_value={"Evidence": "L8"}):
+            over = catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=True)
+        self.assertEqual(over, 1)
+        self.assertRegex(output.getvalue(), r"budget\s+300 s\s+OVER\s+Evidence.Gates")
+        self.assertNotIn("override:", output.getvalue())
+        self.assertIn("(case_budget_debug_s in", output.getvalue())
+
+    def test_a_debug_gate_without_a_debug_ceiling_counts_the_case(self):
+        # No case_budget_debug_s at all, or one without the case's layer and a
+        # default: the Debug gate must not pass the 301 s case unjudged.
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="Evidence" name="Gates" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        for table in (None, {}, {"L3": 60}):
+            with self.subTest(table=table):
+                self.cfg.pop("case_budget_debug_s", None)
+                if table is not None:
+                    self.cfg["case_budget_debug_s"] = table
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output), patch.object(catalogue, "suite_layers",
+                                                                      return_value={"Evidence": "L8"}):
+                    failed = catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=True)
+                self.assertEqual(failed, 1)
+                self.assertIn("NO CEILING  Evidence.Gates", output.getvalue())
+        # Release keeps an uncovered case reported, not counted.
+        self.cfg.pop("case_budget_s", None)
+        with contextlib.redirect_stdout(io.StringIO()), patch.object(catalogue, "suite_layers",
+                                                                     return_value={"Evidence": "L8"}):
+            self.assertEqual(catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=False), 0)
+
+    def test_a_budget_table_needs_finite_positive_seconds(self):
+        for table in ("case_budget_s", "case_budget_debug_s"):
+            for value in (0, -1, float("inf"), float("nan"), True, "300"):
+                with self.subTest(table=table, value=value):
+                    with self.assertRaises(ValueError):
+                        catalogue.validate_budget_tables({table: {"default": value}})
+
+    def test_cli_fail_over_exits_one_and_the_shipped_debug_table_is_five_minutes(self):
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        script = str(Path(catalogue.__file__))
+        failed = subprocess.run([sys.executable, script, "--durations", str(self.xml), "--debug", "--fail-over"],
+                                capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertRegex(failed.stdout, r"budget\s+300 s\s+OVER")
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="299"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        passed = subprocess.run([sys.executable, script, "--durations", str(self.xml), "--debug", "--fail-over"],
+                                capture_output=True, text=True)
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+        # A gate with no report to judge is refused, not passed.
+        for flags in (["--fail-over"], ["--debug"], ["--check", "--fail-over"]):
+            with self.subTest(flags=flags):
+                refused = subprocess.run([sys.executable, script, *flags], capture_output=True, text=True)
+                self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                self.assertIn("--durations", refused.stderr)
+        # The filter mode returns before any report is read: beside a duration
+        # gate it would pass the 301 s case above unjudged, so it is refused.
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        both = subprocess.run([sys.executable, script, "--gtest-filter", "--durations", str(self.xml), "--debug",
+                               "--fail-over"], capture_output=True, text=True)
+        self.assertEqual(both.returncode, 2, both.stdout + both.stderr)
+        self.assertIn("separate modes", both.stderr)
+
     def test_cli_over_budget_remains_a_warning_and_exits_successfully(self):
         self.xml.write_text('''<testsuites><testsuite>
             <testcase classname="AssetSceneLoad" name="Fixture" time="999"/>

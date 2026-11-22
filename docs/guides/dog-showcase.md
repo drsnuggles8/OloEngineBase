@@ -95,8 +95,10 @@ shows. The grass holds still in those frames; it sways in the editor.
   [every-specular-lobe-takes-the-pixel-filter.md](../agent-rules/every-specular-lobe-takes-the-pixel-filter.md).
 - **Every layer is load-bearing**: fur, the coat's self-shadow, dual scattering and the scene
   shadow each switched off change the frame by several times the repeat floor.
-- **The coat stays on the body through every clip** (B3): every clip on runtime frames, read at six
-  held instants from two views. Per body part (the face, each ear, the neck, chest, torso, each leg,
+- **The coat stays on the body through every clip** (B3): every clip played once on runtime frames,
+  drawn every fourth solver step, and read at two held instants from two views of that one
+  playthrough (six instants, each view its own playthrough, before #1659 fitted the case into five
+  Debug minutes). Per body part (the face, each ear, the neck, chest, torso, each leg,
   the tail, found from the skinned body so a sitting dog's legs stay its legs): no part is bald,
   coverage stays steady, nothing floats off the skin past the part's reach. Three planted local
   faults are each caught in their own part while the whole frame's coat moves by under 25%: a
@@ -127,7 +129,9 @@ shows. The grass holds still in those frames; it sways in the editor.
   are recorded). Since #1628 a visibility halving cross-fades like the card hand-over, and the
   worst step at any change is 0.7% in coverage and in energy, from 1.9% and 2.1%. Removing the width
   compensation must fail the same judge. The card hand-over is past 15 m (out at about 22.5 m, in
-  at about 16 m) and gets its own dolly, 15 to 45 m.
+  at about 16 m) and is held at 17-27 m by `TheCardHandOverStepsTheCoatWithinTheNearLaddersBar`.
+  Since #1659 no case judges the coat past 27 m: the 15-45 m dolly that did was cut to fit the
+  Debug budget.
 - **The rest bake shadows the moving coat as the pose bake does**: see
   [groom-coat-rest-bake.md](../agent-rules/groom-coat-rest-bake.md).
 
@@ -217,7 +221,9 @@ parent: never add the two.
   a light, by design ([groom-coat-body-in-the-volume.md](../agent-rules/groom-coat-body-in-the-volume.md)).
 - **Scene-level Vulkan runs in the `--olo-rhi=vulkan` process** (#1556,
   [testing-architecture.md](../agent-rules/testing-architecture.md) rule 13): the same evidence
-  writes `Dog*_Vulkan_*` cells on a windowless Vulkan context. It is not in the lavapipe nightly
-  (hours of runtime), so run it on hardware. The groom passes also have pass-level Vulkan tenants.
+  writes `Dog*_Vulkan_*` cells on a windowless Vulkan context, and completes there on the RTX box
+  (#1659). Only its three cases that render no frames (the coat description, the root UVs, the coat
+  regions) are in the lavapipe nightly: a case that renders took minutes there, so run the rest on
+  hardware. The groom passes also have pass-level Vulkan tenants.
 - **The look (F3) is a human call, signed off on 2026-10-04.** No test above settles it; a change to
   what the screen shows needs the look again.

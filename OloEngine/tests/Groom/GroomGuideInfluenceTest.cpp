@@ -11,27 +11,40 @@
 // while every particle in the simulation is perfectly inextensible.
 // =============================================================================
 
+#include "OloEnginePCH.h"
+
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCooker.h"
+#include "OloEngine/Task/Scheduler.h"
 
 #include "Groom/GroomStrandFixture.h"
 
 #include <gtest/gtest.h>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/norm.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <limits>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine;
 
 namespace
 {
+    /// Two tables' weights as BYTES: a float compared with == is not a
+    /// comparison this repo makes, and the bits are the claim anyway.
+    [[nodiscard]] bool SameWeightBytes(const std::vector<GroomGuideWeights>& a, const std::vector<GroomGuideWeights>& b)
+    {
+        return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(GroomGuideWeights)) == 0);
+    }
+
     /// A groom of `count` strands laid along +X, every `guideEvery`-th flagged
     /// as a guide, all in one group unless `groupStride` splits them. Straight
     /// and evenly spaced so "the nearest guide" is a fact anyone can check by
@@ -320,8 +333,84 @@ TEST(GroomGuideInfluence, IsDeterministic)
     auto a = BuildGroomGuideInfluence(*coat.Groom);
     auto b = BuildGroomGuideInfluence(*coat.Groom);
     EXPECT_EQ(a->GetGuideCurves(), b->GetGuideCurves());
-    EXPECT_EQ(a->GetWeights(), b->GetWeights());
+    EXPECT_TRUE(SameWeightBytes(a->GetWeights(), b->GetWeights()));
     EXPECT_EQ(a->GetUnguidedStrands(), b->GetUnguidedStrands());
+}
+
+// The build runs every strand in parallel (#1659). Each strand's answer must be
+// the one the serial search gives: its four nearest guide roots in its own
+// group, nearer first and the lower slot first between equals. Enough strands
+// for many batches, and the scheduler's workers running, so the batches really
+// run on several threads; a worker count of zero would run them inline.
+TEST(GroomGuideInfluence, TheParallelBuildIsTheSerialSearch)
+{
+    struct Workers
+    {
+        bool Started = LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u;
+        Workers()
+        {
+            if (Started)
+            {
+                LowLevelTasks::FScheduler::Get().StartWorkers();
+            }
+        }
+        ~Workers()
+        {
+            if (Started)
+            {
+                LowLevelTasks::FScheduler::Get().StopWorkers();
+            }
+        }
+    } workers;
+    ASSERT_GT(LowLevelTasks::FScheduler::Get().GetNumWorkers(), 0u);
+
+    const auto coat = Tests::GroomStrandFixture::MakePelt(24000, 4, 5);
+    ASSERT_TRUE(coat.Groom) << coat.FailureReason;
+    const GroomAsset& groom = *coat.Groom;
+    const auto table = BuildGroomGuideInfluence(groom);
+    const auto& guides = table->GetGuideCurves();
+    ASSERT_GT(guides.size(), 0u);
+
+    const auto& points = groom.GetPoints();
+    const auto& groups = groom.GetCurveGroupIds();
+    u32 unguided = 0;
+    for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+    {
+        const GroomGuideWeights& got = table->GetWeights()[curve];
+        if (groom.IsGuide(curve))
+        {
+            const auto slot = static_cast<u32>(std::ranges::lower_bound(guides, curve) - guides.begin());
+            EXPECT_EQ(got.Guides[0], slot) << "guide curve " << curve;
+            continue;
+        }
+        const glm::vec3 root = points[groom.GetCurveFirstPoint(curve)];
+        std::vector<std::pair<f32, u32>> candidates;
+        for (u32 slot = 0; slot < guides.size(); ++slot)
+        {
+            if (groups[guides[slot]] == groups[curve])
+            {
+                candidates.emplace_back(glm::length2(root - points[groom.GetCurveFirstPoint(guides[slot])]), slot);
+            }
+        }
+        if (candidates.empty())
+        {
+            ++unguided;
+            EXPECT_EQ(got.Guides[0], GroomNoGuide) << "curve " << curve;
+            continue;
+        }
+        // Lexicographic on (distance, slot): the serial search's tie rule.
+        std::ranges::sort(candidates);
+        for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+        {
+            const u32 expected = k < candidates.size() ? candidates[k].second : GroomNoGuide;
+            EXPECT_EQ(got.Guides[k], expected) << "curve " << curve << ", neighbour " << k;
+        }
+    }
+    EXPECT_EQ(table->GetUnguidedStrands(), unguided);
+
+    // And the same bits as a second build, whichever threads ran which batch.
+    const auto again = BuildGroomGuideInfluence(groom);
+    EXPECT_TRUE(SameWeightBytes(again->GetWeights(), table->GetWeights()));
 }
 
 // -----------------------------------------------------------------------------
