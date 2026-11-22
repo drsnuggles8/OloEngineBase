@@ -93,7 +93,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 
 ## process/ — how we run the project
 
-- [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` (nothing derived is stored).
+- [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` with a discovery term computed from merged-PR bug yield (nothing derived is stored). [process/issue-scoring-details.md](process/issue-scoring-details.md) holds the stories and measurements behind its rules.
 - [process/north-star.md](process/north-star.md) — the project goal the backlog is steered toward (the user sets it): the game, its milestone, target hardware and frame budget, and the critical-path checklist. `issue_scores.py` reads its milestone to flag goal issues and enforce their Decay rung.
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
@@ -162,6 +162,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 - [adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md](adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md) — skinned virtual-geometry clusters never go to the software rasterizer; they stay on the hardware route.
 - [adr/0025-renderer-state-has-four-owners.md](adr/0025-renderer-state-has-four-owners.md) — renderer state belongs to one of four owners (device, scene, view, recording); each owner's state is one struct and reset is assignment.
 - [adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md](adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md) — a scene view owns a whole render stack that is swapped into the renderer when the view is active; a physical frame advances the world once, in its primary view, however many views render in it.
+- [adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md](adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md) — KESTREL, the game, lives in this repo as `OloEditor/KestrelProject` beside SandboxProject; anything another game could use goes in `OloEngine/`, game rules and data go in the project; proposes a native game module for its simulation code.
 
 ## bug-investigations/ — postmortems & deep-dives
 

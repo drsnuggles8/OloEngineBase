@@ -2243,6 +2243,20 @@ if(OLO_WITH_VULKAN)
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
 	set_tests_properties(OloEngine-Tests_VulkanPipelineSeed PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600
 		RESOURCE_LOCK "olo_sandbox_registry")
+
+	# THE HEAVY SCENE SUITES: the same --olo-rhi=vulkan process, for the Drift island
+	# and terrain-shadow suites lavapipe cannot afford. Measured on the PR #1761 run,
+	# they took ~65 of the lavapipe scene step's 90 minutes (DriftEveryIslandPaths
+	# 21 min, TerrainShadowFromChunks 15, DriftIslandPaths 14, TerrainShadowUntessellated
+	# 9) and pushed the job into GitHub's 6-hour limit with cases unrun. They stay in
+	# the Vulkan process here, on hardware, in every local ctest
+	# (docs/agent-rules/vulkan-software-driver-ci.md).
+	add_test(NAME OloEngine-Tests_VulkanSceneHeavy
+		COMMAND OloEngine-Tests --olo-rhi=vulkan
+			"--gtest_filter=AllPaths/TerrainShadowFromChunks.*:AllPaths/TerrainShadowUntessellated.*:AllPaths/DriftIslandPaths.*:AllIslands/DriftEveryIslandPaths.*"
+			${_olo_vk_scene_args}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
+	set_tests_properties(OloEngine-Tests_VulkanSceneHeavy PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
 endif()
 
 # Three discovery passes over one binary, each a disjoint slice by gtest filter
