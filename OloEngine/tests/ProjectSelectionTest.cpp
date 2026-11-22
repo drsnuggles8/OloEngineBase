@@ -53,6 +53,37 @@ namespace OloEngine
         EXPECT_EQ(selection.Source, ProjectSelectionSource::Recent);
     }
 
+    TEST_F(ProjectSelectionTest, AmbiguousSceneDirectoryStopsBeforeAncestorAndRecentProject)
+    {
+        ASSERT_TRUE(std::ofstream(m_Root / "Demo" / "CustomContent" / "A.oloproj").good());
+        ASSERT_TRUE(std::ofstream(m_Root / "Demo" / "CustomContent" / "B.oloproj").good());
+        ProjectLaunchArguments args;
+        args.Scene = "Demo/CustomContent/Scenes/Intro.olo";
+
+        const auto selection = ResolveProjectSelection(args, m_Root, "Recent.oloproj");
+        EXPECT_TRUE(selection.Path.empty());
+        EXPECT_EQ(selection.Source, ProjectSelectionSource::Ambiguous);
+
+        args.Project = "Demo/CustomContent/B.oloproj";
+        EXPECT_EQ(ResolveProjectSelection(args, m_Root).Path, m_Root / args.Project);
+    }
+
+    TEST_F(ProjectSelectionTest, LegacyAssetsDirectoryCannotHideAmbiguity)
+    {
+        fs::create_directories(m_Root / "Demo" / "Assets" / "Scenes");
+        ASSERT_TRUE(std::ofstream(m_Root / "Demo" / "Other.oloproj").good());
+        ProjectLaunchArguments args;
+        args.Scene = "Demo/Assets/Scenes/Intro.olo";
+        const auto inferred = ResolveProjectSelection(args, m_Root, {}, true);
+        EXPECT_TRUE(inferred.Path.empty());
+        EXPECT_EQ(inferred.Source, ProjectSelectionSource::Ambiguous);
+
+        args.Project = "Demo";
+        const auto explicitDirectory = ResolveProjectSelection(args, m_Root, {}, true);
+        EXPECT_TRUE(explicitDirectory.Path.empty());
+        EXPECT_EQ(explicitDirectory.Source, ProjectSelectionSource::Ambiguous);
+    }
+
     TEST_F(ProjectSelectionTest, MissingOrOmittedRecentProjectUsesSandboxFallback)
     {
         for (const fs::path& recent : { fs::path{}, fs::path("Moved.oloproj") })

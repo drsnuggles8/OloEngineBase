@@ -136,7 +136,7 @@ function(olo_add_project_assemblies target)
             PROJECT "${project}"
             OUTPUT "${directory}/Binaries/${name}.dll"
             SOURCES "${directory}/Source/*.cs"
-            DEPENDS OloEngine-ScriptCore)
+            DEPENDS OloEngine-ScriptCore "${CMAKE_SOURCE_DIR}/OloEditor/Resources/Scripts/OloEngine-ScriptCore.dll")
         add_dependencies(${target} ${name})
     endforeach()
 endfunction()

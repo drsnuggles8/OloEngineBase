@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Project/ProjectSelection.h"
 
 #include <algorithm>
@@ -25,12 +26,14 @@ namespace OloEngine
             return HasExtension(path, ".oloproj") && fs::is_regular_file(path, error);
         }
 
-        fs::path ProjectInDirectory(const fs::path& directory)
+        struct ProjectLookup
         {
-            const auto named = directory / (directory.filename().native() + fs::path(".oloproj").native());
-            if (IsProjectFile(named))
-                return named;
+            fs::path Path;
+            bool Ambiguous = false;
+        };
 
+        ProjectLookup ProjectInDirectory(const fs::path& directory)
+        {
             // A directory with multiple descriptors needs an explicit choice.
             fs::path candidate;
             std::error_code error;
@@ -39,26 +42,26 @@ namespace OloEngine
                 if (!IsProjectFile(entry->path()))
                     continue;
                 if (!candidate.empty())
-                    return {};
+                    return { directory, true };
                 candidate = entry->path();
             }
-            return error ? fs::path{} : candidate;
+            return { error ? fs::path{} : std::move(candidate), false };
         }
 
-        fs::path InferProject(const fs::path& scene, bool allowLegacyDirectory)
+        ProjectLookup InferProject(const fs::path& scene, bool allowLegacyDirectory)
         {
             for (auto directory = scene.parent_path(); !directory.empty(); directory = directory.parent_path())
             {
-                if (auto descriptor = ProjectInDirectory(directory); !descriptor.empty())
+                if (auto descriptor = ProjectInDirectory(directory); !descriptor.Path.empty())
                     return descriptor;
                 if (allowLegacyDirectory && directory.filename() == "Assets")
                 {
                     auto root = directory.parent_path();
-                    if (auto descriptor = ProjectInDirectory(root); !descriptor.empty())
+                    if (auto descriptor = ProjectInDirectory(root); !descriptor.Path.empty())
                         return descriptor;
                     std::error_code error;
                     if (fs::is_directory(directory, error))
-                        return root;
+                        return { std::move(root), false };
                 }
                 if (directory == directory.root_path())
                     break;
@@ -69,6 +72,12 @@ namespace OloEngine
         fs::path FromWorkingDirectory(const fs::path& path, const fs::path& workingDirectory)
         {
             return (workingDirectory / path).lexically_normal();
+        }
+
+        ProjectSelection RejectAmbiguousProject(const fs::path& directory)
+        {
+            OLO_CORE_ERROR("Multiple project descriptors in '{}'. Pass --project <file.oloproj>.", directory.string());
+            return { {}, ProjectSelectionSource::Ambiguous };
         }
     } // namespace
 
@@ -124,15 +133,21 @@ namespace OloEngine
             {
                 if (!path.has_filename() && path != path.root_path())
                     path = path.parent_path();
-                if (auto descriptor = ProjectInDirectory(path); !descriptor.empty())
-                    path = std::move(descriptor);
+                auto descriptor = ProjectInDirectory(path);
+                if (descriptor.Ambiguous)
+                    return RejectAmbiguousProject(descriptor.Path);
+                if (!descriptor.Path.empty())
+                    path = std::move(descriptor.Path);
             }
             return { std::move(path), ProjectSelectionSource::Explicit };
         }
         if (!args.Scene.empty())
         {
-            if (auto descriptor = InferProject(FromWorkingDirectory(args.Scene, workingDirectory), allowLegacyDirectory); !descriptor.empty())
-                return { std::move(descriptor), ProjectSelectionSource::Scene };
+            auto descriptor = InferProject(FromWorkingDirectory(args.Scene, workingDirectory), allowLegacyDirectory);
+            if (descriptor.Ambiguous)
+                return RejectAmbiguousProject(descriptor.Path);
+            if (!descriptor.Path.empty())
+                return { std::move(descriptor.Path), ProjectSelectionSource::Scene };
         }
         if (!recentProject.empty())
         {

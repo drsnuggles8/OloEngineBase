@@ -180,7 +180,8 @@ From `OloEditor/`, pass `--project KestrelProject/Kestrel.oloproj` to
 `OloEditor`, `OloRuntime` or `OloServer`. A positional `.oloproj` is also
 accepted. To start a particular scene, pass its path positionally or with
 `--scene`. With no project argument, the apps search the scene's parent
-directories for an `.oloproj`. The editor then tries the project last opened
+directories for an `.oloproj`. If a directory contains several descriptors,
+choose one with `--project`. The editor then tries the project last opened
 through **File > Open > Project**. The final fallback is
 `SandboxProject/Sandbox.oloproj`. The dedicated server also accepts its
 existing `--project <directory>` syntax and can start without a scene.

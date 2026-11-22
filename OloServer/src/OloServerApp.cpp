@@ -160,6 +160,8 @@ namespace OloEngine
 
             const auto& workingDirectory = Application::GetStartupWorkingDirectory();
             const auto selection = ResolveProjectSelection(launch, workingDirectory, {}, /*allowLegacyDirectory=*/true);
+            if (selection.Path.empty())
+                return false;
             if (!launch.Scene.empty())
                 m_Config.ScenePath = (workingDirectory / launch.Scene).string();
             std::error_code ec;
@@ -170,7 +172,8 @@ namespace OloEngine
                     return false;
                 const auto& config = project->GetConfig();
                 ScriptEngine::SetProjectAssembly(config.ScriptModulePath);
-                // A server without a requested scene can still start in lobby mode.
+                // A named descriptor starts its configured scene. The legacy directory
+                // form keeps the server in lobby mode until a scene is requested.
                 if (m_Config.ScenePath.empty() && selection.Source == ProjectSelectionSource::Explicit &&
                     std::filesystem::is_regular_file(workingDirectory / launch.Project, ec))
                     m_Config.ScenePath = config.StartScene.string();

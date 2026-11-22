@@ -17,7 +17,8 @@ namespace OloEngine
         Explicit,
         Scene,
         Recent,
-        SandboxFallback
+        SandboxFallback,
+        Ambiguous
     };
 
     struct ProjectSelection
@@ -29,7 +30,8 @@ namespace OloEngine
     [[nodiscard]] ProjectLaunchArguments ParseProjectLaunchArguments(int argc, char* const* argv);
 
     // A selected path is either a descriptor or, for legacy server launches,
-    // an Assets/ project directory without a descriptor.
+    // an Assets/ project directory without a descriptor. An ambiguous lookup logs
+    // the conflict and leaves Path empty.
     [[nodiscard]] ProjectSelection ResolveProjectSelection(
         const ProjectLaunchArguments& args, const std::filesystem::path& workingDirectory,
         const std::filesystem::path& recentProject = {}, bool allowLegacyDirectory = false);

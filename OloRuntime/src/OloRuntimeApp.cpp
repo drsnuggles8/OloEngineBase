@@ -69,6 +69,11 @@ namespace OloEngine
 
             const auto& workingDirectory = Application::GetStartupWorkingDirectory();
             const auto selection = ResolveProjectSelection(launch, workingDirectory);
+            if (selection.Path.empty())
+            {
+                Application::Get().Close();
+                return;
+            }
             const std::filesystem::path packPath = "Assets/AssetPack.olopack";
             const bool usePackage = selection.Source == ProjectSelectionSource::SandboxFallback &&
                                     HasPackagedLayout(packPath, selection.Path);

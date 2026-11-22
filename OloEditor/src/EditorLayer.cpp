@@ -432,11 +432,18 @@ namespace OloEngine
 
         const auto& workingDirectory = Application::GetStartupWorkingDirectory();
         const auto selection = ResolveProjectSelection(launch, workingDirectory, ReadRecentProject(workingDirectory));
+        if (selection.Path.empty())
+        {
+            Application::Get().Close();
+            return;
+        }
         const auto launchScene = launch.Scene.empty() ? std::filesystem::path{} : workingDirectory / launch.Scene;
         bool opened = OpenProject(selection.Path, launchScene);
         if (!opened && selection.Source == ProjectSelectionSource::Recent)
             opened = OpenProject(ResolveProjectSelection({}, workingDirectory).Path, launchScene);
-        if (!opened && selection.Source == ProjectSelectionSource::SandboxFallback && launchScene.empty())
+        const bool automaticProject = selection.Source == ProjectSelectionSource::Recent ||
+                                      selection.Source == ProjectSelectionSource::SandboxFallback;
+        if (!opened && automaticProject && launchScene.empty())
             opened = OpenProject();
         if (!opened)
         {
