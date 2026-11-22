@@ -70,6 +70,7 @@
 		"MCP/McpGpuReadbackStats.h"
 		"MCP/McpFrameGraphDeclarationStats.h"
 		"MCP/McpPipelineReadiness.h"
+		"MCP/McpMemoryBudget.h"
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"
 		"MCP/McpToolsAssets.cpp"

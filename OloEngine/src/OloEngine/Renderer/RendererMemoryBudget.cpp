@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/ReSTIR/ReSTIRPTGPU.h"
 
 #include <algorithm>
 
@@ -130,7 +131,10 @@ namespace OloEngine
             case MemoryTechnique::PathTracer:
                 // Radiance, moments, albedo and normal sums.
                 return pixels * full * 4u;
-            case MemoryTechnique::ReSTIRPT:            // path records live in the pass's own pools
+            case MemoryTechnique::ReSTIRPT:
+                // Not registry histories: the pass's own four path-record pools
+                // (ReSTIRPTPass::EnsureBuffers), by far the largest owner a technique has.
+                return pixels * sizeof(ReSTIR::PT::PathRecord) * 4u;
             case MemoryTechnique::RayTracedReflections: // no registry history
             case MemoryTechnique::MotionBlur:
             case MemoryTechnique::DepthOfField:
@@ -359,6 +363,7 @@ namespace OloEngine
         m_RecoveryBackoffShift = 0;
         m_LearnedClimbBytes = 0;
         m_ClimbOutstanding = false;
+        m_DescentUnmeasured = false;
         m_Snapshot.PeakResidentBytes = 0;
     }
 
@@ -449,6 +454,7 @@ namespace OloEngine
             m_LearnedClimbBytes = 0;
             m_RecoveryProgress = 0;
             m_ClimbOutstanding = false;
+            m_DescentUnmeasured = false;
             m_Snapshot.PeakResidentBytes = 0;
         }
 
@@ -492,6 +498,14 @@ namespace OloEngine
                 const u64 live = observed.LiveBytes();
                 const u32 floor = Canonical(input, kMemoryLadderRungCount);
                 const u64 climbWindow = static_cast<u64>(recoveryRequired) + m_Policy.SettleFrames;
+                if (m_DescentUnmeasured)
+                {
+                    // The last descent has settled. What it gave back beyond the model's
+                    // prediction is what climbing past it costs beyond the model's too.
+                    m_DescentUnmeasured = false;
+                    if (m_DescentPredictedSteady > live)
+                        m_LearnedClimbBytes += m_DescentPredictedSteady - live;
+                }
                 if (live > limit)
                 {
                     m_RecoveryProgress = 0;
@@ -506,6 +520,7 @@ namespace OloEngine
                             m_LearnedClimbBytes = std::max(m_LearnedClimbBytes, live - m_ClimbPredictedSteady);
                         m_ClimbOutstanding = false;
                         m_Level = std::max(m_Level, std::min(m_LevelBeforeClimb, floor));
+                        m_DescentUnmeasured = false; // what this undoes was measured by the climb
                         m_ReducedCause = MemoryAdmissionReason::DeviceBudget;
                         m_SettleTicks = m_Policy.SettleFrames;
                         m_OverAtFloor = false;
@@ -514,6 +529,8 @@ namespace OloEngine
                     {
                         m_ClimbOutstanding = false;
                         m_Level = ChooseDescent(input, limit, budget, reserve);
+                        m_DescentUnmeasured = true;
+                        m_DescentPredictedSteady = EstimateLevel(input, m_Level).SteadyBytes;
                         m_ReducedCause = MemoryAdmissionReason::DeviceBudget;
                         m_SettleTicks = m_Policy.SettleFrames;
                         m_OverAtFloor = false;
@@ -527,7 +544,11 @@ namespace OloEngine
                 {
                     m_OverAtFloor = false;
                     if (m_ClimbOutstanding && m_TicksSinceClimb > climbWindow)
+                    {
                         m_ClimbOutstanding = false; // the climb held for a whole run
+                        if (m_Level == 0u)
+                            m_LearnedClimbBytes = 0; // nothing left to climb to
+                    }
                     if (m_Level > 0u)
                     {
                         const u64 band = static_cast<u64>(static_cast<f64>(budget) * static_cast<f64>(m_Policy.RecoveryBandFraction));

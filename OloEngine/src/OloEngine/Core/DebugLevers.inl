@@ -202,6 +202,17 @@ OLO_LEVER_EXACT(FaultKeepStaleTemporalHistory, "OLO_FAULT_KEEP_STALE_TEMPORAL_HI
                 "they joined the registry; the long-sequence reset-policy tests prove their stale-history check "
                 "sees it.")
 
+// --- Renderer memory --------------------------------------------------------
+OLO_LEVER_INT(RendererMemoryBudgetMb, "OLO_RENDERER_MEMORY_BUDGET_MB", 1,
+              "The GPU memory budget the renderer admits quality configurations against, in MiB (#1343). "
+              "Replaces the device's own budget: the only way OpenGL, which reports none, can have one. Unset, "
+              "Vulkan uses the OS-reported budget (VK_EXT_memory_budget) and OpenGL enforces nothing. "
+              "Renderer3D::SetMemoryBudgetOverride (tests, olo_memory_budget_set) wins over this.")
+OLO_LEVER_EXACT(RendererMemoryAdmissionOff, "OLO_RENDERER_MEMORY_ADMISSION_OFF",
+                "Admit every requested quality configuration whatever the memory budget says (#1343): no "
+                "reduction, no recovery, no admission block in the memory report. The A/B control for a "
+                "frame that looks reduced.")
+
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TRISTATE(BindingContract, "OLO_BINDING_CONTRACT",
                    "Check every uniform block a draw or dispatch reads against its binding point's occupant: byte "

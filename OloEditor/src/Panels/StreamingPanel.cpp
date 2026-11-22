@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "StreamingPanel.h"
 #include "../UndoRedo/SpecializedCommands.h"
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
@@ -98,6 +99,10 @@ namespace OloEngine
                 ss.RepresentationUploadMegabytesPerFrame = SanitizeStreamingBudgetMegabytes(ss.RepresentationUploadMegabytesPerFrame);
             if (ImGui::DragFloat("Detail CPU Staging MB", &ss.RepresentationStagingMegabytes, 1.0f, 0.0f, kMaxStreamingBudgetMegabytes, "%.1f"))
                 ss.RepresentationStagingMegabytes = SanitizeStreamingBudgetMegabytes(ss.RepresentationStagingMegabytes);
+            // The budgets above are not what is limiting detail while the renderer's
+            // memory governor withholds all of it (#1343).
+            if (RepresentationStreaming::Get().IsOptionalDetailWithheld())
+                ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "Optional detail withheld by the renderer memory budget");
 
             char buf[256] = {};
             std::strncpy(buf, ss.RegionDirectory.c_str(), sizeof(buf) - 1);

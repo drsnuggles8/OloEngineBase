@@ -1073,14 +1073,15 @@ namespace OloEngine
                             {
                                 if (!view.Shadow)
                                     return;
-                                const auto& shadows = view.Shadow->GetSettings();
+                                // What the view renders with, not what it asked for: a technique
+                                // the memory budget has put on its fallback traces nothing (#1343).
                                 wanted = wanted ||
                                          RayTracing::HybridProducersWanted(
                                              s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(),
                                              view.Settings.Path == RenderingPath::Deferred,
                                              !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),
-                                             shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced,
-                                             view.PostProcess.RayTracedReflection.Enabled); });
+                                             IsMemoryTechniqueRealized(view, MemoryTechnique::RayTracedShadows),
+                                             IsMemoryTechniqueRealized(view, MemoryTechnique::RayTracedReflections)); });
         return wanted;
     }
 

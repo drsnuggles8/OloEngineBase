@@ -436,6 +436,8 @@ namespace OloEngine::Tests
         EXPECT_EQ(EstimateTechniqueHistoryBytes(MemoryTechnique::ReSTIRGI, config), pixels * 16u * 5u);
         EXPECT_EQ(EstimateTechniqueHistoryBytes(MemoryTechnique::PathTracer, config), pixels * 16u * 4u);
         EXPECT_EQ(EstimateTechniqueHistoryBytes(MemoryTechnique::Bloom, config), 0u) << "bloom holds transients only";
+        // ReSTIR PT's four path-record pools, 592 bytes a pixel each: the largest owner.
+        EXPECT_EQ(EstimateTechniqueHistoryBytes(MemoryTechnique::ReSTIRPT, config), pixels * 592u * 4u);
 
         // SSGI runs at the trace band: half each way by default, the scene band when not.
         config.SSGIHalfResolution = true;
@@ -763,7 +765,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(governor.GetSnapshot().Recoveries, 1u);
     }
 
-    TEST(RendererMemoryGovernor, AClimbThatHadToBeUndoneIsLearnedFromNotRepeated)
+    TEST(RendererMemoryGovernor, AnUnmodelledSavingIsMeasuredOnTheWayDownSoItsClimbIsNeverTried)
     {
         RendererMemoryGovernor governor;
         governor.SetPolicy(TestPolicy());
@@ -774,30 +776,29 @@ namespace OloEngine::Tests
         const u64 budget = 850ull * kMiB;
 
         // No level is PREDICTED to fit, so the governor steps and measures: the slack
-        // rung first, then bloom, which turns out to be what was needed. Twelve frames:
-        // the admission, two descents and the settle run after each.
+        // rung first, then bloom, which turns out to be what was needed.
         (void)Drive(governor, renderer, budget, 12);
         ASSERT_FALSE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::Bloom));
         ASSERT_LE(renderer.LiveBytes(), budget - 16ull * kMiB);
-        const u64 degradations = governor.GetSnapshot().Degradations;
+        EXPECT_EQ(governor.GetSnapshot().Degradations, 2u);
 
-        // The model says climbing back is free, so one climb is tried, fails, and is undone.
+        // The model says climbing back is free. The descent measured that it is not, so
+        // the climb is never tried: no reallocation, no second descent.
         (void)Drive(governor, renderer, budget, 400);
         const MemoryAdmissionSnapshot& snapshot = governor.GetSnapshot();
-        EXPECT_EQ(snapshot.FailedRecoveries, 1u) << "the governor kept retrying a climb it had measured to be too expensive";
-        EXPECT_EQ(snapshot.Recoveries, 1u);
-        EXPECT_EQ(snapshot.Degradations, degradations + 1u) << "undoing the climb took more than one move";
+        EXPECT_EQ(snapshot.Recoveries, 0u) << "a climb the descent had already measured as too expensive was tried";
+        EXPECT_EQ(snapshot.FailedRecoveries, 0u);
+        EXPECT_EQ(snapshot.Degradations, 2u);
         EXPECT_FALSE(snapshot.Views[0].Realized.Has(MemoryTechnique::Bloom));
-        EXPECT_LE(renderer.LiveBytes(), budget - 16ull * kMiB);
         EXPECT_GT(snapshot.TicksAtLevel, 300u);
 
-        // A larger budget is new information: the climb is tried again, and holds.
+        // A larger budget is new information: the climb is taken, and holds.
         (void)Drive(governor, renderer, 4096ull * kMiB, 60);
         EXPECT_FALSE(governor.GetSnapshot().IsReduced());
-        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 1u);
+        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 0u);
     }
 
-    TEST(RendererMemoryGovernor, AnOsBudgetThatDriftsDoesNotForgetAFailedClimb)
+    TEST(RendererMemoryGovernor, AnOsBudgetThatDriftsDoesNotForgetWhatADescentTaught)
     {
         RendererMemoryGovernor governor;
         governor.SetPolicy(TestPolicy());
@@ -805,7 +806,7 @@ namespace OloEngine::Tests
         renderer.HiddenBytesPerTechnique = 200ull * kMiB;
         renderer.AddView(1, MakeConfig(RenderingPath::Forward, 1920u, 1080u, 1u, kTechBloom));
         const u64 budget = 850ull * kMiB;
-        (void)Drive(governor, renderer, budget, 30);
+        (void)Drive(governor, renderer, budget, 12);
 
         // The budget wobbles by a megabyte a frame, as an OS-reported one does.
         for (u32 frame = 0; frame < 400; ++frame)
@@ -814,7 +815,37 @@ namespace OloEngine::Tests
             const MemoryAdmissionSnapshot& decision = governor.Tick(renderer.Input(budget + wobble));
             renderer.Render(decision);
         }
-        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 1u) << "budget noise reset what the failed climb taught";
+        EXPECT_EQ(governor.GetSnapshot().Recoveries, 0u) << "budget noise reset what the descent had measured";
+        EXPECT_EQ(governor.GetSnapshot().FailedRecoveries, 0u);
+    }
+
+    TEST(RendererMemoryGovernor, PressureRightAfterAClimbUndoesItAndDoublesTheWait)
+    {
+        RendererMemoryGovernor governor;
+        governor.SetPolicy(TestPolicy());
+        SimulatedRenderer renderer;
+        renderer.AddView(1, MakeConfig(RenderingPath::Deferred, 1920u, 1080u, 1u, kTechReSTIRGI));
+
+        (void)Drive(governor, renderer, 850ull * kMiB, 30);
+        const MemoryAdmissionSnapshot pressured = governor.GetSnapshot();
+        ASSERT_FALSE(pressured.Views[0].Realized.Has(MemoryTechnique::ReSTIRGI));
+
+        // Relief: the technique fits again, and comes back after a stable run.
+        const u64 relieved = 1100ull * kMiB;
+        (void)Drive(governor, renderer, relieved, TestPolicy().RecoveryFrames + TestPolicy().SettleFrames + 1u);
+        ASSERT_TRUE(governor.GetSnapshot().Views[0].Realized.Has(MemoryTechnique::ReSTIRGI));
+        ASSERT_EQ(governor.GetSnapshot().Recoveries, 1u);
+
+        // Something else grows right after it (a streamed asset): the climb no longer fits.
+        renderer.BaseBytes += 200ull * kMiB;
+        (void)Drive(governor, renderer, relieved, 200);
+        const MemoryAdmissionSnapshot& snapshot = governor.GetSnapshot();
+        EXPECT_EQ(snapshot.FailedRecoveries, 1u);
+        EXPECT_EQ(snapshot.Level, pressured.Level) << "the undone climb did not return to the level it left";
+        EXPECT_FALSE(snapshot.Views[0].Realized.Has(MemoryTechnique::ReSTIRGI));
+        EXPECT_EQ(snapshot.RecoveryRequiredFrames, TestPolicy().RecoveryFrames * 2u) << "the wait did not double";
+        EXPECT_EQ(snapshot.Recoveries, 1u) << "the climb was retried into the same pressure";
+        EXPECT_LE(renderer.LiveBytes(), relieved - 16ull * kMiB);
     }
 
     TEST(RendererMemoryGovernor, TwoViewsShareOneBudget)

@@ -738,6 +738,12 @@ namespace OloEngine
         return m_GpuLiveBytes + m_GpuRetiringBytes;
     }
 
+    u64 RendererMemoryTracker::GetGpuRetiringBytes() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        return m_GpuRetiringBytes;
+    }
+
     u64 RendererMemoryTracker::GetCpuResidentBytes() const
     {
         TUniqueLock<FMutex> lock(m_Mutex);
@@ -783,6 +789,12 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(m_ReporterMutex);
         m_BackendObserver = observer;
+    }
+
+    void RendererMemoryTracker::SetAdmissionReporter(const AdmissionReporter reporter)
+    {
+        TUniqueLock<FMutex> lock(m_ReporterMutex);
+        m_AdmissionReporter = reporter;
     }
 
     void RendererMemoryTracker::BeginExternalMutation()
@@ -905,6 +917,12 @@ namespace OloEngine
             for (const auto& [handle, reporter] : m_CapacityReporters)
             {
                 reporter(report.Capacity);
+            }
+            if (m_AdmissionReporter)
+            {
+                MemoryAdmissionSnapshot admission;
+                if (m_AdmissionReporter(admission))
+                    report.Admission = std::move(admission);
             }
         }
         return report;
@@ -1071,6 +1089,82 @@ namespace OloEngine
         {
             ImGui::Text("  heap %u%s: usage %s / budget %s (heap %s)", heap.Index, heap.DeviceLocal ? " (device-local)" : "",
                         bytes(heap.UsageBytes).c_str(), bytes(heap.BudgetBytes).c_str(), bytes(heap.HeapSizeBytes).c_str());
+        }
+
+        // Requested against realized quality under the memory budget (#1343).
+        ImGui::Separator();
+        ImGui::TextUnformatted("Admission");
+        if (!report.Admission)
+        {
+            ImGui::TextDisabled("  no renderer is admitting");
+        }
+        else
+        {
+            const MemoryAdmissionSnapshot& admission = *report.Admission;
+            ImGui::Text("  Reason: %s, level %u of %u", ToString(admission.Reason), admission.Level, admission.FloorLevel);
+            if (admission.BudgetBytes)
+            {
+                ImGui::Text("  Budget: %s (%s), reserve %s", bytes(*admission.BudgetBytes).c_str(),
+                            ToString(admission.BudgetSource), bytes(admission.ReserveBytes).c_str());
+            }
+            else
+            {
+                ImGui::Text("  Budget: unknown — nothing is enforced (reserve %s)", bytes(admission.ReserveBytes).c_str());
+            }
+            ImGui::Text("  Resident %s, of which retiring %s", bytes(admission.ResidentBytes).c_str(),
+                        bytes(admission.RetiringBytes).c_str());
+
+            std::string rungs;
+            for (u32 rung = 0; rung < kMemoryLadderRungCount; ++rung)
+            {
+                if ((admission.ActiveRungMask & (1u << rung)) == 0u)
+                    continue;
+                if (!rungs.empty())
+                    rungs += ", ";
+                rungs += kMemoryLadder[rung].Name;
+            }
+            ImGui::Text("  Active rungs: %s", rungs.empty() ? "none" : rungs.c_str());
+            if (admission.IsReduced())
+            {
+                ImGui::Text("  Recovery: %u of %u stable frames", admission.RecoveryProgressFrames,
+                            admission.RecoveryRequiredFrames);
+            }
+            ImGui::Text("  Transitions %llu (degradations %llu, recoveries %llu, failed recoveries %llu), readmissions %llu",
+                        static_cast<unsigned long long>(admission.Transitions),
+                        static_cast<unsigned long long>(admission.Degradations),
+                        static_cast<unsigned long long>(admission.Recoveries),
+                        static_cast<unsigned long long>(admission.FailedRecoveries),
+                        static_cast<unsigned long long>(admission.Readmissions));
+
+            const auto describe = [](const MemoryQualityConfig& config)
+            {
+                std::string techniques;
+                for (u32 index = 0; index < kMemoryTechniqueCount; ++index)
+                {
+                    const auto technique = static_cast<MemoryTechnique>(index);
+                    if (!config.Has(technique))
+                        continue;
+                    if (!techniques.empty())
+                        techniques += ", ";
+                    techniques += ToString(technique);
+                }
+                std::string line = "MSAA " + std::to_string(config.MsaaSamples) + "x, SSGI ";
+                line += config.SSGIHalfResolution ? "half" : "full";
+                line += " resolution, transient pool spare " + std::to_string(config.TransientPoolSpare) + ", optional detail ";
+                line += config.OptionalDetail ? "on" : "off";
+                line += ", techniques: ";
+                line += techniques.empty() ? "none" : techniques;
+                return line;
+            };
+            for (const auto& view : admission.Views)
+            {
+                ImGui::Text("  View %llu", static_cast<unsigned long long>(view.View));
+                ImGui::Text("    requested: %s", describe(view.Requested).c_str());
+                if (view.IsReduced())
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "    realized:  %s", describe(view.Realized).c_str());
+                else
+                    ImGui::Text("    realized:  %s", describe(view.Realized).c_str());
+            }
         }
 
         ImGui::Separator();

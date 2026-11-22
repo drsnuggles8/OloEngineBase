@@ -1159,6 +1159,10 @@ namespace OloEngine
 
         if (s_Data.RGraph)
         {
+            // The new size is admitted against the memory budget BEFORE its
+            // targets are allocated (#1343): a resize reallocates every
+            // screen-sized owner while the old ones are still in flight.
+            ReadmitMemoryForResize(width, height);
             s_Data.RGraph->Resize(width, height);
         }
         else

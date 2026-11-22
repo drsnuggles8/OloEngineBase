@@ -17,7 +17,7 @@ namespace OloEngine::MCP
         stats.Name = "olo_representation_streaming_stats";
         stats.Toolset = "render";
         stats.Title = "Groom and vegetation representation residency";
-        stats.Description = "Report optional detail admission, pinned drawable fallback, CPU staging, cancellation and preparation/upload costs. GPU totals are attribution, not device residency; use olo_memory_report for physical backing and heap residency.";
+        stats.Description = "Report optional detail admission, pinned drawable fallback, CPU staging, cancellation and preparation/upload costs. optionalDetailWithheld is true while the renderer's memory budget withholds all optional detail (olo_memory_report 'admission' says why). GPU totals are attribution, not device residency; use olo_memory_report for physical backing and heap residency.";
         stats.Annotations = ReadOnlyAnnotations();
         stats.InputSchema = Schema::EmptyObject();
         stats.OutputSchema = Schema::Object();
@@ -26,7 +26,11 @@ namespace OloEngine::MCP
         {
             return ToolResult::Structured(host.MarshalRead([&host]() -> Json
                                                            {
-                Json result = RepresentationStreaming::ToJson(RepresentationStreaming::Get().GetStats());
+                const FRepresentationStreamingStats streaming = RepresentationStreaming::Get().GetStats();
+                Json result = RepresentationStreaming::ToJson(streaming);
+                // The renderer's memory governor is withholding optional detail (#1343):
+                // every optional admission is refused whatever the budgets above say.
+                result["optionalDetailWithheld"] = streaming.OptionalDetailWithheld;
                 result["vegetation"] = Json::array();
                 if (const auto* pass = Renderer3D::GetGroomRenderPass())
                 {

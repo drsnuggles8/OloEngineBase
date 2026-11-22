@@ -360,6 +360,9 @@ namespace OloEngine
         frame.SceneOwnerToken = 0;
         frame.FrameResourcesBegun = false;
         ++frame.Counters.PhysicalFrames;
+        // One admission decision per physical frame, for every view, before any
+        // of them allocates (#1343).
+        TickMemoryAdmission();
     }
 
     void Renderer3D::ClosePhysicalFrame()
@@ -462,11 +465,15 @@ namespace OloEngine
         s_Data.ViewClock.WasPrimary = frame.InPrimaryView;
         ++s_Data.ViewClock.FramesRendered;
         s_Data.ViewClock.FrameBegan = std::chrono::steady_clock::now();
+        // From here to EndViewFrame the view's settings hold what the memory
+        // budget admitted (#1343); PrepareFrame is the first reader.
+        ApplyRealizedMemoryQuality();
     }
 
     void Renderer3D::EndViewFrame()
     {
         auto& frame = s_Data.PhysicalFrame;
+        RestoreRequestedMemoryQuality(frame.InScene);
         if (frame.InScene)
             s_Data.ViewClock.LastFrameCpuMs =
                 std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s_Data.ViewClock.FrameBegan).count();

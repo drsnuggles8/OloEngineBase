@@ -407,8 +407,13 @@ namespace OloEngine
         u32 m_LevelBeforeClimb = 0;
         u64 m_ClimbPredictedSteady = 0;
         u64 m_TicksSinceClimb = 0;
-        // Bytes a climb turned out to cost beyond its estimate; added to every later one.
+        // Bytes a climb costs beyond its estimate, learned two ways: a descent that gave
+        // back more than the model said (a technique's transients are only measurable),
+        // and a climb that had to be undone. Added to every later climb's estimate.
         u64 m_LearnedClimbBytes = 0;
+        // The last descent, until the frame that measures what it really gave back.
+        bool m_DescentUnmeasured = false;
+        u64 m_DescentPredictedSteady = 0;
     };
 
     [[nodiscard]] const char* ToString(MemoryTechnique technique);

@@ -1481,6 +1481,7 @@ add_executable(OloEngine-Tests
 		Rendering/BenchmarkExportValidityTest.cpp
 		Rendering/PropertyTests/GpuTimingPoolEvidenceTest.cpp
 		Rendering/PropertyTests/RendererMemoryAccountingEvidenceTest.cpp
+		Rendering/PropertyTests/RendererMemoryAdmissionEvidenceTest.cpp
 		# The copy ledger's per-cell export report and the attachment-view
 		# migration's freshness and lifetime contract (#1332).
 		Rendering/PropertyTests/RenderTargetExportEvidenceTest.cpp
@@ -1604,6 +1605,9 @@ add_executable(OloEngine-Tests
 		# Pure result-shaping behind olo_perf_pipeline_readiness (#1345). Header-only
 		# (MCP/McpPipelineReadiness.h + the engine's PipelineReadiness.h).
 		MCP/McpPipelineReadinessTest.cpp
+		# Argument parsing + reply shape behind olo_memory_budget_set (#1343), and
+		# the tool's registered gating. Header-only core (MCP/McpMemoryBudget.h).
+		MCP/McpMemoryBudgetTest.cpp
 		# Pure name tables + result-shaping behind olo_render_toggle_pass /
 		# olo_render_set_debug_view (#316 Part 4). Header-only (MCP/McpRenderOverrides.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.

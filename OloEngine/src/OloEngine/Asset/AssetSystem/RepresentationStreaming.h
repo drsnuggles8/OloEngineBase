@@ -161,6 +161,9 @@ namespace OloEngine
         u32 CompletedUnretrievedLoads = 0;
         u32 AbandonedRunningLoads = 0;
         u32 HeldCompletedLoads = 0;
+        // The whole-renderer memory governor is withholding optional detail
+        // (#1343): every optional admission is refused whatever the budgets say.
+        bool OptionalDetailWithheld = false;
     };
 
     // Logical optional-detail admission. RetiringGpuBytes must come from the
@@ -182,6 +185,25 @@ namespace OloEngine
         // Refreshes the cheap backend retirement snapshot. A zero optional
         // residency budget is unlimited, including mandatory pinned floors.
         [[nodiscard]] bool IsUnderPressure();
+        // The aggregate governor's hand on this one (#1343). While withheld,
+        // optional detail is refused and resident detail reads as under
+        // pressure, so consumers demote to their pinned floors exactly as under
+        // a resident budget too small for any of it. Pinned floors are untouched.
+        void SetOptionalDetailWithheld(bool withheld);
+        [[nodiscard]] bool IsOptionalDetailWithheld() const
+        {
+            return m_Stats.OptionalDetailWithheld;
+        }
+        // Whether the scene configured any representation budget: an eager
+        // scene has no optional detail to withhold.
+        [[nodiscard]] bool IsBudgeted() const
+        {
+            return m_Stats.MaxResidentGpuBytes != 0 || m_Stats.MaxUploadBytesPerFrame != 0 || m_Stats.MaxStagingCpuBytes != 0;
+        }
+        [[nodiscard]] u64 GetOptionalResidentGpuBytes() const
+        {
+            return m_Stats.OptionalResidentGpuBytes;
+        }
         void SetRetiringGpuBytes(u64 bytes);
         // A frame-start snapshot misses evictions followed by new admission in
         // that frame. Production supplies a current backend report here.

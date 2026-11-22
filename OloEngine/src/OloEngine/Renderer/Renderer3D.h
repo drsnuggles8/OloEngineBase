@@ -57,6 +57,7 @@
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/RenderView.h"
+#include "OloEngine/Renderer/RendererMemoryBudget.h"
 #include "OloEngine/Renderer/TerrainVTBindings.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
@@ -1310,6 +1311,25 @@ namespace OloEngine
         {
             return s_Data.View.UpscaleResolution;
         }
+
+        // --- Memory admission (issue #1343) ---------------------------------
+        // Requested against realized quality under the device's memory budget,
+        // and why: the record every surface that reports quality reads. The
+        // settings accessors above return the REQUEST; what a frame actually
+        // rendered with is here.
+        [[nodiscard]] static const MemoryAdmissionSnapshot& GetMemoryAdmission();
+        // The pressure-injection seam: a budget that replaces whatever the
+        // device reports (nullopt gives the device's back). Tests and
+        // olo_memory_budget_set drive admission through it.
+        static void SetMemoryBudgetOverride(std::optional<u64> bytes);
+        [[nodiscard]] static std::optional<u64> GetMemoryBudgetOverride();
+        static void SetMemoryAdmissionPolicy(const MemoryAdmissionPolicy& policy);
+        [[nodiscard]] static const MemoryAdmissionPolicy& GetMemoryAdmissionPolicy();
+        // Forget the governor's level, clocks and counters. The override and
+        // the policy stay, and so does what each view's resources were built for.
+        static void ResetMemoryAdmission();
+        // RendererMemoryTracker's admission reporter (RendererMemoryOwners installs it).
+        [[nodiscard]] static bool ReportMemoryAdmission(MemoryAdmissionSnapshot& out);
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
@@ -2775,6 +2795,25 @@ namespace OloEngine
         // ForEachView instead.
         template<typename TFunc>
         static void ForEachViewResident(TFunc&& fn);
+        // --- Memory admission (issue #1343), Renderer3DMemoryAdmission.cpp ---
+        // The part of `view`'s settings the governor may reduce, as requested.
+        [[nodiscard]] static MemoryQualityConfig CaptureMemoryQualityRequest(const RendererViewResident& view);
+        static void MeasureMemoryInventory(RendererViewResident& view);
+        [[nodiscard]] static MemoryBudgetObservation ObserveMemoryBudget();
+        static void BuildMemoryAdmissionInput(MemoryAdmissionInput& input);
+        // Once per physical frame, before any view of it allocates.
+        static void TickMemoryAdmission();
+        static void ApplyWorldMemoryQuality();
+        // The active view: put the realized values in its settings for the
+        // length of its frame, and the requested ones back afterwards.
+        static void ApplyRealizedMemoryQuality();
+        static void RestoreRequestedMemoryQuality(bool frameRendered);
+        // Admit the active view's new size before its targets are allocated.
+        static void ReadmitMemoryForResize(u32 width, u32 height);
+        // Whether `technique` is on in what `view` renders with: its realized
+        // configuration under a reduction, its request otherwise. For world
+        // code that reads a view's settings outside the view's frame.
+        [[nodiscard]] static bool IsMemoryTechniqueRealized(const RendererViewResident& view, MemoryTechnique technique);
         // Whether any live view's settings select the deferred path.
         [[nodiscard]] static bool AnyViewRendersDeferred();
 
@@ -3150,6 +3189,61 @@ namespace OloEngine
             bool QueryIssued = false;
         };
 
+        // A view's memory-admission state (issue #1343).
+        struct RendererViewMemoryQuality
+        {
+            // The realized configuration the view's resources were last built
+            // for: what its last completed frame rendered with.
+            std::optional<MemoryQualityConfig> Allocated;
+            // What that frame measured of the owners no formula prices.
+            ViewMemoryInventory Inventory;
+            u32 FramesSinceMeasured = 0;
+            // What the frame now open renders with.
+            std::optional<MemoryQualityConfig> FrameRealized;
+
+            // The requested values of the settings the realized configuration
+            // replaces while the view's frame is open.
+            struct SavedRequest
+            {
+                bool Active = false;
+                u32 MsaaSamples = 1;
+                bool SSGIHalfResolution = true;
+                bool ReSTIRGI = false;
+                bool ReSTIRDI = false;
+                bool ReSTIRPT = false;
+                bool RayTracedReflections = false;
+                bool SSGI = false;
+                bool SSR = false;
+                bool MotionBlur = false;
+                bool DepthOfField = false;
+                bool Bloom = false;
+                u32 TransientPoolSpare = 2;
+                bool ShadowTechniqueReplaced = false;
+                ShadowTechnique RequestedShadowTechnique = ShadowTechnique::ShadowMap;
+            };
+            SavedRequest Saved;
+        };
+
+        // The renderer's memory-admission state (issue #1343): one governor for
+        // every view, so device-level (ADR 0025).
+        struct RendererMemoryAdmissionState
+        {
+            RendererMemoryGovernor Governor;
+            // Renderer3D::SetMemoryBudgetOverride.
+            std::optional<u64> BudgetOverrideBytes;
+            // The device's own budget, polled (ObserveMemoryBudget).
+            bool DevicePolled = false;
+            u32 TicksSincePoll = 0;
+            std::optional<u64> DeviceBudgetBytes;
+            u64 DeviceUsageBytes = 0;
+            u64 TrackedResidentAtPoll = 0;
+            MemoryBudgetSource DeviceBudgetSource = MemoryBudgetSource::None;
+            // The most optional groom / vegetation detail seen resident.
+            u64 KnownOptionalDetailBytes = 0;
+            // Reused every tick.
+            MemoryAdmissionInput Input;
+        };
+
         // Everything ONE scene view owns (ADR 0026). The active view's copy IS
         // the base sub-object of s_Data, so `s_Data.View`, `s_Data.RGraph`,
         // `s_Data.Settings` and the rest name the active view's state and no
@@ -3175,6 +3269,7 @@ namespace OloEngine
             RendererViewState View;
             RendererViewClock ViewClock;
             RendererViewReported Reported;
+            RendererViewMemoryQuality MemoryQuality;
 
             // Renderer settings (path selection, culling toggles, etc.) and the
             // post-process stack. A view created later starts with a copy.
@@ -3302,6 +3397,7 @@ namespace OloEngine
             RenderViewId ActiveView{};
             u64 NextViewId = 1;
             RendererPhysicalFrame PhysicalFrame;
+            RendererMemoryAdmissionState MemoryAdmission;
 
             Ref<Mesh> CubeMesh;
             Ref<Mesh> SphereMesh; // Unit-radius icosphere for DrawSphere / joint markers
