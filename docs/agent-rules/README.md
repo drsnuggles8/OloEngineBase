@@ -54,6 +54,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [renderer-state-machine-harness.md](renderer-state-machine-harness.md): a new renderer cache, lever or execution mode joins the state-machine manifest as an operation or an equivalence pair.
 - [foliage-regeneration-is-async-once-workers-start.md](foliage-regeneration-is-async-once-workers-start.md): after `m_NeedsRebuild`, let `RunFrames` / `RunEditorFrames` finish the regeneration or wait on `IsRebuilding()`.
 - [cross-test-renderer-state.md](cross-test-renderer-state.md): never shut down a process-wide singleton you did not start, and leave the renderer configuration as you found it.
+- [cross-test-renderer-state-classification.md](cross-test-renderer-state-classification.md): a value a scene writes lives in `RendererSceneState`, and `ResetSceneState` drops it and every pass world cache.
 - [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md): new renderer state belongs to a view or to the world, and world state advances only in the frame's primary view.
 - [test-runtime-camera-defaults-to-orthographic.md](test-runtime-camera-defaults-to-orthographic.md): give a fixture's `CameraComponent` a projection; the default is orthographic and culls a subject a few units away.
 - [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md): a fixture that builds a `Scene` per test must also reset the process-static renderer state scene load resets.

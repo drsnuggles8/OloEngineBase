@@ -724,11 +724,18 @@ namespace OloEngine
         // Scene state and the frame clock are not touched.
         static void ResetFrameCamera();
         // Drop what the previous world left in the renderer: object pose
-        // history, environment identities, the scene-published weather and water
-        // settings, the skin and leaf profile slots, and the scene's texture
-        // histories. Call when the world a renderer draws is replaced. Leaves the
-        // view, the frame clock and the GPU Scene records (ResetGPUScene) alone.
+        // history, environment identities, the scene's render settings (fog,
+        // wind, snow, weather, skin diffusion, water; #1689), the skin and leaf
+        // profile slots, the scene's texture histories, and every world cache a
+        // pass built from the previous world's content (the DDGI probe field,
+        // the VSM pages, the snow depth field; #1665). Call when the world a
+        // renderer draws is replaced, then publish the incoming scene's settings
+        // (SceneTransition). Leaves the view's configuration, the frame clock and
+        // the GPU Scene records (ResetGPUScene) alone.
         static void ResetSceneState();
+        // Whether any pass on any view still holds a world cache
+        // (RenderGraphNode::HoldsWorldCache). False right after ResetSceneState.
+        [[nodiscard]] static bool HoldsWorldCache();
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
 

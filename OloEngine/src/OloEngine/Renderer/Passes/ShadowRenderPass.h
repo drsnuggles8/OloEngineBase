@@ -308,6 +308,13 @@ namespace OloEngine
         // wait serialised the shadow pass against the passes after it.
         void CaptureFoliageCullDemand();
 
+        // The VSM page cache this pass renders into and the caster sets it
+        // diffs against are a world cache (#1665): the scene switch marks every
+        // page stale and forgets the previous casters, on the view whose pass
+        // this is (Renderer3D::ResetSceneState runs it with that view active).
+        void DropWorldCache() override;
+        [[nodiscard]] bool HoldsWorldCache() const override;
+
       private:
         // Fills m_GroomCasters from this frame's published groom requests.
         //

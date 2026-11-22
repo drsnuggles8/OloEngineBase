@@ -2543,6 +2543,24 @@ namespace OloEngine
         m_FoliageCasters.Add({ renderer, depthShader, time });
     }
 
+    void ShadowRenderPass::DropWorldCache()
+    {
+        for (ShadowFamilyCache& cache : m_FamilyCaches)
+            cache.Clear();
+        m_FoliageVsmEyeValid = false;
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().InvalidateAllPages();
+    }
+
+    bool ShadowRenderPass::HoldsWorldCache() const
+    {
+        for (const ShadowFamilyCache& cache : m_FamilyCaches)
+        {
+            if (!cache.IsEmpty())
+                return true;
+        }
+        return Renderer3D::GetShadowMap().GetVirtualShadowMap().HoldsCachedPages();
+    }
+
     void ShadowRenderPass::CaptureFoliageCullDemand()
     {
         for (FoliageRenderer* renderer : m_FoliageDemandCaptures)

@@ -1037,6 +1037,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedIsolationTest.cpp
+		Rendering/PropertyTests/RendererSceneStateContractTest.cpp
 		Rendering/PropertyTests/TestRenderBackend.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/RendererMemoryReportTest.cpp

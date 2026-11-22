@@ -355,6 +355,21 @@ namespace OloEngine
             return 0;
         }
 
+        // The world cache (#1665): state a pass builds from the scene's content
+        // and keeps across frames, converging over many of them (DDGI's probe
+        // field). A sequence restart keeps it; the renderer's scene switch,
+        // Renderer3D::ResetSceneState, drops it here on every view, so the next
+        // world does not start from the previous one's light. A pass with a
+        // frame sequence of its own either overrides this or is listed in
+        // RendererSceneStateContract's PassesWithoutWorldCache with what it
+        // keeps instead. HoldsWorldCache reports whether anything is cached,
+        // for the test that checks a reset leaves nothing.
+        virtual void DropWorldCache() {}
+        [[nodiscard]] virtual bool HoldsWorldCache() const
+        {
+            return false;
+        }
+
         // Side-effect storage and accessors.
         void SetSideEffects(SideEffect effects)
         {

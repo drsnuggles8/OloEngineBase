@@ -177,10 +177,23 @@ namespace OloEngine
             for (ProbeRecord& record : m_Records)
                 record.LastCaptureFrame = m_FrameIndex; // every probe ages from the restart
         }
-        // The probe volume itself is NOT restarted: it is a world-space
-        // cache a scene converges over many frames. Its capture state is
-        // folded in, so two arms that start from differently warmed volumes
-        // report different contexts instead of passing as a pair.
+        // The probe volume itself is the pass's world cache (#1665): every
+        // atlas, the probe data and the capture records, built from the scene's
+        // casters over many frames. A sequence restart keeps it; a scene switch
+        // drops it, and the next submitted volume recreates the atlases cleared.
+        void DropWorldCache() override
+        {
+            DestroyResources();
+            m_Records.Reset();
+        }
+        [[nodiscard]] bool HoldsWorldCache() const override
+        {
+            return m_ResourceResolution != glm::ivec3(0) || !m_Records.IsEmpty();
+        }
+        // The probe volume is NOT restarted by a sequence restart: it is a
+        // world-space cache a scene converges over many frames. Its capture
+        // state is folded in, so two arms that start from differently warmed
+        // volumes report different contexts instead of passing as a pair.
         [[nodiscard]] u64 GetFrameSequenceState() const override
         {
             u64 captures = 0;

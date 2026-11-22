@@ -517,11 +517,26 @@ namespace OloEngine
             return m_Settings.Enabled && m_Initialized;
         }
 
+        // The page cache is a world cache (#1665): pages of the scene's caster
+        // depth, kept while nothing invalidates them. A scene switch at the same
+        // sun direction and render origin would otherwise keep the previous
+        // world's shadows in every page the new casters do not happen to touch.
+        // Marks every page stale, the same full invalidate Init and a light-space
+        // change take; the next frame frees and re-renders them.
         // Release the current backend's sampling stand-ins (#1655), and only
         // those: a test that selects another backend for its own device releases
         // what it created there before that device goes away, and leaves the
         // renderer's backend's set alone.
         void ReleaseInertSamplingBindingsForCurrentBackend();
+
+        void InvalidateAllPages()
+        {
+            m_FullInvalidate = true;
+        }
+        [[nodiscard]] bool HoldsCachedPages() const
+        {
+            return IsEnabledAndInitialized() && !m_FullInvalidate;
+        }
 
         // The shadow system as a whole was switched off (ShadowSettings::Enabled).
         //
