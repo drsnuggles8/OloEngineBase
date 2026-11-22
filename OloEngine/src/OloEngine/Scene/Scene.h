@@ -1171,13 +1171,13 @@ namespace OloEngine
         };
         // For consumers that require a rigid rotation and axis lengths rather
         // than an affine matrix (such as particle emitters and colliders).
-        [[nodiscard]] WorldTRS GetWorldTRS(entt::entity entity) const;
-        [[nodiscard]] WorldTRS GetPhysicsSpawnPose(entt::entity entity) const;
+        [[nodiscard]] WorldTRS ComputeWorldTRS(entt::entity entity) const;
         struct Physics2DPlacement
         {
             glm::vec3 Position;
             glm::vec2 Scale;
             f32 Angle;
+            glm::mat2 OffsetToBody;
         };
         [[nodiscard]] Physics2DPlacement GetPhysics2DPlacement(entt::entity entity) const;
         void ApplyAuthoredPhysics2DPose(Entity entity) const;

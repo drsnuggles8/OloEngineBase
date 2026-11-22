@@ -456,6 +456,32 @@ namespace OloEngine::Tests
         volumeTransform.SetRotationEuler({ 0.0f, 0.0f, -glm::half_pi<f32>() });
         volumeTransform.Scale = glm::vec3(0.5f);
         m_VolumeEntity.SetParent(rig);
+
+        // A rejected higher-priority entry must not supply the shared
+        // texture for the valid volume. Its grid is completely empty.
+        const fs::path emptyPath = fs::path("Assets") / "EmptySmoke.olovol";
+        const std::vector<f32> emptyDensity(8, 0.0f);
+        ASSERT_TRUE(VolumeSerializer::SerializeToFile(Project::GetProjectDirectory() / emptyPath, glm::uvec3(2u),
+                                                      glm::vec3(1.0f), glm::mat4(1.0f), 0.0f, emptyDensity));
+        AssetMetadata emptyMetadata;
+        emptyMetadata.Handle = AssetHandle{};
+        emptyMetadata.Type = AssetType::Volume;
+        emptyMetadata.FilePath = emptyPath;
+        Ref<Asset> emptyAsset;
+        ASSERT_TRUE(VolumeSerializer().TryLoadData(emptyMetadata, emptyAsset));
+        const auto emptyVolume = emptyAsset.As<VolumeAsset>();
+        ASSERT_TRUE(emptyVolume && emptyVolume->IsLoaded());
+        const AssetHandle emptyHandle = AssetManager::AddMemoryOnlyAsset<VolumeAsset>(emptyVolume);
+        Entity collapsedRig = GetScene().CreateEntity("Collapsed Smoke Rig");
+        collapsedRig.GetComponent<TransformComponent>().Scale.y = 0.0f;
+        Entity rejected = GetScene().CreateEntity("Rejected High Priority Volume");
+        rejected.SetParent(collapsedRig);
+        auto& rejectedFog = rejected.AddComponent<FogVolumeComponent>();
+        rejectedFog.m_Enabled = true;
+        rejectedFog.m_Shape = FogVolumeShape::Texture3D;
+        rejectedFog.m_DensityVolume = emptyHandle;
+        rejectedFog.m_Priority = 10;
+
         const AngleCase parented{ "Parented", side.Position, side.Yaw, side.Pitch,
                                   side.VolX0, side.VolX1, side.VolY0, side.VolY1,
                                   side.OutX0, side.OutX1, side.OutY0, side.OutY1 };

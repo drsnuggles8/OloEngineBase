@@ -413,7 +413,7 @@ namespace OloEngine
 
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
-            const auto pose = m_Entity.GetScene()->GetPhysicsSpawnPose(m_Entity);
+            const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
             position = pose.Position;
             rotation = pose.Rotation;
         }

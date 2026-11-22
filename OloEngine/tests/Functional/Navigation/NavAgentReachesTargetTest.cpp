@@ -106,3 +106,22 @@ TEST_F(NavAgentReachesTargetTest, AgentMovesAcrossFloorAndArrivesNearTarget)
         << " — NavigationSystem::OnUpdate is either skipping the agent or "
            "FindPath returned no path on a baked mesh.";
 }
+
+TEST_F(NavAgentReachesTargetTest, ParentedEmitterSeesTheSameTicksNavigationMove)
+{
+    // Identity preserves the existing navigation contract, while parenting
+    // takes particle placement through the hierarchy in the same tick.
+    Entity rig = GetScene().CreateEntity("Emitter Rig");
+    m_Agent.SetParent(rig);
+    auto& emitter = m_Agent.AddComponent<ParticleSystemComponent>().System;
+    emitter.UseGPU = false;
+    emitter.Playing = true;
+
+    for (i32 frame = 0; frame < 60; ++frame)
+    {
+        RunFrames(1);
+        const glm::vec3 position = m_Agent.GetComponent<TransformComponent>().Translation;
+        ASSERT_NEAR(glm::length(emitter.GetEmitterPosition() - position), 0.0f, 1.0e-4f) << frame;
+    }
+    EXPECT_GT(emitter.GetEmitterPosition().x, kStart.x + 1.0f);
+}

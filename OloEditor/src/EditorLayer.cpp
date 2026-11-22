@@ -4178,7 +4178,7 @@ namespace OloEngine
                     const auto pose = m_ActiveScene->GetPhysics2DPlacement(entity);
                     const glm::mat4 transform = glm::translate(glm::mat4(1.0f), pose.Position) *
                                                 glm::rotate(glm::mat4(1.0f), pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
-                                                glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, -projectionCollider.z)) *
+                                                glm::translate(glm::mat4(1.0f), glm::vec3(pose.OffsetToBody * bc2d.Offset, -projectionCollider.z)) *
                                                 glm::scale(glm::mat4(1.0f), glm::vec3(pose.Scale * bc2d.Size * 2.0f, 1.0f));
 
                     Renderer2D::DrawRect(transform, glm::vec4(0, 1, 0, 1));
@@ -4195,7 +4195,7 @@ namespace OloEngine
                     const f32 diameter = pose.Scale.x * cc2d.Radius * 2.0f;
                     const glm::mat4 transform = glm::translate(glm::mat4(1.0f), pose.Position) *
                                                 glm::rotate(glm::mat4(1.0f), pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
-                                                glm::translate(glm::mat4(1.0f), glm::vec3(cc2d.Offset, -projectionCollider.z)) *
+                                                glm::translate(glm::mat4(1.0f), glm::vec3(pose.OffsetToBody * cc2d.Offset, -projectionCollider.z)) *
                                                 glm::scale(glm::mat4(1.0f), glm::vec3(diameter, diameter, 1.0f));
 
                     Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.01f);

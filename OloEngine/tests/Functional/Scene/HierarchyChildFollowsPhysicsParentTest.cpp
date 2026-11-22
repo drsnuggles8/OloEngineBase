@@ -252,3 +252,116 @@ TEST_F(ParentedPhysicsPlacementTest, AuthoredBox2DTeleportUsesTheSameWorldPoseAs
     EXPECT_NEAR(child.x, twin.x, 1.0e-4f);
     EXPECT_NEAR(child.y, twin.y, 1.0e-4f);
 }
+
+TEST_F(ParentedPhysicsPlacementTest, JoltOffsetsFollowTheFullShearedWorldBasis)
+{
+    Entity rig = GetScene().CreateEntity("Shear Rig");
+    rig.GetComponent<TransformComponent>().Scale.x = 2.0f;
+    for (const bool compound : { false, true })
+    {
+        SCOPED_TRACE(compound);
+        Entity child = GetScene().CreateEntity("Offset Collider");
+        child.GetComponent<TransformComponent>().SetRotationEuler({ 0.0f, 0.0f, glm::quarter_pi<f32>() });
+        child.SetParent(rig);
+        const glm::vec3 offset(0.0f, 1.0f, 0.0f);
+        child.AddComponent<BoxCollider3DComponent>().m_Offset = offset;
+        if (compound)
+            child.AddComponent<SphereCollider3DComponent>().m_Offset = offset;
+        Rigidbody3DComponent settings;
+        settings.m_Type = BodyType3D::Dynamic;
+        child.AddComponent<Rigidbody3DComponent>(settings);
+
+        const Ref<JoltBody> body = GetScene().GetPhysicsScene()->GetBody(child);
+        ASSERT_TRUE(body);
+        const glm::vec3 center(GetScene().ComputeWorldTransform(child) * glm::vec4(offset, 1.0f));
+        EXPECT_NEAR(glm::length(body->GetCenterOfMassPosition() - center), 0.0f, 1.0e-4f);
+    }
+}
+
+class PlanarColliderPlacementTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override {}
+};
+
+TEST_F(PlanarColliderPlacementTest, BoxAndCircleCentersFollowScaleAndMirrorWithZeroZ)
+{
+    Entity rig = GetScene().CreateEntity("Planar Mirrored Rig");
+    auto& rigPose = rig.GetComponent<TransformComponent>();
+    rigPose.Translation = { 12.0f, 2.0f, 0.0f };
+    rigPose.Scale = { -2.0f, 1.0f, 0.0f };
+    rigPose.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+    const glm::vec2 offset(1.0f, 0.5f);
+    std::array<Entity, 3> bodies;
+    for (sizet i = 0; i < bodies.size(); ++i)
+    {
+        Entity entity = GetScene().CreateEntity("Planar Collider");
+        auto& local = entity.GetComponent<TransformComponent>();
+        local.Translation = { static_cast<f32>(i) * 5.0f, 0.0f, 0.0f };
+        local.Scale.z = 0.0f;
+        if (i < 2)
+            entity.SetParent(rig);
+        else
+            local.Scale = { -2.0f, 1.0f, 0.0f };
+        entity.AddComponent<Rigidbody2DComponent>();
+        if (i == 1)
+            entity.AddComponent<CircleCollider2DComponent>().Offset = offset;
+        else
+            entity.AddComponent<BoxCollider2DComponent>().Offset = offset;
+        bodies[i] = entity;
+    }
+    EnablePhysics2D();
+
+    for (sizet i = 0; i < bodies.size(); ++i)
+    {
+        Entity entity = bodies[i];
+        const b2BodyId body = entity.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+        ASSERT_TRUE(b2Body_IsValid(body));
+        b2ShapeId shape;
+        ASSERT_EQ(b2Body_GetShapes(body, &shape, 1), 1);
+        const b2Vec2 localCenter = i == 1 ? b2Shape_GetCircle(shape).center : b2Shape_GetPolygon(shape).centroid;
+        const auto center = b2Body_GetWorldPoint(body, localCenter);
+        const glm::vec2 expected(GetScene().ComputeWorldTransform(entity) * glm::vec4(offset, 0.0f, 1.0f));
+        EXPECT_NEAR(center.x, expected.x, 1.0e-4f);
+        EXPECT_NEAR(center.y, expected.y, 1.0e-4f);
+        EXPECT_NEAR(b2Rot_GetAngle(b2Body_GetRotation(body)), i < 2 ? -glm::half_pi<f32>() : 0.0f, 1.0e-4f);
+    }
+
+    rigPose.Translation.x += 20.0f;
+    RunFrames(1);
+    const b2BodyId body = bodies[0].GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    EXPECT_NEAR(GetScene().GetWorldPosition(bodies[0]).x, b2Body_GetPosition(body).x, 1.0e-4f);
+}
+
+TEST_F(PlanarColliderPlacementTest, ProjectedBox2DRotationKeepsTheAuthoredPitchWhenPossible)
+{
+    Entity rig = GetScene().CreateEntity("Pitched Rig");
+    rig.GetComponent<TransformComponent>().SetRotationEuler({ glm::radians(60.0f), 0.0f, 0.0f });
+    Entity entity = GetScene().CreateEntity("Pitched Collider");
+    auto& transform = entity.GetComponent<TransformComponent>();
+    transform.SetRotationEuler({ 0.0f, glm::radians(30.0f), 0.0f });
+    entity.SetParent(rig);
+    entity.AddComponent<Rigidbody2DComponent>();
+    entity.AddComponent<BoxCollider2DComponent>();
+    EnablePhysics2D();
+    const b2BodyId body = entity.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(body));
+    const b2Rot startingRotation = b2Body_GetRotation(body);
+    const f32 startingAngle = std::atan2(startingRotation.s, startingRotation.c);
+    // Use Box2D's deterministic rotation representation for the expected
+    // composed angle. Its approximation is visible at this tolerance.
+    const b2Rot expectedRotation = b2MakeRot(std::atan(0.5f));
+    EXPECT_NEAR(startingAngle, std::atan2(expectedRotation.s, expectedRotation.c), 1.0e-4f);
+
+    RunFrames(1);
+    const glm::vec3 initialX(GetScene().GetWorldTransform(entity)[0]);
+    EXPECT_NEAR(std::atan2(initialX.y, initialX.x), startingAngle, 1.0e-4f);
+
+    const f32 movedAngle = 0.65f;
+    b2Body_SetTransform(body, b2Body_GetPosition(body), b2MakeRot(movedAngle));
+    RunFrames(1);
+    const b2Rot bodyRotation = b2Body_GetRotation(body);
+    const glm::vec3 movedX(GetScene().GetWorldTransform(entity)[0]);
+    EXPECT_NEAR(std::atan2(movedX.y, movedX.x), std::atan2(bodyRotation.s, bodyRotation.c), 1.0e-4f);
+    EXPECT_NEAR(transform.GetRotationEuler().y, glm::radians(30.0f), 1.0e-4f);
+}

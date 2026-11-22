@@ -6,6 +6,7 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "MeshColliderCache.h"
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <fstream>
+#include <glm/gtc/quaternion.hpp>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -203,7 +205,7 @@ namespace OloEngine
         return CreateTriangleMeshShapeInternal(component.m_ColliderAsset, scale);
     }
 
-    std::vector<JoltShapes::CollectedShape> JoltShapes::CollectColliderShapesForEntity(Entity entity, const glm::vec3& entityScale)
+    std::vector<JoltShapes::CollectedShape> JoltShapes::CollectColliderShapesForEntity(Entity entity)
     {
         std::vector<CollectedShape> collectedShapes;
 
@@ -211,6 +213,15 @@ namespace OloEngine
         {
             return collectedShapes;
         }
+
+        const Scene& scene = *entity.GetScene();
+        const auto pose = scene.ComputeWorldTRS(entity);
+        const glm::vec3& entityScale = pose.Scale;
+        // A rigid shape approximates the affine extents. Its centre can
+        // still match the authored point exactly, including under shear.
+        const glm::mat3 offsetToBody = entity.GetParent()
+                                           ? glm::mat3_cast(glm::inverse(pose.Rotation)) * glm::mat3(scene.ComputeWorldTransform(entity))
+                                           : glm::mat3(entityScale.x, 0.0f, 0.0f, 0.0f, entityScale.y, 0.0f, 0.0f, 0.0f, entityScale.z);
 
         // Pre-allocate vector based on potential collider count to avoid reallocations
         sizet estimatedCount = 0;
@@ -236,7 +247,7 @@ namespace OloEngine
             auto shape = CreateBoxShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -247,7 +258,7 @@ namespace OloEngine
             auto shape = CreateSphereShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -258,7 +269,7 @@ namespace OloEngine
             auto shape = CreateCapsuleShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -271,7 +282,7 @@ namespace OloEngine
             auto shape = CreateMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -284,7 +295,7 @@ namespace OloEngine
             auto shape = CreateConvexMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -297,7 +308,7 @@ namespace OloEngine
             auto shape = CreateTriangleMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
+                collectedShapes.push_back({ shape, offsetToBody * component.m_Offset });
             }
         }
 
@@ -344,11 +355,8 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Get entity transform for scaling primitive colliders
-        const glm::vec3 entityScale = entity.GetScene()->GetPhysicsSpawnPose(entity).Scale;
-
         // Collect all collider shapes using the helper
-        auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);
+        auto collectedShapes = CollectColliderShapesForEntity(entity);
 
         if (collectedShapes.empty())
         {
@@ -411,11 +419,8 @@ namespace OloEngine
             return nullptr;
         }
 
-        // Get entity transform for scaling primitive colliders
-        const glm::vec3 entityScale = entity.GetScene()->GetPhysicsSpawnPose(entity).Scale;
-
         // Collect all collider shapes using the helper
-        auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);
+        auto collectedShapes = CollectColliderShapesForEntity(entity);
 
         // If no colliders found, create a default box
         if (collectedShapes.empty())

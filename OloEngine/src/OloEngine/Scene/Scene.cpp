@@ -340,7 +340,7 @@ namespace OloEngine
         return true;
     }
 
-    // Audio listener/source orientation comes from columns of an entity's inverse local
+    // Audio listener/source orientation comes from columns of an entity's inverse world
     // transform. A singular (zero-scale) or non-finite transform makes glm::inverse emit
     // NaN/Inf, and normalizing a zero/NaN vector yields NaN — which would poison the 3D
     // spatializer's lookAt/length math (issue #424). Fall back to the canonical axis (what
@@ -2993,23 +2993,64 @@ namespace OloEngine
             return glm::translate(glm::mat4(1.0f), pose.Position) *
                    glm::mat4_cast(pose.Rotation) * glm::scale(glm::mat4(1.0f), pose.Scale);
         }
+
+        [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalBox2DPose(const glm::mat4& parentWorld,
+                                                                      b2Vec2 position, b2Rot rotation,
+                                                                      const TransformComponent& authored)
+        {
+            const glm::mat2 planarBasis{ glm::vec2(parentWorld[0]), glm::vec2(parentWorld[1]) };
+            const f32 determinant = glm::determinant(planarBasis);
+            if (!std::isfinite(determinant) || std::abs(determinant) <= std::numeric_limits<f32>::min())
+                return std::nullopt;
+
+            const glm::mat2 inverse = glm::inverse(planarBasis);
+            const glm::vec2 origin = glm::vec2(parentWorld[3]) + authored.Translation.z * glm::vec2(parentWorld[2]);
+            const glm::vec2 localPosition = inverse * (glm::vec2(position.x, position.y) - origin);
+            const f32 signX = std::signbit(authored.Scale.x) ? -1.0f : 1.0f;
+            const glm::vec2 desiredX = glm::vec2(rotation.c, rotation.s) * signX;
+            glm::vec3 euler = authored.GetRotationEuler();
+            const glm::vec2 previousX(parentWorld * glm::vec4(authored.GetRotation() * glm::vec3(1.0f, 0.0f, 0.0f), 0.0f));
+            const glm::vec2 normal(-desiredX.y, desiredX.x);
+            if (glm::dot(previousX, desiredX) > 0.0f && std::abs(glm::dot(previousX, normal)) <= 1.0e-6f * glm::length(previousX))
+                return Scene::WorldTRS{ glm::vec3(localPosition, authored.Translation.z), authored.GetRotation(), authored.Scale };
+
+            // Keep authored pitch when it can produce the simulated angle.
+            // The projected local X is A * (cos(z), sin(z)) plus the
+            // projection of its fixed elevation along the parent's Z.
+            const glm::mat2 yawBasis = std::cos(euler.y) * planarBasis;
+            const glm::vec2 elevation = -std::sin(euler.y) * glm::vec2(parentWorld[2]);
+            const glm::vec2 coefficients = glm::transpose(yawBasis) * normal;
+            const f32 amplitude = glm::length(coefficients);
+            const f32 bias = -glm::dot(elevation, normal);
+            f32 bestAlignment = -2.0f;
+            if (amplitude > 1.0e-6f && std::abs(bias) <= amplitude)
+            {
+                const f32 phase = std::atan2(coefficients.y, coefficients.x);
+                const f32 arc = std::acos(glm::clamp(bias / amplitude, -1.0f, 1.0f));
+                for (const f32 candidate : { phase + arc, phase - arc })
+                {
+                    const glm::vec2 projected = yawBasis * glm::vec2(std::cos(candidate), std::sin(candidate)) + elevation;
+                    const f32 alignment = std::cos(candidate - authored.GetRotationEuler().z);
+                    if (glm::dot(projected, desiredX) > 0.0f && alignment > bestAlignment)
+                    {
+                        euler.z = candidate;
+                        bestAlignment = alignment;
+                    }
+                }
+            }
+            if (bestAlignment < -1.0f)
+            {
+                // With this tilt the requested direction is unreachable.
+                // Flatten pitch so the body's simulated rotation stays visible.
+                const glm::vec2 localX = inverse * desiredX;
+                euler.y = 0.0f;
+                euler.z = std::atan2(localX.y, localX.x);
+            }
+            return Scene::WorldTRS{ glm::vec3(localPosition, authored.Translation.z), glm::quat(euler), authored.Scale };
+        }
     } // namespace
 
-    Scene::WorldTRS Scene::GetWorldTRS(entt::entity entity) const
-    {
-        const auto& local = m_Registry.get<TransformComponent>(entity);
-        WorldTRS pose{ local.Translation, local.GetRotation(), local.Scale };
-        const auto* world = m_Registry.try_get<WorldTransformComponent>(entity);
-        if (world && ResolveTransformParent(entity) != entt::null)
-        {
-            glm::quat rotation;
-            if (SplitWorldMatrix(world->WorldMatrix, pose.Position, rotation, pose.Scale))
-                pose.Rotation = rotation;
-        }
-        return pose;
-    }
-
-    Scene::WorldTRS Scene::GetPhysicsSpawnPose(entt::entity entity) const
+    Scene::WorldTRS Scene::ComputeWorldTRS(entt::entity entity) const
     {
         const auto& local = m_Registry.get<TransformComponent>(entity);
         WorldTRS pose{ local.Translation, local.GetRotation(), local.Scale };
@@ -3299,15 +3340,16 @@ namespace OloEngine
             rigidbody && b2World_IsValid(m_PhysicsWorld) && b2Body_IsValid(rigidbody->RuntimeBody))
         {
             const b2Vec2 position = b2Body_GetPosition(rigidbody->RuntimeBody);
-            glm::vec3 euler = local.GetRotationEuler();
+            const b2Rot rotation = b2Body_GetRotation(rigidbody->RuntimeBody);
             if (parented)
             {
-                WorldTRS pose;
-                if (SplitWorldMatrix(authored, pose.Position, pose.Rotation, pose.Scale))
-                    euler = glm::eulerAngles(pose.Rotation);
+                if (const auto pose = ToLocalBox2DPose(parentWorld, position, rotation, local))
+                    return parentWorld * PhysicsPoseMatrix(*pose);
+                return authored;
             }
-            euler.z = b2Rot_GetAngle(b2Body_GetRotation(rigidbody->RuntimeBody));
-            return bodyMatrix({ position.x, position.y, authored[3].z }, glm::quat(euler));
+            glm::vec3 euler = local.GetRotationEuler();
+            euler.z = b2Rot_GetAngle(rotation);
+            return PhysicsPoseMatrix({ { position.x, position.y, local.Translation.z }, glm::quat(euler), local.Scale });
         }
         return authored;
     }
@@ -4358,10 +4400,12 @@ namespace OloEngine
 
                 if (ResolveTransformParent(e) != entt::null)
                 {
-                    const auto pose = GetPhysicsSpawnPose(e);
-                    glm::vec3 euler = glm::eulerAngles(pose.Rotation);
-                    euler.z = b2Rot_GetAngle(rotation);
-                    SetPhysicsWorldPose(e, { position.x, position.y, pose.Position.z }, glm::quat(euler), *m_JoltScene);
+                    const glm::mat4 parentWorld = ComputeParentWorldTransform(e, m_JoltScene.get());
+                    if (const auto pose = ToLocalBox2DPose(parentWorld, position, rotation, transform))
+                    {
+                        transform.Translation = pose->Position;
+                        transform.SetRotation(pose->Rotation);
+                    }
                     continue;
                 }
 
@@ -4970,7 +5014,7 @@ namespace OloEngine
             sched.AddSystem("Audio", [](Scene& s, Timestep ts)
                             { s.UpdateAudio(ts); })
                 .Reads(kLocalTransforms)
-                .Reads(kWorldTransforms)
+                .Reads(kSkeletonPose)
                 .Parallelizable();
             // Particles split into a worker-dispatched CPU partition and a
             // game-thread GPU partition (issue #576). ParticlesGPU is an unmarked
@@ -4980,16 +5024,16 @@ namespace OloEngine
             sched.AddSystem("ParticlesCPU", [](Scene& s, Timestep ts)
                             { s.UpdateParticlesCPU(ts); })
                 .Reads(kLocalTransforms)
-                .Reads(kWorldTransforms)
+                .Reads(kSkeletonPose)
                 .Parallelizable();
             sched.AddSystem("ParticlesGPU", [](Scene& s, Timestep ts)
                             { s.UpdateParticlesGPU(ts); })
                 .Reads(kLocalTransforms)
-                .Reads(kWorldTransforms);
+                .Reads(kSkeletonPose);
             sched.AddSystem("SnowDeformers", [](Scene& s, Timestep ts)
                             { s.UpdateSnowDeformers(ts); })
                 .Reads(kLocalTransforms)
-                .Reads(kWorldTransforms);
+                .Reads(kSkeletonPose);
 
             // Boat wake foam (issue #967): record each hull's post-physics pose
             // into its bounded history ring and submit the resulting
@@ -6633,7 +6677,7 @@ namespace OloEngine
                 const auto& cam = camView.get<CameraComponent>(camEntity);
                 if (cam.Primary)
                 {
-                    camPos = GetWorldPosition(camEntity);
+                    camPos = ComputeWorldPosition(camEntity);
                     break;
                 }
             }
@@ -6657,7 +6701,7 @@ namespace OloEngine
                 // Provide Jolt scene for raycast collision (read-only CastRay;
                 // physics is fenced by the time particles run — safe on a worker).
                 psc.System.SetJoltScene(m_JoltScene.get());
-                const auto pose = GetWorldTRS(entity);
+                const auto pose = ComputeWorldTRS(entity);
                 psc.System.UpdateLOD(camPos, pose.Position);
 
                 // Compute parent velocity for velocity inheritance
@@ -7314,7 +7358,7 @@ namespace OloEngine
                 {
                     SeedParticleSystemComponent(psc, kParticleEditorPreviewSeed, static_cast<u64>(m_Registry.get<IDComponent>(entity).ID));
                 }
-                const auto pose = GetWorldTRS(entity);
+                const auto pose = ComputeWorldTRS(entity);
                 psc.System.UpdateLOD(camPos, pose.Position);
                 psc.System.Update(ts, pose.Position, glm::vec3(0.0f), pose.Rotation);
 
@@ -8006,7 +8050,7 @@ namespace OloEngine
         {
             if (auto targetEnt = TryGetEntityWithUUID(id))
             {
-                target = glm::vec3(GetWorldTransform(static_cast<entt::entity>(*targetEnt))[3]);
+                target = ComputeWorldPosition(*targetEnt);
             }
         };
         if (static_cast<u64>(out.AimTargetEntity) != 0)
@@ -8197,8 +8241,9 @@ namespace OloEngine
             shapeDef.material.friction = bc2d.Friction;
             shapeDef.material.restitution = bc2d.Restitution;
 
+            const glm::vec2 offset = pose.OffsetToBody * bc2d.Offset;
             b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * pose.Scale.x, bc2d.Size.y * pose.Scale.y,
-                                                { bc2d.Offset.x, bc2d.Offset.y }, b2MakeRot(0.0f));
+                                                { offset.x, offset.y }, b2MakeRot(0.0f));
             b2CreatePolygonShape(body, &shapeDef, &polygon);
         }
 
@@ -8211,18 +8256,35 @@ namespace OloEngine
             shapeDef.material.friction = cc2d.Friction;
             shapeDef.material.restitution = cc2d.Restitution;
 
-            b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), pose.Scale.x * cc2d.Radius };
+            const glm::vec2 offset = pose.OffsetToBody * cc2d.Offset;
+            b2Circle circle = { b2Vec2(offset.x, offset.y), pose.Scale.x * cc2d.Radius };
             b2CreateCircleShape(body, &shapeDef, &circle);
         }
     }
 
     Scene::Physics2DPlacement Scene::GetPhysics2DPlacement(entt::entity entity) const
     {
-        const auto pose = GetPhysicsSpawnPose(entity);
-        const f32 angle = ResolveTransformParent(entity) == entt::null
-                              ? m_Registry.get<TransformComponent>(entity).GetRotationEuler().z
-                              : glm::eulerAngles(pose.Rotation).z;
-        return { pose.Position, glm::abs(glm::vec2(pose.Scale)), angle };
+        const auto& local = m_Registry.get<TransformComponent>(entity);
+        f32 angle = local.GetRotationEuler().z;
+        if (ResolveTransformParent(entity) == entt::null)
+        {
+            const glm::mat2 offsetToBody(local.Scale.x, 0.0f, 0.0f, local.Scale.y);
+            return { local.Translation, glm::abs(glm::vec2(local.Scale)), angle, offsetToBody };
+        }
+
+        // Box2D only needs the XY projection. The Z column can be zero on
+        // a perfectly valid 2D sprite.
+        const glm::mat4 world = ComputeWorldTransform(entity);
+        const glm::vec2 x{ world[0] }, y{ world[1] };
+        const glm::vec2 scale(glm::length(x), glm::length(y));
+        if (scale.x > 1.0e-6f)
+            angle = std::atan2(x.y, x.x);
+        else if (scale.y > 1.0e-6f)
+            angle = std::atan2(-y.x, y.y);
+        const f32 c = std::cos(angle);
+        const f32 s = std::sin(angle);
+        const glm::mat2 inverseRotation(c, -s, s, c);
+        return { glm::vec3(world[3]), scale, angle, inverseRotation * glm::mat2(x, y) };
     }
 
     void Scene::ApplyAuthoredPhysics2DPose(Entity entity) const
@@ -8930,7 +8992,7 @@ namespace OloEngine
         {
             const auto& deformer = deformerView.get<SnowDeformerComponent>(entity);
 
-            const glm::vec3 pos = GetWorldPosition(entity);
+            const glm::vec3 pos = ComputeWorldPosition(entity);
 
             if (accumActive)
             {
@@ -13856,25 +13918,12 @@ namespace OloEngine
 
             // OpenVDB-imported density volume (#724): the single Texture3D
             // VolumetricFogPass binds this frame for FogVolumeShape::
-            // Texture3D entries — the highest-priority enabled one with a
+            // Texture3D entries — the highest-priority uploaded one with a
             // resolved VolumeAsset (entries is already priority-sorted
             // ascending, so the LAST matching entry wins). See the
             // FogVolumeShape::Texture3D comment in Components.h for why this
             // first slice supports only one at a time.
             Ref<Texture3D> densityTexture;
-            for (const auto& entry : entries)
-            {
-                if (entry.fv->m_Shape != FogVolumeShape::Texture3D || entry.fv->m_DensityVolume == 0)
-                {
-                    continue;
-                }
-                if (auto volumeAsset = AssetManager::GetAsset<VolumeAsset>(entry.fv->m_DensityVolume); volumeAsset && volumeAsset->IsLoaded())
-                {
-                    densityTexture = volumeAsset->GetTexture();
-                }
-            }
-            Renderer3D::UploadFogVolumeDensityTexture(densityTexture);
-
             u32 volumeIdx = 0;
             for (const auto& entry : entries)
             {
@@ -13897,9 +13946,18 @@ namespace OloEngine
                     entry.fv->m_AffectTransparent ? 1.0f : 0.0f);
                 vol.Extents = glm::vec4(entry.fv->m_Extents, 0.0f);
                 ++volumeIdx;
+                if (entry.fv->m_Shape == FogVolumeShape::Texture3D && entry.fv->m_DensityVolume != 0)
+                {
+                    if (auto volumeAsset = AssetManager::GetAsset<VolumeAsset>(entry.fv->m_DensityVolume);
+                        volumeAsset && volumeAsset->IsLoaded())
+                    {
+                        densityTexture = volumeAsset->GetTexture();
+                    }
+                }
             }
 
             fogVolumes.VolumeCount = glm::ivec4(static_cast<i32>(volumeIdx), 0, 0, 0);
+            Renderer3D::UploadFogVolumeDensityTexture(densityTexture);
             Renderer3D::UploadFogVolumes(fogVolumes);
         }
 
@@ -18307,8 +18365,8 @@ namespace OloEngine
                 const auto& boxCollider = boxView.get<BoxCollider3DComponent>(entity);
                 // Where JoltShapes puts it: the offset and the extents scale with the
                 // entity, and the offset turns with it.
-                const auto pose = GetWorldTRS(entity);
-                const glm::vec3 position = pose.Position + pose.Rotation * (boxCollider.m_Offset * pose.Scale);
+                const auto pose = ComputeWorldTRS(entity);
+                const glm::vec3 position(ComputeWorldTransform(entity) * glm::vec4(boxCollider.m_Offset, 1.0f));
                 Renderer3D::DrawBoxColliderGizmo(position, JoltShapes::ApplyScaleToBoxExtents(boxCollider.m_HalfExtents, pose.Scale), pose.Rotation);
             }
 
@@ -18317,8 +18375,8 @@ namespace OloEngine
             for (auto entity : sphereView)
             {
                 const auto& sphereCollider = sphereView.get<SphereCollider3DComponent>(entity);
-                const auto pose = GetWorldTRS(entity);
-                const glm::vec3 position = pose.Position + pose.Rotation * (sphereCollider.m_Offset * pose.Scale);
+                const auto pose = ComputeWorldTRS(entity);
+                const glm::vec3 position(ComputeWorldTransform(entity) * glm::vec4(sphereCollider.m_Offset, 1.0f));
                 Renderer3D::DrawSphereColliderGizmo(position, JoltShapes::ApplyScaleToSphereRadius(sphereCollider.m_Radius, pose.Scale));
             }
 
@@ -18327,8 +18385,8 @@ namespace OloEngine
             for (auto entity : capsuleView)
             {
                 const auto& capsuleCollider = capsuleView.get<CapsuleCollider3DComponent>(entity);
-                const auto pose = GetWorldTRS(entity);
-                const glm::vec3 position = pose.Position + pose.Rotation * (capsuleCollider.m_Offset * pose.Scale);
+                const auto pose = ComputeWorldTRS(entity);
+                const glm::vec3 position(ComputeWorldTransform(entity) * glm::vec4(capsuleCollider.m_Offset, 1.0f));
                 const auto [radius, halfHeight] = JoltShapes::ApplyScaleToCapsule(capsuleCollider.m_Radius, capsuleCollider.m_HalfHeight, pose.Scale);
                 Renderer3D::DrawCapsuleColliderGizmo(position, radius, halfHeight, pose.Rotation);
             }
@@ -18571,7 +18629,8 @@ namespace OloEngine
         sortedSystems.Reserve(psView.size());
         for (auto entity : psView)
         {
-            const f32 dist = glm::length2(GetWorldPosition(entity) - camPos);
+            const auto& system = psView.get<ParticleSystemComponent>(entity).System;
+            const f32 dist = glm::length2(system.GetEmitterPosition() - camPos);
             sortedSystems.Add({ dist, entity });
         }
         std::ranges::sort(sortedSystems,

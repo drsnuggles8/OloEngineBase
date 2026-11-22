@@ -1026,7 +1026,7 @@ namespace OloEngine
             return; // Already created
 
         const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-        const auto pose = m_Entity.GetScene()->GetPhysicsSpawnPose(m_Entity);
+        const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();

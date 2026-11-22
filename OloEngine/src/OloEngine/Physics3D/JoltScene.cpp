@@ -3160,8 +3160,8 @@ namespace OloEngine
             if (child.HasComponent<PhysicsJoint3DComponent>())
                 continue; // don't clobber a pre-authored joint on this bone
 
-            const auto childPose = m_Scene->GetPhysicsSpawnPose(child);
-            const auto parentPose = m_Scene->GetPhysicsSpawnPose(parent);
+            const auto childPose = m_Scene->ComputeWorldTRS(child);
+            const auto parentPose = m_Scene->ComputeWorldTRS(parent);
             const glm::vec3 childPos = childPose.Position;
             const glm::vec3 parentPos = parentPose.Position;
             const glm::quat invChildRot = glm::inverse(childPose.Rotation);

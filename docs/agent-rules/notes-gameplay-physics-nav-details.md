@@ -386,6 +386,10 @@ rotation and scales the collider at creation. A sheared hierarchy supplies an
 orthonormal basis for rigid physics while the renderer can still draw the full affine
 transform.
 
+Transform authored collider centers with the full world basis and then express them
+in the rigid body's frame. This keeps off-center shapes aligned under shear and
+reflection. Box2D uses the XY basis, which still works for a sprite with zero Z scale.
+
 The physics simulation owns the body pose after creation. Moving a parent keeps the
 body where physics put it. Writeback uses the current ancestor frame to store the
 appropriate local transform. A simulated ancestor contributes its live body pose
