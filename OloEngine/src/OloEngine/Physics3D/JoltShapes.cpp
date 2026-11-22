@@ -345,8 +345,7 @@ namespace OloEngine
         }
 
         // Get entity transform for scaling primitive colliders
-        const auto& transform = entity.GetTransform();
-        const glm::vec3& entityScale = transform.Scale;
+        const glm::vec3 entityScale = entity.GetScene()->GetPhysicsSpawnPose(entity).Scale;
 
         // Collect all collider shapes using the helper
         auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);
@@ -413,8 +412,7 @@ namespace OloEngine
         }
 
         // Get entity transform for scaling primitive colliders
-        const auto& transform = entity.GetTransform();
-        const glm::vec3& entityScale = transform.Scale;
+        const glm::vec3 entityScale = entity.GetScene()->GetPhysicsSpawnPose(entity).Scale;
 
         // Collect all collider shapes using the helper
         auto collectedShapes = CollectColliderShapesForEntity(entity, entityScale);

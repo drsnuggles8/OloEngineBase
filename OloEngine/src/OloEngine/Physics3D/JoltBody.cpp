@@ -918,12 +918,8 @@ namespace OloEngine
         return shape;
     }
 
-    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
+    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const glm::vec3& position, const glm::quat& rotation, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
     {
-        // Get transform
-        glm::vec3 position = transformComponent.Translation;
-        glm::quat rotation = transformComponent.GetRotation();
-
         // Convert body type
         EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);
         JPH::EMotionType motionType = JoltUtils::ToJoltMotionType(bodyType);
@@ -1030,7 +1026,7 @@ namespace OloEngine
             return; // Already created
 
         const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-        const auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
+        const auto pose = m_Entity.GetScene()->GetPhysicsSpawnPose(m_Entity);
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();
@@ -1040,7 +1036,7 @@ namespace OloEngine
         }
 
         // Create body creation settings
-        JPH::BodyCreationSettings bodySettings = CreateBodySettings(transformComponent, rigidBodyComponent, shape);
+        JPH::BodyCreationSettings bodySettings = CreateBodySettings(pose.Position, pose.Rotation, rigidBodyComponent, shape);
 
         // Create the body
         m_BodyID = m_Scene->GetBodyInterface().CreateAndAddBody(bodySettings, JPH::EActivation::Activate);

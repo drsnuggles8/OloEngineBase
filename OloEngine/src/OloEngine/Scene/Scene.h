@@ -38,6 +38,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <utility>
 #include <span>
 #include <string>
 #include <string_view>
@@ -103,6 +104,7 @@ namespace OloEngine
     {
         class AudioEventsManager;
         class AudioCommandRegistry;
+        struct Transform;
     } // namespace Audio
 
     struct ScenePendingEntityCommand
@@ -653,7 +655,8 @@ namespace OloEngine
         // spawned entities — script-spawned, networked actors arriving mid-
         // session). Without this shared entry point, components added after
         // OnRuntimeStart stay silent until the next InitAudioRuntime.
-        void InitializeAudioSoundGraph(AudioSoundGraphComponent& sgc) const;
+        void InitializeAudioSoundGraph(entt::entity entity, AudioSoundGraphComponent& sgc) const;
+        [[nodiscard]] Audio::Transform GetAudioSourceWorldPose(entt::entity entity) const;
 
         // DialogueSystem instantiation. Production code reaches this via
         // OnRuntimeStart. Exposed for headless test harnesses that drive
@@ -1152,6 +1155,33 @@ namespace OloEngine
         // Defined out-of-line in Scene.cpp: TransformComponent / WorldTransformComponent
         // are only forward-declared here (full definitions live in Components.h).
         [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform(entt::entity entity) const;
+
+        // Position-only consumers can read the propagated translation without
+        // copying the matrix or populating a local transform cache.
+        [[nodiscard]] glm::vec3 GetWorldPosition(entt::entity entity) const;
+        // For game-thread placement between propagation passes.
+        [[nodiscard]] glm::vec3 ComputeWorldPosition(entt::entity entity) const;
+        [[nodiscard]] glm::mat4 ComputeWorldTransform(entt::entity entity) const;
+
+        struct WorldTRS
+        {
+            glm::vec3 Position;
+            glm::quat Rotation;
+            glm::vec3 Scale;
+        };
+        // For consumers that require a rigid rotation and axis lengths rather
+        // than an affine matrix (such as particle emitters and colliders).
+        [[nodiscard]] WorldTRS GetWorldTRS(entt::entity entity) const;
+        [[nodiscard]] WorldTRS GetPhysicsSpawnPose(entt::entity entity) const;
+        struct Physics2DPlacement
+        {
+            glm::vec3 Position;
+            glm::vec2 Scale;
+            f32 Angle;
+        };
+        [[nodiscard]] Physics2DPlacement GetPhysics2DPlacement(entt::entity entity) const;
+        void ApplyAuthoredPhysics2DPose(Entity entity) const;
+        void SetPhysicsWorldPose(entt::entity entity, const glm::vec3& position, const glm::quat& rotation, const JoltScene& physics);
 
         // Where a local light (point, spot, sphere area) sits in the world
         // (issue #1707). Position is the light entity's composed world
@@ -1698,6 +1728,7 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+        bool m_DeserializingStreamedEntities = false;
 
         // PBF fluid solver instances (issue #630), lazily created by
         // FluidSystem; destroyed with the scene on the game thread (the GPU
@@ -2388,6 +2419,11 @@ namespace OloEngine
         // entt::null ("no parent"), never a stale reference. One definition, so
         // the full sweep and the targeted recompose below cannot disagree.
         [[nodiscard]] entt::entity ResolveTransformParent(entt::entity entity) const;
+        [[nodiscard]] glm::mat4 ComputeParentWorldTransform(entt::entity entity, const JoltScene* physics = nullptr) const;
+        [[nodiscard]] glm::mat4 ComputePhysicsAncestorTransform(entt::entity entity, const glm::mat4& parentWorld, const JoltScene& physics) const;
+        [[nodiscard]] glm::mat4 GetAttachmentBasis(entt::entity entity, entt::entity parent) const;
+        [[nodiscard]] std::pair<glm::vec3, f32> GetReflectionProbePlacement(entt::entity entity) const;
+        void CreatePhysics2DBody(Entity entity);
         // One entity's world matrix from its local transform and its already
         // composed parent, following its BoneAttachmentComponent when
         // `boneAttached` and it resolves (warning once per (entity, reason) when

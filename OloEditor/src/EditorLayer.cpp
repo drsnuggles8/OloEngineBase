@@ -4174,12 +4174,12 @@ namespace OloEngine
                 const auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
                 for (const auto entity : view)
                 {
-                    const auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
-
-                    const glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, -projectionCollider.z);
-                    const glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
-
-                    glm::mat4 transform = glm::translate(glm::mat4(1.0f), tc.Translation) * glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, 0.001f)) * glm::scale(glm::mat4(1.0f), scale);
+                    const auto& bc2d = view.get<BoxCollider2DComponent>(entity);
+                    const auto pose = m_ActiveScene->GetPhysics2DPlacement(entity);
+                    const glm::mat4 transform = glm::translate(glm::mat4(1.0f), pose.Position) *
+                                                glm::rotate(glm::mat4(1.0f), pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
+                                                glm::translate(glm::mat4(1.0f), glm::vec3(bc2d.Offset, -projectionCollider.z)) *
+                                                glm::scale(glm::mat4(1.0f), glm::vec3(pose.Scale * bc2d.Size * 2.0f, 1.0f));
 
                     Renderer2D::DrawRect(transform, glm::vec4(0, 1, 0, 1));
                 }
@@ -4190,12 +4190,13 @@ namespace OloEngine
                 const auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CircleCollider2DComponent>();
                 for (const auto entity : view)
                 {
-                    const auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
-
-                    const glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, -projectionCollider.z);
-                    const glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
-
-                    const glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation) * glm::scale(glm::mat4(1.0f), glm::vec3(scale.x, scale.x, scale.z));
+                    const auto& cc2d = view.get<CircleCollider2DComponent>(entity);
+                    const auto pose = m_ActiveScene->GetPhysics2DPlacement(entity);
+                    const f32 diameter = pose.Scale.x * cc2d.Radius * 2.0f;
+                    const glm::mat4 transform = glm::translate(glm::mat4(1.0f), pose.Position) *
+                                                glm::rotate(glm::mat4(1.0f), pose.Angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
+                                                glm::translate(glm::mat4(1.0f), glm::vec3(cc2d.Offset, -projectionCollider.z)) *
+                                                glm::scale(glm::mat4(1.0f), glm::vec3(diameter, diameter, 1.0f));
 
                     Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.01f);
                 }

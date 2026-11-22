@@ -49,6 +49,7 @@
 #include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -354,16 +355,20 @@ namespace OloEngine::Tests
         f32 OutX0, OutX1, OutY0, OutY1;
     };
 
-    void RunAngle(VolumeVDBVisualEvidenceTest& test, Entity volumeEntity, const AngleCase& angle)
+    void RunAngle(VolumeVDBVisualEvidenceTest& test, Entity volumeEntity, const AngleCase& angle, f64* measuredDelta = nullptr)
     {
         std::vector<u8> offPixels, onPixels;
 
+        // Each pose and toggle starts with its own fog history. A previous
+        // angle's fog otherwise survives into the OFF comparison.
+        Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::VolumetricFog);
         test.Capture(std::string(angle.Tag) + "_Off", angle.Position, angle.Yaw, angle.Pitch, offPixels);
         if (::testing::Test::HasFatalFailure())
             return;
 
         {
             ScopedVolumeToggle toggle(volumeEntity.GetComponent<FogVolumeComponent>());
+            Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::VolumetricFog);
             test.Capture(std::string(angle.Tag) + "_On", angle.Position, angle.Yaw, angle.Pitch, onPixels);
         }
         if (::testing::Test::HasFatalFailure())
@@ -380,6 +385,8 @@ namespace OloEngine::Tests
             << "[" << angle.Tag << "] ON frame rendered (near-)black. See VolumeVDB_" << angle.Tag << "_On.png";
 
         const f64 volDelta = std::abs(volOn.R - volOff.R) + std::abs(volOn.G - volOff.G) + std::abs(volOn.B - volOff.B);
+        if (measuredDelta)
+            *measuredDelta = volDelta;
         EXPECT_GT(volDelta, 8.0) << "[" << angle.Tag << "] the volume's screen footprint did not change when enabled "
                                                         "(off=("
                                  << volOff.R << "," << volOff.G << "," << volOff.B << ") on=(" << volOn.R << ","
@@ -428,12 +435,32 @@ namespace OloEngine::Tests
         const AngleCase topDown{ "TopDown", glm::vec3{ 0.0f, 16.0f, 0.01f }, 0.0f, 1.55f, 0.35f, 0.65f, 0.35f,
                                  0.65f, 0.02f, 0.18f, 0.02f, 0.18f };
 
-        RunAngle(*this, m_VolumeEntity, side);
+        f64 twinDelta = 0.0;
+        RunAngle(*this, m_VolumeEntity, side, &twinDelta);
         if (::testing::Test::HasFatalFailure())
             return;
         RunAngle(*this, m_VolumeEntity, threeQuarter);
         if (::testing::Test::HasFatalFailure())
             return;
         RunAngle(*this, m_VolumeEntity, topDown);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Entity rig = GetScene().CreateEntity("Smoke Rig");
+        auto& rigTransform = rig.GetComponent<TransformComponent>();
+        rigTransform.Translation = { 0.0f, -38.0f, 0.0f };
+        rigTransform.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+        rigTransform.Scale = glm::vec3(2.0f);
+        auto& volumeTransform = m_VolumeEntity.GetComponent<TransformComponent>();
+        volumeTransform.Translation = { 20.0f, 0.0f, 0.0f };
+        volumeTransform.SetRotationEuler({ 0.0f, 0.0f, -glm::half_pi<f32>() });
+        volumeTransform.Scale = glm::vec3(0.5f);
+        m_VolumeEntity.SetParent(rig);
+        const AngleCase parented{ "Parented", side.Position, side.Yaw, side.Pitch,
+                                  side.VolX0, side.VolX1, side.VolY0, side.VolY1,
+                                  side.OutX0, side.OutX1, side.OutY0, side.OutY1 };
+        f64 parentedDelta = 0.0;
+        RunAngle(*this, m_VolumeEntity, parented, &parentedDelta);
+        EXPECT_NEAR(parentedDelta, twinDelta, 6.0);
     }
 } // namespace OloEngine::Tests

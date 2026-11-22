@@ -173,7 +173,7 @@ namespace OloEngine
 
         // Body creation helpers
         JPH::Ref<JPH::Shape> CreateShapeForBody() const;
-        JPH::BodyCreationSettings CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
+        JPH::BodyCreationSettings CreateBodySettings(const glm::vec3& position, const glm::quat& rotation, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
         void SetupCreatedBody(JPH::BodyID bodyID, const Rigidbody3DComponent& rigidBodyComponent);
 
         // Material application

@@ -331,7 +331,7 @@ namespace OloEngine::Tests
         // null) — no self-reference.
         Ref<Scene> sceneRef = GetSceneRef();
         auto& probe = m_Probe.GetComponent<ReflectionProbeComponent>();
-        const glm::vec3 probePos = m_Probe.GetComponent<TransformComponent>().Translation;
+        const glm::vec3 probePos = sceneRef->ComputeWorldPosition(m_Probe);
 
         // BakeProbe drives several full-pipeline renders directly (not via the
         // GLStateGuard-wrapped RunEditorFrames helper), so contain the global GL
@@ -377,6 +377,32 @@ namespace OloEngine::Tests
         Capture("On", frontPos, frontYaw, frontPitch, onPixels);
         if (::testing::Test::HasFatalFailure())
             return;
+
+        // The same sphere, baked texture and world influence. The local probe
+        // centre is now far outside the camera's influence test. The authored
+        // radius alone is also too small to reach the camera.
+        Entity rig = sceneRef->CreateEntity("Reflection Probe Rig");
+        auto& rigTransform = rig.GetComponent<TransformComponent>();
+        rigTransform.Translation = { 0.0f, 403.5f, 0.0f };
+        rigTransform.SetRotationEuler({ 0.0f, 0.0f, -glm::half_pi<f32>() });
+        rigTransform.Scale = glm::vec3(8.0f);
+        m_Probe.GetComponent<TransformComponent>().Translation = { 50.0f, 0.0f, 0.0f };
+        m_Probe.SetParent(rig);
+        probe.m_InfluenceRadius = 5.0f;
+        const f32 rootBlend = probe.m_BlendDistance;
+        probe.m_BlendDistance = rootBlend / 8.0f;
+        std::vector<u8> parentedPixels;
+        Capture("Parented", frontPos, frontYaw, frontPitch, parentedPixels);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        const BandStats parented = SampleBand(parentedPixels, cx0, cx1, cy0, cy1);
+        const BandStats rootTwin = SampleBand(onPixels, cx0, cx1, cy0, cy1);
+        EXPECT_NEAR(parented.R, rootTwin.R, 5.0);
+        EXPECT_NEAR(parented.G, rootTwin.G, 5.0);
+        EXPECT_NEAR(parented.B, rootTwin.B, 5.0);
+
+        m_Probe.SetParent(Entity{});
+        m_Probe.GetComponent<TransformComponent>().Translation = probePos;
+        probe.m_BlendDistance = rootBlend;
 
         // --- OutOfRange: probe active but the camera sits OUTSIDE its influence
         //     radius (probe at (0,3.5,0), camera ~6.95 units away; radius 1.0). The

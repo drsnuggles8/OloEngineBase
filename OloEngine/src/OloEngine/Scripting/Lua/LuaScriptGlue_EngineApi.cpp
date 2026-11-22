@@ -207,15 +207,7 @@ namespace OloEngine
                 {
                     entity.GetComponent<TransformComponent>().Translation = translation;
                     // Sync to Box2D runtime body if present
-                    if (entity.HasComponent<Rigidbody2DComponent>())
-                    {
-                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
-                        if (b2Body_IsValid(rb.RuntimeBody))
-                        {
-                            auto const& tc = entity.GetComponent<TransformComponent>();
-                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
-                        }
-                    }
+                    scene->ApplyAuthoredPhysics2DPose(entity);
                 }
             }
         };
@@ -248,15 +240,7 @@ namespace OloEngine
                 {
                     entity.GetComponent<TransformComponent>().SetRotationEuler(rotation);
                     // Sync to Box2D runtime body if present
-                    if (entity.HasComponent<Rigidbody2DComponent>())
-                    {
-                        auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
-                        if (b2Body_IsValid(rb.RuntimeBody))
-                        {
-                            auto const& tc = entity.GetComponent<TransformComponent>();
-                            b2Body_SetTransform(rb.RuntimeBody, { tc.Translation.x, tc.Translation.y }, b2MakeRot(tc.GetRotationEuler().z));
-                        }
-                    }
+                    scene->ApplyAuthoredPhysics2DPose(entity);
                 }
             }
         };

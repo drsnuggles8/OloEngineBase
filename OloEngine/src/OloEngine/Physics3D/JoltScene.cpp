@@ -497,7 +497,7 @@ namespace OloEngine
         return GetBodyByEntityID(entity.GetUUID());
     }
 
-    Ref<JoltBody> JoltScene::GetBodyByEntityID(UUID entityID)
+    Ref<JoltBody> JoltScene::GetBodyByEntityID(UUID entityID) const
     {
         auto it = m_Bodies.find(entityID);
         return (it != m_Bodies.end()) ? it->second : nullptr;
@@ -1071,7 +1071,7 @@ namespace OloEngine
         return GetCharacterControllerByEntityID(entity.GetUUID());
     }
 
-    Ref<JoltCharacterController> JoltScene::GetCharacterControllerByEntityID(UUID entityID)
+    Ref<JoltCharacterController> JoltScene::GetCharacterControllerByEntityID(UUID entityID) const
     {
         auto it = m_CharacterControllers.find(entityID);
         return (it != m_CharacterControllers.end()) ? it->second : nullptr;
@@ -1629,7 +1629,9 @@ namespace OloEngine
         // under the carrier.
         for (auto& [entityID, body] : m_Bodies)
         {
-            if (body && (body->IsDynamic() || body->IsKinematic()) && body->IsActive() && !IsCarried(entityID))
+            if (body && !IsCarried(entityID) &&
+                ((body->IsDynamic() || body->IsKinematic()) ||
+                 body->GetEntity().GetParentUUID() != UUID(0)))
             {
                 SynchronizeBody(body);
             }
@@ -2375,13 +2377,10 @@ namespace OloEngine
             }
         }
 
-        // World-space anchors/axis, computed from the same authored transforms the
-        // bodies were created from (JoltBody places bodies at TransformComponent's
-        // local translation/rotation). With mSpace == WorldSpace, Jolt converts
-        // these world points to each body's COM frame internally.
-        const auto& tcA = entity.GetComponent<TransformComponent>();
-        const glm::quat rotA = tcA.GetRotation();
-        const glm::vec3 worldA = tcA.Translation + rotA * joint.m_LocalAnchorA;
+        // Use the live body origins. Jolt converts these world anchors to
+        // each body's center-of-mass frame when it creates the constraint.
+        const glm::quat rotA = bodyA->GetRotation();
+        const glm::vec3 worldA = bodyA->GetPosition() + rotA * joint.m_LocalAnchorA;
 
         glm::vec3 axis = rotA * joint.m_Axis;
         axis = (glm::dot(axis, axis) < 1e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(axis);
@@ -2400,9 +2399,9 @@ namespace OloEngine
         }
         else
         {
-            const auto& tcB = connectedEntity.GetComponent<TransformComponent>();
-            worldB = tcB.Translation + tcB.GetRotation() * joint.m_LocalAnchorB;
-            connectedAxis = tcB.GetRotation() * joint.m_ConnectedAxis;
+            const glm::quat rotB = bodyB->GetRotation();
+            worldB = bodyB->GetPosition() + rotB * joint.m_LocalAnchorB;
+            connectedAxis = rotB * joint.m_ConnectedAxis;
         }
         connectedAxis = (glm::dot(connectedAxis, connectedAxis) < 1e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(connectedAxis);
 
@@ -3161,11 +3160,11 @@ namespace OloEngine
             if (child.HasComponent<PhysicsJoint3DComponent>())
                 continue; // don't clobber a pre-authored joint on this bone
 
-            const auto& childTc = child.GetComponent<TransformComponent>();
-            const auto& parentTc = parent.GetComponent<TransformComponent>();
-            const glm::vec3 childPos = childTc.Translation;
-            const glm::vec3 parentPos = parentTc.Translation;
-            const glm::quat invChildRot = glm::inverse(childTc.GetRotation());
+            const auto childPose = m_Scene->GetPhysicsSpawnPose(child);
+            const auto parentPose = m_Scene->GetPhysicsSpawnPose(parent);
+            const glm::vec3 childPos = childPose.Position;
+            const glm::vec3 parentPos = parentPose.Position;
+            const glm::quat invChildRot = glm::inverse(childPose.Rotation);
 
             glm::vec3 worldDir = childPos - parentPos;
             worldDir = (glm::dot(worldDir, worldDir) < 1.0e-12f) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::normalize(worldDir);
@@ -3174,9 +3173,8 @@ namespace OloEngine
             joint.m_Type = JointType3D::SwingTwist;
             joint.m_ConnectedEntity = parent.GetUUID();
             // Pivot at the parent bone's origin, expressed in each body's local space.
-            // CreateConstraint recomputes the world anchors from the bone transforms;
-            // these make worldA == worldB == parentPos and the twist axis run along
-            // the bone (CreateConstraint applies childRot to m_Axis).
+            // CreateConstraint takes the world anchors from the body poses.
+            // Both anchors start at parentPos and the twist axis runs along the bone.
             joint.m_LocalAnchorA = invChildRot * (parentPos - childPos); // on the child
             joint.m_LocalAnchorB = glm::vec3(0.0f);                      // on the parent (its origin)
             joint.m_Axis = invChildRot * worldDir;
@@ -3389,10 +3387,7 @@ namespace OloEngine
         glm::vec3 position = body->GetPosition();
         glm::quat rotation = body->GetRotation();
 
-        // Update entity transform
-        auto& transform = entity.GetComponent<TransformComponent>();
-        transform.Translation = position;
-        transform.SetRotation(rotation);
+        entity.GetScene()->SetPhysicsWorldPose(entity, position, rotation, *this);
     }
 
     void JoltScene::InitializeJolt()

@@ -24,7 +24,12 @@
 
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Physics3D/JoltBody.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 
+#include <box2d/box2d.h>
+
+#include <array>
 #include <cmath>
 
 using namespace OloEngine;
@@ -109,4 +114,141 @@ TEST_F(HierarchyChildOnDestroyedParentTest, ChildDoesNotDanglePointingAtDeadPare
     const glm::vec3 childPos = child.GetComponent<TransformComponent>().Translation;
     EXPECT_TRUE(std::isfinite(childPos.x) && std::isfinite(childPos.y) && std::isfinite(childPos.z))
         << "orphaned child transform is corrupted after parent destruction";
+}
+
+class ParentedPhysicsPlacementTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        m_Rig = GetScene().CreateEntity("Moving Rig");
+        auto& rig = m_Rig.GetComponent<TransformComponent>();
+        rig.Translation = { 20.0f, 30.0f, 0.0f };
+        rig.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+        rig.Scale = glm::vec3(2.0f);
+
+        for (sizet i = 0; i < 2; ++i)
+        {
+            const bool parented = i == 0;
+            const auto place = [&](const char* name, f32 z)
+            {
+                Entity entity = GetScene().CreateEntity(name);
+                auto& transform = entity.GetComponent<TransformComponent>();
+                if (parented)
+                {
+                    transform.Translation = { 3.0f, 2.0f, z };
+                    entity.SetParent(m_Rig);
+                }
+                else
+                {
+                    transform.Translation = { 16.0f, 36.0f, 2.0f * z };
+                    transform.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+                    transform.Scale = glm::vec3(2.0f);
+                }
+                return entity;
+            };
+            m_2D[i] = place("Box2D Body", 0.0f);
+            m_2D[i].AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+            m_3D[i] = place("Jolt Body", 2.0f);
+            m_3D[i].AddComponent<BoxCollider3DComponent>();
+            auto& body = m_3D[i].AddComponent<Rigidbody3DComponent>();
+            body.m_Type = BodyType3D::Dynamic;
+            body.m_IsTrigger = true;
+        }
+
+        EnablePhysics2D();
+        EnablePhysics3D();
+    }
+
+    Entity m_Rig;
+    std::array<Entity, 2> m_2D;
+    std::array<Entity, 2> m_3D;
+};
+
+TEST_F(ParentedPhysicsPlacementTest, Box2DSpawnsAtTheWorldPoseAndKeepsWorldAuthority)
+{
+    const auto child = m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    const auto twin = m_2D[1].GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(child));
+    ASSERT_TRUE(b2Body_IsValid(twin));
+    EXPECT_NEAR(b2Body_GetPosition(child).x, 16.0f, 1.0e-4f);
+    EXPECT_NEAR(b2Body_GetPosition(child).y, 36.0f, 1.0e-4f);
+    EXPECT_NEAR(b2Rot_GetAngle(b2Body_GetRotation(child)), b2Rot_GetAngle(b2Body_GetRotation(twin)), 1.0e-4f);
+
+    m_Rig.GetComponent<TransformComponent>().Translation.x += 50.0f;
+    RunFrames(3);
+    EXPECT_NEAR(b2Body_GetPosition(child).x, b2Body_GetPosition(twin).x, 1.0e-4f);
+    EXPECT_NEAR(b2Body_GetPosition(child).y, b2Body_GetPosition(twin).y, 1.0e-4f);
+    EXPECT_NEAR(GetScene().GetWorldPosition(m_2D[0]).x, b2Body_GetPosition(child).x, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, JoltSpawnsAtTheWorldPoseAndKeepsWorldAuthority)
+{
+    auto* physics = GetScene().GetPhysicsScene();
+    const Ref<JoltBody> child = physics->GetBody(m_3D[0]);
+    const Ref<JoltBody> twin = physics->GetBody(m_3D[1]);
+    ASSERT_TRUE(child && twin);
+    EXPECT_NEAR(glm::length(child->GetPosition() - glm::vec3(16.0f, 36.0f, 4.0f)), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(std::abs(glm::dot(child->GetRotation(), twin->GetRotation())), 1.0f, 1.0e-4f);
+
+    m_Rig.GetComponent<TransformComponent>().Translation.x += 50.0f;
+    RunFrames(3);
+    EXPECT_NEAR(glm::length(child->GetPosition() - twin->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(glm::length(GetScene().GetWorldPosition(m_3D[0]) - child->GetPosition()), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, PhysicsChildrenUseTheCurrentBodyPoseOfTheirSimulatedAncestor)
+{
+    Entity grandparent = GetScene().CreateEntity("Nonuniform Frame");
+    grandparent.GetComponent<TransformComponent>().Scale = { 2.0f, 1.0f, 1.0f };
+    m_Rig.SetParent(grandparent);
+    m_Rig.GetComponent<TransformComponent>().SetRotationEuler({ 0.0f, 0.0f, glm::quarter_pi<f32>() });
+    m_Rig.AddComponent<BoxCollider3DComponent>();
+    Rigidbody3DComponent rigSettings;
+    rigSettings.m_Type = BodyType3D::Dynamic;
+    rigSettings.m_DisableGravity = true;
+    rigSettings.m_InitialLinearVelocity = { 12.0f, 0.0f, 0.0f };
+    m_Rig.AddComponent<Rigidbody3DComponent>(rigSettings);
+    auto* physics = GetScene().GetPhysicsScene();
+    const Ref<JoltBody> parent = physics->GetBody(m_Rig);
+    const Ref<JoltBody> joltChild = physics->GetBody(m_3D[0]);
+    const auto boxChild = m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(parent && joltChild && b2Body_IsValid(boxChild));
+
+    RunFrames(3);
+    EXPECT_GT(parent->GetPosition().x, 40.2f);
+    EXPECT_NEAR(glm::length(GetScene().GetWorldPosition(m_3D[0]) - joltChild->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(GetScene().GetWorldPosition(m_2D[0]).x, b2Body_GetPosition(boxChild).x, 1.0e-4f);
+    EXPECT_NEAR(GetScene().GetWorldPosition(m_2D[0]).y, b2Body_GetPosition(boxChild).y, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, JoltWritebackPreservesAnAuthoredMirror)
+{
+    Entity parent = GetScene().CreateEntity("Mirror Rig");
+    Entity child = GetScene().CreateEntity("Mirrored Body");
+    child.SetParent(parent);
+    child.GetComponent<TransformComponent>().Scale.x = -1.0f;
+    child.AddComponent<BoxCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    settings.m_DisableGravity = true;
+    child.AddComponent<Rigidbody3DComponent>(settings);
+    const glm::mat4 before = GetScene().ComputeWorldTransform(child);
+
+    RunFrames(2);
+    const glm::mat4 after = GetScene().GetWorldTransform(child);
+    for (glm::length_t axis = 0; axis < 4; ++axis)
+        EXPECT_NEAR(glm::length(glm::vec3(before[axis] - after[axis])), 0.0f, 1.0e-4f) << axis;
+}
+
+TEST_F(ParentedPhysicsPlacementTest, AuthoredBox2DTeleportUsesTheSameWorldPoseAsTheRootTwin)
+{
+    m_2D[0].GetComponent<TransformComponent>().Translation = { 5.0f, 2.0f, 0.0f };
+    m_2D[1].GetComponent<TransformComponent>().Translation.y = 40.0f;
+    GetScene().ApplyAuthoredPhysics2DPose(m_2D[0]);
+    GetScene().ApplyAuthoredPhysics2DPose(m_2D[1]);
+    const b2Vec2 child = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    const b2Vec2 twin = b2Body_GetPosition(m_2D[1].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    EXPECT_NEAR(child.x, twin.x, 1.0e-4f);
+    EXPECT_NEAR(child.y, twin.y, 1.0e-4f);
 }

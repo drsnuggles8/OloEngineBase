@@ -648,8 +648,10 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
         EXPECT_FALSE(subtitles->Parallel) << "the Subtitles node must not be Parallelizable — it makes structural ECS changes";
     }
     EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence")); // pose sync reads post-physics transforms
+    EXPECT_TRUE(sched.DependsOn("Audio", "PropagateTransforms"));
     EXPECT_TRUE(sched.DependsOn("Audio", "Navigation"));
     EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PropagateTransforms"));
     EXPECT_TRUE(sched.DependsOn("ParticlesGPU", "PhysicsFence"));
     EXPECT_TRUE(sched.DependsOn("SnowDeformers", "PhysicsFence"));
     // Boat wake foam (issue #967). This edge is the whole ordering contract for
@@ -1043,4 +1045,67 @@ TEST_F(SystemSchedulerParallelTest, ParticleTickParallelMatchesSequential)
     EXPECT_EQ(sequential, parallel)
         << "ParticlesCPU produced a different particle stream on a worker thread than inline — "
            "the per-system RNG is not fully isolated from execution placement (#576/#452)";
+}
+
+TEST_F(SystemSchedulerParallelTest, ParentedEmitterMatchesRootTwinPlacementLodAndInheritedVelocity)
+{
+    Ref<Scene> scene = Scene::Create();
+    scene->SetRenderingEnabled(false);
+    Entity rig = scene->CreateEntity("Emitter Rig");
+    auto& rigTransform = rig.GetComponent<TransformComponent>();
+    rigTransform.Translation = { -1000.0f, 4.0f, 0.0f };
+    rigTransform.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+    Entity camera = scene->CreateEntity("Camera");
+    camera.AddComponent<CameraComponent>().Primary = true;
+    camera.GetComponent<TransformComponent>().Translation = { 996.0f, 0.0f, 0.0f };
+    camera.SetParent(rig);
+
+    auto addEmitter = [&](glm::vec3 position)
+    {
+        Entity emitter = scene->CreateEntity("Emitter");
+        emitter.GetComponent<TransformComponent>().Translation = position;
+        auto& component = emitter.AddComponent<ParticleSystemComponent>();
+        auto& system = component.System;
+        system.Playing = true;
+        system.UseGPU = false;
+        system.LODDistance1 = 10.0f;
+        system.LODMaxDistance = 20.0f;
+        system.Emitter.RateOverTime = 120.0f;
+        system.Emitter.InitialSpeed = 0.0f;
+        system.Emitter.SpeedVariance = 0.0f;
+        system.VelocityInheritance = 1.0f;
+        system.SubEmitterModule.Enabled = true;
+        system.SubEmitterModule.Entries.Add({ .Trigger = SubEmitterEvent::OnBirth, .EmitCount = 1, .ChildSystemIndex = 0 });
+        auto& subEmitter = component.ChildSystems.Emplace_GetRef();
+        subEmitter.Playing = true;
+        subEmitter.UseGPU = false;
+        return emitter;
+    };
+    Entity parented = addEmitter({ 1000.0f, 0.0f, 0.0f });
+    parented.SetParent(rig);
+    Entity root = addEmitter({ -1000.0f, 1004.0f, 0.0f });
+
+    scene->OnUpdateRuntime(Timestep{ 1.0f / 60.0f });
+    const auto& parentedParticles = parented.GetComponent<ParticleSystemComponent>();
+    const auto& rootParticles = root.GetComponent<ParticleSystemComponent>();
+    const auto& parentedSystem = parentedParticles.System;
+    const auto& rootSystem = rootParticles.System;
+    EXPECT_NEAR(glm::length(parentedSystem.GetEmitterPosition() - rootSystem.GetEmitterPosition()), 0.0f, 3.0e-4f);
+    EXPECT_FLOAT_EQ(parentedSystem.GetLODSpawnRateMultiplier(), 1.0f);
+    EXPECT_FLOAT_EQ(parentedSystem.GetLODSpawnRateMultiplier(), rootSystem.GetLODSpawnRateMultiplier());
+    ASSERT_GT(parentedParticles.ChildSystems[0].GetAliveCount(), 0u);
+    EXPECT_NEAR(glm::length(parentedParticles.ChildSystems[0].GetEmitterPosition() -
+                            rootParticles.ChildSystems[0].GetEmitterPosition()),
+                0.0f, 3.0e-4f);
+
+    const u32 previousCount = parentedSystem.GetAliveCount();
+    rigTransform.Translation.x += 1.0f;
+    root.GetComponent<TransformComponent>().Translation.x += 1.0f;
+    scene->OnUpdateRuntime(Timestep{ 1.0f / 60.0f });
+    const u32 count = parentedSystem.GetAliveCount();
+    ASSERT_GT(count, previousCount);
+    ASSERT_EQ(count, rootSystem.GetAliveCount());
+    const f32 childVx = parentedSystem.GetPool().m_Velocities[count - 1].x;
+    EXPECT_GT(childVx, 30.0f);
+    EXPECT_NEAR(childVx, rootSystem.GetPool().m_Velocities[count - 1].x, 1.0e-3f);
 }

@@ -35,6 +35,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 
 #include <glm/glm.hpp>
@@ -143,6 +144,25 @@ TEST_F(RagdollTest, GeneratesBodiesAndJointsForBonesMissingThem)
     ASSERT_TRUE(s.m_RootBone.HasComponent<Rigidbody3DComponent>());
     EXPECT_EQ(s.m_RootBone.GetComponent<Rigidbody3DComponent>().m_Type, BodyType3D::Static);
     EXPECT_FALSE(s.m_RootBone.HasComponent<PhysicsJoint3DComponent>()) << "the root bone has no parent and must not get a joint";
+}
+
+TEST_F(RagdollTest, GeneratedJointStartsWithCoincidentAnchorsUnderAParent)
+{
+    auto rig = BuildStaticRootRagdoll(30.0f, 10.0f);
+    auto& transform = rig.m_RagdollRoot.GetComponent<TransformComponent>();
+    transform.Translation = { 8.0f, 4.0f, -12.0f };
+    transform.SetRotationEuler({ 0.0f, glm::half_pi<f32>(), 0.0f });
+    transform.Scale = glm::vec3(3.0f);
+    EnablePhysics3D();
+
+    auto* physics = GetScene().GetPhysicsScene();
+    const auto limb = physics->GetBody(rig.m_LimbBone);
+    const auto pivot = physics->GetBody(rig.m_RootBone);
+    ASSERT_TRUE(limb && pivot);
+    const auto& joint = rig.m_LimbBone.GetComponent<PhysicsJoint3DComponent>();
+    ASSERT_NE(joint.m_RuntimeConstraintToken, 0u);
+    const glm::vec3 anchor = limb->GetPosition() + limb->GetRotation() * joint.m_LocalAnchorA;
+    EXPECT_NEAR(glm::length(anchor - pivot->GetPosition()), 0.0f, 1.0e-4f);
 }
 
 // -----------------------------------------------------------------------------

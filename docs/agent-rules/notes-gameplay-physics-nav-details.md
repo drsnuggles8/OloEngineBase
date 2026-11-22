@@ -89,10 +89,9 @@ collider / PhysicsJoint3D infrastructure already realises:
 - `DestroyAllRagdolls` (called first in `Scene::OnPhysics3DStop`) removes exactly the generated
   entities, restoring the authored scene.
 
-Not done, deliberately: physics→animation pose write-back, blend modes, mid-game enable/disable,
-per-bone capsule fitting, anatomically-correct joint placement, and nested-bone world-transform
-resolution (bone transforms are read as world-space — a flat layout, matching how JoltBody already
-interprets `TransformComponent.Translation`).
+Body and joint creation compose the ancestor transforms so both sides of the joint
+start at the same world-space pivot. Physics-to-animation writeback, blend modes,
+mid-game toggles, per-bone capsule fitting and anatomical joint placement remain deferred.
 
 ## 5. Detour returns a partial path as *success*
 
@@ -378,3 +377,21 @@ What follows for a system that pushes a body around:
 `ColliderOffsetKeepsEntityOriginTest` pins it: a weightless body with an offset collider stays
 where it was authored, one that spins carries its origin round its centre of mass, and one on an
 entity scaled by two carries it round twice as far.
+
+## 17. Parented physics bodies spawn at the world pose
+
+Compose the ancestor transforms before creating a body or applying an authored Box2D
+teleport. Box2D uses the world XY position and rotation about Z. Jolt uses a rigid
+rotation and scales the collider at creation. A sheared hierarchy supplies an
+orthonormal basis for rigid physics while the renderer can still draw the full affine
+transform.
+
+The physics simulation owns the body pose after creation. Moving a parent keeps the
+body where physics put it. Writeback uses the current ancestor frame to store the
+appropriate local transform. A simulated ancestor contributes its live body pose
+regardless of the order its entity is synchronized. Explicit `Scene::AttachEntity`
+carrying still moves the kinematic body with its carrier.
+
+On a streamed region load, deserialize the entire region before starting runtime
+components. Build every rigid body before creating joints, vehicles, or running
+script `OnCreate` callbacks.

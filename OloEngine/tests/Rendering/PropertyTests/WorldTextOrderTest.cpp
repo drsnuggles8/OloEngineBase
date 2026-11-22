@@ -144,6 +144,19 @@ namespace OloEngine::Tests
             return rgba;
         }
 
+        [[nodiscard]] std::vector<sizet> CaptureNameplatePixels()
+        {
+            RunFrames(3);
+            const auto rgba = Readback();
+            std::vector<sizet> pixels;
+            for (sizet i = 0; i + 3 < rgba.size(); i += 4)
+            {
+                if (rgba[i] > 200u && rgba[i + 1] < 70u && rgba[i + 2] > 200u)
+                    pixels.push_back(i / 4u);
+            }
+            return pixels;
+        }
+
         // Each text's ink with the other one emptied: what "all of it" is.
         [[nodiscard]] Ink InkAlone()
         {
@@ -160,6 +173,39 @@ namespace OloEngine::Tests
         Entity m_Red;
         Entity m_Blue;
     };
+
+    TEST_F(WorldTextOrderTest, ParentedNameplateCoversTheSamePixelsAsItsRootTwin)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto addPlate = [this](const char* name, const glm::vec3& position)
+        {
+            Entity entity = GetScene().CreateEntity(name);
+            entity.GetComponent<TransformComponent>().Translation = position;
+            auto& plate = entity.AddComponent<NameplateComponent>();
+            plate.m_ShowHealthBar = true;
+            plate.m_ShowManaBar = false;
+            plate.m_WorldOffset = { 0.0f, 0.2f, 0.0f };
+            plate.m_BarSize = { 48.0f, 12.0f };
+            plate.m_BarBackgroundColor = { 1.0f, 0.0f, 1.0f, 1.0f };
+            return entity;
+        };
+
+        Entity rig = GetScene().CreateEntity("Nameplate Rig");
+        rig.GetComponent<TransformComponent>().Translation = { 8.0f, 0.0f, 0.0f };
+        Entity child = addPlate("Child Nameplate", { -8.0f, 0.0f, 0.0f });
+        child.SetParent(rig);
+        Entity root = addPlate("Root Nameplate", glm::vec3(0.0f));
+        root.GetComponent<NameplateComponent>().m_Enabled = false;
+        const auto childPixels = CaptureNameplatePixels();
+
+        child.GetComponent<NameplateComponent>().m_Enabled = false;
+        root.GetComponent<NameplateComponent>().m_Enabled = true;
+        const auto rootPixels = CaptureNameplatePixels();
+        std::printf("[nameplate] parented covered %zu pixels, root covered %zu pixels\n", childPixels.size(), rootPixels.size());
+        EXPECT_GT(rootPixels.size(), 400u);
+        EXPECT_EQ(childPixels, rootPixels);
+    }
 
     // The nearer text is on top, whichever of the two was created first, in an
     // editor frame and in a runtime frame.

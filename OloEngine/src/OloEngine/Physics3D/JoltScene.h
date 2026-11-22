@@ -113,7 +113,7 @@ namespace OloEngine
         Ref<JoltBody> CreateBody(Entity entity);
         void DestroyBody(Entity entity);
         Ref<JoltBody> GetBody(Entity entity);
-        Ref<JoltBody> GetBodyByEntityID(UUID entityID);
+        Ref<JoltBody> GetBodyByEntityID(UUID entityID) const;
 
         // Entity lookup by body ID (for character controller integration)
         Entity GetEntityByBodyID(const JPH::BodyID& bodyID);
@@ -332,7 +332,7 @@ namespace OloEngine
         Ref<JoltCharacterController> CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback = nullptr);
         void DestroyCharacterController(Entity entity);
         Ref<JoltCharacterController> GetCharacterController(Entity entity);
-        Ref<JoltCharacterController> GetCharacterControllerByEntityID(UUID entityID);
+        Ref<JoltCharacterController> GetCharacterControllerByEntityID(UUID entityID) const;
 
         // Scene lifecycle
         void OnRuntimeStart();
