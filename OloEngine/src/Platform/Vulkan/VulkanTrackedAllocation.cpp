@@ -6,6 +6,7 @@
 
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
+#include <atomic>
 #include <optional>
 
 namespace OloEngine
@@ -185,6 +186,24 @@ namespace OloEngine
         const ScopedMutation mutation;
         OLO_TRACK_RELEASE_RETIRED(retireTicket);
         vmaDestroyImage(allocator, image, allocation);
+    }
+
+    namespace
+    {
+        std::atomic<u64> s_VmaFrameAdvances{ 0 };
+    }
+
+    void AdvanceVmaFrame(VmaAllocator allocator)
+    {
+        if (allocator == VK_NULL_HANDLE)
+            return;
+        const u64 frame = s_VmaFrameAdvances.fetch_add(1, std::memory_order_relaxed) + 1u;
+        vmaSetCurrentFrameIndex(allocator, static_cast<u32>(frame));
+    }
+
+    u64 GetVmaFrameAdvanceCount()
+    {
+        return s_VmaFrameAdvances.load(std::memory_order_relaxed);
     }
 
     bool ObserveVmaMemory(VmaAllocator allocator, const bool budgetExtensionEnabled, BackendMemoryObservation& out)

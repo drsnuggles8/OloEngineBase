@@ -1362,6 +1362,9 @@ namespace OloEngine
         // wait (VK_KHR_swapchain_maintenance1 migration), this advance must
         // move to after a successful vkQueueSubmit2 instead.
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
+        // VMA re-reads the OS memory budget on a frame advance, and on little else:
+        // without this a steady scene reports the budget it had when it last grew.
+        AdvanceVmaFrame(d.Device.GetAllocator());
         // Same gate for the root-data arena: slot FrameIndex's bump cursor may
         // only rewind once the GPU can no longer read the slot's memory.
         VulkanFrameArena::Get().BeginFrame(d.FrameIndex);

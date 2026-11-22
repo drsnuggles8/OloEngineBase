@@ -51,6 +51,15 @@ namespace OloEngine
     // budgets. `budgetExtensionEnabled` says whether those budgets are the OS's
     // (VK_EXT_memory_budget) or VMA's fallback estimate.
     [[nodiscard]] bool ObserveVmaMemory(VmaAllocator allocator, bool budgetExtensionEnabled, BackendMemoryObservation& out);
+
+    // Tell VMA a frame has passed (vmaSetCurrentFrameIndex). With VK_EXT_memory_budget
+    // that is what re-reads the OS's per-heap usage and budget. Without it VMA re-reads
+    // them only after thirty vkAllocateMemory / vkFreeMemory calls, which a steady scene
+    // never makes, so ObserveVmaMemory kept reporting the budget of whenever the scene
+    // last grew a memory block (#1343). Once per frame, from the context's frame bracket.
+    void AdvanceVmaFrame(VmaAllocator allocator);
+    // How many times AdvanceVmaFrame has reached an allocator, process-wide.
+    [[nodiscard]] u64 GetVmaFrameAdvanceCount();
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN
