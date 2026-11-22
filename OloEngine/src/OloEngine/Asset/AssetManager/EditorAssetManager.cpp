@@ -67,6 +67,7 @@ namespace OloEngine
         if (Project::GetActive())
         {
             m_ProjectPath = Project::GetProjectDirectory();
+            m_RegistryPath = Project::GetAssetRegistryPath();
             OLO_CORE_INFO("EditorAssetManager: Project path initialized to {}", m_ProjectPath.string());
         }
         else
@@ -77,7 +78,7 @@ namespace OloEngine
         // Load asset registry if it exists
         if (Project::GetActive())
         {
-            auto registryPath = Project::GetAssetRegistryPath();
+            const auto& registryPath = m_RegistryPath;
             std::error_code ec;
             if (std::filesystem::exists(registryPath, ec) && !ec)
             {
@@ -244,10 +245,8 @@ namespace OloEngine
         // Save asset registry. Through SerializeAssetRegistry, which refuses while writes are
         // blocked: a direct Serialize here overwrote the rejected registry Initialize could not
         // move aside, the only copy of the handles every scene refers to.
-        if (Project::GetActive())
-        {
+        if (!m_RegistryPath.empty())
             SerializeAssetRegistry();
-        }
 
         // Clear all loaded assets and memory assets
         {
@@ -1806,7 +1805,9 @@ namespace OloEngine
             // SyncWithAssetThread, ReloadData's LastWriteTime refresh), where two
             // individually-atomic AssetRegistry calls have to be atomic together.
             // A single self-synchronised call like Serialize needs none of that.
-            const std::filesystem::path registryPath = Project::GetAssetRegistryPath();
+            if (m_RegistryPath.empty())
+                return false;
+            const auto& registryPath = m_RegistryPath;
             if (m_RegistryWritesBlocked.load(std::memory_order_acquire))
             {
                 OLO_CORE_ERROR("Not saving the asset registry to {}: the rejected registry there could not be moved "

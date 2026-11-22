@@ -561,6 +561,7 @@ namespace OloEngine
 
         // Project path for asset scanning
         std::filesystem::path m_ProjectPath;
+        std::filesystem::path m_RegistryPath;
     };
 
 } // namespace OloEngine

@@ -94,6 +94,37 @@ namespace OloEngine::Tests
         }
     } // namespace
 
+    TEST(AssetRegistryInvariants, OutgoingAssetManagerSavesOnlyItsOwnRegistry)
+    {
+        ProjectScope projectScope;
+        const auto outgoing = TempDir("outgoing-project");
+        const auto incoming = TempDir("incoming-project");
+        std::filesystem::create_directories(outgoing / "Assets");
+        std::filesystem::create_directories(incoming / "Assets");
+        ASSERT_TRUE(std::ofstream(outgoing / "Assets" / "Outgoing.cs").good());
+
+        const auto incomingRegistryPath = incoming / "AssetRegistry.oar";
+        AssetRegistry incomingRegistry;
+        incomingRegistry.AddAsset(MakeMetadata(AssetHandle{ 42 }, AssetType::ScriptFile, "Assets/Incoming.cs"));
+        ASSERT_TRUE(incomingRegistry.Serialize(incomingRegistryPath));
+        const auto incomingBefore = ReadAllBytes(incomingRegistryPath);
+
+        ProjectConfig config;
+        config.AssetDirectory = "Assets";
+        Project::NewInMemory(outgoing, config);
+        auto manager = Ref<EditorAssetManager>::Create();
+        manager->Initialize(false);
+        Project::SetAssetManager(manager);
+        const auto outgoingRegistryPath = outgoing / "AssetRegistry.oar";
+        const auto outgoingBefore = ReadAllBytes(outgoingRegistryPath);
+
+        Project::NewInMemory(incoming, config);
+        manager->Shutdown();
+
+        EXPECT_EQ(ReadAllBytes(outgoingRegistryPath), outgoingBefore);
+        EXPECT_EQ(ReadAllBytes(incomingRegistryPath), incomingBefore);
+    }
+
     // -------------------------------------------------------------------------
     // AddAsset → both indices updated, all query methods agree.
     // -------------------------------------------------------------------------
