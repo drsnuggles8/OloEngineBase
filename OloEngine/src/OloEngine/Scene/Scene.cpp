@@ -6527,6 +6527,11 @@ namespace OloEngine
             auto& ac = listenerView.get<AudioListenerComponent>(e);
             if (ac.Active)
             {
+                if (!ac.Listener)
+                {
+                    ac.Listener = Ref<AudioListener>::Create();
+                    ac.Listener->SetConfig(ac.Config);
+                }
                 auto pose = GetAudioSourceWorldPose(e);
                 pose.Orientation = -pose.Orientation;
                 ac.Listener->SetPosition(pose.Position);

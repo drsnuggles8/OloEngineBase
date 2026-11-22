@@ -65,10 +65,10 @@ TEST_F(AudioRuntimeTicksViaSceneTest, ParentedListenerScoresVoicesFromItsWorldPo
     Entity twin = GetScene().CreateEntity("Root Listener");
     twin.GetComponent<TransformComponent>().Translation = expected;
     auto& twinAudio = twin.AddComponent<AudioListenerComponent>();
-    twinAudio.Listener = Ref<AudioListener>::Create();
     twinAudio.Active = true;
     m_Listener.GetComponent<AudioListenerComponent>().Active = false;
     RunFrames(1);
+    EXPECT_TRUE(twinAudio.Listener);
     EXPECT_NEAR(glm::length(Audio::VoiceManager::Get().GetListenerPosition() - parented), 0.0f, 1.0e-4f);
 }
 
