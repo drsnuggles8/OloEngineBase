@@ -1341,6 +1341,9 @@ namespace OloEngine
             return;
         m_McpSyntheticCursorEntered = false;
 
+        // The ImGui overlay detaches before the editor layer.
+        if (!ImGui::GetCurrentContext())
+            return;
         auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
         if (!window)
             return;
@@ -1359,7 +1362,10 @@ namespace OloEngine
         static_assert(std::tuple_size_v<decltype(m_McpSyntheticButtonsDown)> == SyntheticInput::s_MouseButtonCount,
                       "the tracked-button table must cover exactly the buttons SyntheticInput accepts");
 
-        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        // Keep clearing the input overlay after ImGui has detached.
+        auto* const window = ImGui::GetCurrentContext()
+                                 ? static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow())
+                                 : nullptr;
         for (sizet button = 0; button < m_McpSyntheticButtonsDown.size(); ++button)
         {
             if (!m_McpSyntheticButtonsDown[button])

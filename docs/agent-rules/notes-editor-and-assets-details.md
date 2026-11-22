@@ -258,6 +258,10 @@ On a project switch, drain the outgoing asset manager while its project is still
 Asset workers resolve paths through the active project, and each manager must save to the
 registry path it recorded at initialization.
 
+During editor detach, clear synthetic input state and call GLFW's ImGui backend only
+while the ImGui context exists. The overlay detaches before the editor layer. An MCP
+File > Exit click can leave a synthetic cursor or button pending at that point.
+
 Until #1405 the C# targets existed only under the Visual Studio generator (CMake's `CSharp`
 language), so every Ninja tree, including `dev-cached` and all of CI, produced this log line by
 design. They are now `dotnet build` custom targets under every generator
