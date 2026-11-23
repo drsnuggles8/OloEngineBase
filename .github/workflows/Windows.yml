@@ -303,50 +303,15 @@ jobs:
       with:
         arch: x64
 
+    # Shared with vulkan-software.yml's lavapipe job, which restores this lineage
+    # read-only (#1705): one definition, so the two prefixes cannot drift apart.
     - name: Identify hosted compiler cache lineage
       id: cache_identity
       if: runner.environment == 'github-hosted'
-      shell: pwsh
-      env:
-        OLO_CACHE_VULKAN_VERSION: ${{ steps.vulkan.outputs.version }}
-        OLO_CACHE_PROBE: ${{ inputs.cache_probe }}
-        OLO_CACHE_OVERLAY_PORTS: ${{ hashFiles('cmake/overlay-ports/**') }}
-      run: |
-        $compiler = (Get-Command cl.exe).Source
-        # The dependency set is part of the lineage (#1673): a vcpkg baseline bump changes
-        # headers nearly every TU includes, so a cache restored across one is reused at ~5%
-        # and check_sccache_health.py rightly calls that near-zero-warm. Keyed on the
-        # baseline and our overlay ports, such a bump starts a fresh lineage that the
-        # health check reports as cold, which is what it is.
-        $baseline = (Get-Content -Raw vcpkg.json | ConvertFrom-Json).'builtin-baseline'
-        $identity = [ordered]@{
-          compiler = $compiler
-          compiler_sha256 = (Get-FileHash -Algorithm SHA256 $compiler).Hash.ToLowerInvariant()
-          msvc = $env:VCToolsVersion
-          windows_sdk = $env:WindowsSDKVersion
-          image = $env:ImageVersion
-          sccache = '0.15.0'
-          vcpkg_baseline = $baseline
-          overlay_ports = $env:OLO_CACHE_OVERLAY_PORTS
-        }
-        if (-not $identity.image -or -not $identity.msvc -or -not $identity.windows_sdk) {
-          throw 'Hosted compiler/image identity is incomplete'
-        }
-        if (-not $baseline -or -not $env:OLO_CACHE_OVERLAY_PORTS) {
-          throw 'Hosted dependency identity is incomplete'
-        }
-        $json = $identity | ConvertTo-Json -Compress
-        $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
-          [Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
-        $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-$fingerprint-"
-        if ($env:OLO_CACHE_PROBE -eq 'true') {
-          # Diagnostic-only: inspect the original failing master lineage. Probes
-          # force hosted execution and never save; normal restores stay fingerprinted.
-          $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-"
-        }
-        "prefix=$prefix" >> $env:GITHUB_OUTPUT
-        $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-toolchain.json"
-        Write-Host $json
+      uses: ./.github/actions/windows-sccache-identity
+      with:
+        vulkan-version: ${{ steps.vulkan.outputs.version }}
+        probe: ${{ inputs.cache_probe }}
 
     # OLO_VIDEO_FFMPEG defaults ON, so the engine build compiles FFmpeg from source
     # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-2025
@@ -523,37 +488,19 @@ jobs:
       with:
         triplet: x64-windows-static-md
 
+    # Ninja Multi-Config + cl.exe + sccache, LTO off; every option is explained in the
+    # action. SHARED WITH vulkan-software.yml's lavapipe job (#1705), which restores
+    # this job's sccache entry read-only: one configure, so the two cannot drift and
+    # leave that job missing on every object. -DOLO_FFMPEG_CACHE_DIR replaced a
+    # conditional -DOLO_FFMPEG_PREFIX passed only on a hit, which was weaker: the
+    # PREFIX fast path accepts a tree containing only avcodec, while the
+    # cache-complete check requires ALL of FFMPEG_LIBS and falls through to a real
+    # build otherwise.
     - name: Configure CMake
-      # -DOLO_FFMPEG_CACHE_DIR: point ffmpeg.cmake's shared install tree at the same
-      #   directory the restore/save steps above cache. On a hit its "cache complete"
-      #   fast path finds every consumed library and skips the ExternalProject build
-      #   entirely; on a miss it builds into that directory, which the save then banks.
-      #   This replaces a conditional -DOLO_FFMPEG_PREFIX that was passed only on a hit
-      #   -- redundant now that both sides name one directory, and weaker: the PREFIX
-      #   fast path accepts a tree containing only avcodec, while the cache-complete
-      #   check requires ALL of FFMPEG_LIBS and falls through to a real build otherwise.
-      #
-      # -G "Ninja Multi-Config": required for the sccache compiler launcher to
-      #   engage (see the MSVC dev-env step above). -C Release still selects the
-      #   Release config in the build/ctest steps, exactly as the VS generator did.
-      # -DCMAKE_*_COMPILER=cl: force MSVC cl.exe (msvc-dev-cmd put it on PATH) so
-      #   Ninja doesn't auto-pick a clang/gcc that may also be on the runner.
-      # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
-      #   MSVC debug info to /Z7 (Embedded) so objects are cacheable (cmake/CompilerCache.cmake).
-      # -DOLO_ENABLE_LTO=OFF: CI binaries are for testing, not shipping. Dropping
-      #   LTO removes the slow /LTCG link AND the /GL flag that would otherwise make
-      #   sccache unable to cache the object files.
-      shell: bash
-      run: |
-        cmake -S . -B "${GITHUB_WORKSPACE}/build" \
-          -G "Ninja Multi-Config" \
-          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
-          -DOLO_ENABLE_COMPILER_CACHE=ON \
-          -DOLO_ENABLE_LTO=OFF \
-          -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
-          -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
-          -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
-          ${{ steps.vcpkg.outputs.toolchain-args }}
+      uses: ./.github/actions/windows-ninja-configure
+      with:
+        python-path: ${{ steps.py.outputs.python-path }}
+        toolchain-args: ${{ steps.vcpkg.outputs.toolchain-args }}
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB

@@ -377,6 +377,7 @@ suggest:
 |---|---|---|---|
 | `Windows.yml / build` | windows-2025 | every native change | `sccache-windows-2025-release`, `vcpkg-Windows`, `Windows-vulkan-prebuilt-sdk`, `ffmpeg-Windows` |
 | `asan.yml / asan-windows` | windows-2025 | every native change | `sccache-asan-windows-2025` (#1082); shares the vcpkg and Vulkan entries above |
+| `vulkan-software.yml / lavapipe` | windows-2025 | only its own file and the Vulkan capability/context paths, plus nightly | **none of its own** (#1705): restores the `Windows.yml / build` sccache and FFmpeg entries read-only, configured by the same `windows-ninja-configure` action, and saves only vcpkg |
 | `dist-archive.yml / archive` | windows-2025 | only 4 paths (`CMakeLists.txt`, two `cmake/*.cmake`, its own file) | vcpkg only. A full Dist build with **no compiler cache**, and that is correct — a job that runs on a few percent of PRs should not hold ~2 GiB. |
 | `steam-stub.yml / single-valve-tu` | ubuntu-24.04 | only Steam-seam changes | none; it compiles one TU |
 | `pre-commit`, `detect-changes`, `cancel-merged-pr-runs` | ubuntu-latest | every PR | none; seconds |

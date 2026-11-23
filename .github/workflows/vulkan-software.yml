@@ -69,6 +69,13 @@ on:
         description: 'force ray query off (the gate must then fail the job)'
         type: boolean
         default: false
+      cold_cache:
+        # Measurement only (#1705): skip the sccache restore so the build runs
+        # from an empty cache, the cost of a run whose lineage has no master
+        # entry (a runner image roll, a vcpkg baseline or Vulkan SDK bump).
+        description: 'build with an empty compiler cache (measures the cold build)'
+        type: boolean
+        default: false
   schedule:
     # Nightly at 04:23 UTC — after cross-vendor.yml's 03:47 so the two software
     # jobs do not contend for hosted concurrency, and on an odd minute to avoid
@@ -90,6 +97,11 @@ on:
       - 'OloEngine/src/Platform/Vulkan/VulkanContext.*'
       - 'OloEngine/tests/Rendering/PropertyTests/TestRenderBackend.*'
       - 'OloEngine/tests/vulkan_scene_filter.txt'
+      # The key of the compiler cache this job restores (#1705). A change here
+      # can leave the job restoring nothing and building cold, which is the
+      # six-hour failure this cache exists to prevent.
+      - '.github/actions/windows-sccache-identity/**'
+      - '.github/actions/windows-ninja-configure/**'
 
 # Read-only: this job builds and runs tests, it never comments, labels or
 # publishes. Declared explicitly so a future step cannot quietly acquire write
@@ -116,6 +128,17 @@ env:
   # SHA256 of mesa3d-<MESA_VERSION>-release-msvc.7z, lowercase hex. Bump it with
   # the version: the download step refuses an archive that does not match.
   MESA_SHA256: 'dcb2719ef346dab5b609fcb193a5f13cfc4b0502e3f4de1ad43d349477402f47'
+  # THE COMPILER CACHE IS WINDOWS.YML'S, READ-ONLY (#1705). Same SCCACHE_DIR,
+  # size and idle timeout as that file (its env block has the reasons), because
+  # this job restores the entry Windows.yml's `build` job banks on every master
+  # push and nightly. This job never saves one: a second ~2.7 GiB lineage would
+  # cost the 25 GB store and be warmed only once a day, by the nightly here.
+  SCCACHE_DIR: ${{ github.workspace }}/.sccache
+  SCCACHE_CACHE_SIZE: "3200M"
+  SCCACHE_IDLE_TIMEOUT: "0"
+  # Where Windows.yml caches its FFmpeg install. This job builds with FFmpeg ON
+  # for the cache's sake (see Configure CMake), and restores that tree read-only.
+  OLO_FFMPEG_CACHE_DIR: ${{ github.workspace }}/.ffmpeg-cache
   # The scene suite the --olo-rhi=vulkan step runs and its gate requires
   # (#1556) is OloEngine/tests/vulkan_scene_filter.txt, which the
   # OloEngine-Tests_VulkanScene ctest entry reads too: the renderer-attached smoke cases (less the GL-state one, which
@@ -138,6 +161,11 @@ jobs:
   lavapipe:
     name: Windows / Mesa lavapipe (software Vulkan)
     runs-on: windows-2025
+    # Under GitHub's 360-minute hosted limit on purpose (#1705): runs that
+    # reached it lost their test XML, because nothing after the cancel got to
+    # run. A cancel at 345 runs the `always()` upload steps with 15 minutes in
+    # hand. A warm run is far inside it.
+    timeout-minutes: 345
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -155,13 +183,94 @@ jobs:
           # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
           python -m pip install jinja2==3.1.6
 
-      # Seconds, and ahead of the 2 h build: a broken gate should fail before
-      # the job spends the build on it.
+      # Seconds, and ahead of the build: a broken gate should fail before the
+      # job spends the build on it.
       - name: Check the ray-query coverage gate
         run: python -m unittest discover -s scripts -p test_vulkan_ray_query_coverage.py
 
+      # `id: vulkan`: the sccache key carries the installed SDK version.
       - name: Setup Vulkan SDK
+        id: vulkan
         uses: ./.github/actions/setup-vulkan
+
+      # THE BUILD IS NINJA + cl.exe + SCCACHE (#1705), the shape Windows.yml's
+      # `build` job uses, and for the reason that job gives: the Visual Studio
+      # (MSBuild) generator IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER, so under it
+      # this job compiled the whole engine from nothing on every run. That
+      # build was 2 h 17 m on a fast runner and 3 h 54 m - 4 h 44 m on a slow
+      # one, which put PR runs within minutes of GitHub's 6-hour job limit and
+      # past it more than once. Ninja needs cl.exe and the SDK paths on the job
+      # env; msvc-dev-cmd exports them to every later step.
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Identify the Windows compiler cache lineage
+        id: cache_identity
+        uses: ./.github/actions/windows-sccache-identity
+        with:
+          vulkan-version: ${{ steps.vulkan.outputs.version }}
+
+      # Windows.yml's FFmpeg install, read-only: same path, same key. On a miss
+      # (a ffmpeg.cmake bump not yet banked on master), or a restored tree that
+      # fails ffmpeg.cmake's completeness check, this job builds FFmpeg from
+      # source, ~5-15 min, which needs nasm; so nasm is installed either way.
+      - name: Restore FFmpeg build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
+
+      - name: Install nasm
+        run: choco install nasm -y --no-progress
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.15.0"
+
+      # Restores the newest entry of Windows.yml's lineage this run can see: in
+      # practice master's, since Windows.yml saves none on pull requests (a
+      # dispatch on a branch would bank one for that ref). There is no matching
+      # save here, on any event: see SCCACHE_DIR above. The `cold_cache`
+      # dispatch input skips it to measure a build that finds nothing.
+      - name: Restore sccache storage
+        id: sccache_restore
+        if: ${{ !inputs.cold_cache }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: ${{ steps.cache_identity.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ steps.cache_identity.outputs.prefix }}
+
+      # The producer's object manifest leaves SCCACHE_DIR before the server
+      # starts (Windows.yml has the reason); the health check reads it below.
+      #
+      # A restore that matched nothing is a WARNING, not a notice: this job then
+      # builds for hours and can reach the 6-hour limit again. The causes are a
+      # lineage master has not banked yet (an image roll, an SDK or baseline
+      # bump; the next master push fixes it) or Windows.yml no longer producing
+      # hosted entries at all -- vars.OLO_WINDOWS_SELF_HOSTED routes its PR runs
+      # only, but the day the nightly and push warm move too, this job goes cold
+      # for good (ADR 0019).
+      - name: Set aside the restored object manifest
+        shell: pwsh
+        env:
+          OLO_CACHE_RESTORED_KEY: ${{ steps.sccache_restore.outputs.cache-matched-key }}
+          OLO_COLD_CACHE: ${{ inputs.cold_cache }}
+        run: |
+          if (-not $env:OLO_CACHE_RESTORED_KEY -and $env:OLO_COLD_CACHE -ne 'true') {
+            Write-Output "::warning::No Windows.yml sccache entry matched ${{ steps.cache_identity.outputs.prefix }}; this build runs cold and can take hours."
+          }
+          $manifest = Join-Path $env:SCCACHE_DIR 'olo-object-manifest.json'
+          if (Test-Path -LiteralPath $manifest) {
+            Move-Item -LiteralPath $manifest -Destination "$env:RUNNER_TEMP/cache-manifest-restored.json"
+            Write-Host 'The restored snapshot carries an object manifest.'
+          } else {
+            Write-Host 'No object manifest restored; the health check judges the raw hit rate.'
+          }
 
       # Third-party deps come from the vcpkg manifest (issue #773).
       - name: Setup vcpkg
@@ -170,28 +279,22 @@ jobs:
         with:
           triplet: x64-windows-static-md
 
+      # WINDOWS.YML'S CONFIGURE, THE SAME ACTION (#1705). sccache keys an object
+      # on its full compile command, so this job reuses that job's objects only
+      # while every option that reaches a compile line is identical. That is
+      # why FFmpeg is now ON here although no test this job runs decodes video:
+      # OLO_VIDEO_FFMPEG=1 is a PUBLIC define on OloEngine, and the old
+      # -DOLO_VIDEO_FFMPEG=OFF changed the command of every engine and test TU.
+      # USD, Alembic and MaterialX stay off, as before.
+      #
+      # LTO OFF is the one change to WHAT is tested: /GL objects cannot be
+      # cached. Still Release (/O2, NDEBUG); only link-time cross-module
+      # inlining goes, as in Windows.yml's own test run.
       - name: Configure CMake
-        # Option set copied from cross-vendor.yml for the same reason: this job
-        # tests GPU-backend conformance, not video decode or DCC interchange, so
-        # it skips the ~15 min FFmpeg-from-source build and the USD/Alembic/
-        # MaterialX ports.
-        #
-        # NO SCCACHE, and the honest reason is NOT the one cross-vendor.yml
-        # gives. That file says its ~25 min wall clock "is dominated by the
-        # llvmpipe TEST run, not the build", so caching the build is not worth
-        # it. Measured on its 2026-09-19 nightly (run 35419666930), that job is
-        # 2 h 45 m: build 2 h 37 m, test run 2 m 24 s. The claim is inverted and
-        # the figure is off by more than 6x -- filed as a follow-up rather than
-        # fixed here, since it is another job's design.
-        #
-        # The real reason is mechanical and unchanged: the default Visual Studio
-        # (MSBuild) generator IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER, so sccache
-        # cannot engage without switching to Ninja (+ ilammy/msvc-dev-cmd,
-        # forcing cl.exe, LTO OFF, and Windows.yml's C#-project trade-off). That
-        # switch is worth a real look for BOTH software jobs, because the build
-        # is in fact the entire cost -- but it is a separate change, not a rider
-        # on standing this job up.
-        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF ${{ steps.vcpkg.outputs.toolchain-args }}
+        uses: ./.github/actions/windows-ninja-configure
+        with:
+          python-path: ${{ steps.py.outputs.python-path }}
+          toolchain-args: ${{ steps.vcpkg.outputs.toolchain-args }}
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
       # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -206,16 +309,67 @@ jobs:
           key: ${{ steps.vcpkg.outputs.cache-key }}
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
+      # Before the parallel build, so no two compiles race to start a server
+      # (.github/actions/start-sccache has the failure).
+      - name: Start the sccache server
+        uses: ./.github/actions/start-sccache
+
       - name: Build tests
-        run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel
+        id: build
+        run: cmake --build ${{github.workspace}}/build --target OloEngine-Tests --config ${{env.BUILD_TYPE}}
+
+      - name: Print the sccache server log
+        if: failure()
+        uses: ./.github/actions/start-sccache
+        with:
+          report: 'true'
+
+      # The hit rate this job exists to have, on the run page (#1705). Report
+      # only: the cache is Windows.yml's, whose own health check gates it, and a
+      # cold restore here costs time, not correctness. The manifest lets the
+      # check tell a cache that is not serving from a PR that changed a header
+      # most TUs include.
+      - name: Record the compiler object manifest
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: >
+          python scripts/sccache_object_manifest.py --build-dir "${{github.workspace}}/build"
+          --config "${{env.BUILD_TYPE}}" --output "$env:RUNNER_TEMP/cache-manifest.json"
+
+      - name: Report compiler cache health
+        if: always() && steps.build.outcome != 'skipped'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          OLO_CACHE_RESTORED_KEY: ${{ steps.sccache_restore.outputs.cache-matched-key }}
+          OLO_CACHE_BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          sccache --show-stats
+          $stats = sccache --show-stats --stats-format=json
+          if ($LASTEXITCODE -ne 0) { $stats = '' }
+          $stats | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-stats.json"
+          python scripts/check_sccache_health.py --stats "$env:RUNNER_TEMP/cache-stats.json" `
+            --output "$env:RUNNER_TEMP/cache-health.json" `
+            --restored-manifest "$env:RUNNER_TEMP/cache-manifest-restored.json" `
+            --current-manifest "$env:RUNNER_TEMP/cache-manifest.json"
+          exit $LASTEXITCODE
+
+      - name: Report the build tail
+        if: always() && steps.build.outcome != 'skipped'
+        continue-on-error: true
+        shell: pwsh
+        run: >
+          & "${{github.workspace}}/scripts/Report-NinjaBuildTail.ps1"
+          -BuildDir "${{github.workspace}}/build"
 
       - name: Download Mesa3D (lavapipe Vulkan ICD + llvmpipe OpenGL)
         shell: pwsh
         run: |
           $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${{env.MESA_VERSION}}/mesa3d-${{env.MESA_VERSION}}-release-msvc.7z"
           # curl.exe with every error retried, not Invoke-WebRequest, which
-          # gives up on the first dropped connection. This step runs after a
-          # build of two hours or more, so a failed download costs all of it.
+          # gives up on the first dropped connection. This step runs after the
+          # build (minutes warm, hours cold), so a failed download costs all of it.
           curl.exe --fail --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors --output mesa3d.7z $url
           if ($LASTEXITCODE -ne 0) { throw "Mesa download failed: $url" }
           $sha256 = '${{env.MESA_SHA256}}'
@@ -297,11 +451,15 @@ jobs:
 
       - name: Run the Vulkan suites under lavapipe
         working-directory: OloEditor
-        # See docs/agent-rules/vulkan-software-driver-ci.md for the measured
-        # figure this cap is set against; the llvmpipe GL job is ~25 min for
-        # comparison. Capped well under the default 6-hour job timeout so a hung
-        # OloEngine-Tests.exe is killed rather than burning runner minutes.
-        timeout-minutes: 90
+        # SIZED FOR THE SLOWEST HOSTED RUNNER SEEN (#1705). This step took
+        # 9.2 min on a fast nightly and 44-46 min on typical PR runs; on PR run
+        # 43962774742 the runner was ~10x slower than that nightly and the step
+        # was still running at 75 min when the job limit cancelled it. ~10x of
+        # 9.2 min is ~92 min, past the old 90-minute cap, so 150 min leaves
+        # ~1.6x over the worst runner seen while still killing a hung
+        # OloEngine-Tests.exe well inside the 6-hour job limit now that the
+        # build is cached. Figures: docs/agent-rules/vulkan-software-driver-ci.md.
+        timeout-minutes: 150
         env:
           # BOTH spellings on purpose: VK_DRIVER_FILES is the current loader
           # variable, VK_ICD_FILENAMES its deprecated predecessor, and which one
@@ -405,10 +563,16 @@ jobs:
       # the sun's direct light, so whichever groom case follows fails. Every
       # case passes alone, so each gets its own process; the rest of the filter
       # stays one. Each writes its own XML and the gate below reads them all.
+      #
+      # 150 MINUTES, sized like the step above (#1705): 8.9 min on a fast
+      # nightly, 63-67 min on slow PR runners, and 74 min when PR #1722's run
+      # was cancelled partway through its last groom case. This step scales
+      # worse than the Vulkan one (7.6x against 4.8x on run 44033238325), so
+      # the ~10x runner lands near 90-100 min, past the old 90-minute cap.
       - name: Run the scene suite on the windowless Vulkan context (lavapipe)
         if: ${{ !cancelled() }}
         working-directory: OloEditor
-        timeout-minutes: 90
+        timeout-minutes: 150
         env:
           VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
           VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}

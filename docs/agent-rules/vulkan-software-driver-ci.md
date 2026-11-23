@@ -109,6 +109,13 @@ and the job hit GitHub's 6-hour limit with cases unrun. They moved to the hardwa
 `OloEngine-Tests_VulkanSceneHeavy`, beside `OloEngine-Tests_VulkanPipelineSeed`. Before adding a
 scene suite to the filter, time it on lavapipe; a suite measured in minutes goes to that entry.
 
+**Budget the job against the slowest hosted runner, and configure it only through
+`.github/actions/windows-ninja-configure`** (#1705). Runners differ ~10x in test speed: the Vulkan
+step took 9.2 min on a fast nightly and was still running at 75 min on a slow PR runner; both test
+steps now cap at 150 min. The build is Ninja + sccache restoring `Windows.yml`'s master cache
+read-only, so an option that reaches a compile line in one job only (`OLO_VIDEO_FFMPEG` is a PUBLIC
+define) makes every object miss.
+
 Note the asymmetry: (1) is the job doing its job, and (2) is the tax for using a software driver.
 Both look identical in a red run, so attribute a new failure against the hardware arm before
 believing it is an engine regression.

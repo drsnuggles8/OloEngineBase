@@ -1,0 +1,59 @@
+name: 'Configure the Windows Ninja + sccache build'
+description: >
+  The one CMake configure for every Windows job that shares the hosted
+  `sccache-windows-2025-release-*` lineage: Windows.yml's `build` job, which banks it,
+  and vulkan-software.yml's lavapipe job, which restores it read-only (#1705).
+
+  ONE DEFINITION, BECAUSE A DIFFERENCE IS SILENT AND COSTS HOURS. sccache keys an object
+  on its full compile command and preprocessed source, so any option that reaches a
+  compile line -- a define, a flag, the build directory -- makes the consumer miss on
+  every object the producer banked, and the consumer then builds cold for hours with
+  nothing red. OLO_VIDEO_FFMPEG is the example that already bit: it is a PUBLIC define
+  on OloEngine, so the lavapipe job's old -DOLO_VIDEO_FFMPEG=OFF changed every engine
+  and test TU. A job-specific option that changes compile lines belongs in neither job.
+
+  Run it after ilammy/msvc-dev-cmd (cl.exe and the SDK paths on the env) and
+  setup-vcpkg. The tree is `${GITHUB_WORKSPACE}/build`.
+inputs:
+  python-path:
+    description: 'The interpreter setup-python installed (jinja2 must be importable).'
+    required: true
+  toolchain-args:
+    description: "setup-vcpkg's `toolchain-args` output."
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    # -G "Ninja Multi-Config": the Visual Studio (MSBuild) generator IGNORES
+    #   CMAKE_<LANG>_COMPILER_LAUNCHER, so sccache never runs under it. Multi-Config
+    #   keeps the `<target dir>/Release/` output layout and `--config Release`.
+    # -DCMAKE_*_COMPILER=cl: force MSVC cl.exe (msvc-dev-cmd put it on PATH) so
+    #   Ninja doesn't auto-pick a clang/gcc that may also be on the runner.
+    # -DOLO_ENABLE_COMPILER_CACHE=ON: wires sccache as the launcher and switches
+    #   MSVC debug info to /Z7 (Embedded) so objects are cacheable (cmake/CompilerCache.cmake).
+    # -DOLO_ENABLE_LTO=OFF: CI binaries are for testing, not shipping. Dropping
+    #   LTO removes the slow /LTCG link AND the /GL flag that would otherwise make
+    #   sccache unable to cache the object files. Still Release (/O2, NDEBUG).
+    # -DOLO_FFMPEG_CACHE_DIR: point ffmpeg.cmake's shared install tree at the
+    #   directory Windows.yml's FFmpeg restore/save steps cache. On a hit its "cache
+    #   complete" fast path finds every consumed library and skips the ExternalProject
+    #   build entirely; on a miss it builds into that directory. The caller sets
+    #   OLO_FFMPEG_CACHE_DIR in its env.
+    - name: Configure CMake
+      shell: bash
+      env:
+        OLO_PYTHON: ${{ inputs.python-path }}
+      run: |
+        if [ -z "${OLO_FFMPEG_CACHE_DIR:-}" ]; then
+          echo "::error::OLO_FFMPEG_CACHE_DIR is not set; the FFmpeg cache would be missed"
+          exit 1
+        fi
+        cmake -S . -B "${GITHUB_WORKSPACE}/build" \
+          -G "Ninja Multi-Config" \
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
+          -DOLO_ENABLE_COMPILER_CACHE=ON \
+          -DOLO_ENABLE_LTO=OFF \
+          -DPython_EXECUTABLE="${OLO_PYTHON}" \
+          -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+          -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
+          ${{ inputs.toolchain-args }}

@@ -155,7 +155,8 @@ script is a POST_BUILD step, and MSBuild fails a custom build step on any output
 like a compiler diagnostic, whatever the exit code. Tracy's client prints
 `ERROR: SymInitialize FAILED with code 3221225476 (0xc0000004) | ` at start-up when DbgHelp's
 `SymInitialize` fails, which a hosted windows-2025 runner does intermittently. On PR #1683 the
-lavapipe job (the one MSBuild-generated test build in PR CI) went red twice that way. Discovery
+lavapipe job (then the one MSBuild-generated test build in PR CI; Ninja since #1705) went red
+twice that way. Discovery
 itself had succeeded (10308 cases), and the 07:55 run on the same tree and image was green. With two colons
 ahead of the original text, MSBuild's `origin: error:` pattern cannot match the line; a real
 `file(line): error` diagnostic still does and still fails the step. Any other build step that
