@@ -51,8 +51,9 @@ delay between them, before the step fails.
 | `cross-vendor.yml` (Mesa llvmpipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code and SHA-256 checked |
 | `vulkan-software.yml` (Mesa lavapipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code and SHA-256 checked |
 
-The Mesa step of `vulkan-software.yml` runs after a build of two to four hours, so one dropped
-connection there costs the whole job. `Invoke-WebRequest -MaximumRetryCount` was not an
+The Mesa step of `vulkan-software.yml` runs after the build (two to four hours before #1705 gave
+it a compiler cache, and still hours on a cold one), so one dropped connection there costs the
+whole job. `Invoke-WebRequest -MaximumRetryCount` was not an
 alternative: it answers HTTP status codes, not a connection that drops.
 
 `setup-llvm-apt` fetches its signing key with `wget` inside its own four-attempt loop and is left

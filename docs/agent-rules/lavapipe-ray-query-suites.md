@@ -29,9 +29,16 @@ ray-query device, so skipping there is expected.
 ## 2. A device test's fence budget comes from the device
 
 **Use `DeviceFenceWaitBudgetNs(physicalDevice)` from `tests/Rendering/VulkanTestSupport.h` for a
-device test's fence wait, not a literal 10 s.** It gives hardware 10 s and a software ICD 300 s,
+device test's fence wait, not a literal 10 s.** It gives hardware 10 s and a software ICD 900 s,
 classified by `VulkanCapabilities::Evaluate(...).IsSoftware`, the same rule the capability report
 uses.
+
+**Size a software budget for the slowest hosted runner, not a developer box** (#1705). GitHub's
+`windows-2025` runners differ ~10x in test speed from run to run: the first-draw compile below
+cost ~30 s on one nightly and ~330-390 s on PR run 43962774742, where 7 of 8 cases failed at the
+old 300 s budget. 900 s is ~2.3x that worst wait. A hang's assertion fires within 15 minutes and
+names the case, but the process then blocks in the fixture's `vkDeviceWaitIdle` (no timeout) until
+the CI step timeout kills it.
 
 The reason: **llvmpipe compiles a fragment shader variant lazily, on the queue thread, at its first
 draw.** That draw's fence wait pays the whole LLVM compile. Measured on lavapipe 26.2.0 with

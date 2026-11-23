@@ -1,0 +1,73 @@
+name: 'Windows sccache lineage identity'
+description: >
+  Compute the hosted Windows sccache key prefix from the actual compiler, image and
+  dependency identity (#1584, #1673). Run it after ilammy/msvc-dev-cmd so cl.exe and
+  the VC/SDK version variables are on the job env.
+
+  ONE DEFINITION FOR EVERY JOB THAT READS THE LINEAGE (#1705). Windows.yml's `build`
+  job produces `sccache-windows-2025-release-*` on every master push and nightly, and
+  vulkan-software.yml's lavapipe job restores the same entries read-only. Both must
+  spell the prefix byte for byte the same, or the consumer restores nothing and
+  silently builds cold for four hours. That is why this is an action and not two
+  copies of a script.
+inputs:
+  vulkan-version:
+    description: 'The Vulkan SDK version setup-vulkan installed (sccache hashes preprocessed Vulkan headers).'
+    required: true
+  probe:
+    description: "'true' drops the fingerprint so Windows.yml's cache probe can inspect the unfingerprinted lineage."
+    required: false
+    default: 'false'
+outputs:
+  prefix:
+    description: 'The restore/save key prefix, ending in a dash.'
+    value: ${{ steps.identity.outputs.prefix }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Identify hosted compiler cache lineage
+      id: identity
+      shell: pwsh
+      env:
+        OLO_CACHE_VULKAN_VERSION: ${{ inputs.vulkan-version }}
+        OLO_CACHE_PROBE: ${{ inputs.probe }}
+        OLO_CACHE_OVERLAY_PORTS: ${{ hashFiles('cmake/overlay-ports/**') }}
+      run: |
+        $compiler = (Get-Command cl.exe).Source
+        # The dependency set is part of the lineage (#1673): a vcpkg baseline bump changes
+        # headers nearly every TU includes, so a cache restored across one is reused at ~5%
+        # and check_sccache_health.py rightly calls that near-zero-warm. Keyed on the
+        # baseline and our overlay ports, such a bump starts a fresh lineage that the
+        # health check reports as cold, which is what it is.
+        $baseline = (Get-Content -Raw vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+        $identity = [ordered]@{
+          compiler = $compiler
+          compiler_sha256 = (Get-FileHash -Algorithm SHA256 $compiler).Hash.ToLowerInvariant()
+          msvc = $env:VCToolsVersion
+          windows_sdk = $env:WindowsSDKVersion
+          image = $env:ImageVersion
+          sccache = '0.15.0'
+          vcpkg_baseline = $baseline
+          overlay_ports = $env:OLO_CACHE_OVERLAY_PORTS
+        }
+        if (-not $identity.image -or -not $identity.msvc -or -not $identity.windows_sdk) {
+          throw 'Hosted compiler/image identity is incomplete'
+        }
+        if (-not $baseline -or -not $env:OLO_CACHE_OVERLAY_PORTS) {
+          throw 'Hosted dependency identity is incomplete'
+        }
+        if (-not $env:OLO_CACHE_VULKAN_VERSION) {
+          throw 'Vulkan SDK version is empty; the key would restore across an SDK bump'
+        }
+        $json = $identity | ConvertTo-Json -Compress
+        $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+          [Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
+        $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-$fingerprint-"
+        if ($env:OLO_CACHE_PROBE -eq 'true') {
+          # Diagnostic-only: inspect the original failing master lineage. Probes
+          # force hosted execution and never save; normal restores stay fingerprinted.
+          $prefix = "sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-"
+        }
+        "prefix=$prefix" >> $env:GITHUB_OUTPUT
+        $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-toolchain.json"
+        Write-Host $json
