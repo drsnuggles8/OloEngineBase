@@ -67,6 +67,78 @@ namespace
     }
 } // namespace
 
+class ClothStartPoseTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        Entity rig = GetScene().CreateEntity("Cloth Rig");
+        Entity rootAnchor = GetScene().CreateEntity("Root Anchor");
+        Entity childAnchor = GetScene().CreateEntity("Child Anchor");
+        childAnchor.SetParent(rig);
+        childAnchor.GetComponent<TransformComponent>().Translation.x = 2.0f;
+        m_Root = GetScene().CreateEntity("Root Cloth");
+        m_Child = GetScene().CreateEntity("Child Cloth");
+        m_Child.SetParent(rig);
+        m_Child.GetComponent<TransformComponent>().Translation.x = 2.0f;
+
+        ClothComponent rootCloth;
+        rootCloth.m_Enabled = true;
+        rootCloth.m_Columns = 5;
+        rootCloth.m_Rows = 5;
+        rootCloth.m_Attachment = ClothAttachment::TopEdge;
+        rootCloth.m_AttachmentEntity = rootAnchor.GetUUID();
+        m_Root.AddComponent<ClothComponent>(rootCloth);
+        m_Child.AddComponent<ClothComponent>(rootCloth).m_AttachmentEntity = childAnchor.GetUUID();
+
+        Entity collapsedAnchor = GetScene().CreateEntity("Collapsed Anchor");
+        collapsedAnchor.GetComponent<TransformComponent>().Scale.x = 0.0f;
+        m_SingularBind = GetScene().CreateEntity("Cloth With Singular Bind");
+        m_SingularBind.GetComponent<TransformComponent>().Translation.x = 20.0f;
+        m_SingularBind.AddComponent<ClothComponent>(rootCloth).m_AttachmentEntity = collapsedAnchor.GetUUID();
+
+        GetScene().PropagateWorldTransforms();
+        rig.GetComponent<TransformComponent>().Translation.x = 4.0f;
+        rootAnchor.GetComponent<TransformComponent>().Translation.x = 6.0f;
+        m_Root.GetComponent<TransformComponent>().Translation.x = 6.0f;
+        EnablePhysics3D();
+    }
+
+    Entity m_Root;
+    Entity m_Child;
+    Entity m_SingularBind;
+};
+
+TEST_F(ClothStartPoseTest, InitializesFromTheLiveWorldPoseBeforePropagation)
+{
+    const TArray<glm::vec3>* root = GetScene().GetClothVertexPositions(m_Root.GetUUID());
+    const TArray<glm::vec3>* child = GetScene().GetClothVertexPositions(m_Child.GetUUID());
+    ASSERT_NE(root, nullptr);
+    ASSERT_NE(child, nullptr);
+    ASSERT_EQ(root->Num(), 25);
+    ASSERT_EQ(child->Num(), root->Num());
+    EXPECT_NEAR((*root)[12].x, 6.0f, 1.0e-4f);
+    for (i32 i = 0; i < root->Num(); ++i)
+        EXPECT_NEAR(glm::length((*child)[i] - (*root)[i]), 0.0f, 1.0e-4f);
+
+    // The first driven pin must stay at its live bind point. A stale anchor
+    // would bake the rig's movement into the pinned offset a second time.
+    const glm::vec3 initialPin = (*child)[2];
+    RunFrames(3);
+    EXPECT_NEAR(glm::length((*child)[2] - initialPin), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ClothStartPoseTest, SingularAnchorLeavesPinnedVerticesAtTheirFiniteRestPose)
+{
+    const TArray<glm::vec3>* positions = GetScene().GetClothVertexPositions(m_SingularBind.GetUUID());
+    ASSERT_NE(positions, nullptr);
+    ASSERT_EQ(positions->Num(), 25);
+    const glm::vec3 initialPin = (*positions)[2];
+    RunFrames(3);
+    EXPECT_TRUE(ComputeBounds(*positions).allFinite);
+    EXPECT_NEAR(glm::length((*positions)[2] - initialPin), 0.0f, 1.0e-4f);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // A free (unpinned) cloth dropped above a static floor. Proves the soft body
 // falls under gravity and collides with rigid geometry instead of passing through.

@@ -233,6 +233,15 @@ namespace OloEngine
 
     namespace
     {
+        [[nodiscard]] bool TryInvertWorldTransform(const glm::mat4& world, glm::mat4& inverse)
+        {
+            const f32 determinant = glm::determinant(world);
+            if (!std::isfinite(determinant) || !(std::abs(determinant) > 0.0f))
+                return false;
+            inverse = glm::inverse(world);
+            return Math::IsFinite(inverse);
+        }
+
         // Forward declarations for the cloth soft-body helpers (issue #460). They are
         // defined in the anonymous namespace next to OnPhysics3DStart (far below), but
         // OnUpdateRuntime — which sits above that — recomputes cloth normals each tick,
@@ -8670,7 +8679,7 @@ namespace OloEngine
 
             JPH::Ref<JPH::SoftBodySharedSettings> settings = JoltShapes::CreateClothSharedSettings(
                 cloth.m_Columns, cloth.m_Rows, cloth.m_Width, cloth.m_Height, cloth.m_Mass,
-                cloth.m_Compliance, cloth.m_BendCompliance, cloth.m_Attachment, GetWorldTransform(entity));
+                cloth.m_Compliance, cloth.m_BendCompliance, cloth.m_Attachment, ComputeWorldTransform(entity));
             if (!settings)
                 continue;
 
@@ -8893,11 +8902,11 @@ namespace OloEngine
         state.m_AttachedVertices = std::move(pinned);
 
         glm::mat4 boneWorldBind;
-        if (!ResolveClothAttachmentTransform(state, boneWorldBind))
+        glm::mat4 invBoneWorldBind;
+        if (!ResolveClothAttachmentTransform(state, boneWorldBind) || !TryInvertWorldTransform(boneWorldBind, invBoneWorldBind))
         {
-            // Should not happen (we just resolved the entity), but fail safe: drop the
-            // attachment so the cloth hangs from the world rather than driving off a
-            // bad transform.
+            // A missing or singular bind frame cannot provide local offsets.
+            // Keep the pinned vertices welded to the world.
             state.m_AttachEntity = 0;
             state.m_AttachBoneIndex = -1;
             state.m_AttachedVertices.Reset();
@@ -8905,7 +8914,6 @@ namespace OloEngine
             return;
         }
 
-        const glm::mat4 invBoneWorldBind = glm::inverse(boneWorldBind);
         state.m_AttachedLocalOffsets.Reset();
         state.m_AttachedLocalOffsets.Reserve(state.m_AttachedVertices.Num());
         for (u32 idx : state.m_AttachedVertices)
@@ -8919,10 +8927,10 @@ namespace OloEngine
     bool Scene::ResolveClothAttachmentTransform(const ClothRuntimeState& state, glm::mat4& outBoneWorld) const
     {
         auto attachOpt = TryGetEntityWithUUID(state.m_AttachEntity);
-        if (!attachOpt)
+        if (!attachOpt || !attachOpt->HasComponent<TransformComponent>())
             return false;
 
-        const glm::mat4 entityWorld = GetWorldTransform(static_cast<entt::entity>(*attachOpt));
+        const glm::mat4 entityWorld = ComputeWorldTransform(*attachOpt);
 
         // -1 (or a skeleton that has since gone away) → the entity's own world transform.
         if (state.m_AttachBoneIndex < 0 || !attachOpt->HasComponent<SkeletonComponent>())
