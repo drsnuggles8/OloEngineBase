@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
 #include "OloEngine/Renderer/Shadow/ShadowPassBrackets.h"
@@ -193,6 +194,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_ResourceBackend = static_cast<u32>(Renderer::GetAPI());
+
         const u32 physicalPageCount = m_PhysicalPageTableResolution * m_PhysicalPageTableResolution;
 
         // R32UI, not a depth format: the raster resolves visibility with
@@ -315,6 +318,7 @@ namespace OloEngine
 
     void VirtualShadowMap::DestroyResources()
     {
+        m_ResourceBackend = 0;
         m_RasterItems.Reset();
         // Free the staging buffer HERE, while the context is alive, not from
         // ~StagedBufferReadback. This VirtualShadowMap lives inside
@@ -395,11 +399,8 @@ namespace OloEngine
         // and gated on m_InertGlobalsUBO alone, so they must go here too: Renderer3D
         // keeps this object across a shutdown/reinitialise, and buffers from the
         // previous RHI lifetime would otherwise be bound as if they were current.
-        m_InertPageTable.Reset();
-        m_InertLocalLights.Reset();
-        m_InertHPB.Reset();
-        m_InertGlobalsUBO.Reset();
-        m_InertPassUBO.Reset();
+        for (InertSamplingSet& set : m_InertSets)
+            set = {};
         m_Initialized = false;
         m_FullInvalidate = true;
     }
@@ -1168,7 +1169,7 @@ namespace OloEngine
 
     void VirtualShadowMap::BindHPBForDeclaredReader()
     {
-        if (m_HPB)
+        if (m_HPB && ResourcesBelongToCurrentBackend())
         {
             m_HPB->Bind();
             return;
@@ -1177,19 +1178,40 @@ namespace OloEngine
         // thread (EnsureInertSamplingBindings, from Init when the feature is
         // off). A caller inside a recording item only binds: an item must not
         // create a buffer.
-        if (!m_InertHPB && !RenderCommand::IsRecordingParallelItem())
+        InertSamplingSet& inert = InertSetForCurrentBackend();
+        if (!inert.HPB && !RenderCommand::IsRecordingParallelItem())
             EnsureInertHPB();
-        if (m_InertHPB)
-            m_InertHPB->Bind();
+        if (inert.HPB)
+            inert.HPB->Bind();
     }
 
     void VirtualShadowMap::EnsureInertHPB()
     {
-        if (m_InertHPB)
+        InertSamplingSet& inert = InertSetForCurrentBackend();
+        if (inert.HPB)
             return;
-        m_InertHPB = StorageBuffer::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_HPB);
+        inert.HPB = StorageBuffer::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_HPB);
         const u32 clean = 0u;
-        m_InertHPB->SetData(&clean, sizeof(clean));
+        inert.HPB->SetData(&clean, sizeof(clean));
+    }
+
+    VirtualShadowMap::InertSamplingSet& VirtualShadowMap::InertSetForCurrentBackend()
+    {
+        const auto backend = static_cast<sizet>(Renderer::GetAPI());
+        OLO_CORE_ASSERT(backend < m_InertSets.size(), "VirtualShadowMap: backend {} has no stand-in slot", backend);
+        return m_InertSets[backend < m_InertSets.size() ? backend : 0u];
+    }
+
+    bool VirtualShadowMap::ResourcesBelongToCurrentBackend() const
+    {
+        return m_ResourceBackend == static_cast<u32>(Renderer::GetAPI());
+    }
+
+    void VirtualShadowMap::ReleaseInertSamplingBindings(const RendererAPI::API backend)
+    {
+        const auto index = static_cast<sizet>(backend);
+        if (index < m_InertSets.size())
+            m_InertSets[index] = {};
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,
@@ -2253,38 +2275,62 @@ namespace OloEngine
     // which only the VSM draw pass ever prepared.
     void VirtualShadowMap::EnsureInertSamplingBindings()
     {
-        if (m_InertGlobalsUBO)
+        InertSamplingSet& inert = InertSetForCurrentBackend();
+        if (inert.Globals)
             return;
 
         using SB = StorageBuffer;
-        m_InertPageTable = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_PAGE_TABLE);
-        m_InertLocalLights = SB::Create(sizeof(glm::vec4), ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS);
+        inert.PageTable = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_PAGE_TABLE);
+        inert.LocalLights = SB::Create(sizeof(glm::vec4), ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS);
 
         VSM::GlobalsUBO disabled{};
         disabled.Params2.x = 0; // VSM_ENABLED
         disabled.Params4.x = 0; // local lights
-        m_InertGlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
-        m_InertGlobalsUBO->SetData(&disabled, VSM::GlobalsUBO::GetSize());
+        inert.Globals = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+        inert.Globals->SetData(&disabled, VSM::GlobalsUBO::GetSize());
 
         const VSM::PassUBO inertPass{};
-        m_InertPassUBO = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
-        m_InertPassUBO->SetData(&inertPass, VSM::PassUBO::GetSize());
+        inert.Pass = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
+        inert.Pass->SetData(&inertPass, VSM::PassUBO::GetSize());
         EnsureInertHPB();
+    }
+
+    void VirtualShadowMap::PrepareSamplingForCurrentBackend()
+    {
+        if (!m_Initialized || !ResourcesBelongToCurrentBackend())
+            EnsureInertSamplingBindings();
+    }
+
+    void VirtualShadowMap::BindInertSampling()
+    {
+        // A recording item only binds (as BindHPBForDeclaredReader): the set
+        // is made on the render thread, by Init for its own backend and by
+        // PrepareSamplingForCurrentBackend before a fork for another one.
+        if (!RenderCommand::IsRecordingParallelItem())
+            EnsureInertSamplingBindings();
+        InertSamplingSet& inert = InertSetForCurrentBackend();
+        if (!inert.Globals)
+        {
+            OLO_CORE_ASSERT(false, "VirtualShadowMap: sampling stand-ins for this backend were not prepared before the fork");
+            return;
+        }
+        inert.Globals->Bind();
+        inert.Pass->Bind();
+        inert.PageTable->Bind();
+        inert.LocalLights->Bind();
     }
 
     void VirtualShadowMap::BindForSampling()
     {
-        if (!m_Initialized)
+        if (!m_Initialized || !ResourcesBelongToCurrentBackend())
         {
             // Not "nothing to do": the shared header declares SSBO 68 / 78 and
             // UBO 81 / 82 whether or not this system ever ran, so returning here
             // left four bindings with no occupant in every PBR and deferred
             // shader. The stubs were created and filled by Init(); bind them.
-            EnsureInertSamplingBindings();
-            m_InertGlobalsUBO->Bind();
-            m_InertPassUBO->Bind();
-            m_InertPageTable->Bind();
-            m_InertLocalLights->Bind();
+            // A VSM whose pages live on another backend (#1655) is off for this
+            // one: its buffers cannot be bound here.
+            BindInertSampling();
             return;
         }
 

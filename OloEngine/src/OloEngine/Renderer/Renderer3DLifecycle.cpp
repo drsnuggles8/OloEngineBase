@@ -581,11 +581,11 @@ namespace OloEngine
 
         // Initialize snow accumulation & ejecta systems
         SnowAccumulationSystem::Init();
-        SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
+        SnowEjectaSystem::Init(s_Data.Scene.SnowEjecta.MaxParticles);
 
         // Initialize precipitation system (use default max particle counts from settings)
-        PrecipitationSystem::Init(s_Data.Precipitation.MaxParticlesNearField,
-                                  s_Data.Precipitation.MaxParticlesFarField);
+        PrecipitationSystem::Init(s_Data.Scene.Precipitation.MaxParticlesNearField,
+                                  s_Data.Scene.Precipitation.MaxParticlesFarField);
         ScreenSpacePrecipitation::Init();
 
         // Initialize the mockable per-frame dt trackers (see

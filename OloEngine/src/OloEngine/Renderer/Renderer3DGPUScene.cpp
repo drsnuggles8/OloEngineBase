@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Shadow/ShadowTechnique.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Wind/WindSystem.h"
 
@@ -1008,6 +1009,10 @@ namespace OloEngine
         // measures object motion against itself rather than against whatever
         // entity happened to hold the same id before.
         //
+        // The scene's render settings (fog, wind, snow, weather, skin) are in
+        // that state too (#1689): a host publishes the incoming scene's after
+        // this, and a scene that never publishes fog draws none.
+        //
         // Not the view (a scene change is not a camera reset), not the frame
         // clock (visible content being replaced does not restart sampling
         // sequences or time), and not the GPU Scene records, which
@@ -1025,7 +1030,45 @@ namespace OloEngine
         s_Data.Scene = RendererSceneState();
         s_Data.SkinProfiles.Reset();
         s_Data.FoliageLeafProfiles.Reset();
+        // The caches passes built from the previous world's content (#1665):
+        // the DDGI probe field, the VSM pages and the caster sets they diff
+        // against. Each converges over many frames, so a kept one shows the
+        // previous world's light and shadow for the first frames of the next.
+        // Every view's, with that view active, as ResetFrameSequences does.
+        ForEachView(
+            []()
+            {
+                if (!s_Data.Pipeline)
+                    return;
+                s_Data.Pipeline->ForEachPass(
+                    [](const auto& pass)
+                    {
+                        if (auto mutablePass = pass)
+                            mutablePass->DropWorldCache();
+                    });
+            });
+        // The snow depth field is the process-wide one of the same kind:
+        // snowfall and footprints accumulated over the previous world's ground.
+        SnowAccumulationSystem::Reset();
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+    }
+
+    bool Renderer3D::HoldsWorldCache()
+    {
+        bool holds = false;
+        ForEachView(
+            [&holds]()
+            {
+                if (!s_Data.Pipeline)
+                    return;
+                s_Data.Pipeline->ForEachPass(
+                    [&holds](const auto& pass)
+                    {
+                        if (pass && pass->HoldsWorldCache())
+                            holds = true;
+                    });
+            });
+        return holds;
     }
 
     const GPUScene& Renderer3D::GetGPUScene()

@@ -101,6 +101,9 @@ namespace OloEngine::SceneTransition
         [[nodiscard]] static SceneRenderSettings CaptureRenderer();
         void Apply(Scene& scene) const;
         void PublishToRenderer() const;
+        /// The world half of PublishToRenderer: everything but the post-process
+        /// stack and the path, which are the view's configuration (#1689).
+        void PublishWorldToRenderer() const;
     };
 
     /// Make `scene`'s authored render settings the renderer's effective ones:
@@ -116,4 +119,18 @@ namespace OloEngine::SceneTransition
 
     /// As above, with the active project's quality tier (none without a project).
     void ApplySceneRenderSettings(const Scene& scene);
+
+    /// Publish only `scene`'s world settings (snow, skin diffusion, fog, wind,
+    /// snow accumulation, snow ejecta, precipitation): the ones that live in
+    /// the renderer's scene state and that Renderer3D::ResetSceneState drops
+    /// (#1689). Scene::OnRuntimeStart and OnSimulationStart call it right after
+    /// their reset, so a scene that starts running draws with its own. The
+    /// post-process stack and the path are the view's configuration and stay
+    /// as they are.
+    void PublishSceneWorldSettings(const Scene& scene);
+
+    /// Copy the renderer's live world settings into `scene`: the editor's edit
+    /// buffer into the Play or Simulate copy, which publishes from its own
+    /// settings when it starts.
+    void CaptureRendererWorldSettings(Scene& scene);
 } // namespace OloEngine::SceneTransition

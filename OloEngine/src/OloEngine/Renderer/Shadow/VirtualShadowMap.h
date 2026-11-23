@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RGPreparedPass.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 // Included, not forward-declared: `Ref<T>`'s destructor calls RefUtils::Release,
 // which needs T complete wherever ~VirtualShadowMap is instantiated. Since
 // ShadowMap.h includes this header, "wherever" is every consumer of the shadow
@@ -515,6 +516,32 @@ namespace OloEngine
         [[nodiscard]] bool IsEnabledAndInitialized() const
         {
             return m_Settings.Enabled && m_Initialized;
+        }
+
+        // Release one backend's sampling stand-ins (#1655), and only those: a
+        // test that selects Vulkan beside a live OpenGL renderer releases the
+        // set its dispatch made there before its device or its allocator goes
+        // away, and leaves the renderer's GL set alone.
+        void ReleaseInertSamplingBindings(RendererAPI::API backend);
+        // Make sure the stand-ins BindForSampling will bind on the current
+        // backend exist. Called on the render thread before a parallel
+        // recording fork (CommandDispatch::BindSceneResources): Init made
+        // only its own backend's set, and an item must not create a buffer.
+        void PrepareSamplingForCurrentBackend();
+
+        // The page cache is a world cache (#1665): pages of the scene's caster
+        // depth, kept while nothing invalidates them. A scene switch at the same
+        // sun direction and render origin would otherwise keep the previous
+        // world's shadows in every page the new casters do not happen to touch.
+        // Marks every page stale, the same full invalidate Init and a light-space
+        // change take; the next frame frees and re-renders them.
+        void InvalidateAllPages()
+        {
+            m_FullInvalidate = true;
+        }
+        [[nodiscard]] bool HoldsCachedPages() const
+        {
+            return IsEnabledAndInitialized() && !m_FullInvalidate;
         }
 
         // The shadow system as a whole was switched off (ShadowSettings::Enabled).
@@ -1101,13 +1128,31 @@ namespace OloEngine
         // initialised. The shader cannot index the two SSBOs in this state —
         // vsmShadowFactor returns early on VSM_ENABLED == 0 — but "cannot" should
         // rest on a bound buffer, not on the null block happening to read zeros.
+        //
+        // One set PER BACKEND (#1655). A buffer belongs to the backend that
+        // created it, and the test binary runs both in one process: the OpenGL
+        // renderer made the set first, a Vulkan suite's PBR replay then bound
+        // those GL buffers from a recording worker, and the GL driver faulted
+        // reading a context that thread does not have. The live resources are
+        // the same: ResourcesBelongToCurrentBackend says whether they may be
+        // bound, and when they may not, the current backend's stand-ins are.
+        struct InertSamplingSet
+        {
+            Ref<StorageBuffer> PageTable;
+            Ref<StorageBuffer> LocalLights;
+            Ref<StorageBuffer> HPB; // BindHPBForDeclaredReader, VSM off
+            Ref<UniformBuffer> Globals;
+            Ref<UniformBuffer> Pass;
+        };
         void EnsureInertSamplingBindings();
         void EnsureInertHPB();
-        Ref<StorageBuffer> m_InertPageTable;
-        Ref<StorageBuffer> m_InertLocalLights;
-        Ref<StorageBuffer> m_InertHPB; // BindHPBForDeclaredReader, VSM off
-        Ref<UniformBuffer> m_InertGlobalsUBO;
-        Ref<UniformBuffer> m_InertPassUBO;
+        void BindInertSampling();
+        [[nodiscard]] InertSamplingSet& InertSetForCurrentBackend();
+        [[nodiscard]] bool ResourcesBelongToCurrentBackend() const;
+        std::array<InertSamplingSet, 3> m_InertSets{}; // indexed by RendererAPI::API
+        // The backend CreateResources made the live resources on; 0 (None)
+        // without them.
+        u32 m_ResourceBackend = 0;
 
         Ref<StorageBuffer> m_PageTable;     // kTotalVirtualPages uints
         Ref<StorageBuffer> m_MetaTable;     // physical page -> owner

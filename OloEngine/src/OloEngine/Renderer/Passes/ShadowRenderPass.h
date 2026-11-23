@@ -308,6 +308,25 @@ namespace OloEngine
         // wait serialised the shadow pass against the passes after it.
         void CaptureFoliageCullDemand();
 
+        // The VSM page cache this pass renders into and the caster sets it
+        // diffs against are a world cache (#1665): the scene switch marks every
+        // page stale and forgets the previous casters, on the view whose pass
+        // this is (Renderer3D::ResetSceneState runs it with that view active).
+        void DropWorldCache() override;
+        [[nodiscard]] bool HoldsWorldCache() const override;
+
+        // The foliage VSM invalidation rotation runs on m_FoliageVsmFrame
+        // (#1580); a sequence restart rewinds it with every other pass's own
+        // index (#1348), so two paired arms rotate through the same layers.
+        void ResetFrameSequence(u32 sequenceSeed) override
+        {
+            m_FoliageVsmFrame = static_cast<u64>(sequenceSeed) * kFrameSequenceSeedStride;
+        }
+        [[nodiscard]] u64 GetFrameSequenceState() const override
+        {
+            return m_FoliageVsmFrame;
+        }
+
       private:
         // Fills m_GroomCasters from this frame's published groom requests.
         //

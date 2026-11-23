@@ -232,17 +232,16 @@ namespace OloEngine::Tests
         m_SavedSettings.Renderer = Renderer3D::GetRendererSettings();
         m_SavedSettings.PostProcess = Renderer3D::GetPostProcessSettings();
         m_SavedSettings.Shadow = Renderer3D::GetShadowMap().GetSettings();
-        m_SavedSettings.Snow = Renderer3D::GetSnowSettings();
-        m_SavedSettings.SkinDiffusion = Renderer3D::GetSkinDiffusionSettings();
-        m_SavedSettings.Fog = Renderer3D::GetFogSettings();
-        m_SavedSettings.Wind = Renderer3D::GetWindSettings();
-        m_SavedSettings.SnowAccumulation = Renderer3D::GetSnowAccumulationSettings();
-        m_SavedSettings.WaterDisturbance = Renderer3D::GetWaterDisturbanceSettings();
-        m_SavedSettings.WaterWake = Renderer3D::GetWaterWakeSettings();
-        m_SavedSettings.WaterFoam = Renderer3D::GetWaterFoamSettings();
-        m_SavedSettings.SnowEjecta = Renderer3D::GetSnowEjectaSettings();
-        m_SavedSettings.Precipitation = Renderer3D::GetPrecipitationSettings();
         m_SettingsSnapshotted = true;
+
+        // Each test is its own world: the scene this fixture creates below is
+        // the one the renderer draws. So the renderer's scene switch runs
+        // first, as a host's does (#1689, #1665): whatever an earlier test's
+        // scene published (fog, wind, snow, weather, water, cloudscape) and
+        // every cache a pass built from that scene's content are dropped.
+        // TearDown runs it again for the next test. The configuration above is
+        // the user's and is snapshotted and restored instead.
+        Renderer3D::ResetSceneState();
 
         // Every test renders the frame sequence a fresh process would, so its
         // output does not depend on how many frames earlier tests rendered.
@@ -322,18 +321,11 @@ namespace OloEngine::Tests
             // Through SetSettings, which recreates the shadow textures on a
             // resolution change; a plain PCSS toggle only rewrites the flags.
             Renderer3D::GetShadowMap().SetSettings(m_SavedSettings.Shadow);
-            Renderer3D::GetSnowSettings() = m_SavedSettings.Snow;
-            Renderer3D::GetSkinDiffusionSettings() = m_SavedSettings.SkinDiffusion;
-            Renderer3D::GetFogSettings() = m_SavedSettings.Fog;
-            Renderer3D::GetWindSettings() = m_SavedSettings.Wind;
-            Renderer3D::GetSnowAccumulationSettings() = m_SavedSettings.SnowAccumulation;
-            Renderer3D::GetWaterDisturbanceSettings() = m_SavedSettings.WaterDisturbance;
-            Renderer3D::GetWaterWakeSettings() = m_SavedSettings.WaterWake;
-            Renderer3D::GetWaterFoamSettings() = m_SavedSettings.WaterFoam;
-            Renderer3D::GetSnowEjectaSettings() = m_SavedSettings.SnowEjecta;
-            Renderer3D::GetPrecipitationSettings() = m_SavedSettings.Precipitation;
             Renderer3D::ApplyRendererSettings();
             m_SettingsSnapshotted = false;
+
+            // The test's world goes with it: see the reset in SetUp.
+            Renderer3D::ResetSceneState();
         }
 
         // THE CAMERA THIS TEST LEFT IN THE RENDERER GOES WITH IT. The render and

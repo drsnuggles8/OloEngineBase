@@ -724,11 +724,18 @@ namespace OloEngine
         // Scene state and the frame clock are not touched.
         static void ResetFrameCamera();
         // Drop what the previous world left in the renderer: object pose
-        // history, environment identities, the scene-published weather and water
-        // settings, the skin and leaf profile slots, and the scene's texture
-        // histories. Call when the world a renderer draws is replaced. Leaves the
-        // view, the frame clock and the GPU Scene records (ResetGPUScene) alone.
+        // history, environment identities, the scene's render settings (fog,
+        // wind, snow, weather, skin diffusion, water; #1689), the skin and leaf
+        // profile slots, the scene's texture histories, and every world cache a
+        // pass built from the previous world's content (the DDGI probe field,
+        // the VSM pages, the snow depth field; #1665). Call when the world a
+        // renderer draws is replaced, then publish the incoming scene's settings
+        // (SceneTransition). Leaves the view's configuration, the frame clock and
+        // the GPU Scene records (ResetGPUScene) alone.
         static void ResetSceneState();
+        // Whether any pass on any view still holds a world cache
+        // (RenderGraphNode::HoldsWorldCache). False right after ResetSceneState.
+        [[nodiscard]] static bool HoldsWorldCache();
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
 
@@ -2111,7 +2118,7 @@ namespace OloEngine
 
         static SnowSettings& GetSnowSettings()
         {
-            return s_Data.Snow;
+            return s_Data.Scene.Snow;
         }
 
         // Skin scattering (issue #1241). Whether the PASS RUNS; whether a given
@@ -2119,12 +2126,12 @@ namespace OloEngine
         // nothing here overrides that.
         static SkinDiffusionSettings& GetSkinDiffusionSettings()
         {
-            return s_Data.SkinDiffusion;
+            return s_Data.Scene.SkinDiffusion;
         }
 
         static FogSettings& GetFogSettings()
         {
-            return s_Data.Fog;
+            return s_Data.Scene.Fog;
         }
 
         static void UploadFogVolumes(const FogVolumesUBOData& data);
@@ -2366,12 +2373,12 @@ namespace OloEngine
 
         static WindSettings& GetWindSettings()
         {
-            return s_Data.Wind;
+            return s_Data.Scene.Wind;
         }
 
         static SnowAccumulationSettings& GetSnowAccumulationSettings()
         {
-            return s_Data.SnowAccumulation;
+            return s_Data.Scene.SnowAccumulation;
         }
 
         /// Boat / actor wake foam field settings (issue #967). Published by the
@@ -2403,12 +2410,12 @@ namespace OloEngine
 
         static SnowEjectaSettings& GetSnowEjectaSettings()
         {
-            return s_Data.SnowEjecta;
+            return s_Data.Scene.SnowEjecta;
         }
 
         static PrecipitationSettings& GetPrecipitationSettings()
         {
-            return s_Data.Precipitation;
+            return s_Data.Scene.Precipitation;
         }
 
         // Per-frame cloudscape / atmosphere state (issue #633). Written by
@@ -3014,6 +3021,26 @@ namespace OloEngine
             // reason: a scene with no water must actively clear the wake rather
             // than inherit the previous scene's.
             WaterWakeSettings WaterWakeShape;
+            // The scene's render settings (#1689): authored per scene, stored
+            // in its file, published by SceneTransition when a host makes the
+            // scene the one it draws (and by Scene::OnRuntimeStart /
+            // OnSimulationStart after their reset), and the four weather ones
+            // driven every tick by a WeatherStateComponent. One world,
+            // whatever looks at it. Reset here so a scene that never publishes
+            // fog does not draw the previous one's. In the editor this copy is
+            // the open scene's edit buffer: the panels write it and a save
+            // captures it back (SceneRenderSettings::CaptureRenderer).
+            SnowSettings Snow;
+            // Skin scattering (issue #1241). A sibling of Snow rather than a
+            // member of it: the two share a UBO BINDING and nothing else — snow
+            // blurs the combined scene colour through its own alpha mask, skin
+            // diffuses the separated diffuse half through an authored profile.
+            SkinDiffusionSettings SkinDiffusion;
+            FogSettings Fog;
+            WindSettings Wind;
+            SnowAccumulationSettings SnowAccumulation;
+            SnowEjectaSettings SnowEjecta;
+            PrecipitationSettings Precipitation;
             // Global IBL fallback (from scene's EnvironmentMap)
             RHI::ResourceHandle GlobalIrradianceMapID{};
             RHI::ResourceHandle GlobalPrefilterMapID{};
@@ -3622,21 +3649,13 @@ namespace OloEngine
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
 
-            // The scene's render settings: one world, whatever looks at it.
-            // (The post-process stack is per view: RendererViewResident.)
-            SnowSettings Snow;
-            // Skin scattering (issue #1241). A sibling of Snow rather than a
-            // member of it: the two share a UBO BINDING and nothing else — snow
-            // blurs the combined scene colour through its own alpha mask, skin
-            // diffuses the separated diffuse half through an authored profile.
-            SkinDiffusionSettings SkinDiffusion;
-            FogSettings Fog;
+            // The scene's render settings (snow, skin, fog, wind, weather) are
+            // its publication and live in RendererSceneState (#1689). The
+            // post-process stack is the view's configuration
+            // (RendererViewResident).
             Ref<UniformBuffer> UnderwaterFogBuffer;
-            WindSettings Wind;
+            // The editor's wind pause toggle: the user's, not the scene's.
             bool WindPaused = false;
-            SnowAccumulationSettings SnowAccumulation;
-            SnowEjectaSettings SnowEjecta;
-            PrecipitationSettings Precipitation;
 
             // Skin profile identity table (issue #1231).
             SkinProfileTable SkinProfiles;

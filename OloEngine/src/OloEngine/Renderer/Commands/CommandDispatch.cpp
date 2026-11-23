@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandDispatchRecordingState.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
@@ -162,6 +163,10 @@ namespace OloEngine
             Ref<UniformBuffer> FoliageUBO;
             Ref<UniformBuffer> WaterUBO;
             Ref<UniformBuffer> VirtualShadowUBO;
+            // The backend SetUBOReferences published the set on (#1655); 0
+            // (None) when nothing is published. A buffer belongs to the
+            // backend that made it: see ResetState.
+            u32 Backend = 0;
         };
         UploadObjects Uploads;
 
@@ -1639,8 +1644,11 @@ namespace OloEngine
     bool CommandDispatch::HasUBOReferences()
     {
         // The camera UBO stands for the set: SetUBOReferences publishes them
-        // together and Shutdown resets them together.
-        return Data().Uploads.CameraUBO != nullptr;
+        // together and Shutdown resets them together. A set published on
+        // another backend is no set (#1655): ResetState drops it, so the
+        // renderer's BeginScene must re-publish rather than keep it.
+        return Data().Uploads.CameraUBO != nullptr &&
+               Data().Uploads.Backend == static_cast<u32>(Renderer::GetAPI());
     }
 
     void CommandDispatch::SetUBOReferences(
@@ -1656,6 +1664,7 @@ namespace OloEngine
         Data().Uploads.BoneMatricesUBO = boneMatricesUBO;
         Data().Uploads.ModelInstanceBuffer = modelInstanceBuffer;
         Data().Uploads.PrevBoneMatricesUBO = prevBoneMatricesUBO;
+        Data().Uploads.Backend = static_cast<u32>(Renderer::GetAPI());
         s_FrameData.ForwardPlus = forwardPlus;
     }
 
@@ -1807,6 +1816,15 @@ namespace OloEngine
         // Here, before any fork, so every recording item inherits it (#1687).
         Renderer3D::BindMotionMatrices();
 
+        // The VSM's sampling stand-ins are per backend (#1655) and a recording
+        // item may only bind them, so the set for the backend this pass records
+        // on is made here, before the fork. Here and not at every fork: only a
+        // pass that publishes scene resources replays the PBR draws that bind
+        // them, and a set made for a fork that never used it outlived the test
+        // device it was made on.
+        if (!RenderCommand::IsRecordingParallelItem())
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().PrepareSamplingForCurrentBackend();
+
         // Publish all shared PBR sampled inputs before the fork, including
         // freshly compute-written cloud shadows and the VSM physical pool.
         // Their first sampled transitions must belong to the caller.
@@ -1923,6 +1941,15 @@ namespace OloEngine
     void CommandDispatch::ResetState()
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        // Shared buffer references published on another backend are not this
+        // frame's to bind (#1655). One process runs both only in the test
+        // binary: the OpenGL renderer publishes its camera and material buffers
+        // once, and a Vulkan suite that dispatches next bound those GL handles,
+        // which cannot resolve there. Dropped, not kept: the renderer that
+        // published them re-publishes at its next BeginScene
+        // (ReclaimSharedRenderState, on HasUBOReferences), on its own backend.
+        if (s_MainData.Uploads.Backend != 0u && s_MainData.Uploads.Backend != static_cast<u32>(Renderer::GetAPI()))
+            s_MainData.Uploads = {};
         ResetBindCacheUnlessFaulted(true);
         s_FrameData.CSMShadowTexture = {};
         s_FrameData.AtlasShadowTexture = {};

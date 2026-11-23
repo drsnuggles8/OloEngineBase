@@ -230,33 +230,23 @@ namespace OloEngine::Tests
         u32 m_RenderWidth = 0;
         u32 m_RenderHeight = 0;
 
-        // Per-test snapshot of EVERY process-wide renderer settings struct,
-        // restored in TearDown, so a test that reconfigures the renderer cannot
-        // leak the change into later tests in the same process. A leaked path
-        // renders every later visual test through the wrong pipeline, a leaked
-        // PCSS softens every golden shadow after it (FoliageWind /
-        // FoliageInteraction, SSIM 0.95 against 0.985), leaked fog hazes them
-        // (#1533), and leaked rain put falling particles into a paused foliage
-        // frame (#1502) — all while GLStateGuard's raw-GL restore reports
-        // nothing wrong. This used to list the structs one leak at a time; it
-        // now holds one field per Renderer3D::Get*Settings() accessor, and
+        // Per-test snapshot of the renderer CONFIGURATION, restored in
+        // TearDown, so a test that reconfigures the renderer cannot leak the
+        // change into later tests in the same process. A leaked path renders
+        // every later visual test through the wrong pipeline, and a leaked PCSS
+        // softens every golden shadow after it (FoliageWind / FoliageInteraction,
+        // SSIM 0.95 against 0.985), all while GLStateGuard's raw-GL restore
+        // reports nothing wrong. The scene-published settings (fog #1533, rain
+        // #1502, wind, snow, water) are not snapshotted: they live in
+        // RendererSceneState and SetUp and TearDown drop them with
+        // Renderer3D::ResetSceneState (#1689).
         // RendererAttachedIsolation.EveryProcessWideSettingsStructIsRestored
-        // fails when an accessor is added without a field here.
+        // fails when a configuration accessor is added without a field here.
         struct ProcessWideSettings
         {
             RendererSettings Renderer{};
             PostProcessSettings PostProcess{};
             ShadowSettings Shadow{}; // lives on the ShadowMap, not on Renderer3D
-            SnowSettings Snow{};
-            SkinDiffusionSettings SkinDiffusion{};
-            FogSettings Fog{};
-            WindSettings Wind{};
-            SnowAccumulationSettings SnowAccumulation{};
-            WaterDisturbanceSettings WaterDisturbance{};
-            WaterWakeSettings WaterWake{};
-            WaterFoam::WaterFoamSettings WaterFoam{};
-            SnowEjectaSettings SnowEjecta{};
-            PrecipitationSettings Precipitation{};
         };
         ProcessWideSettings m_SavedSettings{};
 

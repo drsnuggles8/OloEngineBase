@@ -53,6 +53,18 @@ namespace OloEngine
             m_Previous = std::move(next);
         }
 
+        // Forget the previous casters (a scene switch, #1665): the next Update
+        // treats every caster as new, and the pages it would have invalidated
+        // for departed ones are already dropped by the full invalidate.
+        void Clear()
+        {
+            m_Previous.clear();
+        }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return m_Previous.empty();
+        }
+
       private:
         std::unordered_map<u64, ShadowFamilyFootprint> m_Previous;
     };
