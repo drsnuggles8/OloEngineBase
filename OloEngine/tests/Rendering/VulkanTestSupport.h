@@ -262,8 +262,11 @@ namespace OloEngine::Tests
     // the same ReSTIRPTDevice case took 32.7 s on one nightly and 371 s on PR
     // run 43962774742, where 7 of 8 cases failed at the old 300 s budget. Those
     // waits ran ~330-390 s (case time less ~20 s of setup), so 900 s is ~2.3x
-    // the worst wait seen, and a real hang still fails within 15 minutes,
-    // inside the CI step's own timeout. Raise it again only with a new
+    // the worst wait seen. On a real hang the ASSERT fires within 15 minutes
+    // and names the case in the log, but the process is not bounded by it: a
+    // fixture's TearDown then calls vkDeviceWaitIdle, which has no timeout,
+    // so a hung queue holds the process until the CI step's own timeout kills
+    // it. Raise it again only with a new
     // measurement. Classified by the same rule as the capability report
     // (driver id + device type), never by an environment variable.
     [[nodiscard]] inline u64 DeviceFenceWaitBudgetNs(const VkPhysicalDevice device)
