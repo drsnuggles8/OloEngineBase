@@ -39,6 +39,11 @@ namespace OloEngine
          */
         void OnImGuiRender(bool& isOpen);
 
+        [[nodiscard]] bool IsBuildInProgress() const
+        {
+            return m_IsBuildInProgress.load(std::memory_order_acquire);
+        }
+
         /// Set the path of the scene currently open in the editor.
         /// The build panel shows this as the default start scene.
         void SetEditorScenePath(const std::filesystem::path& path);

@@ -11,6 +11,8 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ProjectSelection.h"
+#include "OloEngine/Scripting/C#/ScriptEngine.h"
 
 #include <charconv>
 #include <filesystem>
@@ -42,12 +44,11 @@ namespace OloEngine
             m_Console.Initialize();
             RegisterConsoleCommands();
 
-            // Mount the project BEFORE loading the scene: deserialization resolves
-            // script files (and anything else) through Project::GetAssetFileSystemPath,
-            // so a scene loaded without a project silently comes up with none of its
-            // scripts attached — the server hosts the world but runs no server-side
-            // gameplay. Mirrors the Project::NewInMemory mount OloRuntime does.
-            MountProject();
+            if (!MountProject())
+            {
+                Application::Get().Close();
+                return;
+            }
 
             // Load scene if specified
             if (!m_Config.ScenePath.empty())
@@ -143,75 +144,62 @@ namespace OloEngine
         }
 
       private:
-        // Infer the project root from the scene path when one was not given: walk up
-        // from the scene until we find the `Assets` directory, whose parent is the
-        // project. `--project` overrides it for layouts this heuristic cannot see.
-        [[nodiscard]] static std::filesystem::path InferProjectDirectory(const std::filesystem::path& scenePath)
+        bool MountProject()
         {
-            for (std::filesystem::path dir = scenePath.parent_path(); !dir.empty(); dir = dir.parent_path())
+            const auto commandLine = Application::Get().GetSpecification().CommandLineArgs;
+            auto launch = ParseProjectLaunchArguments(commandLine.Count, commandLine.Args);
+            if (!launch.MissingValueFor.empty())
             {
-                if (dir.filename() == "Assets")
-                {
-                    return dir.parent_path();
-                }
-                if (dir == dir.parent_path())
-                {
-                    break; // Reached the root without finding it.
-                }
+                OLO_CORE_ERROR("[Server] Missing path after {}", launch.MissingValueFor);
+                return false;
             }
-            return {};
-        }
+            if (launch.Project.empty())
+                launch.Project = m_Config.ProjectPath;
+            if (launch.Scene.empty())
+                launch.Scene = m_Config.ScenePath;
 
-        void MountProject()
-        {
-            std::filesystem::path projectDir = m_Config.ProjectPath.empty()
-                                                   ? InferProjectDirectory(m_Config.ScenePath)
-                                                   : std::filesystem::path(m_Config.ProjectPath);
-
-            if (projectDir.empty())
-            {
-                OLO_CORE_WARN("[Server] No project directory (and none inferable from '{}') — scripts and other "
-                              "project-relative assets will not resolve. Pass --project <dir>.",
-                              m_Config.ScenePath);
-                return;
-            }
-
+            const auto& workingDirectory = Application::GetStartupWorkingDirectory();
+            const auto selection = ResolveProjectSelection(launch, workingDirectory, {}, /*allowLegacyDirectory=*/true);
+            if (selection.Path.empty())
+                return false;
+            if (!launch.Scene.empty())
+                m_Config.ScenePath = (workingDirectory / launch.Scene).string();
             std::error_code ec;
-            if (!std::filesystem::is_directory(projectDir, ec) || ec)
+            if (std::filesystem::is_regular_file(selection.Path, ec))
             {
-                // exists() is true for a regular FILE too; mounting one would log
-                // success and then fail every later asset resolution silently, which
-                // is the exact failure this function exists to prevent.
-                OLO_CORE_WARN("[Server] Project path '{}' is not a directory — scripts will not resolve",
-                              projectDir.string());
-                return;
+                const auto project = Project::Load(selection.Path);
+                if (!project)
+                    return false;
+                const auto& config = project->GetConfig();
+                ScriptEngine::SetProjectAssembly(config.ScriptModulePath);
+                // A named descriptor starts its configured scene. The legacy directory
+                // form keeps the server in lobby mode until a scene is requested.
+                if (m_Config.ScenePath.empty() && selection.Source == ProjectSelectionSource::Explicit &&
+                    std::filesystem::is_regular_file(workingDirectory / launch.Project, ec))
+                    m_Config.ScenePath = config.StartScene.string();
             }
-            if (!std::filesystem::is_directory(projectDir / "Assets", ec) || ec)
+            else if (std::filesystem::is_directory(selection.Path / "Assets", ec))
             {
-                OLO_CORE_WARN("[Server] Project directory '{}' has no Assets/ subdirectory — scripts will not resolve",
-                              projectDir.string());
-                return;
+                ProjectConfig config;
+                if (const auto name = selection.Path.filename().string(); !name.empty())
+                    config.Name = name;
+                config.AssetDirectory = "Assets";
+                Project::NewInMemory(selection.Path, config);
+            }
+            else if (selection.Source == ProjectSelectionSource::SandboxFallback)
+            {
+                OLO_CORE_WARN("[Server] No project found at '{}'; project-relative assets are unavailable", selection.Path.string());
+                return true;
+            }
+            else
+            {
+                OLO_CORE_ERROR("[Server] Project '{}' is neither a descriptor nor a directory with Assets/", selection.Path.string());
+                return false;
             }
 
-            ProjectConfig config;
-            // A trailing separator makes filename() empty — and lexically_normal()
-            // PRESERVES it — so `--project C:/MyGame/` would otherwise fall through
-            // to "Untitled" rather than "MyGame". Drop the trailing separator first.
-            std::filesystem::path namePath = projectDir.lexically_normal();
-            if (!namePath.has_filename())
-            {
-                namePath = namePath.parent_path();
-            }
-            config.Name = namePath.filename().string();
-            if (config.Name.empty())
-            {
-                config.Name = "Untitled";
-            }
-            config.AssetDirectory = "Assets";
-
-            Project::NewInMemory(projectDir, config);
-            OLO_CORE_INFO("[Server] Mounted project '{}' at '{}' (assets: '{}')", config.Name,
+            OLO_CORE_INFO("[Server] Mounted project '{}' at '{}' (assets: '{}')", Project::GetActive()->GetConfig().Name,
                           Project::GetProjectDirectory().string(), Project::GetAssetDirectory().string());
+            return true;
         }
 
         bool LoadScene(const std::string& scenePath)
@@ -220,8 +208,6 @@ namespace OloEngine
             auto tempScene = Scene::Create();
             if (SceneSerializer serializer(tempScene); serializer.Deserialize(scenePath))
             {
-                tempScene->OnRuntimeStart();
-
                 // Success — swap in the new scene
                 if (m_ActiveScene)
                 {
@@ -231,6 +217,7 @@ namespace OloEngine
                     m_ActiveScene->OnRuntimeStop();
                 }
                 m_ActiveScene = tempScene;
+                m_ActiveScene->OnRuntimeStart();
 
                 // Register the running scene with networking. Everything downstream
                 // — capture, interest scoping, spawn/despawn, RPC handlers — early-

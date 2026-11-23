@@ -238,8 +238,9 @@ Two more things that bite:
 
 ## A targeted `--target OloEditor` build ships without C# scripting if one dependency edge goes
 
-**Rule:** keep the `OloEditor → OloEngine-ScriptCore` / `Sandbox-Scripting` dependency edge in the
-root `CMakeLists.txt`, next to the `OloRuntime` edge, inside `if(OLO_WITH_CSHARP)`.
+**Rule:** keep `OloEditor`, `OloRuntime` and `OloServer` dependent on `OloProjectScripts`
+inside `if(OLO_WITH_CSHARP)` in the root `CMakeLists.txt`. The aggregate builds ScriptCore
+and the discovered project assemblies.
 
 `OloEngine-ScriptCore.dll` builds straight into `OloEditor/Resources/Scripts/`. Without the edge the
 DLL is never built, `ScriptEngine::Init` fails to load it, logs
@@ -247,6 +248,19 @@ DLL is never built, `ScriptEngine::Init` fails to load it, logs
 session. That is graceful degradation, not a crash, so a verification loop that only checks for a
 rendered window misses it. If you see that log line, check the edge first, then that the tree was
 configured with `OLO_WITH_CSHARP=ON`. Found by a `/start-work` runtime smoke test, not a tracked issue.
+
+The hosts load the app assembly named by the active project before deserializing its scene
+(#1730). A packaged runtime gets the staged filename from `game.manifest`. A missing assembly
+produces an error with the selected path. When checking an editor launch, press Play and verify
+a log line emitted by the project's script.
+
+On a project switch, drain the outgoing asset manager while its project is still active.
+Asset workers resolve paths through the active project, and each manager must save to the
+registry path it recorded at initialization.
+
+During editor detach, clear synthetic input state and call GLFW's ImGui backend only
+while the ImGui context exists. The overlay detaches before the editor layer. An MCP
+File > Exit click can leave a synthetic cursor or button pending at that point.
 
 Until #1405 the C# targets existed only under the Visual Studio generator (CMake's `CSharp`
 language), so every Ninja tree, including `dev-cached` and all of CI, produced this log line by

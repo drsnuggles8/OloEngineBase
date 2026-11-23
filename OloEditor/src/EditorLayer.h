@@ -91,7 +91,9 @@ namespace OloEngine
 
         void NewProject();
         bool OpenProject();
-        bool OpenProject(const std::filesystem::path& path);
+        bool OpenProject(const std::filesystem::path& path, const std::filesystem::path& launchScene = {});
+        [[nodiscard]] bool IsProjectBuildInProgress() const;
+        void ResetEditorScene();
         void SaveProject();
 
         void NewScene();

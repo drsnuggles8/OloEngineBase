@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../../../OloEngine-ScriptCore/OloEngine.CSharp.props" />
+
+  <PropertyGroup>
+    <AssemblyName>Kestrel-Scripting</AssemblyName>
+    <RootNamespace>Kestrel</RootNamespace>
+    <OutDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', 'Binaries'))</OutDir>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Source/**/*.cs" />
+    <Reference Include="OloEngine-ScriptCore">
+      <HintPath>$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', '..', 'Resources', 'Scripts', 'OloEngine-ScriptCore.dll'))</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

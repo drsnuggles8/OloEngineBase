@@ -115,7 +115,9 @@ namespace OloEngine
         }
 
         static Ref<Project> New();
-        static Ref<Project> Load(const std::filesystem::path& path);
+        // Interactive switches can drain the previous manager after parsing
+        // succeeds, while its project is still active.
+        static Ref<Project> Load(const std::filesystem::path& path, bool shutdownPreviousAssets = false);
         static bool SaveActive(const std::filesystem::path& path);
 
         // @brief Drop the active project AND its asset manager. Called by

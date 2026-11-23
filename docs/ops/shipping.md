@@ -48,7 +48,8 @@ OutputDirectory/GameName/
 │   └── etc/
 └── Resources/
     └── Scripts/
-        └── OloEngine-ScriptCore.dll
+        ├── OloEngine-ScriptCore.dll
+        └── <project script assembly>.dll
 ```
 
 Nobody had drawn the line on what of this a Steam depot actually needs. It does — **every file the
@@ -60,7 +61,7 @@ folder" approach would drag in that the pipeline does **not** write:
 | Path | Ship? | Why |
 |---|---|---|
 | `GameName.exe` / `*.dll` | **Ship** | Entry point + runtime-adjacent dependencies (Windows only — Linux has no DLLs). |
-| `game.manifest` | **Ship** | Required — the runtime reads it before anything else. |
+| `game.manifest` | **Ship** | Names the packed game's start scene and the staged app assembly through `ScriptAssembly`. |
 | `config/renderer.yaml` | **Ship** | Read before the window opens; a missing file falls back to OpenGL, but shipping it makes the default explicit rather than accidental. |
 | `Assets/AssetPack.olopack` | **Ship** | The packed asset content. |
 | `Assets/<loose .lua / textures>` | **Ship** | Resolved by asset-relative path at runtime (`Project::GetAssetFileSystemPath`) — see `CopyScriptFiles`'s doc comment. Not optional; the game breaks without them. |

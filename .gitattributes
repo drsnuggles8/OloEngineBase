@@ -41,6 +41,10 @@ OloEditor/SandboxProject/Assets/Models/DriftKeeper/Keeper.abc filter=lfs diff=lf
 *.patch -text
 *.diff -text
 
+# KESTREL terrain elevation sources can exceed Git's blob limit.
+OloEditor/KestrelProject/Assets/Terrain/**/*.tif filter=lfs diff=lfs merge=lfs -text
+OloEditor/KestrelProject/Assets/Terrain/**/*.tiff filter=lfs diff=lfs merge=lfs -text
+
 # Preserve the full-resolution Samoyed source and cooked coat without Git blob limits.
 OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.bin filter=lfs diff=lfs merge=lfs -text
 OloEditor/SandboxProject/Assets/Models/Samoyed/Samoyed.abc filter=lfs diff=lfs merge=lfs -text

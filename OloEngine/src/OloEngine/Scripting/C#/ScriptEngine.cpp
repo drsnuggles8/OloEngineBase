@@ -24,6 +24,7 @@
 #include "mono/metadata/threads.h"
 #include "mono/metadata/debug-helpers.h"
 #include <mono/utils/mono-logger.h>
+#include <atomic>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -181,7 +182,9 @@ namespace OloEngine
         std::unordered_map<UUID, ScriptFieldMap> EntityScriptFields;
 
         Scope<filewatch::FileWatch<std::string>> AppAssemblyFileWatcher;
-        bool AssemblyReloadPending = false;
+        std::atomic<bool> AssemblyReloadPending = false;
+        u64 AssemblyWatchGeneration = 0;
+        bool ReloadOnSceneStop = false;
 
         bool EnableDebugging = false;
 
@@ -192,17 +195,19 @@ namespace OloEngine
     static ScriptEngineData* s_Data = nullptr;
     static Scene* s_TestSceneContext = nullptr;
 
-    static void OnAppAssemblyFileSystemEvent(const std::string_view, const filewatch::Event change_type)
+    static void QueueAssemblyReload(u64 generation)
     {
-        if (!s_Data->AssemblyReloadPending && change_type == filewatch::Event::modified)
-        {
-            s_Data->AssemblyReloadPending = true;
-
-            OloEngine::Tasks::EnqueueGameThreadTask([]()
-                                                    {
-                s_Data->AppAssemblyFileWatcher.reset();
-                ScriptEngine::ReloadAssembly(); }, "ScriptAssemblyReload");
-        }
+        Tasks::EnqueueGameThreadTask([generation]()
+                                     {
+            if (!s_Data || s_Data->AssemblyWatchGeneration != generation)
+                return;
+            if (s_Data->SceneContext)
+            {
+                s_Data->ReloadOnSceneStop = true;
+                return;
+            }
+            s_Data->AssemblyReloadPending = false;
+            ScriptEngine::ReloadAssembly(); }, "ScriptAssemblyReload");
     }
 
     void ScriptEngine::Init(bool enableDebugging)
@@ -224,34 +229,6 @@ namespace OloEngine
                           "OLO_WITH_CSHARP is ON; needs the .NET SDK) to produce Resources/Scripts/OloEngine-ScriptCore.dll.");
             return;
         }
-
-        // Load project-specific app assembly
-        // Runtime builds place the DLL in Resources/Scripts/; in the editor it
-        // lives under SandboxProject/.  Prefer the runtime path when present so
-        // that packaged games always use the shipped assembly.
-        const std::filesystem::path runtimeAppAssembly = "Resources/Scripts/Sandbox-Scripting.dll";
-        const std::filesystem::path editorAppAssembly = "SandboxProject/Assets/Scripts/Binaries/Sandbox-Scripting.dll";
-
-        if (std::filesystem::exists(runtimeAppAssembly))
-        {
-            if (!LoadAppAssembly(runtimeAppAssembly))
-            {
-                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", runtimeAppAssembly.string());
-            }
-        }
-        else if (std::filesystem::exists(editorAppAssembly))
-        {
-            if (!LoadAppAssembly(editorAppAssembly))
-            {
-                OLO_CORE_ERROR("[ScriptEngine] Could not load app assembly: {}", editorAppAssembly.string());
-            }
-        }
-        else
-        {
-            OLO_CORE_WARN("[ScriptEngine] No app assembly found (C# scripting will be unavailable)");
-        }
-
-        LoadAssemblyClasses();
 
         ScriptGlue::RegisterComponents();
 
@@ -324,6 +301,7 @@ namespace OloEngine
 
     void ScriptEngine::ShutdownMono()
     {
+        s_Data->AppAssemblyFileWatcher.reset();
         // Drop the C#-owned RPC handlers before the domain that backs them goes
         // away — a registered C# RPC's native handler resolves and invokes a managed
         // method, which is a use-after-unload once the app domain is gone. Scoped to
@@ -359,7 +337,6 @@ namespace OloEngine
 
     bool ScriptEngine::LoadAppAssembly(const std::filesystem::path& filepath)
     {
-        s_Data->AppAssemblyFilepath = filepath;
         s_Data->AppAssembly = Utils::LoadMonoAssembly(filepath, s_Data->EnableDebugging);
         if (s_Data->AppAssembly == nullptr)
         {
@@ -368,9 +345,29 @@ namespace OloEngine
 
         s_Data->AppAssemblyImage = ::mono_assembly_get_image(s_Data->AppAssembly);
 
-        s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(filepath.string(), OnAppAssemblyFileSystemEvent);
-        s_Data->AssemblyReloadPending = false;
+        const auto generation = ++s_Data->AssemblyWatchGeneration;
+        s_Data->AppAssemblyFileWatcher = CreateScope<filewatch::FileWatch<std::string>>(
+            filepath.string(), [generation](const std::string&, filewatch::Event change)
+            {
+                if (change == filewatch::Event::modified && !s_Data->AssemblyReloadPending.exchange(true))
+                    QueueAssemblyReload(generation); });
+        OLO_CORE_INFO("[ScriptEngine] Loaded project assembly: {}", filepath.string());
         return true;
+    }
+
+    bool ScriptEngine::SetProjectAssembly(const std::filesystem::path& filepath)
+    {
+        if (!s_Data || !s_Data->RootDomain || s_Data->SceneContext)
+        {
+            OLO_CORE_ERROR("[ScriptEngine] Cannot change project assembly to '{}' while scripting is unavailable or a scene is running",
+                           filepath.string());
+            return false;
+        }
+        if (filepath.empty() && s_Data->AppAssemblyFilepath.empty())
+            return true;
+        s_Data->AppAssemblyFilepath = filepath;
+        s_Data->EntityScriptFields.clear();
+        return RebuildAssemblyDomain();
     }
 
     namespace
@@ -387,9 +384,26 @@ namespace OloEngine
 
     bool ScriptEngine::ReloadAssembly()
     {
+        if (!s_Data || s_Data->AppAssemblyFilepath.empty() || s_Data->SceneContext)
+        {
+            OLO_CORE_WARN("[ScriptEngine] Assembly reload requires a configured project assembly and a stopped scene");
+            return false;
+        }
         const auto reloadStart = std::chrono::steady_clock::now();
-        const auto elapsedSeconds = [reloadStart]
-        { return std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count(); };
+        const bool ok = RebuildAssemblyDomain();
+        const auto elapsedSeconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count();
+        RecordAssemblyReload(s_Data->AppAssemblyFilepath, ok, elapsedSeconds);
+        return ok;
+    }
+
+    bool ScriptEngine::RebuildAssemblyDomain()
+    {
+        s_Data->AppAssemblyFileWatcher.reset();
+        ++s_Data->AssemblyWatchGeneration;
+        s_Data->AssemblyReloadPending = false;
+        s_Data->ReloadOnSceneStop = false;
+        s_Data->EntityClasses.clear();
+        s_Data->EntityClass = nullptr;
 
         // Same reasoning as ShutdownMono: the outgoing domain's RPC handlers must
         // not survive it. Scripts re-register on load. Lua's are untouched.
@@ -403,24 +417,25 @@ namespace OloEngine
         // will set fresh ones.  Without this, a failed reload leaves dangling pointers.
         s_Data->CoreAssemblyImage = nullptr;
         s_Data->AppAssemblyImage = nullptr;
+        s_Data->AppAssembly = nullptr;
 
-        LoadAssembly(s_Data->CoreAssemblyFilepath);
+        if (!LoadAssembly(s_Data->CoreAssemblyFilepath))
+        {
+            OLO_CORE_ERROR("[ScriptEngine] Failed to load the core assembly for project assembly '{}'",
+                           s_Data->AppAssemblyFilepath.string());
+            return false;
+        }
+
+        ScriptGlue::RegisterComponents();
+        s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
+        if (s_Data->AppAssemblyFilepath.empty())
+            return true;
         if (!LoadAppAssembly(s_Data->AppAssemblyFilepath))
         {
-            // The app assembly did not load: the entity-class registry keeps its stale
-            // pre-reload contents (LoadAssemblyClasses ran only on the success path), so
-            // report the failure to the caller rather than pretending the reload worked.
-            OLO_CORE_ERROR("[ScriptEngine] Failed to reload app assembly: {}", s_Data->AppAssemblyFilepath.string());
-            RecordAssemblyReload(s_Data->AppAssemblyFilepath, false, elapsedSeconds());
+            OLO_CORE_ERROR("[ScriptEngine] Failed to load project assembly: {}", s_Data->AppAssemblyFilepath.string());
             return false;
         }
         LoadAssemblyClasses();
-
-        ScriptGlue::RegisterComponents();
-
-        // Retrieve and instantiate class
-        s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
-        RecordAssemblyReload(s_Data->AppAssemblyFilepath, true, elapsedSeconds());
         return true;
     }
 
@@ -527,6 +542,11 @@ namespace OloEngine
         s_TestSceneContext = nullptr;
 
         s_Data->EntityInstances.clear();
+        if (s_Data->ReloadOnSceneStop)
+        {
+            s_Data->ReloadOnSceneStop = false;
+            QueueAssemblyReload(s_Data->AssemblyWatchGeneration);
+        }
     }
 
     ScriptFieldMap& ScriptEngine::GetScriptFieldMap(Entity entity)
@@ -796,13 +816,11 @@ namespace OloEngine
         s_SceneContext = nullptr;
         s_EntityFieldMaps.clear();
     }
-    bool ScriptEngine::LoadAssembly(const std::filesystem::path&)
+    bool ScriptEngine::SetProjectAssembly(const std::filesystem::path& filepath)
     {
-        return false;
-    }
-    bool ScriptEngine::LoadAppAssembly(const std::filesystem::path&)
-    {
-        return false;
+        if (!filepath.empty())
+            OLO_CORE_WARN("[ScriptEngine] Project assembly '{}' requires a build with Mono", filepath.string());
+        return filepath.empty();
     }
     bool ScriptEngine::ReloadAssembly()
     {

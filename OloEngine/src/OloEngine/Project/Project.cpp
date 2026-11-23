@@ -114,12 +114,17 @@ namespace OloEngine
         return s_ActiveProject;
     }
 
-    Ref<Project> Project::Load(const std::filesystem::path& path)
+    Ref<Project> Project::Load(const std::filesystem::path& path, bool shutdownPreviousAssets)
     {
         Ref<Project> project = Ref<Project>::Create();
 
         if (ProjectSerializer serializer(project); serializer.Deserialize(path))
         {
+            if (shutdownPreviousAssets && s_AssetManager)
+            {
+                s_AssetManager->Shutdown();
+                s_AssetManager = nullptr;
+            }
             project->m_ProjectDirectory = path.parent_path();
             s_ActiveProject = project;
             return s_ActiveProject;

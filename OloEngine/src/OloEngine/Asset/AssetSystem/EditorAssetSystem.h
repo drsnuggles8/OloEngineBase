@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Task/Task.h"
 #include "OloEngine/Threading/Mutex.h"
 
 #include <queue>
@@ -131,6 +133,8 @@ namespace OloEngine
         sizet GetQueueLength() const;
 
       private:
+        void RunQueuedLoad(const AssetMetadata& metadata, bool supportsAsync);
+
         /**
          * @brief Ensure all loaded assets are current
          */
@@ -138,6 +142,8 @@ namespace OloEngine
 
       private:
         std::atomic<bool> m_Running = true;
+        FMutex m_LoadTasksMutex;
+        TArray<Tasks::FTask> m_LoadTasks;
 
         // Ready assets queue (fully loaded assets ready for main thread)
         std::queue<EditorAssetLoadResponse> m_ReadyAssets;

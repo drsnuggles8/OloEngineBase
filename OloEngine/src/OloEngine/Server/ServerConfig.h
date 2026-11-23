@@ -16,11 +16,8 @@ namespace OloEngine
         // rate is a bandwidth decision. 20 Hz is the usual shooter default.
         u32 SnapshotRate = 20;
         std::string ScenePath;
-        // Project root to mount (the directory containing `Assets/`). Empty means
-        // "infer it from ScenePath". Without a mounted Project, anything resolved
-        // through Project::GetAssetFileSystemPath — notably every Lua script a
-        // scene references — fails to load, so a dedicated server could host a
-        // scene but never run its server-side gameplay scripts.
+        // Project descriptor or legacy directory containing Assets/.
+        // When empty, startup tries the scene's project and then the shared fallback.
         std::string ProjectPath;
         std::string Password;
         std::string LogLevel = "Info";

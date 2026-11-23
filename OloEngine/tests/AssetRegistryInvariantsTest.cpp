@@ -36,6 +36,7 @@
 #include "OloEngine/Project/Project.h"
 
 #include "TestTempDir.h"
+#include "TestAsyncLoadHooks.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -93,6 +94,81 @@ namespace OloEngine::Tests
 #endif
         }
     } // namespace
+
+    TEST(AssetRegistryInvariants, OutgoingAssetManagerSavesOnlyItsOwnRegistry)
+    {
+        ProjectScope projectScope;
+        const auto outgoing = TempDir("outgoing-project");
+        const auto incoming = TempDir("incoming-project");
+        std::filesystem::create_directories(outgoing / "Assets");
+        std::filesystem::create_directories(incoming / "Assets");
+        ASSERT_TRUE(std::ofstream(outgoing / "Assets" / "Outgoing.cs").good());
+
+        const auto incomingRegistryPath = incoming / "AssetRegistry.oar";
+        AssetRegistry incomingRegistry;
+        incomingRegistry.AddAsset(MakeMetadata(AssetHandle{ 42 }, AssetType::ScriptFile, "Assets/Incoming.cs"));
+        ASSERT_TRUE(incomingRegistry.Serialize(incomingRegistryPath));
+        const auto incomingBefore = ReadAllBytes(incomingRegistryPath);
+
+        ProjectConfig config;
+        config.AssetDirectory = "Assets";
+        Project::NewInMemory(outgoing, config);
+        auto manager = Ref<EditorAssetManager>::Create();
+        manager->Initialize(false);
+        Project::SetAssetManager(manager);
+        const auto outgoingRegistryPath = outgoing / "AssetRegistry.oar";
+        const auto outgoingBefore = ReadAllBytes(outgoingRegistryPath);
+
+        Project::NewInMemory(incoming, config);
+        manager->Shutdown();
+
+        EXPECT_EQ(ReadAllBytes(outgoingRegistryPath), outgoingBefore);
+        EXPECT_EQ(ReadAllBytes(incomingRegistryPath), incomingBefore);
+    }
+
+    TEST(EditorAssetSystemTest, ShutdownDrainsAQueuedLoadBeforeReturning)
+    {
+        EnsureTaskSchedulerStarted();
+        const u32 workerCount = LowLevelTasks::FScheduler::Get().GetNumWorkers();
+        ASSERT_GT(workerCount, 0u);
+
+        struct WorkerGate
+        {
+            Signal AllParked;
+            Signal Release;
+            std::atomic<u32> Parked{ 0 };
+            std::atomic<bool> TimedOut{ false };
+        };
+        const auto gate = std::make_shared<WorkerGate>();
+        TArray<Tasks::FTask> blockers;
+        for (u32 worker = 0; worker < workerCount; ++worker)
+        {
+            blockers.Add(Tasks::Launch("Park editor asset test worker", [gate, workerCount]()
+                                       {
+                if (gate->Parked.fetch_add(1) + 1 == workerCount)
+                    gate->AllParked.Set();
+                if (!gate->Release.WaitFor())
+                    gate->TimedOut.store(true); }, Tasks::ETaskPriority::High));
+        }
+
+        // Park real workers so the load stays queued until shutdown retracts it.
+        const bool allParked = gate->AllParked.WaitFor();
+        EditorAssetSystem system;
+        if (allParked)
+            system.QueueAssetLoad({ AssetHandle{ 42 }, AssetType::Texture2D, TempFile("queued.png") });
+        const auto before = system.GetQueueLength();
+        system.StopAndWait();
+        const auto after = system.GetQueueLength();
+
+        gate->Release.Set();
+        for (auto& blocker : blockers)
+            blocker.Wait();
+
+        ASSERT_TRUE(allParked);
+        EXPECT_FALSE(gate->TimedOut.load());
+        EXPECT_EQ(before, 1u);
+        EXPECT_EQ(after, 0u);
+    }
 
     // -------------------------------------------------------------------------
     // AddAsset → both indices updated, all query methods agree.

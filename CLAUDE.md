@@ -118,7 +118,7 @@ Mono assemblies relative to `OloEditor/`; run them with `cwd = OloEditor/` (the 
 [.vscode/tasks.json](.vscode/tasks.json) do). The test binary runs from the repo root.
 
 Targets: `OloEngine` (static lib), `OloEditor`, `OloRuntime`, `OloServer`, `OloEngine-Tests`,
-`OloEngine-LuaScriptCore`, and `OloEngine-ScriptCore` / `Sandbox-Scripting` for C# (`dotnet build`
+`OloEngine-LuaScriptCore`, and `OloProjectScripts` for ScriptCore and project C# assemblies (`dotnet build`
 under any generator; needs the .NET SDK, `OLO_WITH_CSHARP` defaults ON on Windows).
 `OloEngine` and `OloEngine-ScriptCore` depend on `GenerateBindings` (OloHeaderTool, see
 [.claude/rules/ecs-components.md](.claude/rules/ecs-components.md)).
@@ -144,7 +144,7 @@ C++23, OpenGL 4.6 with DSA, Vulkan behind the RHI. ECS is EnTT under an `Entity`
   ([ADR 0015](docs/adr/0015-editor-is-windows-only-linux-ships-runtime-only.md)). ADRs live in
   `docs/adr/`; read them before proposing structural changes.
 - **The game is KESTREL**, a second project beside `SandboxProject` that will live at
-  `OloEditor/KestrelProject` once its scaffold (#1730) lands; what goes in `OloEngine/` versus the
+  `OloEditor/KestrelProject`; what goes in `OloEngine/` versus the
   project: [ADR 0027](docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md). The goal
   and its critical path: [north-star.md](docs/process/north-star.md).
 - **Primitives:** `Ref<T>` from `Core/Ref.h`; `u32`, `f32`, `sizet` from `Core/Base.h`, global scope.
@@ -167,7 +167,7 @@ C++23, OpenGL 4.6 with DSA, Vulkan behind the RHI. ECS is EnTT under an `Entity`
 
 - **Wrong working directory** → missing shaders or Mono assemblies at startup.
 - **`[ScriptEngine] OloEngine-ScriptCore assembly unavailable` in the log** → the
-  `OloEditor → OloEngine-ScriptCore` dependency edge in `CMakeLists.txt` is missing, or the tree was
+  `OloEditor → OloProjectScripts` dependency edge in `CMakeLists.txt` is missing, or the tree was
   configured with `OLO_WITH_CSHARP=OFF`; see
   [notes-editor-and-assets.md](docs/agent-rules/notes-editor-and-assets.md).
 
