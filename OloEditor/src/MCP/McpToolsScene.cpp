@@ -603,7 +603,7 @@ namespace OloEngine::MCP
                 return Json{ { "__error", "Entity '" + entityName + "' has no TransformComponent." } };
 
             auto& probe = probeEntity.GetComponent<ReflectionProbeComponent>();
-            const glm::vec3 position = probeEntity.GetComponent<TransformComponent>().Translation;
+            const glm::vec3 position = scene->ComputeWorldPosition(probeEntity);
             const bool baked = ReflectionProbeBaker::BakeProbe(scene, position, probe);
             return ReflectionProbeBake::Result(
                 entityName, baked,

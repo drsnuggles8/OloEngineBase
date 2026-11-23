@@ -87,6 +87,13 @@ namespace OloEngine
             return m_EmitterPosition;
         }
 
+        void RebaseEmitterPosition(const glm::vec3& shift)
+        {
+            m_EmitterPosition += shift;
+            if (SimulationSpace == ParticleSpace::Local)
+                m_BoundingSphere.Center += shift;
+        }
+
         // Get the precomputed bounding sphere for frustum culling
         [[nodiscard]] const BoundingSphere& GetBoundingSphere() const
         {

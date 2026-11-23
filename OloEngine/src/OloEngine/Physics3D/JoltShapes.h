@@ -218,7 +218,7 @@ namespace OloEngine
         };
 
         // Collects all collider shapes for an entity with proper scaling
-        static std::vector<CollectedShape> CollectColliderShapesForEntity(Entity entity, const glm::vec3& entityScale);
+        static std::vector<CollectedShape> CollectColliderShapesForEntity(Entity entity);
 
         // Configuration helpers
         static std::filesystem::path GetDefaultCacheDirectory();

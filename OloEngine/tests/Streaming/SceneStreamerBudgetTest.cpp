@@ -26,6 +26,8 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Physics3D/JoltBody.h"
+#include "OloEngine/Physics3D/JoltScene.h"
 #include "TestAsyncLoadHooks.h"
 
 #include <atomic>
@@ -144,6 +146,82 @@ namespace
         std::vector<Tasks::FTaskEvent> m_Gates;
     };
 } // namespace
+
+TEST_F(SceneStreamerBudgetTest, ParentedVolumeLoadsAtTheSameWorldCentreAsARootVolume)
+{
+    WriteRegion(m_Directory, 81, 8101);
+    WriteRegion(m_Directory, 82, 8201);
+    Entity parent = m_Scene->CreateEntity("Volume Rig");
+    auto& parentTransform = parent.GetComponent<TransformComponent>();
+    parentTransform.Translation = { 0.0f, -50.0f, 0.0f };
+    parentTransform.SetRotationEuler({ 0.0f, 0.0f, glm::half_pi<f32>() });
+    auto addVolume = [this](u64 regionID, glm::vec3 position)
+    {
+        Entity entity = m_Scene->CreateEntity("Volume");
+        entity.GetComponent<TransformComponent>().Translation = position;
+        auto& volume = entity.AddComponent<StreamingVolumeComponent>();
+        volume.RegionAssetHandle = AssetHandle{ regionID };
+        volume.LoadRadius = 2.0f;
+        volume.UnloadRadius = 4.0f;
+        return entity;
+    };
+    Entity child = addVolume(81, { 50.0f, 0.0f, 0.0f });
+    child.SetParent(parent);
+    addVolume(82, glm::vec3(0.0f));
+    Start();
+
+    ASSERT_TRUE(TickUntil([this]
+                          { return EntityExists(8101) && EntityExists(8201); }));
+    parentTransform.Translation.x = 20.0f;
+    Tick();
+    EXPECT_FALSE(EntityExists(8101));
+    EXPECT_TRUE(EntityExists(8201));
+}
+
+TEST_F(SceneStreamerBudgetTest, LoadsParentedJoltBodyAndJointAfterTheFullRegionIsDeserialized)
+{
+    {
+        std::ofstream file(m_Directory / "region_91.oloregion");
+        file << R"(Region: region_91
+RegionID: 91
+Entities:
+  - Entity: 9102
+    TransformComponent: {Translation: [1, 2, 0], Rotation: [0, 0, 0], Scale: [1, 1, 1]}
+    RelationshipComponent: {ParentHandle: 9101}
+    Rigidbody3DComponent: {BodyType: 1, DisableGravity: true}
+    BoxCollider3DComponent: {HalfExtents: [2, 1, 1]}
+    PhysicsJoint3DComponent: {JointType: 0, ConnectedEntity: 9103}
+  - Entity: 9101
+    TransformComponent: {Translation: [12, 4, 0], Rotation: [0, 0, 0], Scale: [1, 1, 1]}
+    RelationshipComponent: {Children: [9102]}
+  - Entity: 9103
+    TransformComponent: {Translation: [13, 12, 0], Rotation: [0, 0, 0], Scale: [1, 1, 1]}
+    Rigidbody3DComponent: {BodyType: 0}
+    BoxCollider3DComponent: {HalfExtents: [1, 1, 1]}
+)";
+    }
+    m_Scene->OnPhysics3DStart();
+    struct StopPhysics
+    {
+        Scene& World;
+        ~StopPhysics()
+        {
+            World.OnPhysics3DStop();
+        }
+    } stopPhysics{ *m_Scene };
+    Start();
+    (void)m_Streamer.LoadRegion(RegionID{ 91 });
+    ASSERT_TRUE(TickUntil([this]
+                          { return EntityExists(9102); }));
+
+    const auto child = m_Scene->TryGetEntityWithUUID(UUID{ 9102 });
+    ASSERT_TRUE(child);
+    const auto body = m_Scene->GetPhysicsScene()->GetBody(*child);
+    ASSERT_TRUE(body);
+    EXPECT_TRUE(body->IsDynamic());
+    EXPECT_NEAR(glm::length(body->GetPosition() - glm::vec3(13.0f, 6.0f, 0.0f)), 0.0f, 1.0e-4f);
+    EXPECT_NE(child->GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken, 0u);
+}
 
 // -----------------------------------------------------------------------------
 // Cancellation on the loose path

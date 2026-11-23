@@ -562,6 +562,27 @@ namespace OloEngine::Tests
         WriteOrCompareGolden("SprayCalmSea", calm);
     }
 
+    TEST_F(WaterFoamSprayRainVisualEvidenceTest, ParentedWaterPublishesTheRootTwinSprayHeight)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime mockClock(kSettleStartTime);
+        const EditorCamera camera = CloseCamera();
+        Water().m_SprayEnabled = true;
+        m_Ocean.GetComponent<TransformComponent>().Translation.y = 2.0f;
+        RunEditorFrames(camera, 2);
+        ASSERT_TRUE(WaterSpraySystem::GetSettings().m_Enabled);
+        const f32 rootHeight = WaterSpraySystem::GetSettings().m_WaterPlaneY;
+        EXPECT_FLOAT_EQ(rootHeight, 2.0f);
+
+        Entity parent = GetScene().CreateEntity("Ocean Rig");
+        parent.GetComponent<TransformComponent>().Translation.y = 6.0f;
+        m_Ocean.GetComponent<TransformComponent>().Translation.y = -4.0f;
+        m_Ocean.SetParent(parent);
+        RunEditorFrames(camera, 2);
+        ASSERT_TRUE(WaterSpraySystem::GetSettings().m_Enabled);
+        EXPECT_FLOAT_EQ(WaterSpraySystem::GetSettings().m_WaterPlaneY, rootHeight);
+    }
+
     // -------------------------------------------------------------------------
     // §7.3 — rain-impact ripples
     // -------------------------------------------------------------------------

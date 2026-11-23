@@ -413,9 +413,9 @@ namespace OloEngine
 
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
-            const auto& transform = m_Entity.GetComponent<TransformComponent>();
-            position = transform.Translation;
-            rotation = transform.GetRotation();
+            const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
+            position = pose.Position;
+            rotation = pose.Rotation;
         }
 
         // Create the character controller with proper physics system integration

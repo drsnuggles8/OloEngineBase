@@ -37,8 +37,8 @@ namespace OloEngine::WaterProbe
     // + the righting torque, the boat owns propulsion / rudder / hull drag.
     // =========================================================================
 
-    /// One resolved water tile: the wave parameters plus the flat-plane XZ
-    /// footprint test (mirroring Scene::GetWaterCameraFootprintGap).
+    /// One resolved water tile for physics: the wave parameters plus the
+    /// footprint of the horizontal rest plane.
     struct Volume
     {
         WaterSurface::Params m_Params;

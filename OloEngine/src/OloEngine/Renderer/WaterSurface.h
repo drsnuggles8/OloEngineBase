@@ -5,7 +5,9 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 
 namespace OloEngine::Ocean
 {
@@ -14,6 +16,11 @@ namespace OloEngine::Ocean
 
 namespace OloEngine::WaterSurface
 {
+    [[nodiscard]] inline f32 SanitizeTileDimension(f32 dimension) noexcept
+    {
+        return std::isfinite(dimension) ? std::clamp(dimension, 0.1f, 10000.0f) : 100.0f;
+    }
+
     // =========================================================================
     // CPU mirror of OloEditor/assets/shaders/include/WaterCommon.glsl.
     //

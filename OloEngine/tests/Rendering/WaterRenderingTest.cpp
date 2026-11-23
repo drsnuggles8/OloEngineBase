@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/UnderwaterFog.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -1351,6 +1352,39 @@ TEST(WaterRendering, TilePlane_ATileOnEdgeHasNoHeightAndTakesTheFallback)
     broken[0] = glm::vec4(std::numeric_limits<f32>::quiet_NaN());
     EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(broken, 1.0f, 0.0f, 7.5f), 7.5f);
     EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(glm::mat4(0.0f), 1.0f, 0.0f, 7.5f), 7.5f);
+}
+
+TEST(WaterRendering, TiltedTileFootprintUsesTheVerticalIntersection)
+{
+    const glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    f32 gap = 0.0f;
+    ASSERT_TRUE(UnderwaterFog::TryGetTileFootprintGap(model, 4.0f, 4.0f, { 0.0f, -10.0f, 0.0f }, gap));
+    EXPECT_NEAR(gap, 10.0f, 1.0e-5f);
+    EXPECT_FALSE(UnderwaterFog::TryGetTileFootprintGap(model, 4.0f, 4.0f, { 5.0f, 5.0f, 0.0f }, gap));
+
+    const glm::mat4 onEdge = glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(0.0f, 0.0f, 1.0f));
+    ASSERT_TRUE(UnderwaterFog::TryGetTileFootprintGap(onEdge, 4.0f, 4.0f, { 0.5f, -1.0f, 0.0f }, gap));
+    EXPECT_NEAR(gap, 0.0f, 1.0e-5f);
+}
+
+TEST(WaterRendering, TileFootprintUsesTheRenderedGridFallbackForNonFiniteDimensions)
+{
+    const glm::mat4 model(1.0f);
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    f32 gap = 0.0f;
+    ASSERT_TRUE(UnderwaterFog::TryGetTileFootprintGap(model, nan, inf, { 10.0f, -1.0f, 30.0f }, gap));
+    EXPECT_FLOAT_EQ(gap, 1.0f);
+    EXPECT_FALSE(UnderwaterFog::TryGetTileFootprintGap(model, nan, inf, { 51.0f, -1.0f, 0.0f }, gap));
+    EXPECT_FALSE(UnderwaterFog::TryGetTileFootprintGap(model, 4.0f, 100.0f, { 10.0f, -1.0f, 0.0f }, gap));
+
+    WaterComponent water;
+    water.m_WorldSizeX = nan;
+    water.m_WorldSizeZ = inf;
+    const auto buoyancyVolume = WaterProbe::MakeVolume(model, water);
+    ASSERT_TRUE(buoyancyVolume);
+    EXPECT_TRUE(WaterProbe::IsOverFootprint(*buoyancyVolume, { 10.0f, -1.0f, 30.0f }));
+    EXPECT_FALSE(WaterProbe::IsOverFootprint(*buoyancyVolume, { 51.0f, -1.0f, 0.0f }));
 }
 
 TEST(WaterRendering, DrawnSurface_AProbeWithNoAnswerLeavesTheStillPlane)

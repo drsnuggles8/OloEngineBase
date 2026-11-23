@@ -210,17 +210,7 @@ namespace OloEngine
                         if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(proxy.EntityID)))
                         {
                             Entity entity{ static_cast<entt::entity>(*entityOpt), scene };
-                            if (entity.HasComponent<Rigidbody2DComponent>())
-                            {
-                                auto const& rb = entity.GetComponent<Rigidbody2DComponent>();
-                                if (b2Body_IsValid(rb.RuntimeBody))
-                                {
-                                    auto const& tc = entity.GetComponent<TransformComponent>();
-                                    b2Body_SetTransform(rb.RuntimeBody,
-                                                        { tc.Translation.x, tc.Translation.y },
-                                                        b2MakeRot(tc.GetRotationEuler().z));
-                                }
-                            }
+                            scene->ApplyAuthoredPhysics2DPose(entity);
                         }
                     }
                 }

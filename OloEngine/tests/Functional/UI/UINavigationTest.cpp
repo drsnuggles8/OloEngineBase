@@ -25,6 +25,7 @@
 
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UINavigationSystem.h"
 
 #include <glm/glm.hpp>
@@ -46,6 +47,37 @@ namespace
         return e;
     }
 } // namespace
+
+TEST(UIWorldAnchorPlacement, ParentedTargetProjectsToTheSamePixelAsItsRootTwin)
+{
+    auto scene = Scene::Create();
+    Entity rig = scene->CreateEntity("Target Rig");
+    rig.GetComponent<TransformComponent>().Translation = { 0.5f, 0.0f, 0.0f };
+    Entity child = scene->CreateEntity("Child Target");
+    child.GetComponent<TransformComponent>().Translation = { 0.25f, 0.0f, 0.0f };
+    child.SetParent(rig);
+    Entity root = scene->CreateEntity("Root Target");
+    root.GetComponent<TransformComponent>().Translation = { 0.75f, 0.0f, 0.0f };
+    Entity canvas = scene->CreateEntity("Canvas");
+    canvas.AddComponent<UICanvasComponent>();
+    const auto addMarker = [&](Entity target)
+    {
+        Entity marker = scene->CreateEntity("Marker");
+        marker.SetParent(canvas);
+        marker.AddComponent<UIRectTransformComponent>();
+        marker.AddComponent<UIWorldAnchorComponent>().m_TargetEntity = target.GetUUID();
+        return marker;
+    };
+    Entity childMarker = addMarker(child);
+    Entity rootMarker = addMarker(root);
+
+    UILayoutSystem::ResolveLayout(*scene, 800, 600);
+    const auto& childRect = childMarker.GetComponent<UIResolvedRectComponent>();
+    const auto& rootRect = rootMarker.GetComponent<UIResolvedRectComponent>();
+    EXPECT_FLOAT_EQ(childRect.m_Position.x, rootRect.m_Position.x);
+    EXPECT_FLOAT_EQ(childRect.m_Position.y, rootRect.m_Position.y);
+    EXPECT_FLOAT_EQ(childRect.m_Position.x + childRect.m_Size.x * 0.5f, 700.0f);
+}
 
 class UINavigationTest : public FunctionalTest
 {

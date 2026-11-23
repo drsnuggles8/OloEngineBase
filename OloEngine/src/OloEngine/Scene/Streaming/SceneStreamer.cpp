@@ -5,10 +5,12 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Audio/AudioTransform.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 // Box2D
@@ -19,22 +21,6 @@
 
 namespace OloEngine
 {
-    [[nodiscard("Store this!")]] static b2BodyType ToBox2DBodyType(const Rigidbody2DComponent::BodyType bodyType)
-    {
-        switch (bodyType)
-        {
-            using enum OloEngine::Rigidbody2DComponent::BodyType;
-            case Static:
-                return b2_staticBody;
-            case Dynamic:
-                return b2_dynamicBody;
-            case Kinematic:
-                return b2_kinematicBody;
-        }
-        OLO_CORE_ASSERT(false, "Unknown body type");
-        return b2_staticBody;
-    }
-
     // The only writer of StreamingRegion::m_State. A profiler section spans each
     // Loading and Unloading phase, so a region's whole trip from request to
     // instantiation (or cancellation) shows as one span on the timeline.
@@ -319,16 +305,17 @@ namespace OloEngine
 
         // Query all streaming volume entities for distance-based activation
         auto view = m_Scene->GetAllEntitiesWith<StreamingVolumeComponent, TransformComponent>();
-        for (auto&& [e, vol, tc] : view.each())
+        for (auto e : view)
         {
+            auto& vol = view.get<StreamingVolumeComponent>(e);
             if (vol.ActivationMode == StreamingActivationMode::Manual)
             {
                 continue;
             }
 
             // Squared-distance comparison (no sqrt)
-            glm::vec3 volumeCenter = tc.Translation;
-            f32 distSq = glm::dot(activationPoint - volumeCenter, activationPoint - volumeCenter);
+            const glm::vec3 offset = activationPoint - m_Scene->ComputeWorldPosition(e);
+            const f32 distSq = glm::dot(offset, offset);
 
             RegionID regionId(static_cast<u64>(vol.RegionAssetHandle));
 
@@ -748,6 +735,9 @@ namespace OloEngine
                 SceneSerializer serializer{ sceneRef };
                 if (auto entitiesNode = loadResult.Data["Entities"])
                 {
+                    // YAML installs settings, colliders and relationships after
+                    // some component-added hooks would otherwise create live state.
+                    const TGuardValue<bool> loading(m_Scene->m_DeserializingStreamedEntities, true);
                     auto createdUUIDs = serializer.DeserializeAdditive(entitiesNode);
                     region->m_EntityUUIDs.Reset(static_cast<i32>(createdUUIDs.Num()));
                     for (const UUID uuid : createdUUIDs)
@@ -756,7 +746,9 @@ namespace OloEngine
                     }
                 }
 
-                // Initialize subsystems for new entities (scripts' OnCreate runs here)
+                // The region's hierarchy is complete now. Publish it before
+                // audio and script callbacks consume world placement.
+                m_Scene->PropagateWorldTransforms();
                 InitializeStreamedEntities(region->m_EntityUUIDs);
                 if (m_TestHooks.OnRegionInstantiated)
                 {
@@ -882,73 +874,67 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        for (auto uuid : entityUUIDs)
+        auto* jolt = m_Scene->GetPhysicsScene();
+        const bool haveJolt = jolt && jolt->IsInitialized();
+        const bool haveBox2D = b2World_IsValid(m_Scene->m_PhysicsWorld);
+        for (const UUID uuid : entityUUIDs)
         {
-            auto optEntity = m_Scene->TryGetEntityWithUUID(uuid);
-            if (!optEntity)
-            {
+            const auto found = m_Scene->TryGetEntityWithUUID(uuid);
+            if (!found)
                 continue;
-            }
-            Entity entity = *optEntity;
+            Entity entity = *found;
+            if (haveJolt && entity.HasComponent<Rigidbody3DComponent>())
+                jolt->CreateBody(entity);
+            if (haveJolt && entity.HasComponent<CharacterController3DComponent>())
+                (void)jolt->CreateCharacterController(entity);
+            if (haveBox2D && entity.HasComponent<Rigidbody2DComponent>())
+                m_Scene->CreatePhysics2DBody(entity);
+        }
 
-            // 1. Physics bodies (after ALL components deserialized)
-            // 3D (Jolt)
-            if (entity.HasComponent<Rigidbody3DComponent>())
+        if (haveJolt)
+        {
+            bool hasJoints = false;
+            // Both bodies in a joint can be streamed in the same region.
+            for (const UUID uuid : entityUUIDs)
             {
-                if (auto* jolt = m_Scene->GetPhysicsScene(); jolt)
+                const auto found = m_Scene->TryGetEntityWithUUID(uuid);
+                if (!found)
+                    continue;
+                Entity entity = *found;
+                if (entity.HasComponent<PhysicsJoint3DComponent>())
                 {
-                    jolt->CreateBody(entity);
+                    (void)jolt->CreateConstraint(entity);
+                    hasJoints = true;
                 }
+                if (entity.HasComponent<VehicleComponent>())
+                    (void)jolt->CreateVehicle(entity);
             }
+            if (hasJoints)
+                jolt->ApplyJointCollisionFilters();
+        }
 
-            // 2D (Box2D)
-            if (entity.HasComponent<Rigidbody2DComponent>() && b2World_IsValid(m_Scene->m_PhysicsWorld))
+        for (const UUID uuid : entityUUIDs)
+        {
+            const auto found = m_Scene->TryGetEntityWithUUID(uuid);
+            if (!found)
+                continue;
+            Entity entity = *found;
+
+            // Audio starts only once the world transforms are available.
+            if (m_Scene->m_AudioEventsManager && entity.HasComponent<AudioSoundGraphComponent>() && entity.HasComponent<TransformComponent>())
             {
-                auto const& transform = entity.GetComponent<TransformComponent>();
-                auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
-
-                b2BodyDef bodyDef = b2DefaultBodyDef();
-                bodyDef.type = ToBox2DBodyType(rb2d.Type);
-                bodyDef.position = { transform.Translation.x, transform.Translation.y };
-                bodyDef.rotation = b2MakeRot(transform.GetRotationEuler().z);
-                bodyDef.motionLocks.angularZ = rb2d.FixedRotation;
-
-                b2BodyId body = b2CreateBody(m_Scene->m_PhysicsWorld, &bodyDef);
-                rb2d.RuntimeBody = body;
-
-                if (entity.HasComponent<BoxCollider2DComponent>())
-                {
-                    auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
-                    b2ShapeDef shapeDef = b2DefaultShapeDef();
-                    shapeDef.density = bc2d.Density;
-                    shapeDef.material.friction = bc2d.Friction;
-                    shapeDef.material.restitution = bc2d.Restitution;
-                    b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y,
-                                                        { bc2d.Offset.x, bc2d.Offset.y }, b2MakeRot(0.0f));
-                    b2CreatePolygonShape(body, &shapeDef, &polygon);
-                }
-
-                if (entity.HasComponent<CircleCollider2DComponent>())
-                {
-                    auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
-                    b2ShapeDef shapeDef = b2DefaultShapeDef();
-                    shapeDef.density = cc2d.Density;
-                    shapeDef.material.friction = cc2d.Friction;
-                    shapeDef.material.restitution = cc2d.Restitution;
-                    b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), transform.Scale.x * cc2d.Radius };
-                    b2CreateCircleShape(body, &shapeDef, &circle);
-                }
+                m_Scene->InitializeAudioSoundGraph(entity, entity.GetComponent<AudioSoundGraphComponent>());
             }
 
-            // 2. Audio sources
             if (entity.HasComponent<AudioSourceComponent>() && entity.HasComponent<TransformComponent>())
             {
                 auto& ac = entity.GetComponent<AudioSourceComponent>();
                 if (ac.Source)
                 {
-                    const auto& tc = entity.GetComponent<TransformComponent>();
+                    const auto pose = m_Scene->GetAudioSourceWorldPose(entity);
                     ac.Source->SetConfig(ac.GetConfig());
-                    ac.Source->SetPosition(tc.Translation);
+                    ac.Source->SetPosition(pose.Position);
+                    ac.Source->SetDirection(pose.Orientation);
                     if (ac.GetConfig().PlayOnAwake)
                     {
                         ac.Source->Play();

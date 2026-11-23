@@ -59,6 +59,12 @@ TEST_F(IKTargetEntityResolvesToItsWorldPositionTest, AParentedTargetIsAimedAtWhe
     EXPECT_NEAR(resolved.AimTarget.y, 1.0f, 1e-5f);
     EXPECT_NEAR(resolved.AimTarget.z, 2.0f, 1e-5f);
 
+    // Animation can resolve the target before the next transform propagation.
+    // The cached target is still at x=5, but the solver needs the live x=8.
+    m_Carrier.GetComponent<TransformComponent>().Translation.x += 3.0f;
+    ASSERT_TRUE(GetScene().ResolveIKTargets(m_Aimer, resolved));
+    EXPECT_NEAR(resolved.AimTarget.x, 8.0f, 1e-5f);
+
     // A root target is where its transform says: unchanged behaviour.
     m_Aimer.GetComponent<IKTargetComponent>().AimTargetEntity = m_Loose.GetUUID();
     ASSERT_TRUE(GetScene().ResolveIKTargets(m_Aimer, resolved));

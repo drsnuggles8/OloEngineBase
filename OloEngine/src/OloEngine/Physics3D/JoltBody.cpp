@@ -12,6 +12,11 @@
 #include <utility>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyActivationListener.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 
 namespace OloEngine
 {
@@ -31,6 +36,52 @@ namespace OloEngine
     JoltBody::~JoltBody()
     {
         DestroyJoltBody();
+    }
+
+    void JoltBody::CollectPrimitiveColliderGizmos(TArray<PrimitiveColliderGizmo>& out) const
+    {
+        out.Reset();
+        if (!IsValid())
+            return;
+        const JPH::TransformedShape body = m_Scene->GetBodyInterface().GetTransformedShape(m_BodyID);
+        if (!body.mShape)
+            return;
+
+        // Let Jolt traverse decorated and compound shapes so their center of
+        // mass offsets, rotations, and native scales are carried consistently.
+        JPH::AllHitCollisionCollector<JPH::TransformedShapeCollector> leaves;
+        body.CollectTransformedShapes(body.GetWorldSpaceBounds(), leaves);
+        for (const auto& leaf : leaves.mHits)
+        {
+            const glm::vec3 center = JoltUtils::FromJoltRVec3(leaf.GetWorldTransform().GetTranslation());
+            const glm::quat rotation = JoltUtils::FromJoltQuat(leaf.mShapeRotation);
+            const glm::vec3 scale = glm::abs(JoltUtils::FromJoltVector(leaf.GetShapeScale()));
+            const JPH::Shape& shape = *leaf.mShape;
+            using Kind = PrimitiveColliderGizmo::Kind;
+            switch (shape.GetSubType())
+            {
+                case JPH::EShapeSubType::Box:
+                {
+                    const auto& box = static_cast<const JPH::BoxShape&>(shape);
+                    out.Add({ Kind::Box, center, rotation, scale * JoltUtils::FromJoltVector(box.GetHalfExtent()) });
+                    break;
+                }
+                case JPH::EShapeSubType::Sphere:
+                {
+                    const auto& sphere = static_cast<const JPH::SphereShape&>(shape);
+                    out.Add({ Kind::Sphere, center, rotation, { scale.x * sphere.GetRadius(), 0.0f, 0.0f } });
+                    break;
+                }
+                case JPH::EShapeSubType::Capsule:
+                {
+                    const auto& capsule = static_cast<const JPH::CapsuleShape&>(shape);
+                    out.Add({ Kind::Capsule, center, rotation, { scale.x * capsule.GetRadius(), scale.y * capsule.GetHalfHeightOfCylinder(), 0.0f } });
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
     bool JoltBody::IsStatic() const
@@ -918,12 +969,8 @@ namespace OloEngine
         return shape;
     }
 
-    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const TransformComponent& transformComponent, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
+    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const glm::vec3& position, const glm::quat& rotation, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
     {
-        // Get transform
-        glm::vec3 position = transformComponent.Translation;
-        glm::quat rotation = transformComponent.GetRotation();
-
         // Convert body type
         EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);
         JPH::EMotionType motionType = JoltUtils::ToJoltMotionType(bodyType);
@@ -1030,7 +1077,7 @@ namespace OloEngine
             return; // Already created
 
         const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
-        const auto& transformComponent = m_Entity.GetComponent<TransformComponent>();
+        const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();
@@ -1040,7 +1087,7 @@ namespace OloEngine
         }
 
         // Create body creation settings
-        JPH::BodyCreationSettings bodySettings = CreateBodySettings(transformComponent, rigidBodyComponent, shape);
+        JPH::BodyCreationSettings bodySettings = CreateBodySettings(pose.Position, pose.Rotation, rigidBodyComponent, shape);
 
         // Create the body
         m_BodyID = m_Scene->GetBodyInterface().CreateAndAddBody(bodySettings, JPH::EActivation::Activate);

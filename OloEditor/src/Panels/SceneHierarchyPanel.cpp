@@ -11327,7 +11327,7 @@ namespace OloEngine
                 glm::vec3 position(0.0f);
                 if (entity.template HasComponent<TransformComponent>())
                 {
-                    position = entity.template GetComponent<TransformComponent>().Translation;
+                    position = m_Context->ComputeWorldPosition(entity);
                 }
                 bool const ok = ReflectionProbeBaker::BakeProbe(m_Context, position, component);
                 if (ok)
