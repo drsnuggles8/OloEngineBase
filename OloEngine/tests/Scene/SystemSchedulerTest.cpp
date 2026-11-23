@@ -1079,6 +1079,7 @@ TEST_F(SystemSchedulerParallelTest, ParentedEmitterMatchesRootTwinPlacementLodAn
         auto& subEmitter = component.ChildSystems.Emplace_GetRef();
         subEmitter.Playing = true;
         subEmitter.UseGPU = false;
+        subEmitter.SimulationSpace = ParticleSpace::Local;
         return emitter;
     };
     Entity parented = addEmitter({ 1000.0f, 0.0f, 0.0f });
@@ -1099,6 +1100,12 @@ TEST_F(SystemSchedulerParallelTest, ParentedEmitterMatchesRootTwinPlacementLodAn
                 0.0f, 3.0e-4f);
 
     const u32 previousCount = parentedSystem.GetAliveCount();
+    const glm::vec3 shift(-512.0f, 0.0f, 0.0f);
+    const glm::vec3 previousChildPosition = parentedParticles.ChildSystems[0].GetEmitterPosition();
+    const glm::vec3 previousChildBounds = parentedParticles.ChildSystems[0].GetBoundingSphere().Center;
+    scene->RebaseOrigin(shift);
+    EXPECT_NEAR(glm::length(parentedParticles.ChildSystems[0].GetEmitterPosition() - (previousChildPosition + shift)), 0.0f, 3.0e-4f);
+    EXPECT_NEAR(glm::length(parentedParticles.ChildSystems[0].GetBoundingSphere().Center - (previousChildBounds + shift)), 0.0f, 3.0e-4f);
     rigTransform.Translation.x += 1.0f;
     root.GetComponent<TransformComponent>().Translation.x += 1.0f;
     scene->OnUpdateRuntime(Timestep{ 1.0f / 60.0f });
@@ -1107,5 +1114,6 @@ TEST_F(SystemSchedulerParallelTest, ParentedEmitterMatchesRootTwinPlacementLodAn
     ASSERT_EQ(count, rootSystem.GetAliveCount());
     const f32 childVx = parentedSystem.GetPool().m_Velocities[count - 1].x;
     EXPECT_GT(childVx, 30.0f);
+    EXPECT_LT(childVx, 100.0f);
     EXPECT_NEAR(childVx, rootSystem.GetPool().m_Velocities[count - 1].x, 1.0e-3f);
 }

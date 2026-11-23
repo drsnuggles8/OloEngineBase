@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Containers/Set.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <bit>
@@ -4075,10 +4077,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Guard the public entry: a zero shift is a no-op, and a non-finite one
-        // (dot is NaN, NaN > 0 is false) is rejected rather than corrupting every
-        // transform in the scene.
-        if (!(glm::dot(shift, shift) > 0.0f))
+        if (!Math::IsFinite(shift) || !(glm::dot(shift, shift) > 0.0f))
         {
             return;
         }
@@ -4113,6 +4112,19 @@ namespace OloEngine
                 transformView.get<TransformComponent>(entity).Translation += shift;
             }
         }
+
+        // Previous world-space samples must follow the origin too. The next
+        // velocity sample then measures movement within a single frame of reference.
+        for (auto [entity, particles] : m_Registry.view<ParticleSystemComponent>().each())
+        {
+            particles.System.RebaseEmitterPosition(shift);
+            for (auto& child : particles.ChildSystems)
+                child.RebaseEmitterPosition(shift);
+        }
+        for (auto& [id, position] : m_RuntimeSnowPrevPositions)
+            position += shift;
+        for (auto& [id, position] : m_EditorSnowPrevPositions)
+            position += shift;
 
         // 2. Shift 3D physics (Jolt) bodies, terrain, and character controllers.
         //    Every body moves by the same `shift` as the ECS world, preserving

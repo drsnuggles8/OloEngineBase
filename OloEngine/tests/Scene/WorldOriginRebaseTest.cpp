@@ -142,6 +142,11 @@ TEST(WorldOriginRebaseTest, ZeroAndNonFiniteShiftAreNoOps)
     EXPECT_TRUE(std::isfinite(e.GetComponent<TransformComponent>().Translation.x));
     ExpectVec3Near(e.GetComponent<TransformComponent>().Translation, glm::vec3(100.0f, 200.0f, 300.0f));
     EXPECT_TRUE(IsZeroVec3(scene->GetWorldOrigin()));
+
+    const f32 infinity = std::numeric_limits<f32>::infinity();
+    scene->RebaseOrigin(glm::vec3(0.0f, infinity, 0.0f));
+    ExpectVec3Near(e.GetComponent<TransformComponent>().Translation, glm::vec3(100.0f, 200.0f, 300.0f));
+    EXPECT_TRUE(IsZeroVec3(scene->GetWorldOrigin()));
 }
 
 TEST(WorldOriginRebaseTest, MaybeRebaseRespectsEnableAndThreshold)
