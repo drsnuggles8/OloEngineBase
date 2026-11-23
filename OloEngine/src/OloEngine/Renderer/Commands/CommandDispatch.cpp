@@ -313,6 +313,9 @@ namespace OloEngine
         uploads.VirtualShadowUBO = retainedUploads.VirtualShadowUBO;
         if (RenderCommand::SupportsParallelRecording() && !uploads.VirtualShadowUBO)
             uploads.VirtualShadowUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+        // The VSM's stand-ins are per backend (#1655) and an item may only bind
+        // them, so the recording backend's set is made here, before the fork.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().PrepareSamplingForCurrentBackend();
         uploads.ModelInstanceBuffer = retainedUploads.ModelInstanceBuffer;
         if (main.ModelInstanceBuffer)
         {
@@ -1644,8 +1647,11 @@ namespace OloEngine
     bool CommandDispatch::HasUBOReferences()
     {
         // The camera UBO stands for the set: SetUBOReferences publishes them
-        // together and Shutdown resets them together.
-        return Data().Uploads.CameraUBO != nullptr;
+        // together and Shutdown resets them together. A set published on
+        // another backend is no set (#1655): ResetState drops it, so the
+        // renderer's BeginScene must re-publish rather than keep it.
+        return Data().Uploads.CameraUBO != nullptr &&
+               Data().Uploads.Backend == static_cast<u32>(Renderer::GetAPI());
     }
 
     void CommandDispatch::SetUBOReferences(

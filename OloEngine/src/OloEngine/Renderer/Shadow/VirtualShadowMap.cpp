@@ -2295,10 +2295,25 @@ namespace OloEngine
         EnsureInertHPB();
     }
 
+    void VirtualShadowMap::PrepareSamplingForCurrentBackend()
+    {
+        if (!m_Initialized || !ResourcesBelongToCurrentBackend())
+            EnsureInertSamplingBindings();
+    }
+
     void VirtualShadowMap::BindInertSampling()
     {
-        EnsureInertSamplingBindings();
+        // A recording item only binds (as BindHPBForDeclaredReader): the set
+        // is made on the render thread, by Init for its own backend and by
+        // PrepareSamplingForCurrentBackend before a fork for another one.
+        if (!RenderCommand::IsRecordingParallelItem())
+            EnsureInertSamplingBindings();
         InertSamplingSet& inert = InertSetForCurrentBackend();
+        if (!inert.Globals)
+        {
+            OLO_CORE_ASSERT(false, "VirtualShadowMap: sampling stand-ins for this backend were not prepared before the fork");
+            return;
+        }
         inert.Globals->Bind();
         inert.Pass->Bind();
         inert.PageTable->Bind();

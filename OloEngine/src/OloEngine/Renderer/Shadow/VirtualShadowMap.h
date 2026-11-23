@@ -523,6 +523,11 @@ namespace OloEngine
         // set its dispatch made there before its device or its allocator goes
         // away, and leaves the renderer's GL set alone.
         void ReleaseInertSamplingBindings(RendererAPI::API backend);
+        // Make sure the stand-ins BindForSampling will bind on the current
+        // backend exist. Called on the render thread before a parallel
+        // recording fork (CommandDispatchRecordingState::Prepare): Init made
+        // only its own backend's set, and an item must not create a buffer.
+        void PrepareSamplingForCurrentBackend();
 
         // The page cache is a world cache (#1665): pages of the scene's caster
         // depth, kept while nothing invalidates them. A scene switch at the same
