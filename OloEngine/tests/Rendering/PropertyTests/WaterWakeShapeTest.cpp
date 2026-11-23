@@ -492,7 +492,8 @@ TEST_F(WaterWakeShapeTest, ABoundingCircleRejectionNeverClipsALiveFeature)
     ASSERT_TRUE(WaterWakeSystem::SubmitHull(desc));
 
     const glm::vec4 bound = WaterWakeSystem::GetHullData()[WaterWake::kOffsetBound];
-    const glm::vec2 boundCentre(bound.x, bound.y);
+    const glm::vec4 centreForward = WaterWakeSystem::GetHullData()[WaterWake::kOffsetCentreForward];
+    const glm::vec2 boundCentre(centreForward.x, centreForward.y);
     const f32 boundRadius = bound.z;
     ASSERT_GT(boundRadius, 0.0f);
 

@@ -231,8 +231,10 @@ Shoreline foam uses the water-column depth reconstructed from opaque scene depth
 footprint, the water shader suppresses the wider shoreline term and keeps the shallow contact band
 where the water meets the hull. The mask shares the packed wake records with surface displacement
 and works with wake displacement disabled. The editor publishes footprints at the boats' authored
-poses. In Play and Simulate, the physics wake update supplies the hull positions. Fixed shores and
-pillars outside those footprints keep their depth-based foam.
+poses without adding wake displacement. In Play and Simulate, the physics wake update supplies the
+hull positions. The fragment shader checks the packed world-space hull bounds against its displaced
+surface height, so an airborne hull leaves the water below it alone. Fixed shores and pillars outside
+those footprints keep their depth-based foam.
 
 ### 2.1 Jacobian-Based Foam — **shipped**
 

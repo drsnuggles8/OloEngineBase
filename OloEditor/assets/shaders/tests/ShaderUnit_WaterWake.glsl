@@ -18,11 +18,11 @@
 // the water stages, this SSBO here.
 //
 // Inputs  (SSBO binding 0) : vec4[1 + WATER_WAKE_HULL_VEC4_COUNT]
-//     [0]   = (hullCount, heightScale, flattenStrength, water plane Y)
+//     [0]   = (hullCount, heightScale, flattenStrength, sampled surface Y)
 //     [1..] = the packed hull records, WaterWake.h's layout verbatim
 // Inputs  (SSBO binding 1) : vec4[N] queries — xy = world XZ, z = vertexSpacing, w = water depth
 // Outputs (SSBO binding 2) : vec4[N] — x = height (m), y = flatten, z = shoreline foam scale,
-// w = shoreline foam scale on a higher water plane
+// w = shoreline foam scale on a surface below the hull
 // =============================================================================
 
 layout(local_size_x = 64) in;
@@ -50,5 +50,5 @@ void main()
 
     vec2 wake = waterWakeEvaluate(header.x, header.y, header.z, query.xy, query.z);
     u_Outputs[idx] = vec4(wake, waterWakeShoreFoamScale(header.x, query.xy, query.w, header.w),
-                          waterWakeShoreFoamScale(header.x, query.xy, query.w, header.w + 2.0));
+                          waterWakeShoreFoamScale(header.x, query.xy, query.w, header.w - 2.0));
 }

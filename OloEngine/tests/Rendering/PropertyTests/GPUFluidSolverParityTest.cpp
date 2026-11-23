@@ -44,6 +44,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -444,10 +445,36 @@ namespace OloEngine::Tests
         sphere.HalfExtents = { 0.12f, 0.0f, 0.0f, 0.0f };
         sphere.LinearVelocity = { 0.0f, -1.0f, 0.0f, 0.0f };
         constexpr UUID kHitBody{ 101 };
-        constexpr UUID kMissBody{ 202 };
-        constexpr UUID kSecondMissBody{ 303 };
-        const std::array<UUID, 2> missBodies{ kMissBody, kSecondMissBody };
+        constexpr UUID kSecondHitBody{ 202 };
+        constexpr UUID kMissBody{ 303 };
+        const std::array<UUID, 2> nextBodies{ kSecondHitBody, kMissBody };
         std::array<FluidBodyFeedback, 2> feedback{};
+
+        // A single particle makes the CPU oracle insensitive to the GPU's
+        // neighbour ordering. Both steps use contact with different iteration
+        // counts so either batch's normalization can be checked independently.
+        CPUFluidSolver reference(64);
+        reference.Emit(std::span(&particle, 1));
+        FluidBodyFeedback firstExpected{};
+        reference.Step(params, kDt, std::span(&sphere, 1), std::span(&firstExpected, 1));
+        ASSERT_EQ(reference.GetPositions().size(), 1u);
+        FluidBodyProxy nextSphere = sphere;
+        nextSphere.Position.y = reference.GetPositions().front().y + reference.GetVelocities().front().y * kDt + 0.06f;
+        FluidBodyProxy farSphere = nextSphere;
+        farSphere.Position.x = 0.4f;
+        const std::array<FluidBodyProxy, 2> nextProxies{ nextSphere, farSphere };
+        FluidSolverParams nextParams = params;
+        nextParams.SolverIterations = 2;
+        std::array<FluidBodyFeedback, 2> nextExpected{};
+        reference.Step(nextParams, kDt, nextProxies, nextExpected);
+        ASSERT_GT(firstExpected.Impulse.y, 0.0f);
+        ASSERT_GT(nextExpected[0].Impulse.y, 0.0f);
+        const auto impulseTolerance = [](f32 expected)
+        {
+            // Allow quantization and CPU/GLSL rounding. Reusing the other
+            // batch's divisor changes a nonzero value by at least 50%.
+            return std::max(4.0f / kFluidImpulseFixedScale, std::abs(expected) * 0.02f);
+        };
 
         if (TestRenderBackend::IsVulkanProcess())
         {
@@ -480,12 +507,7 @@ namespace OloEngine::Tests
                            EXPECT_TRUE(solver->HarvestFeedback(feedback).empty());
                            EXPECT_FLOAT_EQ(feedback[0].Impulse.y, 0.0f);
                        }
-                       sphere.Position.x = 0.4f;
-                       FluidBodyProxy second = sphere;
-                       second.Position.x = -0.4f;
-                       const std::array<FluidBodyProxy, 2> misses{ sphere, second };
-                       params.SolverIterations = 2;
-                       solver->Step(params, kDt, misses, {}, missBodies); });
+                       solver->Step(nextParams, kDt, nextProxies, {}, nextBodies); });
 
         if (!TestRenderBackend::IsVulkanProcess())
         {
@@ -508,15 +530,15 @@ namespace OloEngine::Tests
                            {
                                ASSERT_EQ(ids.size(), 1u);
                                EXPECT_EQ(static_cast<u64>(ids[0]), static_cast<u64>(kHitBody));
-                               EXPECT_GT(feedback[0].Impulse.y, 0.0f);
+                               EXPECT_NEAR(feedback[0].Impulse.y, firstExpected.Impulse.y, impulseTolerance(firstExpected.Impulse.y));
                                EXPECT_FLOAT_EQ(glm::length(feedback[1].Impulse), 0.0f);
                            }
                            else
                            {
                                ASSERT_EQ(ids.size(), 2u);
-                               EXPECT_EQ(static_cast<u64>(ids[0]), static_cast<u64>(kMissBody));
-                               EXPECT_EQ(static_cast<u64>(ids[1]), static_cast<u64>(kSecondMissBody));
-                               EXPECT_FLOAT_EQ(glm::length(feedback[0].Impulse), 0.0f);
+                               EXPECT_EQ(static_cast<u64>(ids[0]), static_cast<u64>(kSecondHitBody));
+                               EXPECT_EQ(static_cast<u64>(ids[1]), static_cast<u64>(kMissBody));
+                               EXPECT_NEAR(feedback[0].Impulse.y, nextExpected[0].Impulse.y, impulseTolerance(nextExpected[0].Impulse.y));
                                EXPECT_FLOAT_EQ(glm::length(feedback[1].Impulse), 0.0f);
                            } });
         }

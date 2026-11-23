@@ -61,6 +61,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -850,13 +851,45 @@ namespace OloEngine::Tests
             return entity;
         }
 
-        void CaptureFoam(const HullFoamPose& pose, bool play, bool enabled, std::vector<u8>& pixels,
-                         bool darkShoreFoam = false)
+        static EditorCamera MakeFoamCamera(const HullFoamPose& pose)
         {
-            m_Hull.GetComponent<BoatComponent>().m_Enabled = enabled;
             EditorCamera camera(60.0f, static_cast<f32>(kCaptureWidth) / kCaptureHeight, 0.05f, 200.0f);
             camera.SetViewportSize(static_cast<f32>(kCaptureWidth), static_cast<f32>(kCaptureHeight));
             camera.SetPose(pose.Eye, 0.0f, pose.Pitch);
+            return camera;
+        }
+
+        static f64 MeanRgbAt(const std::vector<u8>& pixels, const HullFoamPose& pose, const glm::vec3& point, i32 radius)
+        {
+            const glm::vec4 clip = MakeFoamCamera(pose).GetViewProjection() * glm::vec4(point, 1.0f);
+            // ReadbackComposite supplies the bottom row first.
+            const glm::vec2 uv = glm::vec2(clip) / clip.w * 0.5f + 0.5f;
+            const glm::ivec2 pixel(uv * glm::vec2(kCaptureWidth, kCaptureHeight));
+            if (pixel.x < radius || pixel.y < radius ||
+                pixel.x + radius >= static_cast<i32>(kCaptureWidth) || pixel.y + radius >= static_cast<i32>(kCaptureHeight))
+            {
+                ADD_FAILURE() << "the hull control region is outside the viewport";
+                return 0.0;
+            }
+
+            f64 sum = 0.0;
+            for (i32 y = pixel.y - radius; y <= pixel.y + radius; ++y)
+            {
+                for (i32 x = pixel.x - radius; x <= pixel.x + radius; ++x)
+                {
+                    const auto offset = (static_cast<sizet>(y) * kCaptureWidth + static_cast<sizet>(x)) * 4;
+                    sum += static_cast<f64>(pixels[offset]) + pixels[offset + 1] + pixels[offset + 2];
+                }
+            }
+            const i32 diameter = 2 * radius + 1;
+            return sum / (3.0 * diameter * diameter);
+        }
+
+        void CaptureFoam(const HullFoamPose& pose, bool play, bool enabled, std::vector<u8>& pixels,
+                         bool darkFoam = false)
+        {
+            m_Hull.GetComponent<BoatComponent>().m_Enabled = enabled;
+            const EditorCamera camera = MakeFoamCamera(pose);
             const u32 settleFrames = GetParam().Upscale == UpscaleMode::Off ? 2u : 4u;
             if (play)
             {
@@ -911,7 +944,9 @@ namespace OloEngine::Tests
             ASSERT_EQ(width, kCaptureWidth);
             ASSERT_EQ(height, kCaptureHeight);
             ASSERT_EQ(pixels.size(), static_cast<sizet>(width) * height * 4);
-            const char* feature = darkShoreFoam ? "HullFoamShoreDark" : (enabled ? "HullFoam" : "HullFoamOff");
+            const char* feature = enabled ? "HullFoam" : "HullFoamOff";
+            if (darkFoam)
+                feature = pose.ShoreControl ? "HullFoamShoreDark" : "HullFoamContactDark";
             const std::string stem = TestRenderBackend::EvidenceName(feature) +
                                      GetParam().Name + (play ? "_Play_" : "_Edit_") + pose.Name;
             fs::create_directories("assets/tests/visual");
@@ -959,10 +994,38 @@ namespace OloEngine::Tests
         const f32 authoredHeight = hullTransform.Translation.y;
         hullTransform.Translation.y = 10.0f;
         BoatWakeSystem::PublishEditorHulls(GetScene());
-        EXPECT_EQ(WaterWakeSystem::GetHullCount(), 0u) << "an airborne hull must leave the shore alone";
+        ASSERT_EQ(WaterWakeSystem::GetHullCount(), 1u);
+        const auto* hullRecord = WaterWakeSystem::GetHullData();
+        EXPECT_GT(hullRecord[WaterWake::kOffsetBound].x, 0.0f) << "the airborne bounds must sit above the water surface";
+        EXPECT_FLOAT_EQ(hullRecord[WaterWake::kOffsetControl].y, 0.0f) << "static footprints leave displacement unchanged";
         hullTransform.Translation.y = authoredHeight;
+        auto& namedThreads = Tasks::FNamedThreadManager::Get();
+        const auto previousThread = namedThreads.GetCurrentThreadIfKnown();
+        if (previousThread != Tasks::ENamedThread::GameThread)
+            ASSERT_FALSE(namedThreads.IsThreadAttached(Tasks::ENamedThread::GameThread));
         LowLevelTasks::InitGameThreadId();
-        Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+        if (previousThread != Tasks::ENamedThread::GameThread)
+            namedThreads.AttachToThread(Tasks::ENamedThread::GameThread);
+        struct RestoreGameThread
+        {
+            Scene& TestScene;
+            Tasks::FNamedThreadManager& Threads;
+            Tasks::ENamedThread Previous;
+            ~RestoreGameThread()
+            {
+                if (TestScene.IsRunning())
+                {
+                    TestScene.SetRunning(false);
+                    TestScene.OnPhysics3DStop();
+                }
+                if (Previous != Tasks::ENamedThread::GameThread)
+                {
+                    Threads.DetachFromThread(Tasks::ENamedThread::GameThread);
+                    if (Previous != Tasks::ENamedThread::Invalid)
+                        Threads.AttachToThread(Previous);
+                }
+            }
+        } const restoreGameThread{ GetScene(), namedThreads, previousThread };
         for (const bool play : { false, true })
         {
             if (play)
@@ -980,23 +1043,34 @@ namespace OloEngine::Tests
                 const f64 rmse = Rgba8Rmse(withHull, control);
                 std::cout << "[hull-foam] " << TestRenderBackend::EvidenceName("HullFoam") << cell.Name
                           << (play ? "_Play_" : "_Edit_") << pose.Name << " RGB RMSE " << rmse << '\n';
+                auto& ocean = m_Ocean.GetComponent<WaterComponent>();
+                const f32 brightness = ocean.m_FoamBrightness;
+                ocean.m_FoamBrightness = 0.0f;
+                std::vector<u8> darkFoam;
+                CaptureFoam(pose, play, !pose.ShoreControl, darkFoam, true);
+                ocean.m_FoamBrightness = brightness;
+                ASSERT_FALSE(::testing::Test::HasFatalFailure());
                 if (pose.ShoreControl)
                 {
                     EXPECT_LT(rmse, 0.5) << "the fixed shore changed with the hull record";
-                    auto& ocean = m_Ocean.GetComponent<WaterComponent>();
-                    const f32 brightness = ocean.m_FoamBrightness;
-                    ocean.m_FoamBrightness = 0.0f;
-                    std::vector<u8> darkFoam;
-                    CaptureFoam(pose, play, false, darkFoam, true);
-                    ocean.m_FoamBrightness = brightness;
-                    ASSERT_FALSE(::testing::Test::HasFatalFailure());
                     const f64 shoreRmse = Rgba8Rmse(control, darkFoam);
                     std::cout << "[shore-foam] " << TestRenderBackend::EvidenceName("HullFoam") << cell.Name
                               << (play ? "_Play_Shore" : "_Edit_Shore") << " RGB RMSE " << shoreRmse << '\n';
                     EXPECT_GT(shoreRmse, 1.0) << "the fixed shore rendered without visible foam";
                 }
                 else
+                {
                     EXPECT_GT(rmse, 1.0) << "the hull footprint had no visible effect";
+                    constexpr glm::vec3 kInterior{ 0.0f, 0.0f, 0.0f };
+                    constexpr glm::vec3 kContactLedge{ -1.03f, 0.0f, 0.0f };
+                    const f64 darkenedInterior = MeanRgbAt(control, pose, kInterior, 5) - MeanRgbAt(withHull, pose, kInterior, 5);
+                    const f64 visibleContact = MeanRgbAt(withHull, pose, kContactLedge, 2) - MeanRgbAt(darkFoam, pose, kContactLedge, 2);
+                    std::cout << "[hull-foam-regions] " << TestRenderBackend::EvidenceName("HullFoam") << cell.Name
+                              << (play ? "_Play_" : "_Edit_") << pose.Name << " interior " << darkenedInterior
+                              << " contact " << visibleContact << '\n';
+                    EXPECT_GT(darkenedInterior, 10.0) << "the flooded interior must lose its bright foam";
+                    EXPECT_GT(visibleContact, 10.0) << "the hull must retain visible contact foam";
+                }
             }
         }
     }

@@ -17,7 +17,6 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
-#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
@@ -26,8 +25,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
-#include <optional>
 #include <vector>
 
 namespace OloEngine
@@ -42,7 +39,6 @@ namespace OloEngine
         // Fallbacks for a hull whose collider gives no usable extent.
         constexpr f32 kDefaultBeamMetres = 2.4f;
         constexpr f32 kDefaultLengthMetres = 6.0f;
-        constexpr f32 kShoreFoamDepthMetres = 1.5f; // Water.glsl's shorelineDepthRange
         constexpr BoundingBox kFallbackHullBounds{
             { -kDefaultBeamMetres * 0.5f, -0.5f, -kDefaultLengthMetres * 0.5f },
             { kDefaultBeamMetres * 0.5f, 0.5f, kDefaultLengthMetres * 0.5f }
@@ -139,26 +135,6 @@ namespace OloEngine
             return hull.Min.x <= hull.Max.x ? hull : kFallbackHullBounds;
         }
 
-        std::optional<f32> FindFoamPlane(const std::vector<WaterProbe::Volume>& waters, const glm::vec3& position,
-                                         const BoundingBox& worldBounds, f32 time)
-        {
-            std::optional<f32> result;
-            f32 nearest = std::numeric_limits<f32>::infinity();
-            for (const auto& water : waters)
-            {
-                if (!WaterProbe::IsOverFootprint(water, position))
-                    continue;
-                const f32 surface = WaterProbe::SampleSurfaceY(water, { position.x, position.z }, time);
-                const f32 distance = std::abs(surface - position.y);
-                if (worldBounds.Min.y <= surface && worldBounds.Max.y >= surface - kShoreFoamDepthMetres &&
-                    distance < nearest)
-                {
-                    result = water.m_Params.m_PlaneHeight;
-                    nearest = distance;
-                }
-            }
-            return result;
-        }
     } // namespace
 
     void BoatWakeSystem::PublishEditorHulls(Scene& scene)
@@ -181,7 +157,6 @@ namespace OloEngine
         }
 
         scene.PropagateWorldTransforms();
-        const f32 time = Time::GetTime();
         for (auto handle : hulls)
         {
             Entity entity{ handle, &scene };
@@ -204,16 +179,18 @@ namespace OloEngine
                 pose[axis] /= scale[axis];
             const BoundingBox bounds = AuthoredHullBounds(entity, scale);
             const glm::vec3 hullCentre{ pose * glm::vec4(bounds.GetCenter(), 1.0f) };
-            const auto plane = FindFoamPlane(waters, hullCentre, bounds.Transform(pose), time);
-            if (!plane)
+            if (!WaterProbe::FindVolumeAt(waters, hullCentre))
                 continue;
             const glm::vec2 half = HullHalfExtents(bounds);
+            const BoundingBox worldBounds = bounds.Transform(pose);
             WaterWakeHullDesc hull;
             hull.m_CentreXZ = { hullCentre.x, hullCentre.z };
             hull.m_ForwardXZ = { forward.x, forward.z };
             hull.m_HalfBeam = half.x;
             hull.m_HalfLength = half.y;
-            hull.m_ShoreFoamPlaneY = plane;
+            hull.m_ShoreFoamBoundsY = glm::vec2(worldBounds.Min.y, worldBounds.Max.y);
+            // Authored footprints affect the shoreline term only.
+            hull.m_FlattenEnabled = false;
             (void)WaterWakeSystem::SubmitHull(hull);
         }
     }
@@ -251,7 +228,6 @@ namespace OloEngine
         if (waters.empty())
             return;
 
-        const f32 surfaceTime = Time::GetTime();
         for (auto e : view)
         {
             Entity entity{ e, scene };
@@ -361,7 +337,8 @@ namespace OloEngine
             shapeDesc.m_HalfBeam = half.x;
             shapeDesc.m_HalfLength = half.y;
             shapeDesc.m_CentreXZ = posXZ;
-            shapeDesc.m_ShoreFoamPlaneY = FindFoamPlane(waters, hullCentre, bounds.Transform(pose), surfaceTime);
+            const BoundingBox worldBounds = bounds.Transform(pose);
+            shapeDesc.m_ShoreFoamBoundsY = glm::vec2(worldBounds.Min.y, worldBounds.Max.y);
             shapeDesc.m_Speed = forwardSpeed;
             shapeDesc.m_Gate = hullGate;
             u32 shapeSampleCount = 0;

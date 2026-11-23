@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace OloEngine
 {
@@ -110,8 +109,10 @@ namespace OloEngine
         if (!IsFinite2(desc.m_CentreXZ) || !IsFinite2(desc.m_ForwardXZ))
             return false;
         if (!std::isfinite(desc.m_HalfBeam) || !std::isfinite(desc.m_HalfLength) ||
-            !std::isfinite(desc.m_Speed) || !std::isfinite(desc.m_Gate) ||
-            (desc.m_ShoreFoamPlaneY && !std::isfinite(*desc.m_ShoreFoamPlaneY)))
+            !std::isfinite(desc.m_Speed) || !std::isfinite(desc.m_Gate))
+            return false;
+        if (desc.m_ShoreFoamBoundsY &&
+            (!IsFinite2(*desc.m_ShoreFoamBoundsY) || desc.m_ShoreFoamBoundsY->x > desc.m_ShoreFoamBoundsY->y))
             return false;
 
         const f32 forwardLen = glm::length(desc.m_ForwardXZ);
@@ -212,20 +213,16 @@ namespace OloEngine
         // the wake off in a way that looks like the trail simply ending.
         const f32 footprintRadius = glm::length(glm::vec2(halfBeam, halfLength)) * WaterWake::kFootprintFadeEnd;
         const f32 boundRadius = std::max(footprintRadius, maxReach);
-        // The largest finite height means this record carries wake motion
-        // without masking shoreline foam on a water tile.
-        out[WaterWake::kOffsetBound] =
-            glm::vec4(desc.m_CentreXZ.x, desc.m_CentreXZ.y, boundRadius,
-                      desc.m_ShoreFoamPlaneY.value_or(std::numeric_limits<f32>::max()));
+        out[WaterWake::kOffsetBound] = glm::vec4(desc.m_ShoreFoamBoundsY.value_or(glm::vec2(0.0f)),
+                                                 boundRadius, desc.m_ShoreFoamBoundsY ? 1.0f : 0.0f);
 
         // control.y is the PER-HULL flatten enable, not the scene's strength:
         // the strength is a setting published on the render path while these
         // records are built on the physics path, so baking it in here would
         // always bake the previous frame's value. It is passed to Evaluate
-        // instead. 1 means "this hull suppresses the sea"; a future airborne or
-        // fully-submerged hull can drop it without touching the scene setting.
+        // instead. Edit-mode footprints set this to zero and affect foam only.
         out[WaterWake::kOffsetControl] =
-            glm::vec4(static_cast<f32>(packed), 1.0f, bowReach, sternReach);
+            glm::vec4(static_cast<f32>(packed), desc.m_FlattenEnabled ? 1.0f : 0.0f, bowReach, sternReach);
 
         ++s_Data.m_HullCount;
         return true;

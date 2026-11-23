@@ -51,6 +51,7 @@ const float WATER_WAKE_KELVIN_TAN_HALF_ANGLE = 0.35355339;
 const float WATER_WAKE_FOOTPRINT_FADE_END = 1.35;
 const float WATER_WAKE_ARM_SOFTNESS = 2.5;
 const float WATER_WAKE_MAX_HEIGHT_METRES = 1.5;
+const float WATER_WAKE_SHORE_DEPTH_METRES = 1.5;
 
 // The includer MUST define this after including the file. See the header block.
 vec4 waterWakeFetch(int index);
@@ -91,7 +92,7 @@ float waterWakeArmOffset(float halfBeam, float speed, float ageSeconds)
 // frame that publishes the disabled form cannot leave a stale hull footprint
 // pressed into the sea.
 vec2 waterWakeEvaluateRecords(float hullCount, float heightScale, float flattenStrength,
-                              vec2 worldXZ, float vertexSpacing, bool shoreFoamOnly, float waterPlaneY)
+                              vec2 worldXZ, float vertexSpacing, bool shoreFoamOnly, float surfaceWorldY)
 {
     if (!shoreFoamOnly && !(heightScale > 0.0))
         return vec2(0.0);
@@ -107,22 +108,23 @@ vec2 waterWakeEvaluateRecords(float hullCount, float heightScale, float flattenS
         // Bounding-circle rejection first - the branch almost every sample on
         // an ocean takes. Anything ahead of it is paid for by the whole sea.
         vec4 bound = waterWakeFetch(base + WATER_WAKE_OFFSET_BOUND);
-        if (shoreFoamOnly && abs(waterPlaneY - bound.w) > 0.01)
+        // The color fragment sees the completed displaced surface. The mask
+        // is relevant only when the hull overlaps the shallow water column.
+        if (shoreFoamOnly && (bound.w <= 0.0 || surfaceWorldY < bound.x ||
+                              surfaceWorldY > bound.y + WATER_WAKE_SHORE_DEPTH_METRES))
             continue;
-        vec2 toBound = worldXZ - bound.xy;
-        if (dot(toBound, toBound) > bound.z * bound.z)
+        vec4 centreForward = waterWakeFetch(base + WATER_WAKE_OFFSET_CENTRE_FORWARD);
+        vec2 rel = worldXZ - centreForward.xy;
+        if (dot(rel, rel) > bound.z * bound.z)
             continue;
 
-        vec4 centreForward = waterWakeFetch(base + WATER_WAKE_OFFSET_CENTRE_FORWARD);
         vec4 shape = waterWakeFetch(base + WATER_WAKE_OFFSET_SHAPE);
 
-        vec2 centre = centreForward.xy;
         vec2 forward = centreForward.zw;
         // forward rotated -90 deg about +Y. Getting this backwards mirrors the
         // wake, which on a symmetric hull looks entirely correct (issue #897).
         vec2 starboard = vec2(-forward.y, forward.x);
 
-        vec2 rel = worldXZ - centre;
         float lateral = dot(rel, starboard);
         float along = dot(rel, forward);
 
@@ -214,14 +216,14 @@ vec2 waterWakeEvaluate(float hullCount, float heightScale, float flattenStrength
     return waterWakeEvaluateRecords(hullCount, heightScale, flattenStrength, worldXZ, vertexSpacing, false, 0.0);
 }
 
-float waterWakeShoreFoamScale(float hullCount, vec2 worldXZ, float waterDepth, float waterPlaneY)
+float waterWakeShoreFoamScale(float hullCount, vec2 worldXZ, float waterDepth, float surfaceWorldY)
 {
     // The shallow contact band follows the intersection in scene depth, so
     // it can follow a curved waterline inside the rectangular footprint.
     float insideWaterColumn = smoothstep(0.04, 0.12, waterDepth);
     if (!(insideWaterColumn > 0.0) || !(hullCount > 0.0))
         return 1.0;
-    float hullInterior = waterWakeEvaluateRecords(hullCount, 0.0, 0.0, worldXZ, 0.0, true, waterPlaneY).y;
+    float hullInterior = waterWakeEvaluateRecords(hullCount, 0.0, 0.0, worldXZ, 0.0, true, surfaceWorldY).y;
     return 1.0 - hullInterior * insideWaterColumn;
 }
 

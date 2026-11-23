@@ -120,7 +120,7 @@ namespace OloEngine::WaterWake
     // defines in WaterWakeCommon.glsl.
     inline constexpr u32 kOffsetCentreForward = 0; ///< xy = hull centre world XZ, zw = unit forward XZ
     inline constexpr u32 kOffsetShape = 1;         ///< x = halfBeam, y = halfLength, z = bow amplitude (m), w = stern trough amplitude (m, positive magnitude)
-    inline constexpr u32 kOffsetBound = 2;         ///< xy = bounding-circle centre world XZ, z = radius (m), w = shore-foam plane Y
+    inline constexpr u32 kOffsetBound = 2;         ///< xy = hull min/max world Y, z = bounding circle radius (m), w = shoreline mask enable
     inline constexpr u32 kOffsetControl = 3;       ///< x = arm sample count, y = per-hull flatten enable [0,1], z = bow reach (m), w = stern reach (m)
     inline constexpr u32 kOffsetArms = 4;          ///< [kOffsetArms + 2i] = starboard (xy pos, z amplitude, w radius), [+1] = port (xy pos)
 
@@ -229,15 +229,15 @@ namespace OloEngine::WaterWake
             // sample - putting anything else ahead of it makes the whole sea
             // pay for the boat.
             const glm::vec4 bound = hulls[base + kOffsetBound];
-            const glm::vec2 toBound = worldXZ - glm::vec2(bound.x, bound.y);
-            if (glm::dot(toBound, toBound) > bound.z * bound.z)
+            const glm::vec4 centreForward = hulls[base + kOffsetCentreForward];
+            const glm::vec2 centre(centreForward.x, centreForward.y);
+            const glm::vec2 rel = worldXZ - centre;
+            if (glm::dot(rel, rel) > bound.z * bound.z)
                 continue;
 
-            const glm::vec4 centreForward = hulls[base + kOffsetCentreForward];
             const glm::vec4 shape = hulls[base + kOffsetShape];
             const glm::vec4 control = hulls[base + kOffsetControl];
 
-            const glm::vec2 centre(centreForward.x, centreForward.y);
             const glm::vec2 forward(centreForward.z, centreForward.w);
             // Starboard is forward rotated -90 deg about +Y in a right-handed
             // frame. Getting this backwards mirrors the wake, which on a
@@ -245,7 +245,6 @@ namespace OloEngine::WaterWake
             // issue #897.
             const glm::vec2 starboard(-forward.y, forward.x);
 
-            const glm::vec2 rel = worldXZ - centre;
             const f32 lateral = glm::dot(rel, starboard);
             const f32 along = glm::dot(rel, forward);
 
