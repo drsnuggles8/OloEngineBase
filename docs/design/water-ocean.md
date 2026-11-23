@@ -232,9 +232,11 @@ footprint, the water shader suppresses the wider shoreline term and keeps the sh
 where the water meets the hull. The mask shares the packed wake records with surface displacement
 and works with wake displacement disabled. The editor publishes footprints at the boats' authored
 poses without adding wake displacement. In Play and Simulate, the physics wake update supplies the
-hull positions. The fragment shader checks the packed world-space hull bounds against its displaced
-surface height, so an airborne hull leaves the water below it alone. Fixed shores and pillars outside
-those footprints keep their depth-based foam.
+hull positions. The closest still-water plane covering the hull centre owns the foam footprint.
+The body origin supplies a fallback when the centre lies outside all water tiles. The fragment
+shader checks that plane and compares its displaced surface
+height with the packed world-space hull bounds. An airborne hull leaves the water below it alone.
+Fixed shores and pillars outside those footprints keep their depth-based foam.
 
 ### 2.1 Jacobian-Based Foam — **shipped**
 

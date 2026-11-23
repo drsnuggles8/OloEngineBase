@@ -18,11 +18,11 @@
 // the water stages, this SSBO here.
 //
 // Inputs  (SSBO binding 0) : vec4[1 + WATER_WAKE_HULL_VEC4_COUNT]
-//     [0]   = (hullCount, heightScale, flattenStrength, sampled surface Y)
+//     [0]   = (hullCount, heightScale, flattenStrength, still-water plane Y)
 //     [1..] = the packed hull records, WaterWake.h's layout verbatim
 // Inputs  (SSBO binding 1) : vec4[N] queries — xy = world XZ, z = vertexSpacing, w = water depth
 // Outputs (SSBO binding 2) : vec4[N] — x = height (m), y = flatten, z = shoreline foam scale,
-// w = shoreline foam scale on a surface below the hull
+// w = minimum shoreline foam scale of the airborne and different-plane controls
 // =============================================================================
 
 layout(local_size_x = 64) in;
@@ -49,6 +49,10 @@ void main()
     vec4 header = u_Hulls[0];
 
     vec2 wake = waterWakeEvaluate(header.x, header.y, header.z, query.xy, query.z);
-    u_Outputs[idx] = vec4(wake, waterWakeShoreFoamScale(header.x, query.xy, query.w, header.w),
-                          waterWakeShoreFoamScale(header.x, query.xy, query.w, header.w - 2.0));
+    float foam = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w));
+    float below = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w - 2.0, header.w));
+    // One metre is close enough to pass the shallow-column check but is
+    // another water plane, so both controls must retain their foam.
+    float otherPlane = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w + 1.0));
+    u_Outputs[idx] = vec4(wake, foam, min(below, otherPlane));
 }

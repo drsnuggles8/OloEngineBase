@@ -997,6 +997,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(WaterWakeSystem::GetHullCount(), 1u);
         const auto* hullRecord = WaterWakeSystem::GetHullData();
         EXPECT_GT(hullRecord[WaterWake::kOffsetBound].x, 0.0f) << "the airborne bounds must sit above the water surface";
+        EXPECT_FLOAT_EQ(hullRecord[WaterWake::kOffsetBound].w, 0.0f) << "the authored hull must carry its owning plane";
         EXPECT_FLOAT_EQ(hullRecord[WaterWake::kOffsetControl].y, 0.0f) << "static footprints leave displacement unchanged";
         hullTransform.Translation.y = authoredHeight;
         auto& namedThreads = Tasks::FNamedThreadManager::Get();

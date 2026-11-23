@@ -39,6 +39,7 @@
 
 #include <cmath>
 #include <initializer_list>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine;
@@ -213,43 +214,82 @@ TEST_F(WaterWakeBuoyancyTest, VisualOnlyModeLeavesBuoyancyExactlyAsItWas)
 
 TEST_F(WaterWakeBuoyancyTest, PublishesShoreFoamBoundsAtAVisualWakeTrough)
 {
+    constexpr f32 kPlaneY = 1.0f;
     Time::SetMockTime(0.0f);
     Entity water = SpawnWater(/*wakeEnabled=*/true, /*affectsPhysics=*/false);
+    Entity stackedWater = SpawnWater(/*wakeEnabled=*/true, /*affectsPhysics=*/false);
+    auto& firstHeight = water.GetComponent<TransformComponent>().Translation.y;
+    auto& secondHeight = stackedWater.GetComponent<TransformComponent>().Translation.y;
+    firstHeight = kPlaneY;
+    secondHeight = kPlaneY + 1.0f;
     water.GetComponent<WaterComponent>().m_WaveAmplitude = 1.0f;
-    const auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
-    ASSERT_EQ(volumes.size(), 1u);
+    stackedWater.GetComponent<WaterComponent>().m_WaveAmplitude = 1.0f;
+    auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+    ASSERT_EQ(volumes.size(), 2u);
+    // Arrange for the unrelated upper tile to win a first-XZ lookup,
+    // independently of the registry's actual iteration order.
+    if (volumes[0].m_Params.m_PlaneHeight < kPlaneY + 0.5f)
+    {
+        std::swap(firstHeight, secondHeight);
+        volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+    }
+    ASSERT_EQ(volumes.size(), 2u);
+    ASSERT_FLOAT_EQ(volumes[0].m_Params.m_PlaneHeight, kPlaneY + 1.0f);
+    const auto& volume = volumes[1];
+    ASSERT_FLOAT_EQ(volume.m_Params.m_PlaneHeight, kPlaneY);
 
     glm::vec2 trough{};
-    f32 troughY = 0.0f;
+    f32 troughY = kPlaneY;
     for (i32 x = -20; x <= 20; ++x)
     {
         const glm::vec2 point{ static_cast<f32>(x), 0.0f };
-        const f32 surface = WaterProbe::SampleSurfaceY(volumes[0], point, 0.0f);
+        const f32 surface = WaterProbe::SampleSurfaceY(volume, point, 0.0f);
         if (surface < troughY)
         {
             troughY = surface;
             trough = point;
         }
     }
-    ASSERT_LT(troughY, -kBuoyHalfExtent) << "the base wave must miss the collider below its bottom";
+    ASSERT_LT(troughY, kPlaneY - kBuoyHalfExtent) << "the base wave must miss the collider below its bottom";
 
-    Entity boat = SpawnBuoy({ trough.x, 0.0f, trough.y });
+    Entity boat = SpawnBuoy({ trough.x, kPlaneY, trough.y });
     boat.AddComponent<BoatComponent>();
     EnablePhysics3D();
     TMap<u64, BoatWakeTrail> history;
     BoatWakeSystem::OnUpdate(&GetScene(), history, 0.0f, 1.0f / 60.0f);
 
     ASSERT_EQ(WaterWakeSystem::GetHullCount(), 1u);
-    EXPECT_FLOAT_EQ(WaterProbe::SampleSurfaceY(volumes[0], trough, 0.0f), troughY);
+    EXPECT_FLOAT_EQ(WaterProbe::SampleSurfaceY(volume, trough, 0.0f), troughY);
     const auto* hulls = WaterWakeSystem::GetHullData();
     const glm::vec4 bounds = hulls[WaterWake::kOffsetBound];
-    EXPECT_FLOAT_EQ(bounds.x, -kBuoyHalfExtent);
-    EXPECT_FLOAT_EQ(bounds.y, kBuoyHalfExtent);
-    EXPECT_FLOAT_EQ(bounds.w, 1.0f) << "the shader needs the bounds even when the base wave misses the hull";
-    const auto& volume = volumes[0];
+    EXPECT_FLOAT_EQ(bounds.x, kPlaneY - kBuoyHalfExtent);
+    EXPECT_FLOAT_EQ(bounds.y, kPlaneY + kBuoyHalfExtent);
+    EXPECT_FLOAT_EQ(bounds.w, kPlaneY) << "the shader needs the owning plane even when the base wave misses the hull";
     const auto wake = WaterWake::Evaluate(hulls, 1u, volume.m_WakeHeightScale, volume.m_WakeFlattenStrength, trough, 0.0f);
-    const f32 visibleSurfaceY = troughY * (1.0f - wake.m_Flatten) + wake.m_Height;
+    const f32 visibleSurfaceY = kPlaneY + (troughY - kPlaneY) * (1.0f - wake.m_Flatten) + wake.m_Height;
     EXPECT_GT(visibleSurfaceY, bounds.x) << "the completed visual flatten brings the water into the hull";
+}
+
+TEST_F(WaterWakeBuoyancyTest, ShoreFoamUsesTheColliderTileAheadOfThePivotTile)
+{
+    Entity pivotWater = SpawnWater(/*wakeEnabled=*/false, /*affectsPhysics=*/false);
+    Entity hullWater = SpawnWater(/*wakeEnabled=*/false, /*affectsPhysics=*/false);
+    pivotWater.GetComponent<WaterComponent>().m_WorldSizeX = 2.0f;
+    hullWater.GetComponent<WaterComponent>().m_WorldSizeX = 2.0f;
+    hullWater.GetComponent<TransformComponent>().Translation = { 3.0f, 1.0f, 0.0f };
+
+    Entity boat = SpawnBuoy({ 0.0f, 0.3f, 0.0f });
+    boat.GetComponent<BoxCollider3DComponent>().m_Offset = { 3.0f, 0.0f, 0.0f };
+    boat.AddComponent<BoatComponent>();
+    EnablePhysics3D();
+    TMap<u64, BoatWakeTrail> history;
+    BoatWakeSystem::OnUpdate(&GetScene(), history, 0.0f, 1.0f / 60.0f);
+
+    ASSERT_EQ(WaterWakeSystem::GetHullCount(), 1u);
+    const auto* hulls = WaterWakeSystem::GetHullData();
+    EXPECT_FLOAT_EQ(hulls[WaterWake::kOffsetCentreForward].x, 3.0f);
+    EXPECT_FLOAT_EQ(hulls[WaterWake::kOffsetBound].w, 1.0f)
+        << "the nearer pivot-only tile must not own the offset hull mask";
 }
 
 TEST_F(WaterWakeBuoyancyTest, PhysicalModeLiftsTheBuoyOntoTheWake)
