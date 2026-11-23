@@ -2911,21 +2911,40 @@ namespace OloEngine
         // Split a world matrix into translation, rotation and per-axis scale.
         // The rotation comes from the normalised basis, so a scaled carrier
         // cannot leak its scale into the released body's orientation.
-        [[nodiscard]] bool SplitWorldMatrix(const glm::mat4& world, glm::vec3& translation, glm::quat& rotation, glm::vec3& scale)
+        [[nodiscard]] bool SplitWorldMatrix(const glm::mat4& world, glm::vec3& translation, glm::quat& rotation,
+                                            glm::vec3& scale, bool allowCollapsedAxis = false)
         {
             translation = glm::vec3(world[3]);
             scale = { glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])), glm::length(glm::vec3(world[2])) };
-            if (!(scale.x > 0.0f) || !(scale.y > 0.0f) || !(scale.z > 0.0f) || !std::isfinite(translation.x) ||
-                !std::isfinite(translation.y) || !std::isfinite(translation.z))
+            if (!std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z) ||
+                !std::isfinite(translation.x) || !std::isfinite(translation.y) || !std::isfinite(translation.z) ||
+                (!allowCollapsedAxis && (!(scale.x > 0.0f) || !(scale.y > 0.0f) || !(scale.z > 0.0f))))
             {
                 return false;
             }
             // Non-uniform ancestor scale can skew the axes. Preserve X,
             // orthogonalise Y, and keep the handedness in the signed Z scale.
-            const glm::vec3 x = glm::vec3(world[0]) / scale.x;
-            const glm::vec3 y = glm::vec3(world[1]) / scale.y;
-            const glm::vec3 cross = glm::cross(x, y);
-            const f32 crossLength = glm::length(cross);
+            glm::vec3 x = scale.x > 0.0f ? glm::vec3(world[0]) / scale.x : glm::vec3(0.0f);
+            glm::vec3 y = scale.y > 0.0f ? glm::vec3(world[1]) / scale.y : glm::vec3(0.0f);
+            const glm::vec3 authoredZ = scale.z > 0.0f ? glm::vec3(world[2]) / scale.z : glm::vec3(0.0f);
+            glm::vec3 cross = glm::cross(x, y);
+            f32 crossLength = glm::length(cross);
+            // Two independent axes still define a usable rotation for a
+            // collider that can tolerate a collapsed scale axis.
+            if (allowCollapsedAxis && crossLength <= 1.0e-6f)
+            {
+                // Preserve a surviving Y first. It is the capsule's axis.
+                if (const glm::vec3 fromYZ = glm::cross(y, authoredZ); glm::length(fromYZ) > 1.0e-6f)
+                {
+                    x = glm::normalize(fromYZ);
+                }
+                else
+                {
+                    y = glm::cross(authoredZ, x);
+                }
+                cross = glm::cross(x, y);
+                crossLength = glm::length(cross);
+            }
             if (!(crossLength > 1.0e-6f))
                 return false;
             const glm::vec3 z = cross / crossLength;
@@ -2944,14 +2963,18 @@ namespace OloEngine
 
             const glm::mat4 inverse = glm::inverse(parentWorld);
             Scene::WorldTRS local{ glm::vec3(inverse * glm::vec4(position, 1.0f)), authored.GetRotation(), authored.Scale };
-            // SplitWorldMatrix encodes handedness in Z. Undo the signs of the
-            // authored X and Y here so the local scale applies them once.
-            const f32 signX = std::signbit(authored.Scale.x) ? -1.0f : 1.0f;
-            const f32 signY = std::signbit(authored.Scale.y) ? -1.0f : 1.0f;
-            const glm::mat4 signedRotation = glm::scale(glm::mat4_cast(rotation), { signX, signY, signX * signY });
+            const auto axisSign = [](f32 axis)
+            { return std::abs(axis) > 0.0f ? std::copysign(1.0f, axis) : 0.0f; };
+            glm::vec3 signs(axisSign(authored.Scale.x), axisSign(authored.Scale.y), axisSign(authored.Scale.z));
+            const bool collapsed = !(std::abs(signs.x) > 0.0f) || !(std::abs(signs.y) > 0.0f) || !(std::abs(signs.z) > 0.0f);
+            // Full-rank poses put handedness in Z. With a missing axis, keep
+            // its column zero and undo the authored signs on the survivors.
+            if (!collapsed)
+                signs.z = signs.x * signs.y;
+            const glm::mat4 signedRotation = glm::scale(glm::mat4_cast(rotation), signs);
             glm::vec3 unusedPosition, unusedScale;
             glm::quat localRotation;
-            if (SplitWorldMatrix(inverse * signedRotation, unusedPosition, localRotation, unusedScale))
+            if (SplitWorldMatrix(inverse * signedRotation, unusedPosition, localRotation, unusedScale, collapsed))
                 local.Rotation = localRotation;
             return local;
         }
@@ -3026,7 +3049,7 @@ namespace OloEngine
         {
             const glm::mat4 world = ComputeWorldTransform(entity);
             glm::quat rotation;
-            if (SplitWorldMatrix(world, pose.Position, rotation, pose.Scale))
+            if (SplitWorldMatrix(world, pose.Position, rotation, pose.Scale, /*allowCollapsedAxis=*/true))
                 pose.Rotation = rotation;
         }
         return pose;

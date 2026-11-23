@@ -225,20 +225,30 @@ TEST_F(ParentedPhysicsPlacementTest, PhysicsChildrenUseTheCurrentBodyPoseOfTheir
 TEST_F(ParentedPhysicsPlacementTest, JoltWritebackPreservesAnAuthoredMirror)
 {
     Entity parent = GetScene().CreateEntity("Mirror Rig");
-    Entity child = GetScene().CreateEntity("Mirrored Body");
-    child.SetParent(parent);
-    child.GetComponent<TransformComponent>().Scale.x = -1.0f;
-    child.AddComponent<BoxCollider3DComponent>();
-    Rigidbody3DComponent settings;
-    settings.m_Type = BodyType3D::Dynamic;
-    settings.m_DisableGravity = true;
-    child.AddComponent<Rigidbody3DComponent>(settings);
-    const glm::mat4 before = GetScene().ComputeWorldTransform(child);
+    const std::array scales{ glm::vec3(-1.0f, 1.0f, 1.0f),
+                             glm::vec3(-1.0f, 0.0f, 1.0f),
+                             glm::vec3(0.0f, 1.0f, -1.0f) };
+    for (sizet index = 0; index < scales.size(); ++index)
+    {
+        SCOPED_TRACE(index);
+        Entity child = GetScene().CreateEntity("Mirrored Body");
+        child.SetParent(parent);
+        auto& transform = child.GetComponent<TransformComponent>();
+        transform.Scale = scales[index];
+        transform.Translation.z = 10.0f * static_cast<f32>(index);
+        child.AddComponent<CapsuleCollider3DComponent>();
+        Rigidbody3DComponent settings;
+        settings.m_Type = BodyType3D::Dynamic;
+        settings.m_DisableGravity = true;
+        child.AddComponent<Rigidbody3DComponent>(settings);
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->GetBody(child));
+        const glm::mat4 before = GetScene().ComputeWorldTransform(child);
 
-    RunFrames(2);
-    const glm::mat4 after = GetScene().GetWorldTransform(child);
-    for (glm::length_t axis = 0; axis < 4; ++axis)
-        EXPECT_NEAR(glm::length(glm::vec3(before[axis] - after[axis])), 0.0f, 1.0e-4f) << axis;
+        RunFrames(2);
+        const glm::mat4 after = GetScene().GetWorldTransform(child);
+        for (glm::length_t axis = 0; axis < 4; ++axis)
+            EXPECT_NEAR(glm::length(glm::vec3(before[axis] - after[axis])), 0.0f, 1.0e-4f) << axis;
+    }
 }
 
 TEST_F(ParentedPhysicsPlacementTest, AuthoredBox2DTeleportUsesTheSameWorldPoseAsTheRootTwin)
@@ -276,6 +286,64 @@ TEST_F(ParentedPhysicsPlacementTest, JoltOffsetsFollowTheFullShearedWorldBasis)
         const glm::vec3 center(GetScene().ComputeWorldTransform(child) * glm::vec4(offset, 1.0f));
         EXPECT_NEAR(glm::length(body->GetCenterOfMassPosition() - center), 0.0f, 1.0e-4f);
     }
+}
+
+TEST_F(ParentedPhysicsPlacementTest, JoltCapsuleKeepsTheRootTwinRotationWithOneCollapsedAxis)
+{
+    const glm::vec3 euler{ 0.0f, 0.0f, glm::half_pi<f32>() };
+    Entity rig = GetScene().CreateEntity("Capsule Rig");
+    rig.GetComponent<TransformComponent>().Translation = { 10.0f, 5.0f, 0.0f };
+    rig.GetComponent<TransformComponent>().SetRotationEuler(euler);
+    const auto addCapsule = [](Entity entity)
+    {
+        entity.AddComponent<CapsuleCollider3DComponent>();
+        Rigidbody3DComponent settings;
+        settings.m_Type = BodyType3D::Dynamic;
+        entity.AddComponent<Rigidbody3DComponent>(settings);
+    };
+    auto* physics = GetScene().GetPhysicsScene();
+    for (glm::length_t axis = 0; axis < 3; ++axis)
+    {
+        SCOPED_TRACE(axis);
+        glm::vec3 scale(1.0f);
+        scale[axis] = 0.0f;
+        Entity child = GetScene().CreateEntity("Child Capsule");
+        child.GetComponent<TransformComponent>().Scale = scale;
+        child.GetComponent<TransformComponent>().Translation.z = static_cast<f32>(axis) * 3.0f;
+        child.SetParent(rig);
+        addCapsule(child);
+
+        Entity twin = GetScene().CreateEntity("Root Capsule");
+        auto& transform = twin.GetComponent<TransformComponent>();
+        transform.Scale = scale;
+        transform.Translation = { 10.0f, 5.0f, static_cast<f32>(axis) * 3.0f };
+        transform.SetRotationEuler(euler);
+        addCapsule(twin);
+
+        const Ref<JoltBody> childBody = physics->GetBody(child);
+        const Ref<JoltBody> twinBody = physics->GetBody(twin);
+        ASSERT_TRUE(childBody && twinBody);
+        EXPECT_NEAR(glm::length(childBody->GetPosition() - twinBody->GetPosition()), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(std::abs(glm::dot(childBody->GetRotation(), twinBody->GetRotation())), 1.0f, 1.0e-4f);
+    }
+}
+
+TEST_F(ParentedPhysicsPlacementTest, JoltCapsuleKeepsItsSurvivingYAxisUnderACollapsedParent)
+{
+    Entity rig = GetScene().CreateEntity("Collapsed Rig");
+    rig.GetComponent<TransformComponent>().Scale.y = 0.0f;
+    Entity capsule = GetScene().CreateEntity("Slanted Capsule");
+    capsule.SetParent(rig);
+    capsule.GetComponent<TransformComponent>().SetRotationEuler({ 0.0f, 0.0f, glm::quarter_pi<f32>() });
+    capsule.AddComponent<CapsuleCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    capsule.AddComponent<Rigidbody3DComponent>(settings);
+
+    const auto body = GetScene().GetPhysicsScene()->GetBody(capsule);
+    ASSERT_TRUE(body);
+    const glm::vec3 axis = body->GetRotation() * glm::vec3(0.0f, 1.0f, 0.0f);
+    EXPECT_NEAR(glm::length(axis - glm::vec3(-1.0f, 0.0f, 0.0f)), 0.0f, 1.0e-4f);
 }
 
 class PlanarColliderPlacementTest : public FunctionalTest
