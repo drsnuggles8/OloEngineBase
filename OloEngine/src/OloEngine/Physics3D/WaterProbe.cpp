@@ -40,20 +40,15 @@ namespace OloEngine::WaterProbe
     {
         Volume w;
         {
-            // The water grid is a horizontal XZ plane at local y = 0; its world
-            // height is the y of the tile origin (same assumption as the
-            // underwater-fog footprint test).
+            // The physics rest plane is horizontal at the tile origin's Y.
             const glm::vec4 originWorld = model * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
             if (!std::isfinite(originWorld.y))
                 return std::nullopt;
 
-            const f32 safeSizeX = std::isfinite(wc.m_WorldSizeX) ? wc.m_WorldSizeX : 0.1f;
-            const f32 safeSizeZ = std::isfinite(wc.m_WorldSizeZ) ? wc.m_WorldSizeZ : 0.1f;
-
             w.m_Params = MakeParams(wc, originWorld.y);
             w.m_InvModel = glm::inverse(model);
-            w.m_HalfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
-            w.m_HalfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
+            w.m_HalfX = WaterSurface::SanitizeTileDimension(wc.m_WorldSizeX) * 0.5f;
+            w.m_HalfZ = WaterSurface::SanitizeTileDimension(wc.m_WorldSizeZ) * 0.5f;
 
             // FFT ocean (WATER §5.1): when the entity renders the Tessendorf
             // spectral surface and its CPU proxy has been evaluated, a floating

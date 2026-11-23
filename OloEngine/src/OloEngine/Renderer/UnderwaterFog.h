@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 
 #include <glm/glm.hpp>
 
@@ -158,8 +159,8 @@ namespace OloEngine
             if (!std::isfinite(localPoint.x) || !std::isfinite(localPoint.z) || !std::isfinite(surfaceY))
                 return false;
 
-            const f32 halfX = std::clamp(std::isfinite(width) ? width : 0.1f, 0.1f, 10000.0f) * 0.5f;
-            const f32 halfZ = std::clamp(std::isfinite(depth) ? depth : 0.1f, 0.1f, 10000.0f) * 0.5f;
+            const f32 halfX = WaterSurface::SanitizeTileDimension(width) * 0.5f;
+            const f32 halfZ = WaterSurface::SanitizeTileDimension(depth) * 0.5f;
             if (std::abs(localPoint.x) > halfX || std::abs(localPoint.z) > halfZ)
                 return false;
 

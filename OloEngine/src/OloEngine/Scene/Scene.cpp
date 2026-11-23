@@ -15353,12 +15353,8 @@ namespace OloEngine
                     // reflection area metric below agree on the surface size. A raw
                     // out-of-range value would otherwise build a clamped mesh but
                     // compare an un-clamped area when picking the dominant reflector.
-                    auto const sizeX = std::isfinite(water.m_WorldSizeX)
-                                           ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
-                                           : 100.0f;
-                    auto const sizeZ = std::isfinite(water.m_WorldSizeZ)
-                                           ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
-                                           : 100.0f;
+                    const f32 sizeX = WaterSurface::SanitizeTileDimension(water.m_WorldSizeX);
+                    const f32 sizeZ = WaterSurface::SanitizeTileDimension(water.m_WorldSizeZ);
 
                     // The mesh's real resolution — the one number the build,
                     // the band-limit spacing and the projected grid all agree
@@ -15639,12 +15635,6 @@ namespace OloEngine
                     // Guard the divisor the same way the fog bounds test above
                     // does: a non-finite or zero grid resolution would produce an
                     // inf/NaN spacing and take the whole wave sum with it.
-                    const f32 spacingSizeX = std::isfinite(water.m_WorldSizeX)
-                                                 ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
-                                                 : 0.1f;
-                    const f32 spacingSizeZ = std::isfinite(water.m_WorldSizeZ)
-                                                 ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
-                                                 : 0.1f;
                     // Clamp to the SAME [1, 1024] range the mesh build uses for
                     // resX/resZ above. Taking the raw resolution here would
                     // report a spacing finer than the mesh was actually built
@@ -15656,7 +15646,7 @@ namespace OloEngine
                     // The coarser of the two axes is the one that limits what the
                     // surface can carry.
                     const f32 vertexSpacing =
-                        std::max(spacingSizeX / spacingCountX, spacingSizeZ / spacingCountZ);
+                        std::max(sizeX / spacingCountX, sizeZ / spacingCountZ);
 
                     waterParams.foamParams2 = glm::vec4(
                         water.m_FoamAngleExponent, water.m_ShorelineFoamPower,
@@ -15981,17 +15971,11 @@ namespace OloEngine
                     }
 
                     // Compute bounding box for frustum culling — use sanitized values
-                    f32 const safeWorldX = std::isfinite(water.m_WorldSizeX)
-                                               ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
-                                               : 100.0f;
-                    f32 const safeWorldZ = std::isfinite(water.m_WorldSizeZ)
-                                               ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
-                                               : 100.0f;
                     f32 const safeAmplitude = std::isfinite(water.m_WaveAmplitude)
                                                   ? std::clamp(water.m_WaveAmplitude, 0.0f, 100.0f)
                                                   : 0.5f;
-                    f32 halfX = safeWorldX * 0.5f;
-                    f32 halfZ = safeWorldZ * 0.5f;
+                    f32 halfX = sizeX * 0.5f;
+                    f32 halfZ = sizeZ * 0.5f;
                     // Conservative vertical extent for frustum culling. The FFT
                     // field is RMS-normalised to ~0.3·amplitude m and the shader
                     // scales it by m_FFTHeightScale; crests reach a few × RMS, so
