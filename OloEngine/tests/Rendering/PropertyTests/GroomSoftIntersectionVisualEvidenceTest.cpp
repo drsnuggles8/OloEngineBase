@@ -224,14 +224,7 @@ namespace OloEngine::Tests
             std::vector<u8> off, repeat, on;
             Capture("GroomSoftIntersectionOff_GL_" + cell, false, cards, angle, off);
             Capture("", false, cards, angle, repeat);
-            if (const auto graph = RenderGraphDebugRuntime::GetActiveGraph())
-            {
-                const auto culled = graph->GetCulledPasses();
-                for (const std::string_view name : { "GroomSceneDepthSnapshotPass", "GroomSceneEntitySnapshotPass", "GroomWaterDepthPass" })
-                    EXPECT_TRUE(std::ranges::any_of(culled, [name](const FString& pass)
-                                                    { return pass.ToView() == name; }))
-                        << "disabled coats must cull " << name;
-            }
+            CheckIntersectionInputsCulled();
             Capture("GroomSoftIntersection_GL_" + cell, true, cards, angle, on);
             ASSERT_FALSE(off.empty());
             const u32 noise = DifferingPixels(off, repeat);
@@ -240,6 +233,17 @@ namespace OloEngine::Tests
                         cell.c_str(), changed, noise, m_Width, m_Height);
             EXPECT_GT(changed, noise + 8u) << "contact fade did not exceed the matched repeat floor";
             CheckEnabledGraph();
+        }
+
+        static void CheckIntersectionInputsCulled()
+        {
+            const auto graph = RenderGraphDebugRuntime::GetActiveGraph();
+            ASSERT_TRUE(graph);
+            const auto culled = graph->GetCulledPasses();
+            for (const std::string_view name : { "GroomSceneDepthSnapshotPass", "GroomSceneEntitySnapshotPass", "GroomWaterDepthPass" })
+                EXPECT_TRUE(std::ranges::any_of(culled, [name](const FString& pass)
+                                                { return pass.ToView() == name; }))
+                    << "a coat that cannot fade must cull " << name;
         }
 
         // What the frame the last capture rendered, with the fade on, must
@@ -438,18 +442,33 @@ namespace OloEngine::Tests
         Capture("GroomSoftIntersectionUnprotected_GL_Horse", true, false, 0, unprotected);
         EXPECT_GT(DifferingPixels(prepass, unprotected), 8u);
         m_Coat.GetComponent<GroomSoftIntersectionComponent>().m_ProtectedRoot = 1.0f;
-        Capture("GroomSoftIntersectionFullyProtected_GL_Horse", true, false, 0, fullyProtected);
-        Capture("", false, false, 0, off);
-        EXPECT_LE(DifferingPixels(fullyProtected, off), 8u);
+        for (const auto& [path, name] : kPaths)
+        {
+            SCOPED_TRACE(name);
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            const std::string cell = std::string(name) + "_Horse";
+            Capture("GroomSoftIntersectionFullyProtected_GL_" + cell, true, false, 0, fullyProtected);
+            CheckIntersectionInputsCulled();
+            Capture("GroomSoftIntersectionOff_GL_" + cell, false, false, 0, off);
+            ASSERT_FALSE(off.empty());
+            ASSERT_EQ(fullyProtected.size(), off.size());
+            const u32 protectedDifference = DifferingPixels(fullyProtected, off);
+            std::printf("[soft-intersection-fully-protected] %s changed=%u pixels\n", cell.c_str(), protectedDifference);
+            EXPECT_LE(protectedDifference, 8u);
+        }
     }
 
     TEST_F(GroomSoftIntersectionVisualEvidenceTest, OverlappingCoatsAndMovingBodyUseFreshIndependentInputs)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         LoadSubject(false);
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
         auto second = GetScene().DuplicateEntity(m_Coat);
         ASSERT_TRUE(second);
-        second.GetComponent<GroomSoftIntersectionComponent>().m_ProtectedRoot = 1.0f;
+        auto& overlayIntersection = second.GetComponent<GroomSoftIntersectionComponent>();
+        overlayIntersection.m_ProtectedRoot = 1.0f;
         auto& overlay = second.GetComponent<GroomCoatComponent>();
         overlay.m_UndercoatDensity = 0.12f;
         overlay.m_UndercoatLength = 1.2f;
@@ -472,18 +491,23 @@ namespace OloEngine::Tests
                 Graph->RemovePostPassHook("GroomIntersectionInputContents");
             }
         } removeHook{ graph };
-        std::vector<f32> beforeGroom, opaqueDepth, afterGroom;
+        std::vector<f32> offDepth, beforeGroom, opaqueDepth, afterGroom;
         u32 checkedFrames = 0;
+        bool contactEnabled = false;
         bool observedReuse = false;
         graph->AddPostPassHook(hookKey, [&](std::string_view pass, RenderGraph&)
                                {
-            if (pass == "GroomSceneDepthSnapshotPass")
+            // With no coat able to fade the snapshot is culled. This fixture
+            // has no foliage, so the forward scene pass supplies opaque depth.
+            if (!contactEnabled && pass == "ScenePass")
+                ReadIntersectionDepth(offDepth, "SceneDepthAttachment");
+            else if (pass == "GroomSceneDepthSnapshotPass")
             {
                 ReadIntersectionDepth(beforeGroom);
                 ReadIntersectionDepth(opaqueDepth, "SceneDepthAttachment");
                 EXPECT_EQ(beforeGroom, opaqueDepth) << "snapshot differs from this frame's pre-groom depth";
             }
-            else if (pass == "GroomPass")
+            else if (contactEnabled && pass == "GroomPass")
             {
                 ReadIntersectionDepth(afterGroom);
                 EXPECT_EQ(beforeGroom, afterGroom) << "groom writes contaminated their shared depth input";
@@ -502,15 +526,17 @@ namespace OloEngine::Tests
             } });
         Capture("GroomSoftIntersectionOverlap_GL_Off", false, false, 0, off);
         Capture("", false, false, 0, repeat);
-        std::vector<f32> offDepth, contactDepth, movedDepth, returnedDepth;
+        ASSERT_FALSE(offDepth.empty());
+        std::vector<f32> contactDepth, movedDepth, returnedDepth;
         // Copy at the snapshot hook: its backing may be reused by later graph
         // passes once GroomPass has consumed it. End-of-frame readback is late.
-        offDepth = beforeGroom;
+        contactEnabled = true;
         Capture("", true, false, 0, contact);
         Capture("GroomSoftIntersectionOverlap_GL_Contact", true, false, 0, contact);
         ASSERT_EQ(Renderer3D::GetGroomRenderPass()->GetStats().GroomsDrawn, 2u);
         EXPECT_GT(DifferingPixels(off, contact), DifferingPixels(off, repeat) + 8u);
         contactDepth = beforeGroom;
+        ASSERT_EQ(offDepth.size(), contactDepth.size());
         u32 changedDepth = 0;
         f32 maxDepthDifference = 0.0f;
         for (sizet i = 0; i < offDepth.size(); ++i)
@@ -520,6 +546,14 @@ namespace OloEngine::Tests
         }
         std::printf("[soft-intersection-overlap] depth changed=%u max=%g\n", changedDepth, maxDepthDifference);
         EXPECT_EQ(offDepth, contactDepth) << "coat coverage changed its own intersection depth input";
+        // The primary still needs the snapshots. The protected overlay must
+        // match its disabled draw even when those inputs are available.
+        overlayIntersection.m_Enabled = false;
+        std::vector<u8> overlayOff;
+        Capture("", true, false, 0, overlayOff);
+        ASSERT_EQ(contact.size(), overlayOff.size());
+        EXPECT_LE(DifferingPixels(contact, overlayOff), 8u);
+        overlayIntersection.m_Enabled = true;
         auto body = GetScene().FindEntityByName("LongCoatHorse");
         ASSERT_TRUE(body);
         auto& transform = body.GetComponent<TransformComponent>();

@@ -266,9 +266,18 @@ namespace OloEngine::Animation
 
         if (skeleton)
         {
-            skeleton->ResetBoneHistory();
-            skeleton->NoteDeformationResetCause(static_cast<u8>(cause));
-            rejectedAnything = true;
+            const auto priorCause = static_cast<DeformationHistoryResetCause>(skeleton->m_DeformationResetCause);
+            const bool alreadyRejectedForAnotherCause = !skeleton->HasContinuousDeformation() &&
+                                                        priorCause != DeformationHistoryResetCause::None &&
+                                                        priorCause != DeformationHistoryResetCause::MorphSurfaceChanged;
+            // Preserve an existing discontinuity, including its recovery
+            // timing, when a later morph only rejects root reprojection.
+            if (cause != DeformationHistoryResetCause::MorphSurfaceChanged || !alreadyRejectedForAnotherCause)
+            {
+                skeleton->ResetBoneHistory();
+                skeleton->NoteDeformationResetCause(static_cast<u8>(cause));
+                rejectedAnything = true;
+            }
         }
         if (morph)
         {

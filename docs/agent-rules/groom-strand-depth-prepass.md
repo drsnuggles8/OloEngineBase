@@ -45,3 +45,7 @@ lane, or the discard block at the top of `GroomStrand.glsl`'s fragment stage.
    version alias of live depth or recopy between coats. The coverage multiplier runs before
    alpha rejection, using device depth reconstructed with `u_ProjectionForReconstruction`
    on both backends, and integer framebuffer pixel coordinates within the active viewport.
+   Declare these inputs only when a submitted coat can fade. A fully protected coat must
+   follow the disabled draw, including when another coat keeps the inputs live. In #1774,
+   the displaced-water replay alone changed 3,197 pixels on a fully protected coat even
+   with the contact reads bypassed.
