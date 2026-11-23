@@ -249,18 +249,27 @@ namespace OloEngine::Tests
     // How long a device test may wait on one submission's fence (#1294).
     //
     // Hardware keeps 10 s: a submission slower than that is a hang. A software
-    // ICD gets 5 minutes, because llvmpipe compiles a fragment shader variant
+    // ICD gets 15 minutes, because llvmpipe compiles a fragment shader variant
     // lazily, on the queue thread, at its FIRST draw, so that draw's fence
     // wait pays the whole LLVM compile. Measured on lavapipe 26.2.0
     // (ReSTIR_PT.glsl, 16x16 target): the first draw on a fresh device waits
-    // 38-41 s and every later draw on the same pipeline under 6 ms. The work
-    // itself is not slow, so this widens the wait without shrinking the case.
-    // Classified by the same rule as the capability report (driver id + device
-    // type), never by an environment variable.
+    // 38-41 s on a developer box and every later draw on the same pipeline
+    // under 6 ms. The work itself is not slow, so this widens the wait without
+    // shrinking the case.
+    //
+    // SIZED FOR THE SLOWEST HOSTED RUNNER SEEN (#1705), not the median one.
+    // GitHub's windows-2025 runners differ ~10x in test speed from run to run:
+    // the same ReSTIRPTDevice case took 32.7 s on one nightly and 371 s on PR
+    // run 43962774742, where 7 of 8 cases failed at the old 300 s budget. Those
+    // waits ran ~330-390 s (case time less ~20 s of setup), so 900 s is ~2.3x
+    // the worst wait seen, and a real hang still fails within 15 minutes,
+    // inside the CI step's own timeout. Raise it again only with a new
+    // measurement. Classified by the same rule as the capability report
+    // (driver id + device type), never by an environment variable.
     [[nodiscard]] inline u64 DeviceFenceWaitBudgetNs(const VkPhysicalDevice device)
     {
         constexpr u64 kHardwareNs = 10'000'000'000ull;
-        constexpr u64 kSoftwareNs = 300'000'000'000ull;
+        constexpr u64 kSoftwareNs = 900'000'000'000ull;
         return VulkanCapabilities::Evaluate(device).IsSoftware ? kSoftwareNs : kHardwareNs;
     }
 
