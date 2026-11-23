@@ -188,7 +188,7 @@ namespace OloEngine
         }
         [[nodiscard]] bool HoldsWorldCache() const override
         {
-            return m_ResourceResolution != glm::ivec3(0) || !m_Records.IsEmpty();
+            return glm::any(glm::notEqual(m_ResourceResolution, glm::ivec3(0))) || !m_Records.IsEmpty();
         }
         // The probe volume is NOT restarted by a sequence restart: it is a
         // world-space cache a scene converges over many frames. Its capture
