@@ -12228,6 +12228,9 @@ namespace OloEngine
         // refusal ladder in this subsystem.
         const glm::vec3 targetWorldPosition = glm::vec3(GetWorldTransform(targetEntity)[3]);
         const u64 morphStateHash = HashMorphState(morph);
+        const bool skeletonHistoryRejected = skeleton != nullptr && !skeleton->HasContinuousDeformation();
+        const bool morphHistoryRejected = skeletonHistoryRejected &&
+                                          skeleton->m_DeformationResetCause == static_cast<u8>(Animation::DeformationHistoryResetCause::MorphSurfaceChanged);
 
         GroomHistoryResetCause cause = GroomHistoryResetCause::None;
         if (!state.m_HasHistory)
@@ -12245,16 +12248,13 @@ namespace OloEngine
             // that is re-derived below from the values the block saved off.
             cause = identityCause;
         }
-        else if (skeleton != nullptr && !skeleton->HasContinuousDeformation())
+        else if (skeletonHistoryRejected && !morphHistoryRejected)
         {
-            // Read from the shared deformation output's OWN verdict (#1228)
-            // rather than re-derived from the palettes: the producer owns the
-            // rule, and a consumer that re-decided it would emit a velocity the
-            // body's shaders did not compute.
             cause = GroomHistoryResetCause::AnimationReset;
         }
         else if (skeleton != nullptr && state.m_DeformationRevision != skeleton->m_DeformationRevision &&
-                 state.m_DeformationRevision != skeleton->m_PrevDeformationRevision)
+                 (morphHistoryRejected ? skeleton->m_DeformationRevision - state.m_DeformationRevision > 1u
+                                       : state.m_DeformationRevision != skeleton->m_PrevDeformationRevision))
         {
             // The BODY is continuous but this COAT is not: it was disabled,
             // refused or simply not submitted on the frame the previous palette
@@ -12269,21 +12269,23 @@ namespace OloEngine
             // second camera re-enters this function with the palette unmoved, so
             // `state` already holds the CURRENT revision. Accepting only the
             // previous one would reject history on every second viewport.
+            // A morph rejection folds the published previous revision into the
+            // current one. Allow a single revision advance in that case.
             cause = GroomHistoryResetCause::DeformationSkipped;
-        }
-        else if (state.m_MorphStateHash != morphStateHash)
-        {
-            // The morphed rest surface this frame is not the one last frame
-            // drew. There is only ever ONE morphed vertex array, so a previous
-            // position derived from it would be this frame's expression in last
-            // frame's pose — a hybrid that is neither, and exactly the rejection
-            // MorphDeformationSystem already makes for the body itself.
-            cause = GroomHistoryResetCause::MorphSurfaceChanged;
         }
         else if (const f32 jump = glm::length(targetWorldPosition - state.m_TargetWorldPosition);
                  jump > binding->m_TeleportDistance)
         {
+            // A target can teleport while its groom entity stays put. Handle
+            // the jump even if a morph also rejected the draw's history.
             cause = GroomHistoryResetCause::Teleport;
+        }
+        else if (morphHistoryRejected || state.m_MorphStateHash != morphStateHash)
+        {
+            // Reject root velocity because there is only one morphed vertex
+            // array. Preserve the morph-specific verdict so the guide solver
+            // keeps its history while integrating against the current roots.
+            cause = GroomHistoryResetCause::MorphSurfaceChanged;
         }
 
         // THE VERDICT AND THE PREVIOUS MATRIX ARE THE FRAME'S, NOT THE PUBLISH'S

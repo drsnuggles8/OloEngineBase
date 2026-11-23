@@ -56,6 +56,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Core/DebugLevers.h"
@@ -761,6 +762,37 @@ namespace OloEngine::Tests
         // nothing" produce the same counters if the re-seed never reached the
         // geometry.
         EXPECT_GT(CountDifferingPixels(after, before), 1000u);
+    }
+
+    TEST_F(GroomSimulationVisualEvidenceTest, MorphingKeepsSteppingButATargetTeleportReseeds)
+    {
+        auto targets = Ref<MorphTargetSet>::Create();
+        MorphTarget lift("Lift", static_cast<u32>(m_BodySurface->GetVertices().Num()));
+        for (auto& vertex : lift.Vertices)
+            vertex.DeltaPosition = glm::vec3(0.0f, 0.025f, 0.0f);
+        ASSERT_TRUE(targets->AddTarget(std::move(lift)));
+        m_BodySurface->SetMorphTargets(targets);
+        auto& morph = m_BodyEntity.AddComponent<MorphTargetComponent>();
+        m_GroomEntity.GetComponent<GroomBindingComponent>().m_TeleportDistance = 1.0f;
+
+        constexpr f32 dt = 1.0f / 60.0f;
+        RunFrames(4, dt);
+        ASSERT_EQ(PassStats().SimulationSteps, 1u);
+
+        morph.SetWeight("Lift", 0.5f);
+        RunFrames(1, dt);
+        EXPECT_EQ(PassStats().GroomsHistoryRejected, 1u);
+        EXPECT_EQ(PassStats().SimulationReseeds, 0u);
+        EXPECT_EQ(PassStats().SimulationSteps, 1u);
+
+        // Teleport only the target. The separately bound groom's transform
+        // cannot report this discontinuity to the solver.
+        m_BodyEntity.GetComponent<TransformComponent>().Translation.x += 2.0f;
+        morph.SetWeight("Lift", 1.0f);
+        RunFrames(1, dt);
+        EXPECT_EQ(PassStats().GroomsDeformed, 1u);
+        EXPECT_EQ(PassStats().SimulationReseeds, 1u);
+        EXPECT_EQ(PassStats().SimulationSteps, 0u);
     }
 
     // A paused frame holds the pose it paused on. Driven through the same
