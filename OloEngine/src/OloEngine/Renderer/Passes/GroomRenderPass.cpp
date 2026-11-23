@@ -45,6 +45,20 @@ namespace OloEngine
 {
     namespace
     {
+        [[nodiscard]] f32 ProtectedRootFraction(f32 authored) noexcept
+        {
+            return std::isfinite(authored) ? std::clamp(authored, 0.0f, 1.0f) : 0.25f;
+        }
+
+        [[nodiscard]] bool NeedsSoftIntersectionInputs(const GroomStrandRequest& request) noexcept
+        {
+            // Full protection is the disabled draw. It must not schedule the
+            // displaced-water replay or sample contact inputs requested by another coat.
+            return request.SoftIntersections && ProtectedRootFraction(request.IntersectionProtectedRoot) < 1.0f &&
+                   (request.AutomaticIntersectionDistance ||
+                    (std::isfinite(request.IntersectionFadeDistance) && request.IntersectionFadeDistance > 0.0f));
+        }
+
         // A surface's positions and indices, hashed by content: what a body
         // marked from it depends on, whichever entity's copy it is.
         [[nodiscard]] u64 SurfaceContentHash(const GroomSurfaceView& surface)
@@ -377,9 +391,7 @@ namespace OloEngine
 
     bool GroomRenderPass::UsesSoftIntersections() const noexcept
     {
-        return std::ranges::any_of(m_Requests, [](const GroomStrandRequest& request)
-                                   { return request.SoftIntersections && (request.AutomaticIntersectionDistance ||
-                                                                          (std::isfinite(request.IntersectionFadeDistance) && request.IntersectionFadeDistance > 0.0f)); });
+        return std::ranges::any_of(m_Requests, NeedsSoftIntersectionInputs);
     }
 
     void GroomRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -3973,7 +3985,8 @@ namespace OloEngine
             // cell crossing — a whole-screen smear once per grid cell.
             params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
-            params.IDs = glm::ivec4(request.EntityID, intersectionEntity.IsValid() ? request.IntersectionBodyEntityID : -1, 0, 0);
+            const bool fadeActive = NeedsSoftIntersectionInputs(request) && intersectionDepth.IsValid();
+            params.IDs = glm::ivec4(request.EntityID, fadeActive && intersectionEntity.IsValid() ? request.IntersectionBodyEntityID : -1, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight),
                                         GroomCardCoverageGrowthBlend(request), GroomStrandStrideCap(request));
             params.RampWidth =
@@ -3981,7 +3994,6 @@ namespace OloEngine
             f32 fadeDistance = request.IntersectionFadeDistance;
             // Measure only when the fade will be used: the measurement samples
             // the whole groom, and an inactive fade zeroes the result below.
-            const bool fadeActive = request.SoftIntersections && intersectionDepth.IsValid();
             if (fadeActive && request.AutomaticIntersectionDistance && request.Groom)
             {
                 // Sample shaped BASE fibres once per geometry/coat digest.
@@ -3998,11 +4010,9 @@ namespace OloEngine
             }
             if (!fadeActive || !std::isfinite(fadeDistance))
                 fadeDistance = 0.0f;
-            const f32 protectedRoot = std::isfinite(request.IntersectionProtectedRoot)
-                                          ? std::clamp(request.IntersectionProtectedRoot, 0.0f, 1.0f)
-                                          : 0.25f;
-            params.SoftIntersection = glm::vec4(std::clamp(fadeDistance, 0.0f, 10.0f), protectedRoot,
-                                                intersectionWater.IsValid() ? 1.0f : 0.0f, 0.0f);
+            params.SoftIntersection = glm::vec4(std::clamp(fadeDistance, 0.0f, 10.0f),
+                                                ProtectedRootFraction(request.IntersectionProtectedRoot),
+                                                fadeActive && intersectionWater.IsValid() ? 1.0f : 0.0f, 0.0f);
             // The rung the body's ambient ladder takes (#1618): the same
             // controls the deferred pass, the terrain and the foliage read.
             params.Ambient = glm::vec4(glm::vec2(ambientLadder), 0.0f, 0.0f);
