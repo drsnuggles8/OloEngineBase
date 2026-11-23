@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/UUID.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Fluid/FluidSolverTypes.h" // FluidKillBox
@@ -10,6 +11,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <span>
 #include <vector>
 
@@ -38,7 +40,13 @@ namespace OloEngine
     class GPUFluidSolver
     {
       public:
-        explicit GPUFluidSolver(u32 maxParticles);
+        enum class FeedbackMode
+        {
+            Immediate, // frameless tools and tests
+            Deferred   // simulation ticks
+        };
+
+        explicit GPUFluidSolver(u32 maxParticles, FeedbackMode feedbackMode = FeedbackMode::Immediate);
         ~GPUFluidSolver();
 
         GPUFluidSolver(const GPUFluidSolver&) = delete;
@@ -66,17 +74,19 @@ namespace OloEngine
         /// Advance one fixed step: emit -> (kill/compact) -> integrate -> grid
         /// -> Jacobi lambda/displace iterations -> velocity update -> vorticity
         /// -> XSPH apply -> finalize. Body proxies beyond kFluidMaxBodyProxies
-        /// and kill boxes beyond FluidUBO::kMaxKillBoxes are ignored.
+        /// and kill boxes beyond FluidUBO::kMaxKillBoxes are ignored. Simulation
+        /// callers supply one entity ID per proxy, in the same order.
         void Step(const FluidSolverParams& params, f32 dt,
                   std::span<const FluidBodyProxy> bodyProxies,
-                  std::span<const FluidKillBox> killBoxes);
+                  std::span<const FluidKillBox> killBoxes,
+                  std::span<const UUID> bodyEntities = {});
 
-        /// Read back the reaction impulses the LAST Step() accumulated for its
-        /// body proxies (blocking GetData; the buffers are tiny). Fixed-point
-        /// i32 values are converted via kFluidImpulseFixedScale. Entries
-        /// beyond the last step's proxy count are zero-filled. Does NOT clear
-        /// the accumulators — the next Step() with proxies does.
-        void HarvestFeedback(std::span<FluidBodyFeedback> outFeedback);
+        /// Read one completed impulse batch and zero-fill remaining output.
+        /// Deferred mode polls the oldest copy without waiting. Immediate mode
+        /// reads the last frameless step's copy. The returned IDs correspond to
+        /// the copied feedback and remain valid until the next solver mutation.
+        /// Frameless callers may omit IDs when they only need the impulse values.
+        std::span<const UUID> HarvestFeedback(std::span<FluidBodyFeedback> outFeedback);
 
         /// CPU-known conservative particle count (exact after SeedParticles /
         /// RefreshExactCount; grows optimistically on emit, never shrinks on
@@ -127,6 +137,18 @@ namespace OloEngine
         // Whether this backend stages per-dispatch inputs as frame-arena ranges.
         [[nodiscard]] static bool UsesTransientStaging();
 
+        void StageFeedback(u32 proxyCount, u32 solverIterations, std::span<const UUID> bodyEntities);
+
+        struct FeedbackBatch
+        {
+            TInlineArray<UUID, kFluidMaxBodyProxies> Entities;
+            u32 ProxyCount = 0;
+            u32 SolverIterations = 1;
+        };
+
+        FeedbackMode m_FeedbackMode;
+        std::array<FeedbackBatch, StagedBufferReadback::kRingSlots> m_FeedbackBatches;
+        u32 m_FeedbackHead = 0;
         u32 m_MaxParticles = 0;
         bool m_Initialized = false;
         bool m_HasDispatched = false; // Vulkan reset cannot rewrite live GPU output
@@ -137,8 +159,6 @@ namespace OloEngine
         // Step (#1543). GL writes it straight into m_EmitStagingSSBO.
         TArray<GPUFluidEmitEntry> m_PendingEmitEntries;
         u32 m_StepsSinceCountRefresh = 0; // cadence tracker for RefreshExactCount
-        u32 m_LastProxyCount = 0;         // proxies uploaded by the last Step (for HarvestFeedback)
-        u32 m_LastSolverIterations = 1;   // iteration count of the last Step (feedback averaging)
         u32 m_GridCellCount = 0;          // current grid-head buffer capacity, in cells
 
         // SSBOs (bindings = ShaderBindingLayout::SSBO_FLUID_*)
@@ -156,10 +176,9 @@ namespace OloEngine
         // Every GPU->CPU read here goes through a staging copy so the CPU never
         // touches an SSBO the solver kernels read/write and atomicAdd into —
         // that would migrate it VIDEO -> HOST for the rest of the session. The
-        // impulse one is staged at the end of Step() and read before the next,
-        // preserving the one-step latency the coupling loop already had; the
-        // particle ones stage and read in the same call, because the parity test
-        // that asks for them wants this step's values.
+        // impulse copy is staged after constraint solving and polled before
+        // subsequent simulation steps. The particle copies stage and read in
+        // the same call so the parity test gets this step's values.
         StagedBufferReadback m_ImpulseReadback;
         StagedBufferReadback m_PositionsReadback;
         StagedBufferReadback m_VelocitiesReadback;

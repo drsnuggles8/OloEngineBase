@@ -301,7 +301,12 @@ layout(binding = 22) uniform sampler2D u_SceneNormals;
 #else
 layout(binding = 70) uniform sampler2D u_WaterDisturbance;
 #endif
-#include "include/WaterDisturbanceCommon.glsl"
+#include "include/WaterWakeCommon.glsl"
+
+vec4 waterWakeFetch(int index)
+{
+    return u_WakeHulls[index];
+}
 
 // Advected open-ocean foam (issue #1034, §2.2) — the .g channel of the very
 // same u_WaterDisturbance texture above. No new sampler slot and no new
@@ -905,10 +910,16 @@ void main()
     // opacity above (computed once in the depth section), so foam only appears
     // where the water is genuinely shallow (true shorelines / against pillars)
     // and never flickers with camera angle over open water. See §7.2.
-    const float shorelineDepthRange = 1.5; // metres of water depth over which shore foam fades out
     float shorelineFoam = hasFloorBehind
-        ? pow(1.0 - clamp(verticalWaterDepth / shorelineDepthRange, 0.0, 1.0), shorelineFoamPower)
+        ? pow(1.0 - clamp(verticalWaterDepth / WATER_WAKE_SHORE_DEPTH_METRES, 0.0, 1.0), shorelineFoamPower)
         : 0.0; // open ocean (no floor behind) → no shoreline foam
+    if (shorelineFoam > 0.0)
+    {
+        shorelineFoam *= waterWakeShoreFoamScale(u_WakeShapeParams.x,
+                                                v_WorldPos.xz + u_RenderOrigin.xz,
+                                                verticalWaterDepth,
+                                                v_WorldPos.y + u_RenderOrigin.y);
+    }
 
     // --- Large-scale spatial noise gate ---
     // Prevents foam from appearing on EVERY wave crest.

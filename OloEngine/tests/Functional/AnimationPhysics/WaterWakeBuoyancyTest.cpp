@@ -27,7 +27,9 @@
 
 #include "Functional/FunctionalTest.h"
 
+#include "OloEngine/Containers/Map.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
@@ -207,6 +209,47 @@ TEST_F(WaterWakeBuoyancyTest, VisualOnlyModeLeavesBuoyancyExactlyAsItWas)
     TickFor(6.0f);
     EXPECT_NEAR(Y(buoy), 0.0f, 0.25f)
         << "in visual-only mode the buoy must float at the flat waterline; y=" << Y(buoy);
+}
+
+TEST_F(WaterWakeBuoyancyTest, PublishesShoreFoamBoundsAtAVisualWakeTrough)
+{
+    Time::SetMockTime(0.0f);
+    Entity water = SpawnWater(/*wakeEnabled=*/true, /*affectsPhysics=*/false);
+    water.GetComponent<WaterComponent>().m_WaveAmplitude = 1.0f;
+    const auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+    ASSERT_EQ(volumes.size(), 1u);
+
+    glm::vec2 trough{};
+    f32 troughY = 0.0f;
+    for (i32 x = -20; x <= 20; ++x)
+    {
+        const glm::vec2 point{ static_cast<f32>(x), 0.0f };
+        const f32 surface = WaterProbe::SampleSurfaceY(volumes[0], point, 0.0f);
+        if (surface < troughY)
+        {
+            troughY = surface;
+            trough = point;
+        }
+    }
+    ASSERT_LT(troughY, -kBuoyHalfExtent) << "the base wave must miss the collider below its bottom";
+
+    Entity boat = SpawnBuoy({ trough.x, 0.0f, trough.y });
+    boat.AddComponent<BoatComponent>();
+    EnablePhysics3D();
+    TMap<u64, BoatWakeTrail> history;
+    BoatWakeSystem::OnUpdate(&GetScene(), history, 0.0f, 1.0f / 60.0f);
+
+    ASSERT_EQ(WaterWakeSystem::GetHullCount(), 1u);
+    EXPECT_FLOAT_EQ(WaterProbe::SampleSurfaceY(volumes[0], trough, 0.0f), troughY);
+    const auto* hulls = WaterWakeSystem::GetHullData();
+    const glm::vec4 bounds = hulls[WaterWake::kOffsetBound];
+    EXPECT_FLOAT_EQ(bounds.x, -kBuoyHalfExtent);
+    EXPECT_FLOAT_EQ(bounds.y, kBuoyHalfExtent);
+    EXPECT_FLOAT_EQ(bounds.w, 1.0f) << "the shader needs the bounds even when the base wave misses the hull";
+    const auto& volume = volumes[0];
+    const auto wake = WaterWake::Evaluate(hulls, 1u, volume.m_WakeHeightScale, volume.m_WakeFlattenStrength, trough, 0.0f);
+    const f32 visibleSurfaceY = troughY * (1.0f - wake.m_Flatten) + wake.m_Height;
+    EXPECT_GT(visibleSurfaceY, bounds.x) << "the completed visual flatten brings the water into the hull";
 }
 
 TEST_F(WaterWakeBuoyancyTest, PhysicalModeLiftsTheBuoyOntoTheWake)

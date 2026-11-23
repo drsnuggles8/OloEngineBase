@@ -380,8 +380,10 @@ their own device submitted with a bare `vkQueueSubmit` and did not, so there no 
 finished and `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan` read all-zero counters. A
 test frame is submitted with `SubmitWithStagedFenceOps` from `VulkanTestSupport.h`.
 
-`GPUFluidSolver`'s body-impulse harvest still stages in the step and reads before the next one.
-It is simulation feedback, so whether it should wait or run late is its own decision (#1702).
+`GPUFluidSolver` polls the oldest finished body-impulse copy before stepping simulation (#1702).
+Keep the proxy entity IDs and solver iteration count with the copy that used them. A later overlap
+query can return a different set or order. Apply no impulse when the poll returns no copy.
+Frameless parity tests request the one-shot path because they need the current step's feedback.
 
 Pinned by `StagedReadbackDeferredTest` in both test processes. In the Vulkan process a read in the
 frame that staged the copy must be refused, which is the fault in its deterministic form.

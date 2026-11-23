@@ -324,14 +324,21 @@ namespace OloEngine::Tests
         // on both, not merely close.
         WaterWakeSystem::Reset();
         WaterWakeSystem::BeginFrame();
-        ASSERT_TRUE(WaterWakeSystem::SubmitHull(Runner({ 0.0f, 0.0f }, { 0.0f, 1.0f }, 10.0f)));
+        auto hull = Runner({ 0.0f, 0.0f }, { 0.0f, 1.0f }, 10.0f);
+        hull.m_ShoreFoamBoundsY = glm::vec2(-0.3f, 0.3f);
+        ASSERT_TRUE(WaterWakeSystem::SubmitHull(hull));
 
         std::vector<glm::vec4> hullBuffer;
         hullBuffer.emplace_back(static_cast<f32>(WaterWakeSystem::GetHullCount()), 0.0f, 0.9f, 0.0f);
         hullBuffer.insert(hullBuffer.end(), WaterWakeSystem::GetHullData(),
                           WaterWakeSystem::GetHullData() + WaterWake::kHullVec4Count);
 
-        std::vector<glm::vec4> queryBuffer;
+        // At the same hull point, a flooded interior suppresses the foam
+        // while the contact band retains it. Outside the footprint the
+        // original depth-only shoreline response survives.
+        std::vector<glm::vec4> queryBuffer{ { 0.0f, 0.0f, 0.0f, 0.25f },
+                                            { 0.0f, 0.0f, 0.0f, 0.02f },
+                                            { 12.0f, 0.0f, 0.0f, 0.25f } };
         for (f32 z = -30.0f; z <= 10.0f; z += 2.0f)
             for (f32 x = -10.0f; x <= 10.0f; x += 2.0f)
                 queryBuffer.emplace_back(x, z, 0.0f, 0.0f);
@@ -356,6 +363,11 @@ namespace OloEngine::Tests
 
         std::vector<glm::vec4> gpu(queryBuffer.size());
         ::glGetNamedBufferSubData(outSsbo.m_Id, 0, queryBytes, gpu.data());
+
+        EXPECT_FLOAT_EQ(gpu[0].z, 0.0f) << "the flooded hull interior retains shoreline foam";
+        EXPECT_FLOAT_EQ(gpu[0].w, 1.0f) << "an airborne hull masked foam on water below it";
+        EXPECT_FLOAT_EQ(gpu[1].z, 1.0f) << "the hull waterline contact band lost foam";
+        EXPECT_FLOAT_EQ(gpu[2].z, 1.0f) << "the hull mask changed an independent shoreline";
 
         for (sizet i = 0; i < queryBuffer.size(); ++i)
         {

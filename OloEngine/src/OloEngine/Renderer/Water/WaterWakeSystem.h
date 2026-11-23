@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <optional>
 
 namespace OloEngine
 {
@@ -33,13 +34,15 @@ namespace OloEngine
     /// why BoatWakeSystem does not have to know what a Kelvin angle is.
     struct WaterWakeHullDesc
     {
-        glm::vec2 m_CentreXZ{ 0.0f };  ///< current hull centre, absolute world XZ
-        glm::vec2 m_ForwardXZ{ 0.0f }; ///< current unit horizontal heading
-        f32 m_HalfBeam = 1.2f;         ///< half the hull's width, metres
-        f32 m_HalfLength = 3.0f;       ///< half the hull's length, metres
-        f32 m_Speed = 0.0f;            ///< signed forward m/s right now
-        f32 m_Gate = 0.0f;             ///< current wake strength, [0, 1]
-        u32 m_ArmSampleCount = 0;      ///< how many of m_Arms are populated
+        glm::vec2 m_CentreXZ{ 0.0f };                ///< current hull centre, absolute world XZ
+        glm::vec2 m_ForwardXZ{ 0.0f };               ///< current unit horizontal heading
+        f32 m_HalfBeam = 1.2f;                       ///< half the hull's width, metres
+        f32 m_HalfLength = 3.0f;                     ///< half the hull's length, metres
+        f32 m_Speed = 0.0f;                          ///< signed forward m/s right now
+        f32 m_Gate = 0.0f;                           ///< current wake strength, [0, 1]
+        std::optional<glm::vec2> m_ShoreFoamBoundsY; ///< world-space keel and top for the shoreline mask
+        bool m_FlattenEnabled = true;                ///< whether this record removes ocean displacement
+        u32 m_ArmSampleCount = 0;                    ///< how many of m_Arms are populated
         std::array<WaterWakeArmSample, WaterWake::kMaxArmSamples> m_Arms{};
     };
 
