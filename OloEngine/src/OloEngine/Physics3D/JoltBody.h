@@ -2,6 +2,7 @@
 
 #include "Physics3DTypes.h"
 #include "JoltUtils.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
@@ -19,6 +20,22 @@ namespace OloEngine
 {
 
     class JoltScene; // Forward declaration
+
+    struct PrimitiveColliderGizmo
+    {
+        enum class Kind
+        {
+            Box,
+            Sphere,
+            Capsule
+        };
+
+        Kind Type;
+        glm::vec3 Center;
+        glm::quat Rotation;
+        // Box half extents, or radius (X) and cylinder half height (Y).
+        glm::vec3 Dimensions;
+    };
 
     class JoltBody : public RefCounted
     {
@@ -154,6 +171,7 @@ namespace OloEngine
         // offset arrives as a RotatedTranslatedShape around its primitive.
         void SetShape(JPH::RefConst<JPH::Shape> shape);
         JPH::RefConst<JPH::Shape> GetShape() const;
+        void CollectPrimitiveColliderGizmos(TArray<PrimitiveColliderGizmo>& out) const;
 
         // Activation
         void Activate();

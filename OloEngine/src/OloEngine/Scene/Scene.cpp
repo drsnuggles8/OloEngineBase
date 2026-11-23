@@ -18361,10 +18361,43 @@ namespace OloEngine
         // into ordinary scene captures even when collider visualization is off.
         if (editorDebugEnabled && editorDebug.ShowPhysicsColliders)
         {
+            TSet<u32> liveEntities;
+            TArray<PrimitiveColliderGizmo> liveGizmos;
+            if (m_JoltScene)
+            {
+                for (auto entity : m_Registry.view<Rigidbody3DComponent, TransformComponent>())
+                {
+                    const auto body = m_JoltScene->GetBody(Entity{ entity, this });
+                    if (!body || !body->IsValid())
+                        continue;
+                    liveEntities.Add(std::to_underlying(entity));
+                    body->CollectPrimitiveColliderGizmos(liveGizmos);
+                    for (const auto& gizmo : liveGizmos)
+                    {
+                        using Kind = PrimitiveColliderGizmo::Kind;
+                        switch (gizmo.Type)
+                        {
+                            case Kind::Box:
+                                Renderer3D::DrawBoxColliderGizmo(gizmo.Center, gizmo.Dimensions, gizmo.Rotation);
+                                break;
+                            case Kind::Sphere:
+                                Renderer3D::DrawSphereColliderGizmo(gizmo.Center, gizmo.Dimensions.x);
+                                break;
+                            case Kind::Capsule:
+                                Renderer3D::DrawCapsuleColliderGizmo(gizmo.Center, gizmo.Dimensions.x, gizmo.Dimensions.y, gizmo.Rotation);
+                                break;
+                        }
+                    }
+                }
+            }
+
+            // Authored previews are needed when the scene has no live body.
             // Box colliders
             auto boxView = m_Registry.view<TransformComponent, BoxCollider3DComponent>();
             for (auto entity : boxView)
             {
+                if (liveEntities.Contains(std::to_underlying(entity)))
+                    continue;
                 const auto& boxCollider = boxView.get<BoxCollider3DComponent>(entity);
                 // Where JoltShapes puts it: the offset and the extents scale with the
                 // entity, and the offset turns with it.
@@ -18377,6 +18410,8 @@ namespace OloEngine
             auto sphereView = m_Registry.view<TransformComponent, SphereCollider3DComponent>();
             for (auto entity : sphereView)
             {
+                if (liveEntities.Contains(std::to_underlying(entity)))
+                    continue;
                 const auto& sphereCollider = sphereView.get<SphereCollider3DComponent>(entity);
                 const auto pose = ComputeWorldTRS(entity);
                 const glm::vec3 position(ComputeWorldTransform(entity) * glm::vec4(sphereCollider.m_Offset, 1.0f));
@@ -18387,6 +18422,8 @@ namespace OloEngine
             auto capsuleView = m_Registry.view<TransformComponent, CapsuleCollider3DComponent>();
             for (auto entity : capsuleView)
             {
+                if (liveEntities.Contains(std::to_underlying(entity)))
+                    continue;
                 const auto& capsuleCollider = capsuleView.get<CapsuleCollider3DComponent>(entity);
                 const auto pose = ComputeWorldTRS(entity);
                 const glm::vec3 position(ComputeWorldTransform(entity) * glm::vec4(capsuleCollider.m_Offset, 1.0f));

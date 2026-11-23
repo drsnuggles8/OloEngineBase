@@ -288,6 +288,34 @@ TEST_F(ParentedPhysicsPlacementTest, JoltOffsetsFollowTheFullShearedWorldBasis)
     }
 }
 
+TEST_F(ParentedPhysicsPlacementTest, LiveColliderGizmosFollowTheNativeCompoundAfterRotation)
+{
+    Entity rig = GetScene().CreateEntity("Scaled Collider Rig");
+    rig.GetComponent<TransformComponent>().Scale.x = 2.0f;
+    Entity child = GetScene().CreateEntity("Compound Body");
+    child.SetParent(rig);
+    child.AddComponent<BoxCollider3DComponent>().m_Offset.x = 1.0f;
+    child.AddComponent<SphereCollider3DComponent>().m_Offset.x = 2.0f;
+    child.AddComponent<CapsuleCollider3DComponent>().m_Offset.x = 3.0f;
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    child.AddComponent<Rigidbody3DComponent>(settings);
+    Ref<JoltBody> body = GetScene().GetPhysicsScene()->GetBody(child);
+    ASSERT_TRUE(body);
+    body->SetRotation(glm::quat(glm::vec3(0.0f, 0.0f, glm::half_pi<f32>())));
+
+    TArray<PrimitiveColliderGizmo> gizmos;
+    body->CollectPrimitiveColliderGizmos(gizmos);
+    ASSERT_EQ(gizmos.Num(), 3);
+    const glm::vec3 origin = body->GetPosition();
+    using Kind = PrimitiveColliderGizmo::Kind;
+    for (const auto& gizmo : gizmos)
+    {
+        const f32 expectedY = gizmo.Type == Kind::Box ? 2.0f : (gizmo.Type == Kind::Sphere ? 4.0f : 6.0f);
+        EXPECT_NEAR(glm::length(gizmo.Center - origin - glm::vec3(0.0f, expectedY, 0.0f)), 0.0f, 1.0e-4f);
+    }
+}
+
 TEST_F(ParentedPhysicsPlacementTest, JoltCapsuleKeepsTheRootTwinRotationWithOneCollapsedAxis)
 {
     const glm::vec3 euler{ 0.0f, 0.0f, glm::half_pi<f32>() };
