@@ -16490,7 +16490,9 @@ namespace OloEngine
                     // Build scaled transform for the decal projection box
                     const glm::mat4 decalTransform = GetWorldTransform(entity) *
                                                      glm::scale(glm::mat4(1.0f), safeSize);
-                    glm::mat4 inverseDecalTransform = glm::inverse(decalTransform);
+                    glm::mat4 inverseDecalTransform;
+                    if (!TryInvertWorldTransform(decalTransform, inverseDecalTransform))
+                        continue;
 
                     // Resolve albedo texture ID (fallback to white if none assigned).
                     // Emissive-mode decals reuse the primary slot for the emissive
