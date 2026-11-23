@@ -5082,6 +5082,21 @@ namespace OloEngine
         }
     }
 
+    static void WarnAboutParentedPhysicsBodies(Scene& scene)
+    {
+        for (const auto entity : scene.GetAllEntitiesWith<RelationshipComponent, TransformComponent>())
+        {
+            Entity body{ entity, &scene };
+            if ((body.HasComponent<Rigidbody2DComponent>() || body.HasComponent<Rigidbody3DComponent>()) && body.GetParent())
+            {
+                OLO_CORE_WARN("Parented physics bodies simulate in world space and stay at their simulated poses when parents move "
+                              "(for example, '{}').",
+                              body.GetName());
+                return;
+            }
+        }
+    }
+
     void EditorLayer::OnScenePlay()
     {
         if (m_SceneState == SceneState::Simulate)
@@ -5145,6 +5160,7 @@ namespace OloEngine
         // user disabled it.
         m_ActiveScene->SetRenderInterpolationEnabled(m_Prefs.RenderInterpolation);
 
+        WarnAboutParentedPhysicsBodies(*m_ActiveScene);
         m_ActiveScene->OnRuntimeStart();
 
         // Stream quest/inventory gameplay events to the Console panel for this
@@ -5257,6 +5273,7 @@ namespace OloEngine
         m_ActiveScene = Scene::Copy(m_EditorScene);
         SceneTransition::CaptureRendererWorldSettings(*m_ActiveScene); // as OnScenePlay (#1689)
         ResetRendererForSceneSwap();
+        WarnAboutParentedPhysicsBodies(*m_ActiveScene);
         m_ActiveScene->OnSimulationStart();
 
         BindPanelsToScene(m_ActiveScene, nullptr);
