@@ -313,9 +313,6 @@ namespace OloEngine
         uploads.VirtualShadowUBO = retainedUploads.VirtualShadowUBO;
         if (RenderCommand::SupportsParallelRecording() && !uploads.VirtualShadowUBO)
             uploads.VirtualShadowUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
-        // The VSM's stand-ins are per backend (#1655) and an item may only bind
-        // them, so the recording backend's set is made here, before the fork.
-        Renderer3D::GetShadowMap().GetVirtualShadowMap().PrepareSamplingForCurrentBackend();
         uploads.ModelInstanceBuffer = retainedUploads.ModelInstanceBuffer;
         if (main.ModelInstanceBuffer)
         {
@@ -1818,6 +1815,15 @@ namespace OloEngine
         // Gaussian-splat sort block) and no frame owner, so the reader binds.
         // Here, before any fork, so every recording item inherits it (#1687).
         Renderer3D::BindMotionMatrices();
+
+        // The VSM's sampling stand-ins are per backend (#1655) and a recording
+        // item may only bind them, so the set for the backend this pass records
+        // on is made here, before the fork. Here and not at every fork: only a
+        // pass that publishes scene resources replays the PBR draws that bind
+        // them, and a set made for a fork that never used it outlived the test
+        // device it was made on.
+        if (!RenderCommand::IsRecordingParallelItem())
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().PrepareSamplingForCurrentBackend();
 
         // Publish all shared PBR sampled inputs before the fork, including
         // freshly compute-written cloud shadows and the VSM physical pool.

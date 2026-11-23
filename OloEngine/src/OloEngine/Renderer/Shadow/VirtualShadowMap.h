@@ -525,7 +525,7 @@ namespace OloEngine
         void ReleaseInertSamplingBindings(RendererAPI::API backend);
         // Make sure the stand-ins BindForSampling will bind on the current
         // backend exist. Called on the render thread before a parallel
-        // recording fork (CommandDispatchRecordingState::Prepare): Init made
+        // recording fork (CommandDispatch::BindSceneResources): Init made
         // only its own backend's set, and an item must not create a buffer.
         void PrepareSamplingForCurrentBackend();
 

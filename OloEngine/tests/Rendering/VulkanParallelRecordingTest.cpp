@@ -583,6 +583,10 @@ class VulkanParallelRecordingDevice : public ::testing::Test
         VulkanFrameArena::Get().ReleaseBuffers();
         VulkanSecondaryCommandPools::Get().ReleaseAll();
         VulkanResourceHeap::Get().Release();
+        // A tenant whose dispatch published scene resources made the VSM's
+        // Vulkan sampling stand-ins on THIS device (#1655); they go before it
+        // does, or the next tenant releases them into a destroyed allocator.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindings(RendererAPI::API::Vulkan);
         VulkanDeferredReclaim::Get().FlushAll();
         if (m_Fence != VK_NULL_HANDLE)
             vkDestroyFence(m_Device->GetDevice(), m_Fence, nullptr);
