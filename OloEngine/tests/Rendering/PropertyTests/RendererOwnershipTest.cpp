@@ -314,6 +314,41 @@ namespace OloEngine::Tests
         EXPECT_GT(Renderer3D::DebugOwnedStateCensus().ScenePoseRecords, 0u) << "the restarted renderer did not draw the scene";
     }
 
+    // The user's configuration (#1689): the renderer settings and the
+    // post-process stack are the view's, written by the panels, the MCP tools
+    // and quality tiering. A scene switch drops the scene's publications and a
+    // view reset the camera; neither, and no restart, may take the user's
+    // choices with them.
+    TEST_F(RendererOwnership, ConfigurationSurvivesASceneResetAViewResetAndARestart)
+    {
+        RenderMovingFrames(1);
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        settings.ObserverCameraDrawFrustum = !settings.ObserverCameraDrawFrustum;
+        const bool drawFrustum = settings.ObserverCameraDrawFrustum;
+        Renderer3D::GetPostProcessSettings().Exposure = 2.5f;
+        Renderer3D::GetPostProcessSettings().BloomEnabled = !Renderer3D::GetPostProcessSettings().BloomEnabled;
+        const bool bloom = Renderer3D::GetPostProcessSettings().BloomEnabled;
+
+        const auto expectKept = [&](const char* after)
+        {
+            EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Deferred) << after;
+            EXPECT_EQ(Renderer3D::GetRendererSettings().ObserverCameraDrawFrustum, drawFrustum) << after;
+            EXPECT_NEAR(Renderer3D::GetPostProcessSettings().Exposure, 2.5f, 1e-6f) << after;
+            EXPECT_EQ(Renderer3D::GetPostProcessSettings().BloomEnabled, bloom) << after;
+        };
+
+        Renderer3D::ResetSceneState();
+        expectKept("a scene reset");
+        Renderer3D::ResetFrameCamera();
+        expectKept("a view reset");
+        Renderer3D::Shutdown();
+        Renderer3D::Init();
+        ASSERT_TRUE(Renderer3D::HasInitialized());
+        expectKept("a renderer restart");
+        EnableRendering(256, 256);
+        RenderMovingFrames(1);
+    }
+
     // Which buffer occupies a uniform binding point has one owner: the
     // backend's occupancy record (issue #1688). The dispatcher used to keep its
     // own answer, a table of what IT last bound at bindings 0 to 7, and skip a

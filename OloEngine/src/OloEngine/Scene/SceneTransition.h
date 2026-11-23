@@ -101,6 +101,9 @@ namespace OloEngine::SceneTransition
         [[nodiscard]] static SceneRenderSettings CaptureRenderer();
         void Apply(Scene& scene) const;
         void PublishToRenderer() const;
+        /// The world half of PublishToRenderer: everything but the post-process
+        /// stack and the path, which are the view's configuration (#1689).
+        void PublishWorldToRenderer() const;
     };
 
     /// Make `scene`'s authored render settings the renderer's effective ones:

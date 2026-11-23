@@ -257,6 +257,12 @@ namespace OloEngine::SceneTransition
     void SceneRenderSettings::PublishToRenderer() const
     {
         Renderer3D::GetPostProcessSettings() = PostProcess;
+        PublishWorldToRenderer();
+        Renderer3D::GetRendererSettings().Path = Path;
+    }
+
+    void SceneRenderSettings::PublishWorldToRenderer() const
+    {
         Renderer3D::GetSnowSettings() = Snow;
         Renderer3D::GetWindSettings() = Wind;
         Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
@@ -264,7 +270,6 @@ namespace OloEngine::SceneTransition
         Renderer3D::GetSkinDiffusionSettings() = SkinDiffusion;
         Renderer3D::GetPrecipitationSettings() = Precipitation;
         Renderer3D::GetFogSettings() = Fog;
-        Renderer3D::GetRendererSettings().Path = Path;
     }
 
     void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering)
@@ -300,25 +305,19 @@ namespace OloEngine::SceneTransition
         ApplySceneRenderSettings(scene, project ? &project->GetConfig().QualityTiering : nullptr);
     }
 
+    // Both through SceneRenderSettings, so a setting added to it is published
+    // and captured here without a second list to forget.
     void PublishSceneWorldSettings(const Scene& scene)
     {
-        Renderer3D::GetSnowSettings() = scene.GetSnowSettings();
-        Renderer3D::GetSkinDiffusionSettings() = scene.GetSkinDiffusionSettings();
-        Renderer3D::GetFogSettings() = scene.GetFogSettings();
-        Renderer3D::GetWindSettings() = scene.GetWindSettings();
-        Renderer3D::GetSnowAccumulationSettings() = scene.GetSnowAccumulationSettings();
-        Renderer3D::GetSnowEjectaSettings() = scene.GetSnowEjectaSettings();
-        Renderer3D::GetPrecipitationSettings() = scene.GetPrecipitationSettings();
+        SceneRenderSettings::Capture(scene).PublishWorldToRenderer();
     }
 
     void CaptureRendererWorldSettings(Scene& scene)
     {
-        scene.SetSnowSettings(Renderer3D::GetSnowSettings());
-        scene.SetSkinDiffusionSettings(Renderer3D::GetSkinDiffusionSettings());
-        scene.SetFogSettings(Renderer3D::GetFogSettings());
-        scene.SetWindSettings(Renderer3D::GetWindSettings());
-        scene.SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-        scene.SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-        scene.SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
+        SceneRenderSettings live = SceneRenderSettings::CaptureRenderer();
+        // Only the world half: the scene keeps its own authored stack and path.
+        live.PostProcess = scene.GetPostProcessSettings();
+        live.Path = scene.GetRenderingPath();
+        live.Apply(scene);
     }
 } // namespace OloEngine::SceneTransition
