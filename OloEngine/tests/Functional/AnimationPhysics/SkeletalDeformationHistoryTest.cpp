@@ -206,6 +206,24 @@ TEST_F(SkeletalDeformationHistoryTest, BoneCountChangeDropsHistoryLoudly)
         << "previous palette never resynchronised with the current pose";
 }
 
+TEST_F(SkeletalDeformationHistoryTest, AFollowingMorphPreservesAPaletteResize)
+{
+    using Animation::DeformationHistoryResetCause;
+    RunFrames(15);
+    auto& skeleton = *m_Animated.GetComponent<SkeletonComponent>().m_Skeleton;
+    ASSERT_TRUE(skeleton.HasContinuousDeformation());
+
+    skeleton.m_FinalBoneMatrices.push_back(glm::mat4(1.0f));
+    ASSERT_EQ(skeleton.AdvanceBoneHistory(), BoneHistoryAdvance::BoneCountChanged);
+    const auto resets = Animation::SkeletalDeformationSystem::GetStats().HistoryResets;
+
+    Animation::RejectDeformationHistory(&skeleton, nullptr, DeformationHistoryResetCause::MorphSurfaceChanged);
+    EXPECT_FALSE(skeleton.HasContinuousDeformation());
+    EXPECT_EQ(skeleton.m_DeformationResetCause, static_cast<u8>(DeformationHistoryResetCause::BoneCountChanged));
+    EXPECT_EQ(Animation::SkeletalDeformationSystem::GetStats().HistoryResets, resets);
+    EXPECT_EQ(skeleton.AdvanceBoneHistory(), BoneHistoryAdvance::Advanced);
+}
+
 TEST_F(SkeletalDeformationHistoryTest, AResetSurvivesTheNextFrameSAdvance)
 {
     // The reset and the advance are the same copy, so a reset that did not
