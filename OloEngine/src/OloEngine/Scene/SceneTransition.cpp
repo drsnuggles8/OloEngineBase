@@ -257,6 +257,12 @@ namespace OloEngine::SceneTransition
     void SceneRenderSettings::PublishToRenderer() const
     {
         Renderer3D::GetPostProcessSettings() = PostProcess;
+        PublishWorldToRenderer();
+        Renderer3D::GetRendererSettings().Path = Path;
+    }
+
+    void SceneRenderSettings::PublishWorldToRenderer() const
+    {
         Renderer3D::GetSnowSettings() = Snow;
         Renderer3D::GetWindSettings() = Wind;
         Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
@@ -264,7 +270,6 @@ namespace OloEngine::SceneTransition
         Renderer3D::GetSkinDiffusionSettings() = SkinDiffusion;
         Renderer3D::GetPrecipitationSettings() = Precipitation;
         Renderer3D::GetFogSettings() = Fog;
-        Renderer3D::GetRendererSettings().Path = Path;
     }
 
     void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering)
@@ -298,5 +303,21 @@ namespace OloEngine::SceneTransition
     {
         const auto project = Project::GetActive();
         ApplySceneRenderSettings(scene, project ? &project->GetConfig().QualityTiering : nullptr);
+    }
+
+    // Both through SceneRenderSettings, so a setting added to it is published
+    // and captured here without a second list to forget.
+    void PublishSceneWorldSettings(const Scene& scene)
+    {
+        SceneRenderSettings::Capture(scene).PublishWorldToRenderer();
+    }
+
+    void CaptureRendererWorldSettings(Scene& scene)
+    {
+        SceneRenderSettings live = SceneRenderSettings::CaptureRenderer();
+        // Only the world half: the scene keeps its own authored stack and path.
+        live.PostProcess = scene.GetPostProcessSettings();
+        live.Path = scene.GetRenderingPath();
+        live.Apply(scene);
     }
 } // namespace OloEngine::SceneTransition

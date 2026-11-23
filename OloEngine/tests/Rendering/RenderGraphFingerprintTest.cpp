@@ -320,14 +320,14 @@ namespace OloEngine::Tests
             { "Upscale", [](Access::Data& d)
               { d.PostProcess.Upscale = UpscaleMode::Performance; } },
             { "Fog.Enabled", [](Access::Data& d)
-              { d.Fog.Enabled = !d.Fog.Enabled; } },
+              { d.Scene.Fog.Enabled = !d.Scene.Fog.Enabled; } },
             { "Cloudscape.Enabled", [](Access::Data& d)
               { d.Scene.Cloudscape.Enabled = !d.Scene.Cloudscape.Enabled; } },
             // #1333, U2: missing from the old fingerprint entirely.
             { "Precipitation screen effects", [](Access::Data& d)
               {
-                  d.Precipitation.Enabled = true;
-                  d.Precipitation.ScreenStreaksEnabled = true;
+                  d.Scene.Precipitation.Enabled = true;
+                  d.Scene.Precipitation.ScreenStreaksEnabled = true;
               } },
             { "Path", [](Access::Data& d)
               { d.Settings.Path = RenderingPath::Forward; } },
@@ -676,7 +676,7 @@ namespace OloEngine::Tests
             { "RayTracedReflection.TierDebugView", [](Access::Data& d)
               { d.PostProcess.RayTracedReflection.TierDebugView = !d.PostProcess.RayTracedReflection.TierDebugView; } },
             { "SkinDiffusion.Quality", [](Access::Data& d)
-              { d.SkinDiffusion.Quality = static_cast<decltype(d.SkinDiffusion.Quality)>(std::to_underlying(d.SkinDiffusion.Quality) + 1); } },
+              { d.Scene.SkinDiffusion.Quality = static_cast<decltype(d.Scene.SkinDiffusion.Quality)>(std::to_underlying(d.Scene.SkinDiffusion.Quality) + 1); } },
         };
 
         for (const Toggle& t : executionOnly)

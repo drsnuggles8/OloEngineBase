@@ -213,9 +213,19 @@ namespace OloEngine
         // histories, which ResetSceneState invalidates), and a one-shot frame
         // capture armed on it must not fire on the incoming scene's first frames
         // (#1504).
+        //
+        // The scene's world settings (fog, wind, snow, weather) are dropped by
+        // that reset too (#1689), and in the editor the renderer's copy is the
+        // open scene's edit buffer: the panels write it and a save captures it.
+        // So the buffer is put back on top of the reset. A swap to another
+        // authored scene then publishes that scene's (ApplySceneRenderSettings),
+        // and a starting Play or Simulate copy publishes its own, which
+        // OnScenePlay and OnSceneSimulate fill from this buffer first.
         void ResetRendererForSceneSwap()
         {
+            const auto liveSettings = SceneTransition::SceneRenderSettings::CaptureRenderer();
             Renderer3D::ResetSceneState();
+            liveSettings.PublishToRenderer();
             FrameCaptureManager::GetInstance().CancelCapture();
         }
 
@@ -5101,6 +5111,9 @@ namespace OloEngine
         m_RestoreRenderSettingsOnStop = true;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+        // OnRuntimeStart publishes the copy's world settings: give it the live
+        // edit buffer, not the last saved values (#1689).
+        SceneTransition::CaptureRendererWorldSettings(*m_ActiveScene);
         ResetRendererForSceneSwap();
 
         Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
@@ -5242,6 +5255,7 @@ namespace OloEngine
         m_SceneState = SceneState::Simulate;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+        SceneTransition::CaptureRendererWorldSettings(*m_ActiveScene); // as OnScenePlay (#1689)
         ResetRendererForSceneSwap();
         m_ActiveScene->OnSimulationStart();
 

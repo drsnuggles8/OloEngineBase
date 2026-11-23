@@ -447,8 +447,8 @@ namespace OloEngine
         template<typename TData>
         [[nodiscard]] bool PrecipitationScreenEffectsEnabled(const TData& data)
         {
-            return data.Precipitation.Enabled &&
-                   (data.Precipitation.ScreenStreaksEnabled || data.Precipitation.LensImpactsEnabled);
+            return data.Scene.Precipitation.Enabled &&
+                   (data.Scene.Precipitation.ScreenStreaksEnabled || data.Scene.Precipitation.LensImpactsEnabled);
         }
     } // namespace
 
@@ -1416,8 +1416,8 @@ namespace OloEngine
         }
         if (PostProcessPasses.SkinDiffusion)
         {
-            SkinDiffusionSettings effective = data.SkinDiffusion;
-            effective.Enabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path,
+            SkinDiffusionSettings effective = data.Scene.SkinDiffusion;
+            effective.Enabled = SkinDiffusionRunsThisFrame(data.Scene.SkinDiffusion, data.Settings.Path,
                                                            data.PostProcess.MaterialDebug,
                                                            static_cast<i32>(data.Settings.Deferred.DebugChannel),
                                                            data.PostProcess.LightingDebugTap,
@@ -1438,7 +1438,7 @@ namespace OloEngine
         }
         if (PostProcessPasses.SSS)
         {
-            PostProcessPasses.SSS->SetSettings(data.Snow);
+            PostProcessPasses.SSS->SetSettings(data.Scene.Snow);
         }
         // Wire AOApplyPass before the dynamic post chain.
         if (PostProcessPasses.AOApply)
@@ -1556,7 +1556,7 @@ namespace OloEngine
                                  Renderer3D::GetRenderOrigin());
             pt.SetFrameIndex(data.Clock.StochasticFrameIndex);
             pt.SetSceneEpoch(ReSTIRPTSceneEpoch);
-            pt.ResolveAvailabilityForFrame(data.Settings.Path == RenderingPath::Deferred, data.Fog.Enabled);
+            pt.ResolveAvailabilityForFrame(data.Settings.Path == RenderingPath::Deferred, data.Scene.Fog.Enabled);
         }
         const auto ptOwnership = SelectReSTIRPTOwnership({
             .PTActive = SceneCompositePasses.ReSTIRPT && SceneCompositePasses.ReSTIRPT->GetStats().Active,
@@ -2175,12 +2175,12 @@ namespace OloEngine
         {
             // The froxel compute chain runs only in the fog's volumetric mode
             // (issue #435); analytic fog stays a pure screen-space evaluation.
-            PostProcessPasses.VolumetricFog->SetEnabled(data.Fog.Enabled && data.Fog.EnableVolumetric);
+            PostProcessPasses.VolumetricFog->SetEnabled(data.Scene.Fog.Enabled && data.Scene.Fog.EnableVolumetric);
         }
 
         if (PostProcessPasses.Fog)
         {
-            PostProcessPasses.Fog->SetEnabled(data.Fog.Enabled);
+            PostProcessPasses.Fog->SetEnabled(data.Scene.Fog.Enabled);
             PostProcessPasses.Fog->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             // Full 288-byte camera UBO so the fog shaders' u_CameraPosition /
             // u_Projection reads stay in-bounds even if an earlier stage left a
@@ -2631,9 +2631,9 @@ namespace OloEngine
         }
 
         // Upload snow settings to GPU
-        if (data.Snow.Enabled)
+        if (data.Scene.Snow.Enabled)
         {
-            const auto& snow = data.Snow;
+            const auto& snow = data.Scene.Snow;
             auto& gpu = data.SceneEffectsGPU.SnowData;
             gpu.CoverageParams = glm::vec4(snow.HeightStart, snow.HeightFull, snow.SlopeStart, snow.SlopeFull);
             gpu.AlbedoAndRoughness = glm::vec4(snow.Albedo, snow.Roughness);
@@ -2663,9 +2663,9 @@ namespace OloEngine
         }
 
         // Upload fog & atmospheric scattering settings to GPU
-        if (data.Fog.Enabled)
+        if (data.Scene.Fog.Enabled)
         {
-            const auto& fog = data.Fog;
+            const auto& fog = data.Scene.Fog;
             auto& gpu = data.SceneEffectsGPU.FogData;
             gpu.ColorAndDensity = glm::vec4(fog.Color, fog.Density);
             gpu.DistanceParams = glm::vec4(fog.Start, fog.End, fog.HeightFalloff, fog.HeightOffset);
@@ -2746,7 +2746,7 @@ namespace OloEngine
         // which is the signature of history, not of settings. The same defect
         // is reachable in a shipped game through a runtime scene switch
         // (docs/agent-rules/runtime-scene-switching.md).
-        if (PostProcessPasses.VolumetricFog && !(data.Fog.Enabled && data.Fog.EnableVolumetric))
+        if (PostProcessPasses.VolumetricFog && !(data.Scene.Fog.Enabled && data.Scene.Fog.EnableVolumetric))
         {
             PostProcessPasses.VolumetricFog->UploadDisabledUBO();
         }
@@ -2760,14 +2760,14 @@ namespace OloEngine
             const f32 dt = primaryView ? SampleMockableDt(data.Clock.WindPrevTimeSeconds, 0.1f) : 0.0f;
 
             if (primaryView)
-                WindSystem::Update(data.Wind, data.View.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
+                WindSystem::Update(data.Scene.Wind, data.View.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
             WindSystem::BindWindTexture();
 
             // Publish disabled state too, so receivers and depth casters stop
             // sampling the previous frame's accumulated displacement.
             if (primaryView)
-                SnowAccumulationSystem::Update(data.SnowAccumulation, data.View.ViewPos, Timestep(dt));
-            if (data.SnowAccumulation.Enabled)
+                SnowAccumulationSystem::Update(data.Scene.SnowAccumulation, data.View.ViewPos, Timestep(dt));
+            if (data.Scene.SnowAccumulation.Enabled)
             {
                 SnowAccumulationSystem::BindSnowDepthTexture();
                 CommandDispatch::SetSnowDepthTexture(SnowAccumulationSystem::GetSnowDepthTextureHandle());
@@ -2824,19 +2824,19 @@ namespace OloEngine
             WaterWakeSystem::SetSettings(data.Scene.WaterWakeShape);
 
             // Update snow ejecta particle simulation
-            if (primaryView && data.SnowEjecta.Enabled)
+            if (primaryView && data.Scene.SnowEjecta.Enabled)
             {
-                SnowEjectaSystem::Update(data.SnowEjecta, Timestep(dt));
+                SnowEjectaSystem::Update(data.Scene.SnowEjecta, Timestep(dt));
             }
 
             // Update precipitation system (always run so disabled particles can drain)
             {
-                glm::vec3 windXZ = glm::vec3(data.Wind.Direction.x, 0.0f, data.Wind.Direction.z);
+                glm::vec3 windXZ = glm::vec3(data.Scene.Wind.Direction.x, 0.0f, data.Scene.Wind.Direction.z);
                 f32 windXZLen = glm::length(windXZ);
                 glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
-                f32 windSpeed = data.Wind.Speed;
+                f32 windSpeed = data.Scene.Wind.Speed;
                 if (primaryView)
-                    PrecipitationSystem::Update(data.Precipitation, data.View.ViewPos, windDir, windSpeed, Timestep(dt));
+                    PrecipitationSystem::Update(data.Scene.Precipitation, data.View.ViewPos, windDir, windSpeed, Timestep(dt));
 
                 // Rain-impact ripples (issue #1034, §7.3) — the SKY half of the
                 // gate. The water half was published by the scene; the two meet
@@ -2847,7 +2847,7 @@ namespace OloEngine
                 // above, so switching the weather off actively drops the
                 // stipple instead of freezing it.
                 //
-                // The SMOOTHED intensity, not `data.Precipitation.Intensity`:
+                // The SMOOTHED intensity, not `data.Scene.Precipitation.Intensity`:
                 // the smoothed one is what the raindrops themselves are flying
                 // at, so the surface dries as the shower thins out rather than
                 // snapping dry a full drain-time before the last drop lands.
@@ -2856,17 +2856,17 @@ namespace OloEngine
                 // it does not ring. Rain, hail and sleet all strike hard enough.
                 {
                     const bool rippleCapable =
-                        data.Precipitation.Type != PrecipitationType::Snow;
+                        data.Scene.Precipitation.Type != PrecipitationType::Snow;
                     WaterRainRippleSystem::SetPrecipitation(
                         rippleCapable, PrecipitationSystem::GetCurrentIntensity());
                 }
 
-                if (data.Precipitation.Enabled)
+                if (data.Scene.Precipitation.Enabled)
                 {
                     glm::vec2 windDirScreen = glm::vec2(windDir.x, -windDir.z);
                     if (primaryView)
-                        ScreenSpacePrecipitation::Update(data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
-                    PrecipitationSystem::UpdateScreenEffectsUBO(data.Precipitation, windDirScreen, data.Clock.FogTime);
+                        ScreenSpacePrecipitation::Update(data.Scene.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
+                    PrecipitationSystem::UpdateScreenEffectsUBO(data.Scene.Precipitation, windDirScreen, data.Clock.FogTime);
                 }
             }
         }
@@ -2900,11 +2900,11 @@ namespace OloEngine
                 if (primaryView)
                 {
                     const f32 cloudDt = SampleMockableDt(data.Clock.CloudPrevTimeSeconds, 0.1f);
-                    const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
+                    const glm::vec2 cloudWindXZ(data.Scene.Wind.Direction.x, data.Scene.Wind.Direction.z);
                     if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
                     {
                         data.Clock.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
-                                                      (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
+                                                      (data.Scene.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
                     }
                     data.Clock.CloudTime += cloudDt;
                 }
@@ -2990,7 +2990,7 @@ namespace OloEngine
             {
                 fogTowardLight = -glm::normalize(data.Scene.PrimaryDirectionalLightDir);
             }
-            VolumetricShadowMap::PrepareFrame(data.Scene.Cloudscape, data.Fog, data.SceneEffectsGPU.FogVolumesData,
+            VolumetricShadowMap::PrepareFrame(data.Scene.Cloudscape, data.Scene.Fog, data.SceneEffectsGPU.FogVolumesData,
                                               data.View.ViewPos, Renderer3D::GetRenderOrigin(), fogTowardLight,
                                               cloudFieldReady);
         }
@@ -3061,7 +3061,7 @@ namespace OloEngine
         // AND the deferred lighting pass, which reconstructs world-space position from G-Buffer depth
         // AND TAA for camera-only velocity reprojection in Forward / Forward+
         // AND the cloudscape raymarch/resolve ray reconstruction).
-        if (data.PostProcess.MotionBlurEnabled || data.Frame.EngineTAAWanted || data.Fog.Enabled ||
+        if (data.PostProcess.MotionBlurEnabled || data.Frame.EngineTAAWanted || data.Scene.Fog.Enabled ||
             data.Scene.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = data.PostProcessGPU.MotionBlurData;
@@ -3169,13 +3169,13 @@ namespace OloEngine
         config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(data.Frame.EngineTAAWanted, data.View.TemporalUpscaleActive);
         config.CloudscapeEnabled = data.Scene.Cloudscape.Enabled;
         config.PrecipitationScreenEffects = PrecipitationScreenEffectsEnabled(data);
-        config.FogEnabled = data.Fog.Enabled;
+        config.FogEnabled = data.Scene.Fog.Enabled;
         config.ChromaticAberrationEnabled = post.ChromaticAberrationEnabled;
         config.ColorGradingEnabled = post.ColorGradingEnabled;
         config.LateSharpen = TemporalUpscalePolicy::ShouldRunLateSharpen(post.CASEnabled, post.Upscale, data.View.TemporalUpscaleActive);
         config.VignetteEnabled = post.VignetteEnabled;
         config.FXAAEnabled = post.FXAAEnabled;
-        config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
+        config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.Scene.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
                                                                  static_cast<i32>(data.Settings.Deferred.DebugChannel),
                                                                  post.LightingDebugTap,
                                                                  Renderer3D::GetSkinProfileTable().AnyAssignedSlotDiffuses());
@@ -3392,7 +3392,7 @@ namespace OloEngine
 
         if (PostProcessPasses.VolumetricFog)
         {
-            if (data.Fog.Enabled && data.Fog.EnableVolumetric && sized)
+            if (data.Scene.Fog.Enabled && data.Scene.Fog.EnableVolumetric && sized)
             {
                 TemporalHistoryDescriptor descriptor;
                 descriptor.Width = sceneSpec.Width;
@@ -3422,7 +3422,7 @@ namespace OloEngine
             graph.EndTemporalLineage(kReSTIRPTLineageKey, SceneCompositePasses.ReSTIRPT->ProducedRecordsThisFrame());
         }
         if (PostProcessPasses.VolumetricFog && registry.IsCurrent(registry.Find(kVolumetricFogLineageKey)) &&
-            data.Fog.Enabled && data.Fog.EnableVolumetric)
+            data.Scene.Fog.Enabled && data.Scene.Fog.EnableVolumetric)
         {
             graph.EndTemporalLineage(kVolumetricFogLineageKey, PostProcessPasses.VolumetricFog->RanThisFrame());
         }

@@ -592,8 +592,11 @@ class VulkanPassSuite : public ::testing::Test
             ParticleBatchRenderer::Shutdown(); // safe on empty statics
         }
         // Pass setup can lazily allocate inert VSM sampling buffers without
-        // Renderer3D::Init. In a standalone Vulkan run those belong to this
-        // device; preserve them when an initialized GL renderer owns them.
+        // Renderer3D::Init, on the backend that binds them (#1655). The Vulkan
+        // set is this suite's whether or not a GL renderer is up, and goes
+        // before FlushAll below; a live GL renderer's own set stays. In a
+        // standalone Vulkan run the whole VSM is this device's.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().ReleaseInertSamplingBindings(RendererAPI::API::Vulkan);
         if (!Renderer3D::HasInitialized())
             Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
         // The fullscreen-triangle cache is a process STATIC now holding

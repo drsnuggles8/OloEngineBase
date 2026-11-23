@@ -53,10 +53,12 @@
 //   clock (Time::SetMockTime) and pin TAA + auto-exposure OFF (their
 //   defaults, but pinned because both are history/feedback effects that
 //   would make frame N depend on the whole pose history). Each test runs
-//   kConvergenceFrames of the full pipeline before capturing, which
-//   re-converges the pass's process-global atlases from ANY starting state
-//   (the DDGIProbeUpdatePass singleton persists across tests in the suite,
-//   so this is also what makes the goldens independent of test order).
+//   kConvergenceFrames of the full pipeline before capturing. Every test
+//   starts from an empty probe volume: RendererAttachedTest::SetUp runs the
+//   renderer's scene switch, which drops the pass's atlases (#1665). Before
+//   that the convergence was relied on to wash out whatever volume the
+//   previous test left, and it did not fully: LightLeakRegression's ratio was
+//   1.948 alone and 1.836 after DeferredPointLightParitySceneTest.
 //   Golden compare follows WaterVisualEvidenceTest: a normal run COMPARES
 //   (RMSE <= 6.0) and writes nothing; --olo-golden-rebase (re)writes.
 //   Run from OloEditor/ so the PNGs land under OloEditor/assets/tests/visual/.
@@ -797,6 +799,33 @@ namespace OloEngine::Tests
         if (::testing::Test::HasFatalFailure())
             return;
         CompareOrRebaseGolden("ddgi_leak_lit.png", litPixels);
+    }
+
+    // -------------------------------------------------------------------------
+    // 2b. A scene switch drops the probe volume (#1665). The volume is a world
+    //     cache: kept, it carries the previous world's light into the next for
+    //     as many frames as the EMA takes to forget it, and in this binary it
+    //     moved LightLeakRegression's dark band by which test ran before it
+    //     (ratio 1.948 alone, 1.836 after DeferredPointLightParitySceneTest).
+    // -------------------------------------------------------------------------
+    TEST_F(DDGIVisualEvidenceTest, ASceneSwitchDropsTheProbeVolume)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Converge(kDarkEye, kDarkTarget, 8u);
+        DDGIProbeUpdatePass* const pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr);
+        // Precondition: without a converging volume there is nothing to drop
+        // and the assertions below would pass on a dead pass.
+        ASSERT_TRUE(pass->HoldsWorldCache()) << "the DDGI scene built no probe volume in 8 frames";
+        ASSERT_TRUE(Renderer3D::HoldsWorldCache());
+
+        Renderer3D::ResetSceneState();
+
+        EXPECT_FALSE(pass->HoldsWorldCache()) << "the probe volume survived the renderer's scene switch";
+        EXPECT_FALSE(Renderer3D::HoldsWorldCache())
+            << "a pass on some view still holds a world cache after Renderer3D::ResetSceneState";
     }
 
     // -------------------------------------------------------------------------

@@ -56,19 +56,34 @@ namespace OloEngine::Tests
         ASSERT_FALSE(renderer.empty());
         ASSERT_FALSE(fixture.empty());
 
-        const std::regex accessor(R"(static\s+[\w:]+&\s+(Get\w+Settings)\(\))");
-        std::set<std::string> accessors;
+        // The member each accessor returns says who owns it. A scene's
+        // publication lives in RendererSceneState and the fixture drops it with
+        // the renderer's scene switch; configuration is snapshotted and
+        // restored (#1689).
+        const std::regex accessor(R"(static\s+[\w:]+&\s+(Get\w+Settings)\(\)\s*\{\s*return\s+s_Data\.([\w.]+)\s*;)");
+        std::set<std::string> configuration;
+        sizet sceneState = 0;
         for (std::sregex_iterator it(renderer.begin(), renderer.end(), accessor), end; it != end; ++it)
-            accessors.insert((*it)[1].str());
+        {
+            if ((*it)[2].str().starts_with("Scene."))
+                ++sceneState;
+            else
+                configuration.insert((*it)[1].str());
+        }
         // Twelve on the day this was written. Fewer means the pattern stopped
-        // matching, and the loop below would pass having checked nothing.
-        ASSERT_GE(accessors.size(), 12u) << "the accessor scan of Renderer3D.h found too few";
+        // matching, and the loops below would pass having checked nothing.
+        ASSERT_GE(configuration.size() + sceneState, 12u) << "the accessor scan of Renderer3D.h found too few";
 
-        for (const std::string& name : accessors)
+        // Once in SetUp, once in TearDown.
+        EXPECT_GE(CountOf(fixture, "Renderer3D::ResetSceneState();"), 2u)
+            << sceneState << " Renderer3D settings accessors return scene state, which RendererAttachedTest drops "
+            << "with Renderer3D::ResetSceneState() in SetUp and TearDown (" << kFixture.generic_string() << ").";
+
+        for (const std::string& name : configuration)
         {
             // Once to snapshot in SetUp, once to restore in TearDown.
             EXPECT_GE(CountOf(fixture, "Renderer3D::" + name + "()"), 2u)
-                << "Renderer3D::" << name << "() is process-wide state that RendererAttachedTest does not "
+                << "Renderer3D::" << name << "() is process-wide configuration that RendererAttachedTest does not "
                 << "snapshot and restore. Add a field to ProcessWideSettings and both lines in "
                 << kFixture.generic_string() << ", or a test that changes it leaks into every test after it.";
         }

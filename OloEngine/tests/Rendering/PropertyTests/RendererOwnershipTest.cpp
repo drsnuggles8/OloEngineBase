@@ -217,6 +217,30 @@ namespace OloEngine::Tests
             << "a scene reset of a scene that publishes none of them changed: " << changed;
     }
 
+    // A sequence restart rewinds every pass's own index (#1348), so two paired
+    // arms start from the same context. The shadow pass's foliage VSM rotation
+    // (#1580) advanced once a frame and had no restart: the arms rotated
+    // through different layers, and the folded context could not show it.
+    TEST_F(RendererOwnership, ASequenceRestartRewindsEveryPassesOwnIndex)
+    {
+        ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+        shadow.Enabled = true;
+        shadow.VSM.Enabled = true;
+        Renderer3D::GetShadowMap().SetSettings(shadow);
+        if (!Renderer3D::GetShadowMap().GetVirtualShadowMap().IsEnabledAndInitialized())
+            GTEST_SKIP() << "the VSM did not initialise on this device; the rotation only runs on it";
+
+        Renderer3D::ResetFrameSequences(0u);
+        const u64 restarted = Renderer3D::GetFrameSamplingContext().PassSequenceState;
+        RenderMovingFrames(3);
+        ASSERT_NE(Renderer3D::GetFrameSamplingContext().PassSequenceState, restarted)
+            << "the frames advanced no pass's own index, so the restart below would pass on nothing";
+
+        Renderer3D::ResetFrameSequences(0u);
+        EXPECT_EQ(Renderer3D::GetFrameSamplingContext().PassSequenceState, restarted)
+            << "a pass's own index survived the sequence restart";
+    }
+
     TEST_F(RendererOwnership, ViewResetDropsTheViewAndKeepsTheSceneAndTheClock)
     {
         RenderMovingFrames(3);
@@ -288,6 +312,41 @@ namespace OloEngine::Tests
         RenderMovingFrames(2);
         EXPECT_EQ(s_CallbackRuns, 0u) << "a pass callback handed to the previous renderer ran on the restarted one";
         EXPECT_GT(Renderer3D::DebugOwnedStateCensus().ScenePoseRecords, 0u) << "the restarted renderer did not draw the scene";
+    }
+
+    // The user's configuration (#1689): the renderer settings and the
+    // post-process stack are the view's, written by the panels, the MCP tools
+    // and quality tiering. A scene switch drops the scene's publications and a
+    // view reset the camera; neither, and no restart, may take the user's
+    // choices with them.
+    TEST_F(RendererOwnership, ConfigurationSurvivesASceneResetAViewResetAndARestart)
+    {
+        RenderMovingFrames(1);
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        settings.ObserverCameraDrawFrustum = !settings.ObserverCameraDrawFrustum;
+        const bool drawFrustum = settings.ObserverCameraDrawFrustum;
+        Renderer3D::GetPostProcessSettings().Exposure = 2.5f;
+        Renderer3D::GetPostProcessSettings().BloomEnabled = !Renderer3D::GetPostProcessSettings().BloomEnabled;
+        const bool bloom = Renderer3D::GetPostProcessSettings().BloomEnabled;
+
+        const auto expectKept = [&](const char* after)
+        {
+            EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Deferred) << after;
+            EXPECT_EQ(Renderer3D::GetRendererSettings().ObserverCameraDrawFrustum, drawFrustum) << after;
+            EXPECT_NEAR(Renderer3D::GetPostProcessSettings().Exposure, 2.5f, 1e-6f) << after;
+            EXPECT_EQ(Renderer3D::GetPostProcessSettings().BloomEnabled, bloom) << after;
+        };
+
+        Renderer3D::ResetSceneState();
+        expectKept("a scene reset");
+        Renderer3D::ResetFrameCamera();
+        expectKept("a view reset");
+        Renderer3D::Shutdown();
+        Renderer3D::Init();
+        ASSERT_TRUE(Renderer3D::HasInitialized());
+        expectKept("a renderer restart");
+        EnableRendering(256, 256);
+        RenderMovingFrames(1);
     }
 
     // Which buffer occupies a uniform binding point has one owner: the

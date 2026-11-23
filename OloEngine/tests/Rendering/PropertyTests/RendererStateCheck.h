@@ -87,9 +87,14 @@ namespace OloEngine::Tests::RendererState
     {
         bool Valid = false;
 
-        // --- The settings structs, in `Renderer3D` declaration order ---
+        // --- Configuration: the view's (kept across a scene switch) ---
         RendererSettings Renderer{};
         PostProcessSettings PostProcess{};
+
+        // --- Scene publication: RendererSceneState, dropped by
+        // Renderer3D::ResetSceneState (#1689). A test that renders its own
+        // scene through RendererAttachedTest starts and ends with that reset,
+        // so only a test outside the fixture can still leak these. ---
         SnowSettings Snow{};
         FogSettings Fog{};
         WindSettings Wind{};
@@ -100,8 +105,6 @@ namespace OloEngine::Tests::RendererState
         SnowEjectaSettings SnowEjecta{};
         SkinDiffusionSettings SkinDiffusion{};
         PrecipitationSettings Precipitation{};
-
-        // --- Scene-published render state ---
         CloudscapeRenderState Cloudscape{};
         UnderwaterFogState UnderwaterFog{};
 
