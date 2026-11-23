@@ -28,10 +28,13 @@
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
+#include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Fluid/CPUFluidSolver.h"
 #include "OloEngine/Fluid/FluidSolverTypes.h"
 #include "OloEngine/Fluid/GPUFluidSolver.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #define GLFW_INCLUDE_NONE
@@ -41,6 +44,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <span>
@@ -409,5 +413,117 @@ namespace OloEngine::Tests
 
         EXPECT_GT(cpuTotalImpulse.y, 0.0f) << "CPU reaction impulse must oppose the descending sphere";
         EXPECT_GT(gpuTotalImpulse.y, 0.0f) << "GPU reaction impulse must oppose the descending sphere";
+    }
+
+    class GPUFluidFeedbackTest : public RendererAttachedTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override {}
+    };
+
+    TEST_F(GPUFluidFeedbackTest, HarvestPairsOnlyCompletedCopiesWithTheirOriginalBodies)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Scope<GPUFluidSolver> solver;
+        RunInFrame([&]
+                   { solver = CreateScope<GPUFluidSolver>(64, GPUFluidSolver::FeedbackMode::Deferred); });
+        ASSERT_TRUE(solver->IsValid());
+
+        FluidSolverParams params = MakeDefaultParams();
+        params.SolverIterations = 1;
+        const GPUFluidEmitEntry particle{ .Position = { 0.0f, 0.32f, 0.0f, 0.0f },
+                                          .Velocity = glm::vec4(0.0f) };
+        FluidBodyProxy sphere{};
+        sphere.Position = { 0.0f, 0.4f, 0.0f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+        sphere.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        sphere.HalfExtents = { 0.12f, 0.0f, 0.0f, 0.0f };
+        sphere.LinearVelocity = { 0.0f, -1.0f, 0.0f, 0.0f };
+        constexpr UUID kHitBody{ 101 };
+        constexpr UUID kMissBody{ 202 };
+        constexpr UUID kSecondMissBody{ 303 };
+        const std::array<UUID, 2> missBodies{ kMissBody, kSecondMissBody };
+        std::array<FluidBodyFeedback, 2> feedback{};
+
+        if (TestRenderBackend::IsVulkanProcess())
+        {
+            // Negative control: the old pair hands out a batch in an
+            // unsubmitted frame. Check availability, never the old bytes,
+            // so even zero-filled staging trips the same oracle.
+            Scope<GPUFluidSolver> oldPair;
+            RunInFrame([&]
+                       {
+                           oldPair = CreateScope<GPUFluidSolver>(64, GPUFluidSolver::FeedbackMode::Immediate);
+                           ASSERT_TRUE(oldPair->IsValid());
+                           oldPair->Emit(std::span(&particle, 1));
+                           oldPair->Step(params, kDt, std::span(&sphere, 1), {}, std::span(&kHitBody, 1));
+                           EXPECT_FALSE(oldPair->HarvestFeedback(feedback).empty())
+                               << "the old pair did not exercise the unsubmitted-copy fault"; });
+            RunInFrame([&]
+                       { oldPair.reset(); });
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        }
+
+        RunInFrame([&]
+                   {
+                       solver->Emit(std::span(&particle, 1));
+                       solver->Step(params, kDt, std::span(&sphere, 1), {}, std::span(&kHitBody, 1));
+                       if (TestRenderBackend::IsVulkanProcess())
+                       {
+                           // This command buffer has never been submitted. A
+                           // direct read of its staging memory cannot be valid.
+                           feedback[0].Impulse.y = 123.0f;
+                           EXPECT_TRUE(solver->HarvestFeedback(feedback).empty());
+                           EXPECT_FLOAT_EQ(feedback[0].Impulse.y, 0.0f);
+                       }
+                       sphere.Position.x = 0.4f;
+                       FluidBodyProxy second = sphere;
+                       second.Position.x = -0.4f;
+                       const std::array<FluidBodyProxy, 2> misses{ sphere, second };
+                       params.SolverIterations = 2;
+                       solver->Step(params, kDt, misses, {}, missBodies); });
+
+        if (!TestRenderBackend::IsVulkanProcess())
+        {
+            // There is no window swap in RunInFrame on GL. Wait in the test,
+            // outside HarvestFeedback, so the next poll can inspect the copies.
+            const u64 fence = RenderCommand::CreateFence();
+            (void)RenderCommand::ClientWaitFence(fence, 2'000'000'000ull);
+            RenderCommand::DestroyFence(fence);
+        }
+
+        u32 batches = 0;
+        for (u32 frame = 0; frame < 16 && batches < 2; ++frame)
+        {
+            RunInFrame([&]
+                       {
+                           const auto ids = solver->HarvestFeedback(feedback);
+                           if (ids.empty())
+                               return;
+                           if (batches++ == 0)
+                           {
+                               ASSERT_EQ(ids.size(), 1u);
+                               EXPECT_EQ(static_cast<u64>(ids[0]), static_cast<u64>(kHitBody));
+                               EXPECT_GT(feedback[0].Impulse.y, 0.0f);
+                               EXPECT_FLOAT_EQ(glm::length(feedback[1].Impulse), 0.0f);
+                           }
+                           else
+                           {
+                               ASSERT_EQ(ids.size(), 2u);
+                               EXPECT_EQ(static_cast<u64>(ids[0]), static_cast<u64>(kMissBody));
+                               EXPECT_EQ(static_cast<u64>(ids[1]), static_cast<u64>(kSecondMissBody));
+                               EXPECT_FLOAT_EQ(glm::length(feedback[0].Impulse), 0.0f);
+                               EXPECT_FLOAT_EQ(glm::length(feedback[1].Impulse), 0.0f);
+                           } });
+        }
+        EXPECT_EQ(batches, 2u);
+        RunInFrame([&]
+                   {
+                       EXPECT_TRUE(solver->HarvestFeedback(feedback).empty());
+                       solver.reset(); });
     }
 } // namespace OloEngine::Tests

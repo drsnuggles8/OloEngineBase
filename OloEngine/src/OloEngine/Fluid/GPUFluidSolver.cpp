@@ -22,7 +22,8 @@ namespace OloEngine
         }
     } // namespace
 
-    GPUFluidSolver::GPUFluidSolver(u32 maxParticles)
+    GPUFluidSolver::GPUFluidSolver(u32 maxParticles, FeedbackMode feedbackMode)
+        : m_FeedbackMode(feedbackMode)
     {
         Init(maxParticles);
     }
@@ -33,15 +34,16 @@ namespace OloEngine
     }
 
     GPUFluidSolver::GPUFluidSolver(GPUFluidSolver&& other) noexcept
-        : m_MaxParticles(other.m_MaxParticles),
+        : m_FeedbackMode(other.m_FeedbackMode),
+          m_FeedbackBatches(std::move(other.m_FeedbackBatches)),
+          m_FeedbackHead(std::exchange(other.m_FeedbackHead, 0u)),
+          m_MaxParticles(other.m_MaxParticles),
           m_Initialized(other.m_Initialized),
           m_HasDispatched(other.m_HasDispatched),
           m_ParticleUpperBound(other.m_ParticleUpperBound),
           m_PendingEmitCount(other.m_PendingEmitCount),
           m_PendingEmitEntries(std::move(other.m_PendingEmitEntries)),
           m_StepsSinceCountRefresh(other.m_StepsSinceCountRefresh),
-          m_LastProxyCount(other.m_LastProxyCount),
-          m_LastSolverIterations(other.m_LastSolverIterations),
           m_GridCellCount(other.m_GridCellCount),
           m_PositionsSSBO(std::move(other.m_PositionsSSBO)),
           m_VelocitiesSSBO(std::move(other.m_VelocitiesSSBO)),
@@ -79,8 +81,6 @@ namespace OloEngine
         other.m_PendingEmitCount = 0;
         other.m_PendingEmitEntries.Reset();
         other.m_StepsSinceCountRefresh = 0;
-        other.m_LastProxyCount = 0;
-        other.m_LastSolverIterations = 1;
         other.m_GridCellCount = 0;
     }
 
@@ -89,6 +89,9 @@ namespace OloEngine
         if (this != &other)
         {
             Shutdown();
+            m_FeedbackMode = other.m_FeedbackMode;
+            m_FeedbackBatches = std::move(other.m_FeedbackBatches);
+            m_FeedbackHead = std::exchange(other.m_FeedbackHead, 0u);
             m_MaxParticles = other.m_MaxParticles;
             m_Initialized = other.m_Initialized;
             m_HasDispatched = other.m_HasDispatched;
@@ -96,8 +99,6 @@ namespace OloEngine
             m_PendingEmitCount = other.m_PendingEmitCount;
             m_PendingEmitEntries = std::move(other.m_PendingEmitEntries);
             m_StepsSinceCountRefresh = other.m_StepsSinceCountRefresh;
-            m_LastProxyCount = other.m_LastProxyCount;
-            m_LastSolverIterations = other.m_LastSolverIterations;
             m_GridCellCount = other.m_GridCellCount;
             m_PositionsSSBO = std::move(other.m_PositionsSSBO);
             m_VelocitiesSSBO = std::move(other.m_VelocitiesSSBO);
@@ -134,8 +135,6 @@ namespace OloEngine
             other.m_PendingEmitCount = 0;
             other.m_PendingEmitEntries.Reset();
             other.m_StepsSinceCountRefresh = 0;
-            other.m_LastProxyCount = 0;
-            other.m_LastSolverIterations = 1;
             other.m_GridCellCount = 0;
         }
         return *this;
@@ -162,7 +161,7 @@ namespace OloEngine
         m_PendingEmitCount = 0;
         m_PendingEmitEntries.Reset();
         m_StepsSinceCountRefresh = 0;
-        m_LastProxyCount = 0;
+        m_FeedbackBatches.front().ProxyCount = 0;
 
         const u32 vec4Bytes = static_cast<u32>(sizeof(glm::vec4));
 
@@ -280,6 +279,7 @@ namespace OloEngine
         // Same reason as VirtualShadowMap::DestroyResources: free the raw staging
         // handles while the renderer API is still alive.
         m_ImpulseReadback.Release();
+        m_FeedbackHead = 0;
         m_PositionsReadback.Release();
         m_VelocitiesReadback.Release();
 
@@ -316,7 +316,7 @@ namespace OloEngine
         m_PendingEmitCount = 0;
         m_PendingEmitEntries.Reset();
         m_StepsSinceCountRefresh = 0;
-        m_LastProxyCount = 0;
+        m_FeedbackBatches.front().ProxyCount = 0;
         m_GridCellCount = 0;
     }
 
@@ -408,13 +408,19 @@ namespace OloEngine
 
     void GPUFluidSolver::Step(const FluidSolverParams& params, f32 dt,
                               std::span<const FluidBodyProxy> bodyProxies,
-                              std::span<const FluidKillBox> killBoxes)
+                              std::span<const FluidKillBox> killBoxes,
+                              std::span<const UUID> bodyEntities)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Initialized || dt <= 0.0f || !std::isfinite(dt))
         {
             return;
+        }
+
+        if (m_FeedbackMode == FeedbackMode::Immediate)
+        {
+            m_FeedbackBatches.front().ProxyCount = 0;
         }
 
         // ---- Grid sizing — CPU mirror: CPUFluidSolver::BuildGrid ------------
@@ -516,8 +522,6 @@ namespace OloEngine
             if (!transientProxies) // the Vulkan range was bound above
                 m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyCount * FluidBodyProxy::GetSize());
         }
-        m_LastProxyCount = proxyCount;
-        m_LastSolverIterations = std::max(1u, params.SolverIterations);
         if (emitCount > 0 || m_ParticleUpperBound > 0)
             m_HasDispatched = true;
 
@@ -631,13 +635,11 @@ namespace OloEngine
         }
 
         // Body impulses are complete now that the last displace iteration has
-        // run, and the next Step() clears them — so this is the only moment the
-        // accumulated value exists. Staged here and harvested before the next step,
-        // which is exactly the latency HarvestFeedback already documented.
+        // run, and the next Step() clears them. The staged copy keeps the
+        // batch and its body IDs together across subsequent steps.
         if (proxyCount > 0)
         {
-            m_ImpulseReadback.Stage(m_BodyImpulsesSSBO->GetRHIHandle(), 0,
-                                    static_cast<u64>(proxyCount) * sizeof(GPUFluidBodyImpulse));
+            StageFeedback(proxyCount, params.SolverIterations, bodyEntities);
         }
 
         // ---- Final parity: iteration 0 reads A and writes B, so N iterations
@@ -704,7 +706,36 @@ namespace OloEngine
         }
     }
 
-    void GPUFluidSolver::HarvestFeedback(std::span<FluidBodyFeedback> outFeedback)
+    void GPUFluidSolver::StageFeedback(u32 proxyCount, u32 solverIterations, std::span<const UUID> bodyEntities)
+    {
+        const RHI::ResourceHandle source = m_BodyImpulsesSSBO->GetRHIHandle();
+        const u64 bytes = static_cast<u64>(proxyCount) * sizeof(GPUFluidBodyImpulse);
+        u32 batchIndex = 0;
+        if (m_FeedbackMode == FeedbackMode::Deferred)
+        {
+            const u32 outstanding = m_ImpulseReadback.GetDeferredCopiesOutstanding();
+            if (!m_ImpulseReadback.StageDeferred(source, 0, bytes))
+            {
+                return;
+            }
+            batchIndex = (m_FeedbackHead + outstanding) % StagedBufferReadback::kRingSlots;
+        }
+        else
+        {
+            m_ImpulseReadback.Stage(source, 0, bytes);
+        }
+
+        FeedbackBatch& batch = m_FeedbackBatches[batchIndex];
+        batch.ProxyCount = proxyCount;
+        batch.SolverIterations = std::max(1u, solverIterations);
+        batch.Entities.Reset();
+        if (!bodyEntities.empty())
+        {
+            batch.Entities.Append(bodyEntities.data(), static_cast<i32>(std::min<sizet>(proxyCount, bodyEntities.size())));
+        }
+    }
+
+    std::span<const UUID> GPUFluidSolver::HarvestFeedback(std::span<FluidBodyFeedback> outFeedback)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -713,47 +744,53 @@ namespace OloEngine
             feedback = FluidBodyFeedback{};
         }
 
-        if (!m_Initialized || m_LastProxyCount == 0 || outFeedback.empty())
+        const bool deferred = m_FeedbackMode == FeedbackMode::Deferred;
+        const FeedbackBatch& batch = m_FeedbackBatches[m_FeedbackHead];
+        if (!m_Initialized || outFeedback.empty() || batch.ProxyCount == 0 ||
+            (deferred && m_ImpulseReadback.GetDeferredCopiesOutstanding() == 0))
         {
-            return;
+            return {};
         }
 
-        const u32 count = static_cast<u32>(std::min<sizet>(outFeedback.size(), m_LastProxyCount));
-
-        // Read the copy Step() staged after its last displace pass, not the
-        // SSBO. Same bytes and the same one-step latency the caller already
-        // relies on (FluidSystem harvests BEFORE launching the next step), so
-        // the coupling loop is unchanged — what changes is that the CPU never
-        // touches a buffer the displace kernel hits with six atomicAdds per
-        // particle-body contact. Reading it directly migrates it VIDEO -> HOST
-        // and every one of those atomics pays for it afterwards.
-        std::vector<GPUFluidBodyImpulse> raw(count);
+        const auto count = static_cast<u32>(std::min<sizet>(outFeedback.size(), batch.ProxyCount));
+        std::array<GPUFluidBodyImpulse, kFluidMaxBodyProxies> raw;
         const u64 rawBytes = static_cast<u64>(count) * sizeof(GPUFluidBodyImpulse);
-        if (!m_ImpulseReadback.Read(raw.data(), rawBytes))
+        // Simulation only polls. A late GPU means no impulse this step.
+        // Frameless parity tests deliberately read their one-shot copy.
+        const bool copied = deferred ? m_ImpulseReadback.ReadCompleted(raw.data(), rawBytes)
+                                     : m_ImpulseReadback.Read(raw.data(), rawBytes);
+        if (!copied)
         {
-            // Nothing staged yet — the very first harvest, before any step has
-            // run. Feedback is already zero-initialised above.
-            return;
+            return {};
+        }
+        if (deferred)
+        {
+            m_FeedbackHead = (m_FeedbackHead + 1u) % StagedBufferReadback::kRingSlots;
         }
 
         // Average over the last step's constraint iterations — the displace
         // pass accumulates per iteration and the lambda solve re-penetrates
         // bodies between iterations (CPU mirror: CPUFluidSolver.cpp feedback
         // averaging; the closed-loop float contract pins the magnitude).
-        const f32 kInvScale = 1.0f / (kFluidImpulseFixedScale * static_cast<f32>(m_LastSolverIterations));
+        const f32 invScale = 1.0f / (kFluidImpulseFixedScale * static_cast<f32>(batch.SolverIterations));
         for (u32 i = 0; i < count; ++i)
         {
             outFeedback[i].Impulse = glm::vec3(
                                          static_cast<f32>(raw[i].ImpulseX),
                                          static_cast<f32>(raw[i].ImpulseY),
                                          static_cast<f32>(raw[i].ImpulseZ)) *
-                                     kInvScale;
+                                     invScale;
             outFeedback[i].AngularImpulse = glm::vec3(
                                                 static_cast<f32>(raw[i].AngularX),
                                                 static_cast<f32>(raw[i].AngularY),
                                                 static_cast<f32>(raw[i].AngularZ)) *
-                                            kInvScale;
+                                            invScale;
         }
+        if (batch.Entities.IsEmpty())
+        {
+            return {};
+        }
+        return { batch.Entities.GetData(), std::min<sizet>(count, batch.Entities.Num()) };
     }
 
     u32 GPUFluidSolver::RefreshExactCount()

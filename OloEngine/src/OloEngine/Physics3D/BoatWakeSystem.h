@@ -226,5 +226,10 @@ namespace OloEngine
         /// than persisting into the next one.
         static void OnUpdate(Scene* scene, TMap<u64, BoatWakeTrail>& history, f32 simulationTime,
                              f32 deltaTime);
+
+        /// Publish footprints at the authored poses for the editor viewport.
+        /// Called in Edit mode, before the scene render, when no physics tick
+        /// will publish a hull. These records have no wake motion or arms.
+        static void PublishEditorHulls(Scene& scene);
     };
 } // namespace OloEngine

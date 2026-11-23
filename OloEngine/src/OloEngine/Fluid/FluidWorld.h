@@ -3,10 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/UUID.h"
-#include "OloEngine/Fluid/FluidSolverTypes.h"
 
 #include <unordered_map>
-#include <vector>
 
 namespace OloEngine
 {
@@ -21,12 +19,6 @@ namespace OloEngine
     {
         Scope<CPUFluidSolver> Cpu;
         Scope<GPUFluidSolver> Gpu;
-
-        // Proxies passed to the previous GPU Step — HarvestFeedback's results
-        // correspond to these (one-step readback latency), so the impulses are
-        // applied to these bodies, not this tick's fresh overlap set.
-        std::vector<FluidBodyProxy> PrevProxies;
-        std::vector<UUID> PrevProxyEntities;
 
         std::unordered_map<u64, f32> EmitCarry; // emitter entity UUID -> fractional particles carried
         FastRandomPCG EmitRng;                  // deterministic emission jitter (seeded per fluid entity)

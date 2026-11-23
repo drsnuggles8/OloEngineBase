@@ -28,6 +28,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <numbers>
@@ -526,14 +527,12 @@ namespace OloEngine
                 instance.UsingGpu = wantGpu;
                 instance.ConfiguredMaxParticles = maxParticles;
                 instance.Prefilled = false;
-                instance.PrevProxies.clear();
-                instance.PrevProxyEntities.clear();
                 instance.EmitCarry.clear();
                 instance.EmitRng.SetSeed(ParticleSystem::DeriveSeed(kFluidEmitterSeed, id));
 
                 if (wantGpu)
                 {
-                    instance.Gpu = CreateScope<GPUFluidSolver>(maxParticles);
+                    instance.Gpu = CreateScope<GPUFluidSolver>(maxParticles, GPUFluidSolver::FeedbackMode::Deferred);
                     if (!instance.Gpu->IsValid())
                     {
                         OLO_CORE_WARN("FluidSystem: GPU solver init failed for fluid entity {} — "
@@ -593,18 +592,10 @@ namespace OloEngine
 
             if (instance.Gpu)
             {
-                // GPU feedback has one step of latency: harvest the impulses the
-                // PREVIOUS step accumulated (for its proxy set) before launching
-                // this step, and apply them to those bodies.
-                if (!instance.PrevProxies.empty())
-                {
-                    std::vector<FluidBodyFeedback> feedback(instance.PrevProxies.size());
-                    instance.Gpu->HarvestFeedback(feedback);
-                    ApplyFeedback(jolt, instance.PrevProxyEntities, feedback, deltaTime);
-                }
-                instance.Gpu->Step(params, deltaTime, proxies, killBoxes);
-                instance.PrevProxies = std::move(proxies);
-                instance.PrevProxyEntities = std::move(proxyEntities);
+                std::array<FluidBodyFeedback, kFluidMaxBodyProxies> feedback;
+                const auto completedEntities = instance.Gpu->HarvestFeedback(feedback);
+                ApplyFeedback(jolt, completedEntities, feedback, deltaTime);
+                instance.Gpu->Step(params, deltaTime, proxies, killBoxes, proxyEntities);
             }
             else
             {

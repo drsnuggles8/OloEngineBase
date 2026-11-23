@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace OloEngine
 {
@@ -109,7 +110,8 @@ namespace OloEngine
         if (!IsFinite2(desc.m_CentreXZ) || !IsFinite2(desc.m_ForwardXZ))
             return false;
         if (!std::isfinite(desc.m_HalfBeam) || !std::isfinite(desc.m_HalfLength) ||
-            !std::isfinite(desc.m_Speed) || !std::isfinite(desc.m_Gate))
+            !std::isfinite(desc.m_Speed) || !std::isfinite(desc.m_Gate) ||
+            (desc.m_ShoreFoamPlaneY && !std::isfinite(*desc.m_ShoreFoamPlaneY)))
             return false;
 
         const f32 forwardLen = glm::length(desc.m_ForwardXZ);
@@ -210,8 +212,11 @@ namespace OloEngine
         // the wake off in a way that looks like the trail simply ending.
         const f32 footprintRadius = glm::length(glm::vec2(halfBeam, halfLength)) * WaterWake::kFootprintFadeEnd;
         const f32 boundRadius = std::max(footprintRadius, maxReach);
+        // The largest finite height means this record carries wake motion
+        // without masking shoreline foam on a water tile.
         out[WaterWake::kOffsetBound] =
-            glm::vec4(desc.m_CentreXZ.x, desc.m_CentreXZ.y, boundRadius, 0.0f);
+            glm::vec4(desc.m_CentreXZ.x, desc.m_CentreXZ.y, boundRadius,
+                      desc.m_ShoreFoamPlaneY.value_or(std::numeric_limits<f32>::max()));
 
         // control.y is the PER-HULL flatten enable, not the scene's strength:
         // the strength is a setting published on the render path while these

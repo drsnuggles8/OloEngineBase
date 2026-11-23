@@ -23,7 +23,8 @@ namespace OloEngine
     // copies into. Two usage shapes with two pairs of calls, and which pair is
     // right depends on whether the reader may WAIT:
     //
-    //   * StageDeferred() this frame, ReadCompleted() a LATER frame: a statistic.
+    //   * StageDeferred() this frame, ReadCompleted() a LATER frame: a statistic
+    //     or an impulse batch that simulation can apply late.
     //     The read never waits and never returns bytes no copy wrote. A copy is
     //     fenced when it is issued and handed out once its fence has signalled,
     //     so a value is at least one frame old and can be older when the GPU is
@@ -42,9 +43,9 @@ namespace OloEngine
     // copy before it, or on a new staging buffer whatever its memory held
     // (#1697: the virtual shadow map's page counters skipped the one frame that
     // drew every page, and once read 0xFF9D9D9D as a page count).
-    // GPUFluidSolver's body-impulse harvest still has that shape. It is
-    // simulation feedback, not a statistic, so "late and never waits" is not
-    // obviously its rule (#1702).
+    // GPUFluidSolver uses the deferred pair during simulation (#1702). A step
+    // without a finished copy applies no impulse. The one-shot pair remains
+    // available for frameless diagnostics and parity tests.
     class StagedBufferReadback
     {
       public:

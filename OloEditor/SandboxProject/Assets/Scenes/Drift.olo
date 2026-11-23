@@ -731,15 +731,9 @@ Entities:
       FoamHeightStart: 0.16
       FoamBrightness: 1.1
       FoamFadeDistance: 0.35
-      # Shoreline foam is drawn wherever ANYTHING lies within 1.5 m under the
-      # surface, and the falloff with depth is this power. The boat's hull is
-      # such a thing: at the default 3 the whole of her underwater body shows
-      # through the sea as a white cloud, which reads as a rendering fault. At 10
-      # it is a narrow band along her waterline. Measured on Ridgeback's shore
-      # and on Atoll's, the same change moves fewer pixels than two captures at
-      # one setting differ by. It is this scene's setting and the clamp's
-      # ceiling; #1703 is about the shader not counting a hull as a shore.
-      ShorelineFoamPower: 10
+      # Use the default depth falloff at fixed shores and pillars. The hull
+      # footprint suppresses the interior foam and keeps the waterline band.
+      ShorelineFoamPower: 3
       # Persistent boat-driven wake (issue #967). ON here, and this is the only
       # scene that turns it on: a feature no scene enables has zero coverage in
       # practice, however green its tests are — the terrain tessellation path

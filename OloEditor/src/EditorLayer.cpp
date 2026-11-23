@@ -84,6 +84,7 @@
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
+#include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SelectionOutlineSet.h"
@@ -2184,6 +2185,7 @@ namespace OloEngine
                 m_ActiveScene->SetLightGizmosVisible(Renderer3D::GetRendererSettings().ShowLightGizmos);
                 m_ActiveScene->SetWorldAxisHelperVisible(Renderer3D::GetRendererSettings().ShowWorldAxisHelper);
                 m_ActiveScene->SetCameraFrustumsVisible(Renderer3D::GetRendererSettings().ShowCameraFrustums);
+                BoatWakeSystem::PublishEditorHulls(*m_ActiveScene);
                 m_ActiveScene->OnUpdateEditor(ts, m_EditorCamera);
 
                 // Auto-save timer

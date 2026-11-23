@@ -120,7 +120,7 @@ namespace OloEngine::WaterWake
     // defines in WaterWakeCommon.glsl.
     inline constexpr u32 kOffsetCentreForward = 0; ///< xy = hull centre world XZ, zw = unit forward XZ
     inline constexpr u32 kOffsetShape = 1;         ///< x = halfBeam, y = halfLength, z = bow amplitude (m), w = stern trough amplitude (m, positive magnitude)
-    inline constexpr u32 kOffsetBound = 2;         ///< xy = bounding-circle centre world XZ, z = radius (m), w = unused
+    inline constexpr u32 kOffsetBound = 2;         ///< xy = bounding-circle centre world XZ, z = radius (m), w = shore-foam plane Y
     inline constexpr u32 kOffsetControl = 3;       ///< x = arm sample count, y = per-hull flatten enable [0,1], z = bow reach (m), w = stern reach (m)
     inline constexpr u32 kOffsetArms = 4;          ///< [kOffsetArms + 2i] = starboard (xy pos, z amplitude, w radius), [+1] = port (xy pos)
 

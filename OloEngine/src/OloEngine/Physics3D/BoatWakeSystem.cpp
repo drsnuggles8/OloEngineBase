@@ -1,15 +1,23 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 
+#include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/JoltShapes.h"
+#include "OloEngine/Physics3D/JoltUtils.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Physics3D/WaterProbe.h"
+#include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <Jolt/Physics/Collision/Shape/Shape.h>
 
@@ -18,6 +26,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <optional>
 #include <vector>
 
 namespace OloEngine
@@ -32,6 +42,11 @@ namespace OloEngine
         // Fallbacks for a hull whose collider gives no usable extent.
         constexpr f32 kDefaultBeamMetres = 2.4f;
         constexpr f32 kDefaultLengthMetres = 6.0f;
+        constexpr f32 kShoreFoamDepthMetres = 1.5f; // Water.glsl's shorelineDepthRange
+        constexpr BoundingBox kFallbackHullBounds{
+            { -kDefaultBeamMetres * 0.5f, -0.5f, -kDefaultLengthMetres * 0.5f },
+            { kDefaultBeamMetres * 0.5f, 0.5f, kDefaultLengthMetres * 0.5f }
+        };
 
         [[nodiscard("the finiteness result must be used")]] bool IsFinite2(const glm::vec2& v) noexcept
         {
@@ -48,26 +63,160 @@ namespace OloEngine
         /// missing or degenerate — a wake sized off a garbage AABB would be
         /// either invisible or a hundred metres wide, and the second one is
         /// much harder to notice as a bug than the first.
-        void HullExtents(const Ref<JoltBody>& body, f32& beam, f32& length)
+        BoundingBox PhysicsHullBounds(const Ref<JoltBody>& body)
         {
-            beam = kDefaultBeamMetres;
-            length = kDefaultLengthMetres;
-
             const JPH::RefConst<JPH::Shape> shape = body->GetShape();
             if (!shape)
-                return;
-
+                return kFallbackHullBounds;
             const JPH::AABox bounds = shape->GetLocalBounds();
-            const JPH::Vec3 size = bounds.GetSize();
-            const f32 x = size.GetX();
-            const f32 z = size.GetZ();
-            if (std::isfinite(x) && x > 0.05f && std::isfinite(z) && z > 0.05f)
+            const glm::vec3 centre = JoltUtils::FromJoltVector(shape->GetCenterOfMass());
+            const BoundingBox local{ centre + JoltUtils::FromJoltVector(bounds.mMin), centre + JoltUtils::FromJoltVector(bounds.mMax) };
+            return IsFinite3(local.Min) && IsFinite3(local.Max) ? local : kFallbackHullBounds;
+        }
+
+        glm::vec2 HullHalfExtents(const BoundingBox& bounds)
+        {
+            const glm::vec3 size = bounds.GetSize();
+            if (!IsFinite3(size) || size.x <= 0.05f || size.z <= 0.05f)
+                return { kDefaultBeamMetres * 0.5f, kDefaultLengthMetres * 0.5f };
+            return { std::clamp(size.x * 0.5f, 0.1f, 30.0f), std::clamp(size.z * 0.5f, 0.1f, 150.0f) };
+        }
+
+        // Match primitive scaling to Jolt. Use mesh asset bounds without
+        // constructing a physics world or cooking mesh shapes during drawing.
+        BoundingBox AuthoredHullBounds(Entity entity, const glm::vec3& scale)
+        {
+            BoundingBox hull = NoBounds;
+            const auto include = [&](glm::vec3 min, glm::vec3 max)
             {
-                beam = std::clamp(x, 0.2f, 60.0f);
-                length = std::clamp(z, 0.2f, 300.0f);
+                if (IsFinite3(min) && IsFinite3(max) && glm::all(glm::lessThanEqual(min, max)))
+                    hull = hull.Union({ min, max });
+            };
+            if (entity.HasComponent<BoxCollider3DComponent>())
+            {
+                const auto& box = entity.GetComponent<BoxCollider3DComponent>();
+                const glm::vec3 half = JoltShapes::ApplyScaleToBoxExtents(box.m_HalfExtents, scale);
+                include(box.m_Offset * scale - half, box.m_Offset * scale + half);
             }
+            if (entity.HasComponent<SphereCollider3DComponent>())
+            {
+                const auto& sphere = entity.GetComponent<SphereCollider3DComponent>();
+                const glm::vec3 half(JoltShapes::ApplyScaleToSphereRadius(sphere.m_Radius, scale));
+                include(sphere.m_Offset * scale - half, sphere.m_Offset * scale + half);
+            }
+            if (entity.HasComponent<CapsuleCollider3DComponent>())
+            {
+                const auto& capsule = entity.GetComponent<CapsuleCollider3DComponent>();
+                const auto [radius, halfHeight] = JoltShapes::ApplyScaleToCapsule(capsule.m_Radius, capsule.m_HalfHeight, scale);
+                const glm::vec3 half{ radius, halfHeight + radius, radius };
+                include(capsule.m_Offset * scale - half, capsule.m_Offset * scale + half);
+            }
+            const auto includeMesh = [&]<typename T>()
+            {
+                if (!entity.HasComponent<T>())
+                    return;
+                const auto& collider = entity.GetComponent<T>();
+                if (collider.m_ColliderAsset == 0)
+                    return;
+                const auto asset = AssetManager::GetAsset<MeshColliderAsset>(collider.m_ColliderAsset);
+                if (!asset || asset->m_ColliderMesh == 0)
+                    return;
+                const auto mesh = AssetManager::GetAsset<Mesh>(asset->m_ColliderMesh);
+                const auto source = mesh ? mesh->GetMeshSource() : Ref<MeshSource>{};
+                if (!source || source->GetSubmeshes().IsEmpty())
+                    return;
+                // JoltShapes creates the body from the first cooked submesh.
+                const BoundingBox& bounds = source->GetSubmeshes()[0].m_BoundingBox;
+                const glm::vec3 meshScale = scale * collider.m_Scale;
+                const glm::vec3 offset = collider.m_Offset * scale;
+                const glm::vec3 cornerA = bounds.Min * meshScale;
+                const glm::vec3 cornerB = bounds.Max * meshScale;
+                include(offset + glm::min(cornerA, cornerB), offset + glm::max(cornerA, cornerB));
+            };
+            includeMesh.template operator()<MeshCollider3DComponent>();
+            includeMesh.template operator()<ConvexMeshCollider3DComponent>();
+            includeMesh.template operator()<TriangleMeshCollider3DComponent>();
+            return hull.Min.x <= hull.Max.x ? hull : kFallbackHullBounds;
+        }
+
+        std::optional<f32> FindFoamPlane(const std::vector<WaterProbe::Volume>& waters, const glm::vec3& position,
+                                         const BoundingBox& worldBounds, f32 time)
+        {
+            std::optional<f32> result;
+            f32 nearest = std::numeric_limits<f32>::infinity();
+            for (const auto& water : waters)
+            {
+                if (!WaterProbe::IsOverFootprint(water, position))
+                    continue;
+                const f32 surface = WaterProbe::SampleSurfaceY(water, { position.x, position.z }, time);
+                const f32 distance = std::abs(surface - position.y);
+                if (worldBounds.Min.y <= surface && worldBounds.Max.y >= surface - kShoreFoamDepthMetres &&
+                    distance < nearest)
+                {
+                    result = water.m_Params.m_PlaneHeight;
+                    nearest = distance;
+                }
+            }
+            return result;
         }
     } // namespace
+
+    void BoatWakeSystem::PublishEditorHulls(Scene& scene)
+    {
+        const JoltScene* jolt = scene.GetPhysicsScene();
+        if (scene.IsRunning() || (jolt && jolt->IsInitialized()))
+        {
+            return;
+        }
+        WaterWakeSystem::BeginFrame();
+        const auto hulls = scene.GetAllEntitiesWith<TransformComponent, BoatComponent, Rigidbody3DComponent>();
+        if (hulls.begin() == hulls.end())
+        {
+            return;
+        }
+        const std::vector<WaterProbe::Volume> waters = WaterProbe::CollectEnabledVolumes(&scene);
+        if (waters.empty())
+        {
+            return;
+        }
+
+        scene.PropagateWorldTransforms();
+        const f32 time = Time::GetTime();
+        for (auto handle : hulls)
+        {
+            Entity entity{ handle, &scene };
+            if (!entity.GetComponent<BoatComponent>().m_Enabled)
+            {
+                continue;
+            }
+            const glm::mat4 world = entity.GetWorldTransform();
+            const glm::vec3 centre{ world[3] };
+            if (!IsFinite3(centre))
+            {
+                continue;
+            }
+            const glm::vec3 forward{ world[2] };
+            const glm::vec3 scale{ glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])), glm::length(forward) };
+            if (!IsFinite3(scale) || glm::any(glm::lessThanEqual(scale, glm::vec3(1.0e-4f))))
+                continue;
+            glm::mat4 pose = world;
+            for (glm::length_t axis = 0; axis < 3; ++axis)
+                pose[axis] /= scale[axis];
+            const BoundingBox bounds = AuthoredHullBounds(entity, scale);
+            const glm::vec3 hullCentre{ pose * glm::vec4(bounds.GetCenter(), 1.0f) };
+            const auto plane = FindFoamPlane(waters, hullCentre, bounds.Transform(pose), time);
+            if (!plane)
+                continue;
+            const glm::vec2 half = HullHalfExtents(bounds);
+            WaterWakeHullDesc hull;
+            hull.m_CentreXZ = { hullCentre.x, hullCentre.z };
+            hull.m_ForwardXZ = { forward.x, forward.z };
+            hull.m_HalfBeam = half.x;
+            hull.m_HalfLength = half.y;
+            hull.m_ShoreFoamPlaneY = plane;
+            (void)WaterWakeSystem::SubmitHull(hull);
+        }
+    }
 
     void BoatWakeSystem::OnUpdate(Scene* scene, TMap<u64, BoatWakeTrail>& history, f32 simulationTime,
                                   f32 deltaTime)
@@ -102,6 +251,7 @@ namespace OloEngine
         if (waters.empty())
             return;
 
+        const f32 surfaceTime = Time::GetTime();
         for (auto e : view)
         {
             Entity entity{ e, scene };
@@ -120,7 +270,12 @@ namespace OloEngine
             const u64 uuid = entity.GetUUID();
             BoatWakeTrail& trail = history.FindOrAdd(uuid, BoatWakeTrail{});
 
-            if (!WaterProbe::FindVolumeAt(waters, bodyPos))
+            const glm::quat rot = body->GetRotation();
+            const BoundingBox bounds = PhysicsHullBounds(body);
+            glm::mat4 pose = glm::mat4_cast(rot);
+            pose[3] = glm::vec4(bodyPos, 1.0f);
+            const glm::vec3 hullCentre{ pose * glm::vec4(bounds.GetCenter(), 1.0f) };
+            if (!WaterProbe::FindVolumeAt(waters, hullCentre))
             {
                 // Beached or airborne. Drop the history rather than keep it:
                 // resuming from a stale sample would splat one enormous capsule
@@ -130,7 +285,6 @@ namespace OloEngine
                 continue;
             }
 
-            const glm::quat rot = body->GetRotation();
             const glm::vec3 hullForward = rot * glm::vec3(0.0f, 0.0f, 1.0f);
             if (!IsFinite3(hullForward))
                 continue;
@@ -147,7 +301,7 @@ namespace OloEngine
             const glm::vec2 velocityXZ(velocity.x, velocity.z);
             const f32 forwardSpeed = glm::dot(velocityXZ, forwardXZ);
 
-            const glm::vec2 posXZ(bodyPos.x, bodyPos.z);
+            const glm::vec2 posXZ(hullCentre.x, hullCentre.z);
             if (!IsFinite2(posXZ))
                 continue;
 
@@ -161,9 +315,9 @@ namespace OloEngine
             sample.m_Valid = true;
             trail.Push(sample);
 
-            f32 beam = kDefaultBeamMetres;
-            f32 length = kDefaultLengthMetres;
-            HullExtents(body, beam, length);
+            const glm::vec2 half = HullHalfExtents(bounds);
+            const f32 beam = 2.0f * half.x;
+            const f32 length = 2.0f * half.y;
 
             // Speed gate. |speed| so a boat backing up churns too — a reversing
             // propeller makes more foam than a forward one, not less. Shared by
@@ -201,13 +355,13 @@ namespace OloEngine
             }
 
             // The wake-shape record for this hull (issue #968), filled from the
-            // same arm loop below and submitted once it has run. `HullExtents`
-            // reports full beam and length; the shape record wants halves.
+            // same arm loop below and submitted once it has run.
             WaterWakeHullDesc shapeDesc{};
-            shapeDesc.m_CentreXZ = posXZ;
             shapeDesc.m_ForwardXZ = forwardXZ;
-            shapeDesc.m_HalfBeam = beam * 0.5f;
-            shapeDesc.m_HalfLength = length * 0.5f;
+            shapeDesc.m_HalfBeam = half.x;
+            shapeDesc.m_HalfLength = half.y;
+            shapeDesc.m_CentreXZ = posXZ;
+            shapeDesc.m_ShoreFoamPlaneY = FindFoamPlane(waters, hullCentre, bounds.Transform(pose), surfaceTime);
             shapeDesc.m_Speed = forwardSpeed;
             shapeDesc.m_Gate = hullGate;
             u32 shapeSampleCount = 0;
@@ -317,7 +471,7 @@ namespace OloEngine
                 const f32 sternOffset =
                     std::isfinite(boat.m_ThrustOffsetZ) ? std::clamp(boat.m_ThrustOffsetZ, -length, length) : -length * 0.4f;
                 WaterDisturbanceSplat prop;
-                prop.m_From = posXZ + forwardXZ * sternOffset;
+                prop.m_From = glm::vec2(bodyPos.x, bodyPos.z) + forwardXZ * sternOffset;
                 prop.m_To = prop.m_From;
                 prop.m_Radius = std::max(beam * 0.45f, 0.5f);
                 prop.m_Strength = 0.3f + 0.6f * throttle;
