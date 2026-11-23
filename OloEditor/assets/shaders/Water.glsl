@@ -915,10 +915,10 @@ void main()
         : 0.0; // open ocean (no floor behind) → no shoreline foam
     if (shorelineFoam > 0.0)
     {
+        vec2 surfaceY = vec2(v_WorldPos.y, instances[0].Transform[3].y) + u_RenderOrigin.y;
         shorelineFoam *= waterWakeShoreFoamScale(u_WakeShapeParams.x,
                                                 v_WorldPos.xz + u_RenderOrigin.xz,
-                                                verticalWaterDepth,
-                                                v_WorldPos.y + u_RenderOrigin.y);
+                                                verticalWaterDepth, surfaceY);
     }
 
     // --- Large-scale spatial noise gate ---

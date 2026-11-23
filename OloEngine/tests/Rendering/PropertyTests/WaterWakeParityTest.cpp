@@ -325,7 +325,7 @@ namespace OloEngine::Tests
         WaterWakeSystem::Reset();
         WaterWakeSystem::BeginFrame();
         auto hull = Runner({ 0.0f, 0.0f }, { 0.0f, 1.0f }, 10.0f);
-        hull.m_ShoreFoamBoundsY = glm::vec2(-0.3f, 0.3f);
+        hull.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { -0.3f, 0.3f }, 0.0f };
         ASSERT_TRUE(WaterWakeSystem::SubmitHull(hull));
 
         std::vector<glm::vec4> hullBuffer;
@@ -365,7 +365,7 @@ namespace OloEngine::Tests
         ::glGetNamedBufferSubData(outSsbo.m_Id, 0, queryBytes, gpu.data());
 
         EXPECT_FLOAT_EQ(gpu[0].z, 0.0f) << "the flooded hull interior retains shoreline foam";
-        EXPECT_FLOAT_EQ(gpu[0].w, 1.0f) << "an airborne hull masked foam on water below it";
+        EXPECT_FLOAT_EQ(gpu[0].w, 1.0f) << "the airborne and stacked-water controls must retain shoreline foam";
         EXPECT_FLOAT_EQ(gpu[1].z, 1.0f) << "the hull waterline contact band lost foam";
         EXPECT_FLOAT_EQ(gpu[2].z, 1.0f) << "the hull mask changed an independent shoreline";
 

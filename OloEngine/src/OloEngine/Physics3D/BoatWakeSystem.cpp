@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 #include <vector>
 
 namespace OloEngine
@@ -76,6 +77,33 @@ namespace OloEngine
             if (!IsFinite3(size) || size.x <= 0.05f || size.z <= 0.05f)
                 return { kDefaultBeamMetres * 0.5f, kDefaultLengthMetres * 0.5f };
             return { std::clamp(size.x * 0.5f, 0.1f, 30.0f), std::clamp(size.z * 0.5f, 0.1f, 150.0f) };
+        }
+
+        const WaterProbe::Volume* FindHullWater(const std::vector<WaterProbe::Volume>& waters,
+                                                const glm::vec3& bodyOrigin, const glm::vec3& hullCentre)
+        {
+            if (!IsFinite3(hullCentre))
+                return nullptr;
+
+            // Use the closest plane covering the hull centre. The body
+            // origin is a fallback when the collider's centre is off-water.
+            // A tie goes to the lower plane, independent of registry order.
+            const WaterProbe::Volume* closest = nullptr;
+            std::tuple<bool, f32, f32> closestKey{};
+            for (const auto& water : waters)
+            {
+                const bool coversHull = WaterProbe::IsOverFootprint(water, hullCentre);
+                if (!coversHull && !WaterProbe::IsOverFootprint(water, bodyOrigin))
+                    continue;
+                const f32 planeY = water.m_Params.m_PlaneHeight;
+                const auto key = std::tuple{ !coversHull, std::abs(planeY - hullCentre.y), planeY };
+                if (!closest || key < closestKey)
+                {
+                    closest = &water;
+                    closestKey = key;
+                }
+            }
+            return closest;
         }
 
         // Match primitive scaling to Jolt. Use mesh asset bounds without
@@ -179,7 +207,8 @@ namespace OloEngine
                 pose[axis] /= scale[axis];
             const BoundingBox bounds = AuthoredHullBounds(entity, scale);
             const glm::vec3 hullCentre{ pose * glm::vec4(bounds.GetCenter(), 1.0f) };
-            if (!WaterProbe::FindVolumeAt(waters, hullCentre))
+            const auto* water = FindHullWater(waters, centre, hullCentre);
+            if (!water)
                 continue;
             const glm::vec2 half = HullHalfExtents(bounds);
             const BoundingBox worldBounds = bounds.Transform(pose);
@@ -188,7 +217,7 @@ namespace OloEngine
             hull.m_ForwardXZ = { forward.x, forward.z };
             hull.m_HalfBeam = half.x;
             hull.m_HalfLength = half.y;
-            hull.m_ShoreFoamBoundsY = glm::vec2(worldBounds.Min.y, worldBounds.Max.y);
+            hull.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Params.m_PlaneHeight };
             // Authored footprints affect the shoreline term only.
             hull.m_FlattenEnabled = false;
             (void)WaterWakeSystem::SubmitHull(hull);
@@ -251,7 +280,8 @@ namespace OloEngine
             glm::mat4 pose = glm::mat4_cast(rot);
             pose[3] = glm::vec4(bodyPos, 1.0f);
             const glm::vec3 hullCentre{ pose * glm::vec4(bounds.GetCenter(), 1.0f) };
-            if (!WaterProbe::FindVolumeAt(waters, hullCentre))
+            const auto* water = FindHullWater(waters, bodyPos, hullCentre);
+            if (!water)
             {
                 // Beached or airborne. Drop the history rather than keep it:
                 // resuming from a stale sample would splat one enormous capsule
@@ -338,7 +368,7 @@ namespace OloEngine
             shapeDesc.m_HalfLength = half.y;
             shapeDesc.m_CentreXZ = posXZ;
             const BoundingBox worldBounds = bounds.Transform(pose);
-            shapeDesc.m_ShoreFoamBoundsY = glm::vec2(worldBounds.Min.y, worldBounds.Max.y);
+            shapeDesc.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Params.m_PlaneHeight };
             shapeDesc.m_Speed = forwardSpeed;
             shapeDesc.m_Gate = hullGate;
             u32 shapeSampleCount = 0;
