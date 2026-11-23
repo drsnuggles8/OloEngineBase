@@ -3495,9 +3495,7 @@ namespace OloEngine
         // paused — so frame-by-frame editor scrubbing is unchanged.
         // The guide simulation advances with the gameplay tick and freezes
         // with it, so a paused frame holds the pose it paused on (#1250).
-        // Written before the gate rather than inside it, because a paused
-        // frame still renders and must see a zero.
-        BeginGroomFrame();
+        // BeginGroomFrame above already gave a paused frame a zero clock.
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
             SimulateRuntimeStep(ts);
@@ -12252,9 +12250,10 @@ namespace OloEngine
         {
             cause = GroomHistoryResetCause::AnimationReset;
         }
-        else if (skeleton != nullptr && state.m_DeformationRevision != skeleton->m_DeformationRevision &&
-                 (morphHistoryRejected ? skeleton->m_DeformationRevision - state.m_DeformationRevision > 1u
-                                       : state.m_DeformationRevision != skeleton->m_PrevDeformationRevision))
+        else if (morphHistoryRejected
+                     ? m_GroomFrameSerial - state.m_HistoryFrame > 1u
+                     : skeleton != nullptr && state.m_DeformationRevision != skeleton->m_DeformationRevision &&
+                           state.m_DeformationRevision != skeleton->m_PrevDeformationRevision)
         {
             // The BODY is continuous but this COAT is not: it was disabled,
             // refused or simply not submitted on the frame the previous palette
@@ -12269,8 +12268,9 @@ namespace OloEngine
             // second camera re-enters this function with the palette unmoved, so
             // `state` already holds the CURRENT revision. Accepting only the
             // previous one would reject history on every second viewport.
-            // A morph rejection folds the published previous revision into the
-            // current one. Allow a single revision advance in that case.
+            // Morph rejection can hold the skeleton revision while the coat
+            // is culled. Use the last groom frame in that case. A second view
+            // of this frame has a gap of zero.
             cause = GroomHistoryResetCause::DeformationSkipped;
         }
         else if (const f32 jump = glm::length(targetWorldPosition - state.m_TargetWorldPosition);

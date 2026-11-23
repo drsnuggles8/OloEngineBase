@@ -49,8 +49,10 @@ not finished loading does not report itself as a changed binding.
 When changing morph weights reject the skeleton's render history, preserve `MorphSurfaceChanged`
 in the groom verdict. The draw rejects the previous root positions and the guide solver still
 integrates against the current roots. A simultaneous target teleport still reseeds the solver.
-Reporting a generic animation reset caused the Bernese and Samoyed coats to reseed during
-ordinary expressions and miss fixed steps (#1775).
+Keep an earlier skeletal reset cause, such as a resized palette. Check for missed groom frames
+using the scene's groom frame counter because consecutive morph rejections can hold the skeleton
+revision. Reporting a generic animation reset caused the Bernese and Samoyed coats to reseed
+during ordinary expressions and miss fixed steps (#1775).
 
 **Two versions, and they refuse differently.** `OloGroomBindingFormat::CurrentVersion` moves when the
 BYTES move; `kGroomBinderVersion` moves when the binder's OUTPUT moves for unchanged input. A file

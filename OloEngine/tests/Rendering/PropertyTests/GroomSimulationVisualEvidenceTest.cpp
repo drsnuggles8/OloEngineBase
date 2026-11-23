@@ -764,7 +764,7 @@ namespace OloEngine::Tests
         EXPECT_GT(CountDifferingPixels(after, before), 1000u);
     }
 
-    TEST_F(GroomSimulationVisualEvidenceTest, MorphingKeepsSteppingButATargetTeleportReseeds)
+    TEST_F(GroomSimulationVisualEvidenceTest, MorphingKeepsSteppingAndReseedsAfterCullingOrTeleport)
     {
         auto targets = Ref<MorphTargetSet>::Create();
         MorphTarget lift("Lift", static_cast<u32>(m_BodySurface->GetVertices().Num()));
@@ -779,17 +779,38 @@ namespace OloEngine::Tests
         RunFrames(4, dt);
         ASSERT_EQ(PassStats().SimulationSteps, 1u);
 
-        morph.SetWeight("Lift", 0.5f);
+        morph.SetWeight("Lift", 0.25f);
         RunFrames(1, dt);
         EXPECT_EQ(PassStats().GroomsHistoryRejected, 1u);
         EXPECT_EQ(PassStats().SimulationReseeds, 0u);
         EXPECT_EQ(PassStats().SimulationSteps, 1u);
+
+        // While weights change every tick, the skeleton can hold its revision
+        // even though the groom misses a whole frame.
+        Renderer3D::GetRendererSettings().FrustumCullingEnabled = true;
+        Renderer3D::ApplyRendererSettings();
+        const u32 revisionBeforeCull = m_Skeleton->m_DeformationRevision;
+        auto& cameraPosition = m_RuntimeCamera.GetComponent<TransformComponent>().Translation;
+        const glm::vec3 visibleCameraPosition = cameraPosition;
+        cameraPosition.x += 1000.0f;
+        morph.SetWeight("Lift", 0.5f);
+        RunFrames(1, dt);
+        ASSERT_TRUE(Renderer3D::GetGroomStrandRequests().IsEmpty());
+
+        cameraPosition = visibleCameraPosition;
+        morph.SetWeight("Lift", 0.75f);
+        RunFrames(1, dt);
+        ASSERT_EQ(m_Skeleton->m_DeformationRevision, revisionBeforeCull);
+        ASSERT_EQ(PassStats().GroomsDeformed, 1u);
+        EXPECT_EQ(PassStats().SimulationReseeds, 1u);
+        EXPECT_EQ(PassStats().SimulationSteps, 0u);
 
         // Teleport only the target. The separately bound groom's transform
         // cannot report this discontinuity to the solver.
         m_BodyEntity.GetComponent<TransformComponent>().Translation.x += 2.0f;
         morph.SetWeight("Lift", 1.0f);
         RunFrames(1, dt);
+        ASSERT_FALSE(Renderer3D::GetGroomStrandRequests().IsEmpty());
         EXPECT_EQ(PassStats().GroomsDeformed, 1u);
         EXPECT_EQ(PassStats().SimulationReseeds, 1u);
         EXPECT_EQ(PassStats().SimulationSteps, 0u);
