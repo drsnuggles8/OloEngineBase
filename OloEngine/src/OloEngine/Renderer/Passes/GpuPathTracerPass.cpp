@@ -433,9 +433,8 @@ namespace OloEngine
 
         const bool graphResolved = outputFramebuffer && inputColorID.IsValid();
 
-        // The verdict was resolved from the per-frame wiring, before the graph
-        // was built; the one reason only THIS point can see is a target the
-        // graph did not produce. The verdict does NOT gate the draw: when the
+        // The per-frame verdict predates the graph build. Both the resolved
+        // target and the published trace address are known here. When the
         // tracer cannot answer, running the draw is still correct, because the
         // shader passes the input colour through on a zero TLAS address and
         // carries the history planes forward unchanged — and the extraction

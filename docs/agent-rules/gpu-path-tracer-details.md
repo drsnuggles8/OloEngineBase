@@ -13,7 +13,7 @@ output as ground truth.
 
 It is a reference mode, not a shipping tier: off by default (`PostProcessSettings::GpuPathTracer`),
 Vulkan with hardware ray queries only, and the full raster graph still runs underneath it; its colour
-replaces the raster colour at the pre-Bloom alias. Skipping the unconsumed raster work is #1346.
+replaces the raster colour at the pre-Bloom alias. The [#1346 experiment](../analysis/path-tracer-frame-graph-1346.md) records the cost and which raster outputs still have consumers.
 
 ---
 
@@ -91,7 +91,7 @@ would leave the count claiming a converged image for a one-frame one.
 `GpuPathTracerFallbackReason` is resolved most-fundamental-first and reported once per change, from
 `ResolveAvailabilityForFrame` in the per-frame wiring (`RenderPipeline::ConfigurePassesForFrame`,
 after the GPU Scene commit), so the verdict and the counters are fresh whether or not the graph
-culls the pass. `Execute` adds the one reason only it can see: no target. Two are easy to miss:
+culls the pass. `Execute` checks the target and reads the trace address again after the acceleration-structure build. If the build withheld the TLAS, the shader carries the history forward and the CPU records zero added samples. Two are easy to miss:
 `EmissiveTableNotGathered` (the setting flipped on between `BeginScene`, where the gather is decided,
 and `EndScene`; one frame is skipped) and `PunctualLightsBeyondShaderBound` (a live light at a slot
 past `OLO_PT_MAX_LIGHTS` lights the raster frame but not this tracer; counted).
@@ -136,6 +136,7 @@ credit the path with environment radiance through an occluder.
   `PathTracerAccum` (rgb = sum, a = count), `PathTracerAlbedo`, `PathTracerNormal`,
   `PathTracerVariance` as `.hdr` through `olo_benchmark_capture` under `--rhi=vulkan`. The warm-up
   frames are the accumulation.
+- **Benchmark warmup:** Install a stationary shot's pose once. Reinstalling it as a camera cut on every step discarded the accumulated samples during the furnace warmup. Read the sample-count attachment to determine how many samples the live editor actually drew.
 - **Parity:** `OloEngine-Tests.exe --gtest_filter=GpuPathTracerDevice.*` on a machine with an RT
   device writes `assets/tests/visual/GpuPathTracer_CornellBox.png` beside the CPU reference frame
   and prints the per-region numbers.
