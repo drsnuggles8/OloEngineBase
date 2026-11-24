@@ -144,11 +144,26 @@ namespace OloEngine
             }
         }
 
+        void AppendOriginalTriangles(std::span<const TriangleSample> triangles, TArray<SplatCorner>& indices)
+        {
+            for (const auto& triangle : triangles)
+                for (const u32 corner : triangle.Corners)
+                    indices.Add({ corner, corner });
+        }
+
         void PartitionSplats(std::span<TriangleSample> triangles, u32 count, const MeshSource& source, TArray<SplatCorner>& indices)
         {
             if (count == 1)
             {
+                const i32 before = indices.Num();
                 EmitSplat(triangles, source, indices);
+                if (indices.Num() == before)
+                {
+                    // A thin diagonal limb can select just its two tips in all
+                    // eight directions. Restore this leaf in source order.
+                    std::ranges::sort(triangles, {}, &TriangleSample::Ordinal);
+                    AppendOriginalTriangles(triangles, indices);
+                }
                 return;
             }
             glm::dvec3 lo = triangles.front().Center, hi = lo;
@@ -200,20 +215,14 @@ namespace OloEngine
                 }
                 triangles.Add(triangle);
             }
-            const i32 before = selected.Num();
+            const std::span<TriangleSample> samples{ triangles.GetData(), faces };
             if (faces > kSplatIndices.size() / 3)
             {
                 const u32 splatCount = std::clamp(faces / 48u, 1u, kMaxSplats);
-                PartitionSplats({ triangles.GetData(), faces }, splatCount, source, selected);
+                PartitionSplats(samples, splatCount, source, selected);
             }
-            // A small accessory may already be cheaper than one splat; retain
-            // its triangles, including their winding and original UV seams.
-            if (selected.Num() == before && part.m_IndexCount > 0)
-                for (u32 i = 0; i < part.m_IndexCount; ++i)
-                {
-                    const u32 index = source.GetIndices()[part.m_BaseIndex + i];
-                    selected.Add({ index, index });
-                }
+            else
+                AppendOriginalTriangles(samples, selected);
             return true;
         }
     } // namespace

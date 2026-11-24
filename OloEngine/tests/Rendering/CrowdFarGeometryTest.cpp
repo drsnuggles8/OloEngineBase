@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 
 namespace OloEngine::Tests
 {
@@ -88,6 +89,8 @@ namespace OloEngine::Tests
                 ASSERT_LE(x, cells);
                 ASSERT_LE(y, cells);
                 const u32 donor = parts[p].m_BaseVertex + y * side + x;
+                EXPECT_FLOAT_EQ(support.TexCoord.x, source->GetVertices()[donor].TexCoord.x);
+                EXPECT_FLOAT_EQ(support.TexCoord.y, source->GetVertices()[donor].TexCoord.y);
                 EXPECT_LT(glm::length(support.Normal - source->GetVertices()[donor].Normal), 1e-6f);
                 donorCorners[i % 3] = donor;
                 if (i % 3 == 2)
@@ -113,5 +116,61 @@ namespace OloEngine::Tests
             EXPECT_TRUE(rigid);
             EXPECT_TRUE(moved);
         }
+    }
+
+    TEST(CrowdFarGeometry, ThinDiagonalLeafRetainsSourceFacesWhileItsSiblingReduces)
+    {
+        constexpr u32 ringSize = 24;
+        TArray<Vertex> vertices;
+        TArray<u32> indices;
+        const auto addVertex = [&](const glm::vec3& position)
+        {
+            const f32 id = static_cast<f32>(vertices.Num());
+            vertices.Emplace(position, glm::vec3(0, 0, 1), glm::vec2(id / 64.0f, 1.0f - id / 64.0f));
+        };
+        // One material, two separated 48-face bipyramids. Every support of
+        // the thin one lands on a tip. The other produces nonzero-area faces.
+        for (u32 patch = 0; patch < 2; ++patch)
+        {
+            const bool thin = patch == 0;
+            const u32 base = static_cast<u32>(vertices.Num());
+            const glm::vec3 center(thin ? 0.5f : 12.5f, 0.5f, 0.5f);
+            const f32 radius = thin ? 0.06f : 0.5f;
+            addVertex(thin ? glm::vec3(0) : glm::vec3(center.x, center.y, 0));
+            addVertex(thin ? glm::vec3(1) : glm::vec3(center.x, center.y, 1));
+            for (u32 i = 0; i < ringSize; ++i)
+            {
+                const f32 angle = 2.0f * std::numbers::pi_v<f32> * static_cast<f32>(i) / ringSize;
+                addVertex(center + radius * glm::vec3(std::cos(angle), std::sin(angle), 0));
+                const u32 left = base + 2 + i, right = base + 2 + (i + 1) % ringSize;
+                for (const u32 corner : { base, right, left, base + 1, left, right })
+                    indices.Add(corner);
+            }
+        }
+        auto source = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+        Submesh part;
+        part.m_VertexCount = static_cast<u32>(source->GetVertices().Num());
+        part.m_IndexCount = static_cast<u32>(source->GetIndices().Num());
+        source->AddSubmesh(part);
+
+        const auto farMesh = MakeCrowdFarGeometry(source);
+        ASSERT_TRUE(farMesh);
+        ASSERT_NE(farMesh, source);
+        constexpr u32 thinCorners = ringSize * 6;
+        EXPECT_GT(farMesh->GetIndices().Num(), static_cast<i32>(thinCorners));
+        EXPECT_LT(farMesh->GetIndices().Num(), source->GetIndices().Num());
+        u32 retained = 0;
+        for (const u32 index : farMesh->GetIndices())
+        {
+            const auto& vertex = farMesh->GetVertices()[index];
+            if (vertex.Position.x > 1.0f)
+                continue;
+            ASSERT_LT(retained, thinCorners);
+            const auto& original = source->GetVertices()[source->GetIndices()[retained++]];
+            EXPECT_FLOAT_EQ(vertex.TexCoord.x, original.TexCoord.x);
+            EXPECT_FLOAT_EQ(vertex.TexCoord.y, original.TexCoord.y);
+            EXPECT_LT(glm::length(vertex.Position - original.Position), 1e-6f);
+        }
+        EXPECT_EQ(retained, thinCorners);
     }
 } // namespace OloEngine::Tests
