@@ -3,6 +3,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 #include "OloEngine/Renderer/Crowd/CrowdCull.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -2029,6 +2030,8 @@ namespace OloEngine
         metadata.m_IsStatic = isStatic;
         metadata.m_DebugName = GetMeshDebugName(mesh);
         packet->SetMetadata(metadata);
+        if (member)
+            RendererProfiler::GetInstance().RecordAnimatedSubmission(1u, 0.0);
 
         if (overlayRoute)
         {

@@ -44,7 +44,7 @@ def summarize(directory):
 
     packets = p50(rows, "animatedSubmeshPackets")
     collapsed = p50(rows, "skinnedBatchedCommands")
-    if kind == "crowd_reference" and collapsed:
+    if kind == "crowd_reference" and any(int(row["skinnedBatchedCommands"]) for row in rows):
         raise ValueError("independent reference unexpectedly batched")
     return (f"| {directory.name} | {kind} | {count} | {tier_text} | {len(valid)} | "
             f"{p50(valid, 'gpuMs'):.3f} | {p50(rows, 'animatedSubmissionMs'):.3f} | "

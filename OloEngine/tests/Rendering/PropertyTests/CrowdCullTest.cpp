@@ -9,6 +9,7 @@
 
 #include <array>
 #include <glm/gtc/matrix_transform.hpp>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -140,5 +141,68 @@ namespace OloEngine::Tests
             EXPECT_EQ(member.CrowdPose.z, 0u);
             EXPECT_FLOAT_EQ(ReadMember(culler, tier, terminal - 1u).Transform[3].x, 16.0f);
         }
+    }
+
+    TEST_F(CrowdCullTest, RetainedMemberKeepsHistoryWhenClipGroupRowsChange)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        CrowdCull culler;
+        CrowdClip clip;
+        clip.FrameCount = 17;
+        clip.BoneCount = 1;
+        clip.Atlas.SetNum(17);
+        const std::array<CrowdDrawRange, 3> ranges{ { { 81, 6 }, { 45, 9 }, { 3, 12 } } };
+        const glm::vec4 sphere{ 0.0f, 0.0f, 0.0f, 1.0f };
+        const auto a = Placed(101, 2.25f, 10.0f, 0.125f);
+        const auto b = Placed(202, 0.5f, 15.0f, 0.0f);
+        const auto c = Placed(303, 0.5f, 20.0f, 0.0f);
+        const auto d = Placed(404, 0.5f, 25.0f, 0.0f);
+        auto dispatch = [&](const std::vector<InstanceData>& members, f32 now, f32 previous)
+        {
+            RunFrames(1);
+            bool ran = false;
+            RunInFrame([&]
+                       { ran = culler.Dispatch(members, clip, now, previous, true, false, {}, sphere, sphere, ranges); });
+            return ran;
+        };
+        constexpr f32 first = 0.21875f;
+        ASSERT_TRUE(dispatch({ a, b, c }, first, first));
+        ExpectCount(culler, 0, ranges[0], 1u);
+
+        // A moves into the hysteresis band (30.4 px). Its prior near tier,
+        // phase offset and transform must survive both growth and row 0 -> 2.
+        auto moved = Placed(101, 1.9f, 10.0f, 0.25f);
+        moved.PrevTransform = a.Transform;
+        moved.Transform[3].x = 3.0f;
+        ASSERT_TRUE(dispatch({ c, d, moved, b }, 0.25f, first));
+        ExpectCount(culler, 0, ranges[0], 1u);
+        const auto afterGrowth = ReadMember(culler, 0);
+        ASSERT_EQ(afterGrowth.StableID, moved.StableID);
+        constexpr u32 fullBase = 6u + 1u;                  // growth from three prefix records to six
+        EXPECT_EQ(afterGrowth.CrowdPose.y, fullBase + 5u); // (first + A's old offset) * 16 = 5.5
+        EXPECT_EQ(afterGrowth.CrowdPose.z >> 16u, 32768u);
+        EXPECT_FLOAT_EQ(afterGrowth.PrevTransform[3].x, 0.0f);
+        EXPECT_FLOAT_EQ(afterGrowth.Transform[3].x, 3.0f);
+
+        // Two actors leave the clip and the survivors swap order. A has to
+        // read old row 2 while old row 0 still belongs to C.
+        moved.PrevTransform = moved.Transform;
+        moved.Transform[3].x = 5.0f;
+        ASSERT_TRUE(dispatch({ moved, c }, 0.375f, 0.25f));
+        ExpectCount(culler, 0, ranges[0], 1u);
+        const auto afterRemoval = ReadMember(culler, 0);
+        ASSERT_EQ(afterRemoval.StableID, moved.StableID);
+        EXPECT_EQ(afterRemoval.CrowdPose.y, fullBase + 8u);
+        EXPECT_EQ(afterRemoval.CrowdPose.x, fullBase + 10u);
+        EXPECT_FLOAT_EQ(afterRemoval.PrevTransform[3].x, 3.0f);
+        EXPECT_FLOAT_EQ(afterRemoval.Transform[3].x, 5.0f);
+
+        RunFrames(1); // A missed physical frame invalidates even matching IDs.
+        ASSERT_TRUE(dispatch({ moved, c }, 0.5f, 0.375f));
+        ExpectCount(culler, 0, ranges[0], 0u);
+        ExpectCount(culler, 1, ranges[1], 1u);
+        const auto afterGap = ReadMember(culler, 1);
+        EXPECT_EQ(afterGap.CrowdPose.y, afterGap.CrowdPose.x);
+        EXPECT_FLOAT_EQ(afterGap.PrevTransform[3].x, afterGap.Transform[3].x);
     }
 } // namespace OloEngine::Tests

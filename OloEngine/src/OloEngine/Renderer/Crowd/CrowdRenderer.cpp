@@ -9,9 +9,9 @@
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -43,20 +43,33 @@ namespace OloEngine
             return loop ? cycles - std::floor(cycles) : std::clamp(cycles, 0.0f, 1.0f);
         }
 
+        struct PartMaterial
+        {
+            const Material& MaterialToDraw;
+            GPUSceneMaterialKey Key;
+        };
+
+        PartMaterial ExtractCrowdMaterial(u64 owner, const Ref<MeshSource>& source, u32 part, const CrowdMaterials& materials)
+        {
+            const auto* imported = source->GetImportedMaterialPtrForSubmesh(part);
+            const auto* patch = ResolveMaterialPatch(materials.Patches, imported);
+            const auto& material = ResolveSubmeshMaterial(materials.Override, patch, imported, materials.Default);
+            const auto key = Renderer3D::ResolveGPUSceneMaterialKey(materials.Override, patch, owner, source, imported,
+                                                                    source->GetSubmeshes()[part].m_MaterialIndex, materials.Lane);
+            Renderer3D::ExtractGPUSceneMaterial(key, material);
+            return { material, key };
+        }
+
         // Clips in a cross-fade and rigs outside the atlas budget can still
         // use the ordinary independently posed draw. A failed allocation
         // must never make a whole population disappear.
         void SubmitIndividual(CrowdIndividual& individual, u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                               const AnimationStateComponent& animation, std::span<const InstanceData> members,
-                              sizet inlineCount, const Material* overrideMaterial, const Material& fallback, bool shadows)
+                              sizet inlineCount, const CrowdMaterials& materials, bool shadows)
         {
             for (u32 part = 0; part < static_cast<u32>(source->GetSubmeshes().Num()); ++part)
             {
-                const auto* imported = source->GetImportedMaterialPtrForSubmesh(part);
-                const Material& material = overrideMaterial ? *overrideMaterial : imported ? *imported
-                                                                                           : fallback;
-                const auto key = Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, owner, source, imported, source->GetSubmeshes()[part].m_MaterialIndex);
-                Renderer3D::ExtractGPUSceneMaterial(key, material);
+                const auto [material, key] = ExtractCrowdMaterial(owner, source, part, materials);
                 const auto mesh = Ref<Mesh>::Create(source, part);
                 for (sizet row = 0; row < members.size(); ++row)
                 {
@@ -181,12 +194,25 @@ namespace OloEngine
             const f32 pixelScale = lodView.ScreenHeight * std::abs(projection[1][1]);
             const bool reset = Discontinuous || view.LastFrame + 1 != Serial;
             view.LastFrame = Serial;
+            std::unordered_map<u64, CrowdLod> previousTiers;
+            const bool orderChanged = !reset && (view.Casters.Num() != Instances.Num() ||
+                                                 !std::equal(view.Casters.begin(), view.Casters.end(), Instances.begin(),
+                                                             [](const Caster& caster, const InstanceData& member)
+                                                             { return caster.ID == member.StableID; }));
+            if (orderChanged)
+                for (const auto& caster : view.Casters)
+                    previousTiers.emplace(caster.ID, caster.Tier);
             view.Casters.SetNum(Instances.Num(), EAllowShrinking::No);
             for (i32 i = 0; i < Instances.Num(); ++i)
             {
                 const auto& member = Instances[i];
                 auto& caster = view.Casters[i];
-                const auto lastTier = !reset && caster.ID == member.StableID ? caster.Tier : CrowdLod::Unseen;
+                auto lastTier = !reset && caster.ID == member.StableID ? caster.Tier : CrowdLod::Unseen;
+                if (orderChanged)
+                {
+                    const auto prior = previousTiers.find(member.StableID);
+                    lastTier = prior == previousTiers.end() ? CrowdLod::Unseen : prior->second;
+                }
                 const glm::vec3 center = member.Transform * glm::vec4(glm::vec3(LocalSphere), 1.0f);
                 const f32 scale = std::max({ glm::length(glm::vec3(member.Transform[0])), glm::length(glm::vec3(member.Transform[1])), glm::length(glm::vec3(member.Transform[2])) });
                 const f32 distance = ortho ? 1.0f : std::max(glm::length(center - lodView.ViewPosition), 0.001f);
@@ -279,7 +305,7 @@ namespace OloEngine
     bool CrowdRenderer::Submit(u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                                const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                                std::span<const InstanceData> placements, sizet inlineCount,
-                               const Material* overrideMaterial, const Material& defaultMaterial, bool castShadows)
+                               const CrowdMaterials& materials, bool castShadows)
     {
         if (!source || !rig)
             return false;
@@ -287,7 +313,7 @@ namespace OloEngine
             return true;
         if (std::ranges::none_of(placements, [](const InstanceData& m)
                                  { return m.GetCrowdClipIndex() >= 0; }))
-            return SubmitGroup(owner, -1, pickingID, source, rig, animation, settings, placements, inlineCount, overrideMaterial, defaultMaterial, castShadows);
+            return SubmitGroup(owner, -1, pickingID, source, rig, animation, settings, placements, inlineCount, materials, castShadows);
 
         // Members keep the same canonical (owner, StableID) when changing clips.
         // An override samples its chosen clip at the owner's normalised playback
@@ -316,7 +342,7 @@ namespace OloEngine
                 state.m_NextClip = nullptr;
             }
             const auto count = static_cast<sizet>(group.Num());
-            SubmitGroup(owner, index, pickingID, source, rig, state, settings, { group.GetData(), count }, count, overrideMaterial, defaultMaterial, castShadows);
+            SubmitGroup(owner, index, pickingID, source, rig, state, settings, { group.GetData(), count }, count, materials, castShadows);
         }
         return true;
     }
@@ -324,21 +350,20 @@ namespace OloEngine
     bool CrowdRenderer::SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                                     const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                                     std::span<const InstanceData> placements, sizet inlineCount,
-                                    const Material* overrideMaterial, const Material& defaultMaterial, bool castShadows)
+                                    const CrowdMaterials& materials, bool castShadows)
     {
         if (!animation.m_CurrentClip || animation.m_Blending || animation.m_RootMotion)
         {
-            SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, overrideMaterial, defaultMaterial, castShadows);
+            SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, materials, castShadows);
             return true;
         }
-        const auto start = std::chrono::steady_clock::now();
         auto& cache = m_Batches[{ owner, clipIndex }];
         if (!cache || cache->Tiers[0].Source != source || cache->Rig != rig || cache->Clip != animation.m_CurrentClip)
         {
             auto candidate = std::make_unique<Batch>();
             if (!candidate->Init(source, rig, animation.m_CurrentClip))
             {
-                SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, overrideMaterial, defaultMaterial, castShadows);
+                SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, materials, castShadows);
                 return true;
             }
             cache = std::move(candidate);
@@ -353,12 +378,7 @@ namespace OloEngine
         u32 packets = 0;
         for (u32 part = 0; part < parts; ++part)
         {
-            const auto materialSlot = source->GetSubmeshes()[part].m_MaterialIndex;
-            const auto* imported = source->GetImportedMaterialPtrForSubmesh(part);
-            const auto& material = overrideMaterial ? *overrideMaterial : imported ? *imported
-                                                                                   : defaultMaterial;
-            const auto key = Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, owner, source, imported, materialSlot);
-            Renderer3D::ExtractGPUSceneMaterial(key, material);
+            const auto [material, key] = ExtractCrowdMaterial(owner, source, part, materials);
             std::array<CrowdDrawRange, 3> ranges;
             for (u32 tier = 0; tier < ranges.size(); ++tier)
             {
@@ -380,7 +400,6 @@ namespace OloEngine
             {
                 for (const auto& member : members)
                     m_Individual.SubmitPart(owner, pickingID, meshes[0], rig, animation, member, material, castShadows, key);
-                packets += static_cast<u32>(members.size());
                 continue;
             }
             packets += 3u;
@@ -403,8 +422,7 @@ namespace OloEngine
                 }
             }
         }
-        const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - start;
-        RendererProfiler::GetInstance().RecordAnimatedSubmission(packets, elapsed.count());
+        RendererProfiler::GetInstance().RecordAnimatedSubmission(packets, 0.0);
         return true;
     }
 } // namespace OloEngine

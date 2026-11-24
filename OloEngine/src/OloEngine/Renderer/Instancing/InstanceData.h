@@ -160,7 +160,7 @@ namespace OloEngine
     //   LightmapScaleOffset (224, 16)
     //   GPUSceneRef         (240, 16)
     //   CrowdPose           (256, 16)
-    // Total: 272 bytes, divisible by 16 (mat4 alignment) so array stride is 256 with no end padding.
+    // Total: 272 bytes, divisible by 16 (mat4 alignment) so array stride is 272 with no end padding.
     // A drift here means the C++ struct and GLSL block disagree and the shader will read garbage.
     static_assert(sizeof(InstanceData) == 272, "InstanceData std430 size drifted from GLSL expectation (272 B)");
     static_assert(offsetof(InstanceData, LightmapScaleOffset) == 224);

@@ -19,7 +19,8 @@ namespace OloEngine
 
     // A batch owns one for each view and submesh. Each compacted SSBO's
     // prefix is large enough for all inputs and its tail holds the shared
-    // clip. A stable ID mismatch resets that slot's LOD history.
+    // clip. View history follows a member's stable ID when a clip group
+    // changes membership or order.
     class CrowdCull : public RefCounted
     {
       public:
@@ -42,12 +43,12 @@ namespace OloEngine
       private:
         bool PrepareBuffers(u32 count, const CrowdClip& clip);
         Ref<ComputeShader> m_Shader;
-        Ref<StorageBuffer> m_Input, m_History;
+        Ref<StorageBuffer> m_Input, m_PreviousHistory, m_NextHistory;
         std::array<Ref<StorageBuffer>, 3> m_Output;
         std::array<Ref<StorageBuffer>, 3> m_Indirect;
         Ref<UniformBuffer> m_Parameters;
         u32 m_Capacity = 0;
-        u32 m_PreviousCount = 0;
+        TArray<u64> m_PreviousIDs;
         const InstanceData* m_AtlasData = nullptr;
         u64 m_Frame = 0;
     };

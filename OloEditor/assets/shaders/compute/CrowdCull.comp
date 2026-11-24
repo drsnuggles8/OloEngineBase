@@ -28,7 +28,8 @@ layout(std430, binding = 22) writeonly buffer CrowdFar { Member farMembers[]; };
 layout(std430, binding = 17) buffer CrowdNearArgs { uint indexCount; uint instanceCount; } nearArgs;
 layout(std430, binding = 23) buffer CrowdMidArgs { uint indexCount; uint instanceCount; } midArgs;
 layout(std430, binding = 24) buffer CrowdFarArgs { uint indexCount; uint instanceCount; } farArgs;
-layout(std430, binding = 25) buffer CrowdHistory { uvec4 history[]; };
+layout(std430, binding = 25) readonly buffer CrowdPreviousHistory { uvec4 previousHistory[]; };
+layout(std430, binding = 26) writeonly buffer CrowdNextHistory { uvec4 nextHistory[]; };
 
 layout(std140, binding = 71) uniform CrowdCullParams
 {
@@ -42,6 +43,7 @@ layout(std140, binding = 71) uniform CrowdCullParams
     uvec4 u_Layout;           // input count, atlas start, frame count, bone count
     uint u_PreviousCount;     // zero on a cut or clip replacement
     uint u_CoarseIntervals;   // the coarse atlas has one additional terminal frame
+    uint u_Remapped;          // group reordered: CrowdPose.x names the old row plus one
 };
 
 bool outsideFrustum(mat4 model)
@@ -100,12 +102,15 @@ void main()
     m.Transform[3].xyz -= u_Origin.xyz;
     m.PrevTransform[3].xyz -= u_Origin.xyz;
     uvec4 last = uvec4(0u);
-    if (row < u_PreviousCount)
-        last = history[row];
-    bool known = row < u_PreviousCount && all(equal(last.xy, m.StableID));
+    // A zero remap marks a newcomer (UINT_MAX after subtraction). Read a
+    // separate generation so another invocation cannot overwrite our old row.
+    uint oldRow = u_Remapped != 0u ? m.CrowdPose.x - 1u : row;
+    if (oldRow < u_PreviousCount)
+        last = previousHistory[oldRow];
+    bool known = oldRow < u_PreviousCount && all(equal(last.xy, m.StableID));
     uint tier = classify(m.Transform, known ? last.z : 3u);
     float offset = (isnan(m.Custom) || isinf(m.Custom)) ? 0.0 : m.Custom;
-    history[row] = uvec4(m.StableID, tier, floatBitsToUint(offset));
+    nextHistory[row] = uvec4(m.StableID, tier, floatBitsToUint(offset));
     if (outsideFrustum(m.Transform)) return;
 
     uvec2 pose = samplePose(u_Clock.x + offset, tier);

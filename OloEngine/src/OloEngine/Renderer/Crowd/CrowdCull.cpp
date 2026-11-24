@@ -9,16 +9,19 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
+#include <unordered_map>
+
 namespace OloEngine
 {
     namespace
     {
         // The compute binds everything it uses on each dispatch. The ordinary
-        // instance cull owns 15/16/17 while it runs; 21..25 are private to
+        // instance cull owns 15/16/17 while it runs; 21..26 are private to
         // the fluid solver while its kernels run. Neither shares this shader.
         constexpr std::array<u32, 3> kOutputSlots{ ShaderBindingLayout::SSBO_INSTANCE_DATA, 21u, 22u };
         constexpr std::array<u32, 3> kArgSlots{ ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT, 23u, 24u };
-        constexpr u32 kHistorySlot = 25;
+        constexpr u32 kPreviousHistorySlot = 25;
+        constexpr u32 kNextHistorySlot = 26;
         constexpr u32 kMaxRecords = (128u * 1024u * 1024u) / sizeof(InstanceData);
         constexpr u32 kGroupSize = 128;
         constexpr u32 kCoarseIntervals = 8;
@@ -36,7 +39,8 @@ namespace OloEngine
             glm::uvec4 Layout;
             u32 PreviousCount;
             u32 CoarseIntervals = kCoarseIntervals;
-            std::array<u32, 2> Pad{};
+            u32 Remapped;
+            u32 Pad{};
         };
         static_assert(offsetof(CullParams, Layout) == 192);
         static_assert(sizeof(CullParams) == 224);
@@ -64,8 +68,10 @@ namespace OloEngine
         const u32 atlasBytes = atlasRecords * static_cast<u32>(sizeof(InstanceData));
         const u32 coarseBytes = coarseRecords * static_cast<u32>(sizeof(InstanceData));
         auto input = MakeStorage(inputBytes);
-        auto history = MakeStorage(capacity * static_cast<u32>(sizeof(glm::uvec4)));
-        if (!input || !history)
+        const u32 historyBytes = capacity * static_cast<u32>(sizeof(glm::uvec4));
+        auto previousHistory = MakeStorage(historyBytes);
+        auto nextHistory = MakeStorage(historyBytes);
+        if (!input || !previousHistory || !nextHistory)
             return false;
         // Contiguous coarse frames let the vertex shader blend the next
         // sample with the same stride it already uses for the full clip.
@@ -91,18 +97,19 @@ namespace OloEngine
             if (!args)
                 return false;
         }
-        if (m_AtlasData == clip.Atlas.GetData() && m_PreviousCount > 0u)
+        if (m_AtlasData == clip.Atlas.GetData() && !m_PreviousIDs.IsEmpty())
         {
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::BufferUpdate);
-            RenderCommand::CopyBufferSubData(m_History->GetRHIHandle(), history->GetRHIHandle(), 0u, 0u,
-                                             m_PreviousCount * sizeof(glm::uvec4));
+            RenderCommand::CopyBufferSubData(m_PreviousHistory->GetRHIHandle(), previousHistory->GetRHIHandle(), 0u, 0u,
+                                             m_PreviousIDs.Num() * sizeof(glm::uvec4));
         }
         else
-            m_PreviousCount = 0;
+            m_PreviousIDs.Reset();
         m_AtlasData = clip.Atlas.GetData();
         m_Capacity = capacity;
         m_Input = std::move(input);
-        m_History = std::move(history);
+        m_PreviousHistory = std::move(previousHistory);
+        m_NextHistory = std::move(nextHistory);
         m_Output = std::move(outputs);
         return true;
     }
@@ -131,7 +138,32 @@ namespace OloEngine
         if (!m_Parameters || !PrepareBuffers(count, clip))
             return false;
 
-        if (!RenderCommand::TryUploadBufferSubData(m_Input->GetRHIHandle(), 0, instances.size_bytes(), instances.data()))
+        const u64 frame = Renderer3D::GetPhysicalFrameSerial();
+        const u32 previousCount = !resetHistory && frame == m_Frame + 1 ? static_cast<u32>(m_PreviousIDs.Num()) : 0u;
+        const bool sameOrder = static_cast<u32>(m_PreviousIDs.Num()) == count &&
+                               std::equal(instances.begin(), instances.end(), m_PreviousIDs.GetData(),
+                                          [](const InstanceData& member, u64 id)
+                                          { return member.StableID == id; });
+        const bool remap = previousCount != 0u && !sameOrder;
+        TArray<InstanceData> remapped;
+        if (remap)
+        {
+            // The common unchanged group uploads its authored records directly.
+            // On a membership change, temporarily use CrowdPose.x for the old
+            // row plus one. The compute replaces it with the draw's pose.
+            std::unordered_map<u64, u32> previousRows;
+            previousRows.reserve(previousCount);
+            for (u32 row = 0; row < previousCount; ++row)
+                previousRows.emplace(m_PreviousIDs[row], row + 1u);
+            remapped.Append(instances.data(), count);
+            for (auto& member : remapped)
+            {
+                const auto it = previousRows.find(member.StableID);
+                member.CrowdPose.x = it != previousRows.end() ? it->second : 0u;
+            }
+        }
+        if (!RenderCommand::TryUploadBufferSubData(m_Input->GetRHIHandle(), 0, instances.size_bytes(),
+                                                   remap ? remapped.GetData() : instances.data()))
             return false;
         for (sizet tier = 0; tier < ranges.size(); ++tier)
         {
@@ -160,12 +192,13 @@ namespace OloEngine
                        std::abs(projection[3][3]) > 0.5f ? 1.0f : 0.0f };
         params.Clock = { now, previous, loop ? 1.0f : 0.0f, 0.0f };
         params.Layout = { count, m_Capacity, clip.FrameCount, clip.BoneCount };
-        const u64 frame = Renderer3D::GetPhysicalFrameSerial();
-        params.PreviousCount = (!resetHistory && frame == m_Frame + 1) ? m_PreviousCount : 0u;
+        params.PreviousCount = previousCount;
+        params.Remapped = remap ? 1u : 0u;
         m_Parameters->SetData(&params, sizeof(params));
         m_Parameters->Bind();
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT, m_Input->GetRHIHandle());
-        RenderCommand::BindStorageBuffer(kHistorySlot, m_History->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(kPreviousHistorySlot, m_PreviousHistory->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(kNextHistorySlot, m_NextHistory->GetRHIHandle());
         for (sizet tier = 0; tier < ranges.size(); ++tier)
         {
             RenderCommand::BindStorageBuffer(kOutputSlots[tier], m_Output[tier]->GetRHIHandle());
@@ -178,7 +211,14 @@ namespace OloEngine
         if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan && m_Shader->GetRecordedDispatchCount() == recorded)
             return false;
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command | MemoryBarrierFlags::BufferUpdate);
-        m_PreviousCount = count;
+        std::swap(m_PreviousHistory, m_NextHistory);
+        if (!sameOrder)
+        {
+            m_PreviousIDs.Reset();
+            m_PreviousIDs.Reserve(count);
+            for (const auto& member : instances)
+                m_PreviousIDs.Add(member.StableID);
+        }
         m_Frame = frame;
         return true;
     }

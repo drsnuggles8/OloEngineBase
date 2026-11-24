@@ -213,6 +213,48 @@ namespace OloEngine::Tests
         EXPECT_GT(ChangedPixels(before, after), 4u);
     }
 
+    TEST_F(CrowdVisualEvidence, PatchedMaterialReachesAtlasAndIndividualDraws)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (Owner.HasComponent<MaterialComponent>())
+            Owner.RemoveComponent<MaterialComponent>();
+        auto& placements = Owner.GetComponent<InstancedMeshComponent>();
+        placements.Instances = Placements;
+        placements.CastShadows = false;
+        auto& animation = Owner.GetComponent<AnimationStateComponent>();
+        animation.m_IsPlaying = false;
+        animation.m_CurrentTime = 0.2f;
+        EditorCamera camera(45.0f, 640.0f / 360.0f, 0.05f, 1400.0f);
+        camera.SetViewportSize(640, 360);
+        camera.SetPose({ 0, 4, 12 }, 0, std::atan2(4.0f, 20.0f));
+        const auto greenPixels = [](const Frame& frame)
+        {
+            u32 count = 0;
+            for (sizet i = 0; i < frame.Pixels.size(); i += 4)
+                if (frame.Pixels[i + 1] > frame.Pixels[i] + 20 && frame.Pixels[i + 1] > frame.Pixels[i + 2] + 20)
+                    ++count;
+            return count;
+        };
+        Frame control, atlas, individual;
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, control));
+        const auto* imported = Owner.GetComponent<MeshComponent>().m_MeshSource->GetImportedMaterialPtrForSubmesh(0);
+        ASSERT_TRUE(imported);
+        MaterialOverride patch;
+        patch.MaterialName = imported->GetName();
+        patch.OverrideBaseColor = true;
+        patch.BaseColor = { 0, 1, 0, 1 };
+        Owner.AddComponent<MaterialOverridesComponent>().m_Overrides.Add(patch);
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, atlas));
+        EXPECT_GT(greenPixels(atlas), greenPixels(control) + 8u);
+        EXPECT_EQ(RendererProfiler::GetInstance().GetLastCompletedFrameData().m_AnimatedSubmeshPackets, 3u);
+        animation.m_RootMotion = true;
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, individual));
+        EXPECT_GT(greenPixels(individual), greenPixels(control) + 8u);
+        const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
+        EXPECT_EQ(frame.m_AnimatedSubmeshPackets, static_cast<u32>(Placements.Num()));
+        EXPECT_GT(frame.m_AnimatedSubmissionMs, 0.0);
+    }
+
     TEST_F(CrowdVisualEvidence, CommittedKestrelPopulation)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -332,6 +374,60 @@ namespace OloEngine::Tests
         }
     }
 
+    TEST_F(CrowdVisualEvidence, EachTierAnimatesAtAFixedCamera)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!Env::Get("OLO_CROWD_MATRIX"))
+            GTEST_SKIP() << "Set OLO_CROWD_MATRIX=1 to capture the tier phase comparisons";
+        auto& batch = Owner.GetComponent<InstancedMeshComponent>();
+        batch.Instances.Append(Placements.GetData(), 6);
+        batch.InvalidateMergedCache();
+        batch.CastShadows = false;
+        auto& animation = Owner.GetComponent<AnimationStateComponent>();
+        animation.m_IsPlaying = false;
+        auto& lod = Owner.GetComponent<CrowdAnimationComponent>();
+        ResizeRenderTarget(960, 540);
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        EditorCamera camera(45.0f, 960.0f / 540.0f, 0.05f, 1400.0f);
+        camera.SetViewportSize(960, 540);
+
+        // Two tiers at each handover, photographed from exactly the same
+        // camera at the same pair of clip times. Adjacent sweep frames also
+        // include the camera movement and any shadow cascade change.
+        struct Cell
+        {
+            const char* Name;
+            u32 Tier;
+            f32 Height;
+        };
+        Frame previousTier;
+        for (const auto& cell : std::array<Cell, 4>{ { { "Near", 0, 65.0f }, { "Mid", 1, 65.0f }, { "MidAtFar", 1, 180.0f }, { "Far", 2, 180.0f } } })
+        {
+            lod.m_NearPixels = cell.Tier == 0 ? 1.0f : 4096.0f;
+            lod.m_FarPixels = cell.Tier == 2 ? 4096.0f : 1.0f;
+            camera.SetPose({ 0, cell.Height, 30 }, 0, std::atan2(cell.Height, 30.0f));
+            Frame a, repeat, b;
+            animation.m_CurrentTime = 0.06f;
+            ASSERT_NO_FATAL_FAILURE(Capture(camera, a));
+            ASSERT_NO_FATAL_FAILURE(Capture(camera, repeat));
+            animation.m_CurrentTime = 0.38f;
+            ASSERT_NO_FATAL_FAILURE(Capture(camera, b));
+            const auto counts = GetScene().ReadCrowdVisibilityCounts();
+            ASSERT_EQ(counts.Visible[cell.Tier], 6u);
+            const u32 noise = ChangedPixels(a, repeat);
+            const u32 motion = ChangedPixels(a, b);
+            EXPECT_GT(motion, noise);
+            std::cout << "[ CROWD ] " << cell.Name << " motionPixels=" << motion << " repeatPixels=" << noise;
+            if (std::string_view(cell.Name) == "Mid" || cell.Tier == 2)
+                std::cout << " samePoseTierDifference=" << ChangedPixels(previousTier, a);
+            std::cout << '\n';
+            WriteCrowdFrame(a, "Crowd", std::string(cell.Name) + "PhaseA");
+            WriteCrowdFrame(b, "Crowd", std::string(cell.Name) + "PhaseB");
+            previousTier = std::move(a);
+        }
+    }
+
     TEST_F(CrowdVisualEvidence, StrategyDistanceSweep)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -363,11 +459,14 @@ namespace OloEngine::Tests
             for (int step = 0; step <= 90; ++step)
             {
                 const i32 height = direction > 0 ? 50 + step * 5 : 500 - step * 5;
-                camera.SetPose({ 0, static_cast<f32>(height), 12 }, 0, std::atan2(static_cast<f32>(height), 20.0f));
+                // Aim at the centre row of the test footprint. A row leaving
+                // the frustum would otherwise mimic a LOD count change.
+                camera.SetPose({ 0, static_cast<f32>(height), 12 }, 0, std::atan2(static_cast<f32>(height), 34.0f));
                 RunEditorFrames(camera, 1);
                 Frame frame;
                 ASSERT_TRUE(ReadbackComposite(frame.Pixels, frame.Width, frame.Height));
                 const auto counts = GetScene().ReadCrowdVisibilityCounts().Visible;
+                ASSERT_EQ(counts[0] + counts[1] + counts[2], static_cast<u32>(Placements.Num()));
                 if (step == 0 || step == 90)
                     WriteCrowdFrame(frame, "Crowd", "Strategy" + std::to_string(height));
                 for (u32 edge = 0; edge < 2; ++edge)
