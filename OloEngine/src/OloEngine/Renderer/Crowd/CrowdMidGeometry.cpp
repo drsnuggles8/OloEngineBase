@@ -2,9 +2,12 @@
 #include "OloEngine/Renderer/Crowd/CrowdGeometry.h"
 
 #include "OloEngine/Math/Math.h"
-#include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
+#include <meshoptimizer.h>
+
+#include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace OloEngine
@@ -13,7 +16,6 @@ namespace OloEngine
     {
         // At the default 32-pixel handover, 2.5% of the part's extent is
         // below one pixel. The simplifier can keep more triangles to meet it.
-        constexpr f32 kMidTriangleRatio = 0.25f;
         constexpr f32 kMidSimplificationError = 0.025f;
 
         void CopyMaterialTable(const MeshSource& source, MeshSource& result)
@@ -26,9 +28,29 @@ namespace OloEngine
             result.SetImportedMaterials(MoveTemp(materials));
         }
 
-        // GenerateLODMeshWithAttributes operates on one material at a time
-        // and retains the input vertex array. Feed it local indices, then
-        // restore absolute indices so the whole mesh uses one vertex stream.
+        // An unindexed triangle soup such as Fox can still be reconnected if
+        // every vertex stream matches. Each output names an original corner
+        // of this part. Keep the original indices for morphs, whose sparse or
+        // dense per-target deltas aren't part of this equality comparison.
+        void WeldIdenticalCorners(const MeshSource& source, const u32* indices, u32 indexCount, TArray<u32>& welded)
+        {
+            if (source.HasMorphTargets())
+                return;
+            const auto& vertices = source.GetVertices();
+            const auto& bones = source.GetBoneInfluences();
+            const auto& uv2 = source.GetLightmapUVs();
+            if ((!bones.IsEmpty() && bones.Num() != vertices.Num()) || (!uv2.IsEmpty() && uv2.Num() != vertices.Num()))
+                return;
+            std::array<meshopt_Stream, 3> streams{ meshopt_Stream{ vertices.GetData(), sizeof(Vertex), sizeof(Vertex) } };
+            sizet streamCount = 1;
+            if (!bones.IsEmpty())
+                streams[streamCount++] = { bones.GetData(), sizeof(BoneInfluence), sizeof(BoneInfluence) };
+            if (!uv2.IsEmpty())
+                streams[streamCount++] = { uv2.GetData(), sizeof(glm::vec2), sizeof(glm::vec2) };
+            welded.SetNum(static_cast<i32>(indexCount));
+            meshopt_generateShadowIndexBufferMulti(welded.GetData(), indices, indexCount, vertices.Num(), streams.data(), streamCount);
+        }
+
         bool AppendMidIndices(const MeshSource& source, const Submesh& part, TArray<u32>& result)
         {
             const auto vertexCount = static_cast<u32>(source.GetVertices().Num());
@@ -40,34 +62,31 @@ namespace OloEngine
             if (part.m_IndexCount == 0)
                 return true;
 
-            TArray<i32> toLocal;
-            toLocal.Init(-1, static_cast<i32>(part.m_VertexCount));
-            TArray<u32> toSource;
-            TArray<Vertex> vertices;
-            TArray<u32> indices;
-            indices.Reserve(part.m_IndexCount);
+            const u32* indices = source.GetIndices().GetData() + part.m_BaseIndex;
             for (u32 i = 0; i < part.m_IndexCount; ++i)
             {
-                const u32 global = source.GetIndices()[part.m_BaseIndex + i];
+                const u32 global = indices[i];
                 if (global < part.m_BaseVertex || global - part.m_BaseVertex >= part.m_VertexCount)
                     return false;
-                // After vertex-fetch optimisation two parts' vertex ranges
-                // can overlap. Only vertices used by this material may be
-                // welded together by the single-material simplifier.
-                i32& local = toLocal[global - part.m_BaseVertex];
-                if (local < 0)
-                {
-                    local = vertices.Add(source.GetVertices()[global]);
-                    toSource.Add(global);
-                }
-                indices.Add(static_cast<u32>(local));
             }
-            const auto local = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
-            const auto reduced = MeshOptimization::GenerateLODMeshWithAttributes(*local, kMidTriangleRatio, kMidSimplificationError);
-            if (!reduced)
-                return false;
-            for (const u32 index : reduced->GetIndices())
-                result.Add(toSource[index]);
+
+            // Vertex's interleaved Normal and TexCoord provide five scalar
+            // attributes. Sparse mode fits the error scale to this part; the
+            // default topology rules retain each seam's separate wedges.
+            const auto* vertices = source.GetVertices().GetData();
+            TArray<u32> welded;
+            WeldIdenticalCorners(source, indices, part.m_IndexCount, welded);
+            constexpr std::array<f32, 5> weights{ 0.5f, 0.5f, 0.5f, 1.0f, 1.0f };
+            const u32 target = 3u * std::max(1u, part.m_IndexCount / 12u);
+            TArray<u32> reduced(static_cast<i32>(part.m_IndexCount));
+            const sizet count = meshopt_simplifyWithAttributes(
+                reduced.GetData(), welded.IsEmpty() ? indices : welded.GetData(), part.m_IndexCount, &vertices[0].Position.x, vertexCount, sizeof(Vertex),
+                &vertices[0].Normal.x, sizeof(Vertex), weights.data(), weights.size(), nullptr, target,
+                kMidSimplificationError, meshopt_SimplifySparse | meshopt_SimplifyErrorClamped, nullptr);
+            if (count > 0 && count < part.m_IndexCount)
+                result.Append(reduced.GetData(), static_cast<i32>(count));
+            else
+                result.Append(indices, static_cast<i32>(part.m_IndexCount));
             return true;
         }
 

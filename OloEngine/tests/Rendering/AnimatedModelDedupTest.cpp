@@ -44,6 +44,7 @@
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -384,6 +385,95 @@ namespace OloEngine::Tests
         ASSERT_NE(resolved, nullptr) << "submesh 0 does not resolve to the patched copy";
         EXPECT_EQ(resolved->GetMaterialKind(), MaterialKind::Skin);
     }
+    static void CheckMidSeam(bool splitAttributeIsland, bool splitBone)
+    {
+        SCOPED_TRACE(::testing::Message() << "split UV and normal " << splitAttributeIsland << ", split bone " << splitBone);
+        // Both sheets belong to one material. Their common edge has two
+        // sets of corners, on separate UV islands and attached to different
+        // bones. The disjoint grid gives this same submesh room to simplify.
+        TArray<Vertex> vertices;
+        TArray<BoneInfluence> skin;
+        const auto add = [&](f32 x, f32 y, u32 island)
+        {
+            const bool rightIsland = splitAttributeIsland && island == 1;
+            const glm::vec3 normal(0, 0, rightIsland ? -1.0f : 1.0f);
+            const f32 uvOffset = rightIsland ? 1.0f : 0.0f;
+            vertices.Emplace(glm::vec3(x, y, 0), normal, glm::vec2(uvOffset + x / 16.0f, y / 16.0f));
+            BoneInfluence influence;
+            influence.SetBoneData(0, splitBone && island == 1 ? 1u : 0u, 1.0f);
+            skin.Add(influence);
+        };
+        add(-1, 0, 0);
+        add(0, 0, 0);
+        add(0, 1, 0);
+        add(0, 0, 1);
+        add(1, 0, 1);
+        add(0, 1, 1);
+        TArray<u32> indices{ 0, 1, 2, 3, 4, 5 };
+        constexpr u32 cells = 8;
+        constexpr u32 stride = cells + 1;
+        for (u32 y = 0; y <= cells; ++y)
+            for (u32 x = 0; x <= cells; ++x)
+            {
+                add(4.0f + static_cast<f32>(x) / cells, static_cast<f32>(y) / cells, 2);
+                if (x < cells && y < cells)
+                {
+                    const u32 i = 6 + y * stride + x;
+                    for (u32 corner : { i, i + 1, i + stride, i + 1, i + stride + 1, i + stride })
+                        indices.Add(corner);
+                }
+            }
+        auto source = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+        source->GetBoneInfluences() = MoveTemp(skin);
+        source->SetSkeleton(Ref<Skeleton>::Create(2));
+        Submesh part;
+        part.m_VertexCount = static_cast<u32>(source->GetVertices().Num());
+        part.m_IndexCount = static_cast<u32>(source->GetIndices().Num());
+        part.m_IsRigged = true;
+        source->AddSubmesh(part);
+
+        const auto mid = MakeCrowdMidGeometry(source);
+        ASSERT_TRUE(mid);
+        ASSERT_LT(mid->GetIndices().Num(), source->GetIndices().Num());
+        CrowdClip clip;
+        clip.FrameCount = 1;
+        clip.BoneCount = 2;
+        clip.Atlas.SetNum(1);
+        clip.Atlas[0].Normal[3].z = 3.0f; // Bone one moves only the right sheet.
+        const auto posed = BakeCrowdProxy(mid, clip, 0);
+        ASSERT_TRUE(posed);
+        std::array<bool, 2> found{};
+        const auto& retained = mid->GetIndices();
+        for (i32 i = 0; i < retained.Num(); i += 3)
+        {
+            const std::array<u32, 3> tri{ retained[i], retained[i + 1], retained[i + 2] };
+            // The outer tips (0 and 4) identify each sheet regardless of
+            // index order. Check its two edge corners as well as the tip.
+            const bool left = std::ranges::find(tri, 0u) != tri.end();
+            if (!left && std::ranges::find(tri, 4u) == tri.end())
+                continue;
+            found[left ? 0 : 1] = true;
+            const bool rightIsland = !left && splitAttributeIsland;
+            const u32 bone = !left && splitBone ? 1u : 0u;
+            for (u32 corner : tri)
+            {
+                const auto& v = mid->GetVertices()[corner];
+                EXPECT_FLOAT_EQ(v.TexCoord.x, (rightIsland ? 1.0f : 0.0f) + v.Position.x / 16.0f);
+                EXPECT_FLOAT_EQ(v.Normal.z, rightIsland ? -1.0f : 1.0f);
+                EXPECT_EQ(mid->GetBoneInfluences()[corner].m_BoneIDs[0], bone);
+                EXPECT_FLOAT_EQ(posed->GetVertices()[corner].Position.z, 3.0f * static_cast<f32>(bone));
+            }
+        }
+        EXPECT_TRUE(found[0] && found[1]);
+    }
+
+    TEST(CrowdGeometry, MidSimplificationKeepsSeparateUvAndSkinningCornersAtACoincidentEdge)
+    {
+        CheckMidSeam(true, true);
+        CheckMidSeam(false, true);
+        CheckMidSeam(true, false);
+    }
+
     TEST(CrowdGeometry, MidMeshAndPosedProxyPreserveBothHorseMaterials)
     {
         OLO_ENSURE_GPU_OR_SKIP();
