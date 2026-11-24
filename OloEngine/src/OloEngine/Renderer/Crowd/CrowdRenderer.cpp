@@ -15,7 +15,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <vector>
 
 namespace OloEngine
 {
@@ -131,7 +130,7 @@ namespace OloEngine
         Ref<Skeleton> Rig;
         CrowdClip Baked;
         std::array<Surface, 3> Tiers;
-        std::vector<std::array<CrowdVertexFrames, 3>> VertexFrames;
+        TArray<CrowdVertexFrames> VertexFrames; // three consecutive tier tables per submesh
         std::array<std::array<Surface, kShadowPhases + 1>, 2> Proxies;
         struct Caster
         {
@@ -167,12 +166,14 @@ namespace OloEngine
             // can interpolate the same exact samples without reskinning every
             // placement. Larger assets retain the shared-bone path.
             u32 remaining = (32u * 1024u * 1024u) / sizeof(InstanceData);
-            VertexFrames.resize(static_cast<sizet>(parts));
+            if (parts > std::numeric_limits<i32>::max() / 3)
+                return false;
+            VertexFrames.SetNum(parts * 3);
             for (u32 tier : { 1u, 2u, 0u })
             {
                 for (i32 part = 0; part < parts; ++part)
                 {
-                    auto& frames = VertexFrames[part][tier];
+                    auto& frames = VertexFrames[part * 3 + static_cast<i32>(tier)];
                     if (!source->HasMorphTargets())
                         frames = BakeCrowdVertexFrames(*Tiers[tier].Source, static_cast<u32>(part), tier == 0 ? Baked : coarse, remaining);
                     remaining -= static_cast<u32>(frames.Records.Num());
@@ -452,7 +453,7 @@ namespace OloEngine
             const bool sortable = !material.GetFlag(MaterialFlag::Blend) && material.GetAlphaMode() != AlphaMode::Blend &&
                                   material.GetTransmissionFactor() <= 0.0f && !material.GetShader();
             const std::array<Ref<Mesh>, 3> meshes{ batch.Tiers[0].Meshes[part], batch.Tiers[1].Meshes[part], batch.Tiers[2].Meshes[part] };
-            const bool batched = sortable && cull.Dispatch(members, batch.Baked, batch.Clock, batch.PreviousClock, animation.m_Loop, batch.Discontinuous, settings, batch.LocalSphere, batch.CullSphere, ranges, batch.VertexFrames[part]) &&
+            const bool batched = sortable && cull.Dispatch(members, batch.Baked, batch.Clock, batch.PreviousClock, animation.m_Loop, batch.Discontinuous, settings, batch.LocalSphere, batch.CullSphere, ranges, std::span(batch.VertexFrames.GetData() + part * 3, 3u)) &&
                                  Renderer3D::SubmitCrowdTiers(meshes, material, static_cast<u32>(members.size()), cull);
             if (batched && view.CountSource < 0)
                 view.CountSource = static_cast<i32>(part);

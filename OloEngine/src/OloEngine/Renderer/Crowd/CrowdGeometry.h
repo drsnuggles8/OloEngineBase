@@ -16,6 +16,13 @@ namespace OloEngine
         u32 RecordsPerFrame = 0;
     };
 
+    template<>
+    struct TIsTriviallyRelocatable<CrowdVertexFrames>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(CrowdVertexFrames::Records)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(CrowdVertexFrames::RecordsPerFrame)>::Value;
+    };
+
     // One submesh in absolute draw-index space. Each frame starts with
     // CrowdPose.xy = (base vertex, frame stride in records), followed by
     // four homogeneous positions and four unnormalised normals per record.
