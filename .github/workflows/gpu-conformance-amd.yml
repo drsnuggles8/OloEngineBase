@@ -53,6 +53,10 @@ on:
     # inputs instead. They default to false and are only settable on a manual
     # dispatch, so a *scheduled* run can never rewrite a baseline.
     inputs:
+      crowd_benchmark:
+        description: 'Measure the KESTREL crowd on the RX 5600 XT and capture its visual matrix'
+        type: boolean
+        default: false
       golden_rebase:
         description: 'Rewrite the AMD golden images from this run (inspect the diffs first)'
         type: boolean
@@ -652,6 +656,7 @@ jobs:
           # containing shell metacharacters would run as script; read as
           # $OLO_GTEST_FILTER it is only ever data.
           OLO_GTEST_FILTER: ${{ inputs.gtest_filter }}
+          OLO_RUN_CROWD_BENCHMARK: ${{ inputs.crowd_benchmark }}
         run: |
           mkdir -p ../test_results
           # NetworkIntegrationTest is excluded by EVERY other job in this repo
@@ -686,6 +691,10 @@ jobs:
           # a filter of its own runs exactly that filter. KEEP THIS LIST AND THE
           # SHOWCASE'S gtest_filter IN STEP: a suite in neither runs nowhere.
           FILTER="${OLO_GTEST_FILTER:-*-DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*:*DogPlayEvidenceTest.*}"
+          if [ "$OLO_RUN_CROWD_BENCHMARK" = true ]; then
+            export OLO_CROWD_MATRIX=1
+            FILTER="${OLO_GTEST_FILTER:-CrowdVisualEvidence.*}"
+          fi
           case "$FILTER" in
             *-*) FILTER="$FILTER:NetworkIntegrationTest.*" ;;
             *) FILTER="$FILTER:-NetworkIntegrationTest.*" ;;
@@ -803,6 +812,52 @@ jobs:
               sys.exit(1)
           print("OK - no GPU test was skipped for want of a context.")
           PY
+
+      - name: Measure the native 1080p KESTREL crowd
+        if: github.event_name == 'workflow_dispatch' && inputs.crowd_benchmark
+        working-directory: OloEditor
+        env:
+          MESA_LOADER_DRIVER_OVERRIDE: radeonsi
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/test_results/crowd-benchmark"
+          mkdir -p "$out"
+          python3 ../OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_reference --counts 0,5000
+          python3 ../OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_lod --counts 200,1000,5000
+          captures=()
+          capture() {
+            local scene="$1" directory="$out/$1-run$2"
+            mkdir "$directory"
+            local manifest="$PWD/SandboxProject/Assets/Scenes/PerfStress/$scene.capture.yaml"
+            if ! ../build/OloEngine/tests/OloEngine-Tests --olo-gl-backend=egl --olo-require-gpu \
+                --olo-perf-machine=selfhosted-amd-navi10-linux \
+                --olo-capture-manifest="$manifest" --olo-capture-out="$directory" > "$directory/process.log" 2>&1; then
+              tail -100 "$directory/process.log"
+              return 1
+            fi
+            captures+=("$directory")
+          }
+          # Fresh process per arm. Alternate the control and workload to expose clock drift.
+          capture crowd_reference_0 1
+          capture crowd_lod_5000 1
+          capture crowd_lod_5000 2
+          capture crowd_reference_0 2
+          capture crowd_reference_0 3
+          capture crowd_lod_5000 3
+          capture crowd_lod_200 1
+          capture crowd_lod_1000 1
+          capture crowd_reference_5000 1
+          python3 ../scripts/perf/report-crowd.py "${captures[@]}" | tee "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload crowd benchmark samples and visual controls
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.crowd_benchmark
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crowd-benchmark-amd
+          path: |
+            test_results/crowd-benchmark/
+            OloEditor/assets/tests/visual/Crowd*.png
+          if-no-files-found: warn
 
       # #1358: the engine's own Vulkan capability reader on the AMD box, in the
       # job summary. Report-only (`|| true`): this job's gate is the GL suite

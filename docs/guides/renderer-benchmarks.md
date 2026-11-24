@@ -65,6 +65,13 @@ capture also reads each tier's indirect instance count after the timed interval.
 target-class result, repeat the same captures on a GTX 1660 or RX 5600 and compare the
 5,000-actor GPU median with the empty control from the same run pair.
 
+The manual GPU Conformance (AMD, self-hosted) workflow can run the comparison on its RX
+5600 XT. When the AMD GPU is idle, dispatch the reviewed branch with
+`gh workflow run gpu-conformance-amd.yml --ref <branch> -f crowd_benchmark=true`.
+The `crowd-benchmark-amd` artifact contains the raw samples, per-tier counts, and crowd
+images. The job summary gives the three alternating empty/5,000 pairs, the 200- and
+1,000-member scaling runs, and the independent 5,000-actor control.
+
 ## Directory layout
 
 ```
