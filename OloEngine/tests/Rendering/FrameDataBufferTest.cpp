@@ -61,6 +61,26 @@ TEST(FrameDataBuffer, BoneMatrixWriteReadRoundTrip)
     }
 }
 
+TEST(FrameDataBuffer, GatherCanGrowBoneStorageUntilReplayPublishesItsRanges)
+{
+    FrameDataBuffer buffer(2, 2);
+    constexpr auto gather = FrameDataBuffer::BoneAllocation::GrowDuringGather;
+    const glm::mat4 first(2.0f);
+    const u32 firstOffset = buffer.AllocateBoneMatrices(1, gather);
+    ASSERT_NE(firstOffset, UINT32_MAX);
+    buffer.WriteBoneMatrices(firstOffset, &first, 1);
+    ASSERT_EQ(buffer.AllocateBoneMatrices(4, gather), 1u);
+    const auto* stored = buffer.GetBoneMatrixRange(firstOffset, 1);
+    ASSERT_NE(stored, nullptr);
+    EXPECT_FLOAT_EQ((*stored)[0][0], 2.0f);
+
+    buffer.PublishForReplay();
+    EXPECT_EQ(buffer.AllocateBoneMatrices(6, gather), UINT32_MAX);
+    EXPECT_EQ(buffer.GetBoneMatrixRange(firstOffset, 1), stored);
+    buffer.Reset();
+    EXPECT_EQ(buffer.AllocateBoneMatrices(6, gather), 0u);
+}
+
 TEST(FrameDataBuffer, TransformWriteReadRoundTrip)
 {
     FrameDataBuffer buffer(128, 128);

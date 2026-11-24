@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+#include "OloEngine/Renderer/Crowd/CrowdAnimationComponent.h"
 #include "OloEngine/Particle/ParticleSystem.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"

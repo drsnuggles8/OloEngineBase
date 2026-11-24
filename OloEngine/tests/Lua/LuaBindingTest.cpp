@@ -2214,6 +2214,29 @@ TEST_F(LuaSceneTest, GetSetTranslation_RoundTrip)
     EXPECT_FLOAT_EQ(result.get<f32>(2), 30.0f);
 }
 
+TEST_F(LuaSceneTest, CrowdMemberCanChangeClipAndPhaseIndependently)
+{
+    Entity e = scene->CreateEntityWithUUID(UUID(1749), "Crowd");
+    e.AddComponent<CrowdAnimationComponent>();
+    auto& batch = e.AddComponent<InstancedMeshComponent>();
+    batch.Instances.SetNum(2);
+    batch.Instances[0].StableID = 17u;
+    lua["eid"] = static_cast<u64>(1749);
+    auto result = lua.script(R"(
+        local c = entity_utils.get_component(eid, "CrowdAnimationComponent")
+        c.nearPixels = 40
+        local batch = entity_utils.get_component(eid, "InstancedMeshComponent")
+        return batch:set_instance_animation(0, 2, 0.25)
+    )");
+    ASSERT_TRUE(result.valid());
+    EXPECT_TRUE(result.get<bool>());
+    EXPECT_FLOAT_EQ(e.GetComponent<CrowdAnimationComponent>().m_NearPixels, 40.0f);
+    EXPECT_FLOAT_EQ(batch.Instances[0].Custom, 0.25f);
+    EXPECT_EQ(batch.Instances[0].GetCrowdClipIndex(), 2);
+    EXPECT_EQ(batch.Instances[0].StableID, 17u);
+    EXPECT_EQ(batch.Instances[1].GetCrowdClipIndex(), -1);
+}
+
 TEST_F(LuaSceneTest, GetName_ReturnsTagName)
 {
     Entity e = scene->CreateEntityWithUUID(UUID(200), "Hero");

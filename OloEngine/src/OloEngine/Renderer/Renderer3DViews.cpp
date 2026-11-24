@@ -419,6 +419,11 @@ namespace OloEngine
         return s_Data.PhysicalFrame.Serial;
     }
 
+    u64 Renderer3D::GetLastPoseHistoryResetFrame()
+    {
+        return s_Data.Scene.LastPoseHistoryResetFrame;
+    }
+
     bool Renderer3D::IsPrimaryViewFrame()
     {
         // The lever is a negative control only (DebugLevers.inl, Fault injection).

@@ -292,6 +292,11 @@ registry.push_back(OLO_VSF_FIELD(ConvexMeshCollider3DComponent, "MaxVertices", m
 
 static void BuildRegistryChunk4(std::vector<ComponentFieldEntry>& registry)
 {
+// CrowdAnimationComponent
+registry.push_back(OLO_VSF_FIELD_RANGE(CrowdAnimationComponent, "NearPixels", m_NearPixels, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(4096.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(CrowdAnimationComponent, "FarPixels", m_FarPixels, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(4096.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(CrowdAnimationComponent, "Hysteresis", m_Hysteresis, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(0.45f)));
+
 // DebrisComponent
 registry.push_back(OLO_VSF_FIELD(DebrisComponent, "RemainingLifetime", m_RemainingLifetime, Float));
 registry.push_back(OLO_VSF_FIELD(DebrisComponent, "TotalLifetime", m_TotalLifetime, Float));

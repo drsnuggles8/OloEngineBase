@@ -309,7 +309,7 @@ namespace OloEngine
      */
     struct SkeletonComponent
     {
-        Ref<Skeleton> m_Skeleton; // Shared skeleton reference
+        Ref<Skeleton> m_Skeleton; // The actor's mutable pose and deformation history.
 
         SkeletonComponent() = default;
         explicit SkeletonComponent(const Ref<Skeleton>& skeleton) : m_Skeleton(skeleton) {}
@@ -317,13 +317,9 @@ namespace OloEngine
 
         // Custom copy constructor - mutex cannot be copied
         SkeletonComponent(const SkeletonComponent& other)
-            : m_Skeleton(other.m_Skeleton)
         {
-            // Thread-safe copy of cache data
             TUniqueLock lock(other.m_CacheMutex);
-            m_TagEntityCache = other.m_TagEntityCache;
-            m_CacheValid = other.m_CacheValid;
-            // Each component gets its own mutex
+            m_Skeleton = other.m_Skeleton ? other.m_Skeleton->Instantiate() : nullptr;
         }
 
         // Custom assignment operator - mutex cannot be assigned
@@ -341,10 +337,9 @@ namespace OloEngine
                 }
                 TUniqueLock lock1(*first);
                 TUniqueLock lock2(*second);
-                m_Skeleton = other.m_Skeleton;
-                m_TagEntityCache = other.m_TagEntityCache;
-                m_CacheValid = other.m_CacheValid;
-                // Keep existing mutex
+                m_Skeleton = other.m_Skeleton ? other.m_Skeleton->Instantiate() : nullptr;
+                m_TagEntityCache.clear();
+                m_CacheValid = false;
             }
             return *this;
         }

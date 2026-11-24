@@ -7,11 +7,8 @@
 // resolved SourceFilePath (e.g. a crowd of the same rigged character), the
 // deserializer must reuse the already-loaded Ref<AnimatedModel> instead of
 // re-running Assimp import + allocating a fresh MeshSource/GPU-buffer graph
-// per entity. Model/mesh data (MeshComponent::m_MeshSource,
-// SkeletonComponent::m_Skeleton) must end up SHARED (same Ref target), while
-// per-entity playback state (AnimationStateComponent scalars) must stay
-// independent — that's the correctness subtlety the HANDOVER.md research
-// flagged as needing verification, not just a speed measurement.
+// per entity. Actors share mesh data and clips. Each owns the current and
+// previous bone matrices written by animation and consumed by rendering.
 //
 // Needs a live GL context: loading the real glTF exercises the full
 // AnimatedModel -> MeshSource::Build() path (glCreateVertexArrays / GPU
@@ -27,6 +24,8 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -38,12 +37,14 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Renderer/Crowd/CrowdGeometry.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -239,9 +240,10 @@ namespace OloEngine::Tests
 
         ASSERT_TRUE(restoredA.HasComponent<SkeletonComponent>());
         ASSERT_TRUE(restoredB.HasComponent<SkeletonComponent>());
-        EXPECT_EQ(restoredA.GetComponent<SkeletonComponent>().m_Skeleton,
-                  restoredB.GetComponent<SkeletonComponent>().m_Skeleton)
-            << "Two entities sharing a SourceFilePath must reuse the same Skeleton.";
+        auto& poseA = restoredA.GetComponent<SkeletonComponent>().m_Skeleton;
+        const auto& poseB = restoredB.GetComponent<SkeletonComponent>().m_Skeleton;
+        ASSERT_TRUE(poseA && poseB);
+        ASSERT_NE(poseA, poseB);
 
         // --- Playback state stays INDEPENDENT per entity ---
         ASSERT_TRUE(restoredA.HasComponent<AnimationStateComponent>());
@@ -253,9 +255,19 @@ namespace OloEngine::Tests
         EXPECT_TRUE(restoredAnimA.m_IsPlaying);
         EXPECT_FALSE(restoredAnimB.m_IsPlaying);
 
-        // Mutating one entity's playback state post-load must not leak into the
-        // other, even though they share the underlying model/skeleton Refs.
-        restoredA.GetComponent<AnimationStateComponent>().m_CurrentTime = 0.9f;
+        ASSERT_TRUE(restoredAnimA.m_CurrentClip);
+        EXPECT_EQ(restoredAnimA.m_CurrentClip, restoredAnimB.m_CurrentClip);
+        const auto pausedMatrices = poseB->m_FinalBoneMatrices;
+        Animation::AnimationSystem::Update(restoredA.GetComponent<AnimationStateComponent>(), *poseA, 0.125f);
+        ASSERT_FALSE(pausedMatrices.empty());
+        ASSERT_EQ(pausedMatrices.size(), poseA->m_FinalBoneMatrices.size());
+        bool animated = false;
+        for (sizet i = 0; i < pausedMatrices.size(); ++i)
+        {
+            EXPECT_TRUE(Math::BitwiseEqual(pausedMatrices[i], poseB->m_FinalBoneMatrices[i]));
+            animated |= !Math::BitwiseEqual(pausedMatrices[i], poseA->m_FinalBoneMatrices[i]);
+        }
+        EXPECT_TRUE(animated);
         EXPECT_NEAR(restoredB.GetComponent<AnimationStateComponent>().m_CurrentTime, 0.75f, 1e-5f)
             << "Entity B's playback state was corrupted by mutating entity A — "
                "the dedup cache must not alias per-entity AnimationStateComponents.";
@@ -372,5 +384,145 @@ namespace OloEngine::Tests
         const Material* resolved = ResolveMaterialPatch(patches, source->GetImportedMaterialPtrForSubmesh(0));
         ASSERT_NE(resolved, nullptr) << "submesh 0 does not resolve to the patched copy";
         EXPECT_EQ(resolved->GetMaterialKind(), MaterialKind::Skin);
+    }
+    static void CheckMidSeam(bool splitAttributeIsland, bool splitBone)
+    {
+        SCOPED_TRACE(::testing::Message() << "split UV and normal " << splitAttributeIsland << ", split bone " << splitBone);
+        // Both sheets belong to one material. Their common edge has two
+        // sets of corners, on separate UV islands and attached to different
+        // bones. The disjoint grid gives this same submesh room to simplify.
+        TArray<Vertex> vertices;
+        TArray<BoneInfluence> skin;
+        const auto add = [&](f32 x, f32 y, u32 island)
+        {
+            const bool rightIsland = splitAttributeIsland && island == 1;
+            const glm::vec3 normal(0, 0, rightIsland ? -1.0f : 1.0f);
+            const f32 uvOffset = rightIsland ? 1.0f : 0.0f;
+            vertices.Emplace(glm::vec3(x, y, 0), normal, glm::vec2(uvOffset + x / 16.0f, y / 16.0f));
+            BoneInfluence influence;
+            influence.SetBoneData(0, splitBone && island == 1 ? 1u : 0u, 1.0f);
+            skin.Add(influence);
+        };
+        add(-1, 0, 0);
+        add(0, 0, 0);
+        add(0, 1, 0);
+        add(0, 0, 1);
+        add(1, 0, 1);
+        add(0, 1, 1);
+        TArray<u32> indices{ 0, 1, 2, 3, 4, 5 };
+        constexpr u32 cells = 8;
+        constexpr u32 stride = cells + 1;
+        for (u32 y = 0; y <= cells; ++y)
+            for (u32 x = 0; x <= cells; ++x)
+            {
+                add(4.0f + static_cast<f32>(x) / cells, static_cast<f32>(y) / cells, 2);
+                if (x < cells && y < cells)
+                {
+                    const u32 i = 6 + y * stride + x;
+                    for (u32 corner : { i, i + 1, i + stride, i + 1, i + stride + 1, i + stride })
+                        indices.Add(corner);
+                }
+            }
+        auto source = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+        source->GetBoneInfluences() = MoveTemp(skin);
+        source->SetSkeleton(Ref<Skeleton>::Create(2));
+        Submesh part;
+        part.m_VertexCount = static_cast<u32>(source->GetVertices().Num());
+        part.m_IndexCount = static_cast<u32>(source->GetIndices().Num());
+        part.m_IsRigged = true;
+        source->AddSubmesh(part);
+
+        const auto mid = MakeCrowdMidGeometry(source);
+        ASSERT_TRUE(mid);
+        ASSERT_LT(mid->GetIndices().Num(), source->GetIndices().Num());
+        CrowdClip clip;
+        clip.FrameCount = 1;
+        clip.BoneCount = 2;
+        clip.Atlas.SetNum(1);
+        clip.Atlas[0].Normal[3].z = 3.0f; // Bone one moves only the right sheet.
+        const auto posed = BakeCrowdProxy(mid, clip, 0);
+        ASSERT_TRUE(posed);
+        std::array<bool, 2> found{};
+        const auto& retained = mid->GetIndices();
+        for (i32 i = 0; i < retained.Num(); i += 3)
+        {
+            const std::array<u32, 3> tri{ retained[i], retained[i + 1], retained[i + 2] };
+            // The outer tips (0 and 4) identify each sheet regardless of
+            // index order. Check its two edge corners as well as the tip.
+            const bool left = std::ranges::find(tri, 0u) != tri.end();
+            if (!left && std::ranges::find(tri, 4u) == tri.end())
+                continue;
+            found[left ? 0 : 1] = true;
+            const bool rightIsland = !left && splitAttributeIsland;
+            const u32 bone = !left && splitBone ? 1u : 0u;
+            for (u32 corner : tri)
+            {
+                const auto& v = mid->GetVertices()[corner];
+                EXPECT_FLOAT_EQ(v.TexCoord.x, (rightIsland ? 1.0f : 0.0f) + v.Position.x / 16.0f);
+                EXPECT_FLOAT_EQ(v.Normal.z, rightIsland ? -1.0f : 1.0f);
+                EXPECT_EQ(mid->GetBoneInfluences()[corner].m_BoneIDs[0], bone);
+                EXPECT_FLOAT_EQ(posed->GetVertices()[corner].Position.z, 3.0f * static_cast<f32>(bone));
+            }
+        }
+        EXPECT_TRUE(found[0] && found[1]);
+    }
+
+    TEST(CrowdGeometry, MidSimplificationKeepsSeparateUvAndSkinningCornersAtACoincidentEdge)
+    {
+        CheckMidSeam(true, true);
+        CheckMidSeam(false, true);
+        CheckMidSeam(true, false);
+    }
+
+    TEST(CrowdGeometry, MidMeshAndPosedProxyPreserveBothHorseMaterials)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        EnsureProcessRendererInitialized();
+        GLStateGuard guard("CrowdGeometry.MultiMaterial", GLStateGuard::Policy::Restore);
+        const auto path = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject/Assets/Models/Horse/Horse.gltf";
+        auto horse = Ref<AnimatedModel>::Create(path.string());
+        auto source = horse->GetEntityMeshSource();
+        ASSERT_TRUE(source && horse->HasSkeleton());
+        ASSERT_FALSE(horse->GetAnimations().empty());
+        ASSERT_EQ(source->GetSubmeshes().Num(), 2);
+        auto mid = MakeCrowdMidGeometry(source);
+        ASSERT_TRUE(mid);
+        EXPECT_LT(mid->GetIndices().Num(), source->GetIndices().Num());
+        EXPECT_EQ(mid->GetBoneInfluences().Num(), mid->GetVertices().Num());
+
+        CrowdClip clip;
+        ASSERT_TRUE(BakeCrowdClip(*horse->GetSkeleton(), horse->GetAnimations().front(), clip));
+        auto initial = BakeCrowdProxy(mid, clip, 0);
+        auto moving = BakeCrowdProxy(mid, clip, clip.FrameCount / 4u);
+        ASSERT_TRUE(initial && moving);
+        EXPECT_FALSE(moving->HasSkeleton());
+        EXPECT_FALSE(moving->HasBoneInfluences());
+        ASSERT_EQ(mid->GetSubmeshes().Num(), 2);
+        ASSERT_EQ(moving->GetSubmeshes().Num(), 2);
+        for (u32 slot = 0; slot < 2; ++slot)
+        {
+            const auto& part = moving->GetSubmeshes()[slot];
+            const auto& original = source->GetSubmeshes()[slot];
+            EXPECT_EQ(part.m_MaterialIndex, original.m_MaterialIndex);
+            EXPECT_EQ(moving->GetImportedMaterialPtrForSubmesh(slot), source->GetImportedMaterialPtrForSubmesh(slot));
+            EXPECT_FALSE(part.m_IsRigged);
+            ASSERT_GT(part.m_IndexCount, 0u);
+            ASSERT_EQ(part.m_IndexCount, mid->GetSubmeshes()[slot].m_IndexCount);
+            for (u32 i = 0; i < part.m_IndexCount; ++i)
+            {
+                const auto index = moving->GetIndices()[part.m_BaseIndex + i];
+                ASSERT_GE(index, original.m_BaseVertex);
+                ASSERT_LT(index - original.m_BaseVertex, original.m_VertexCount);
+                const auto& p = moving->GetVertices()[index].Position;
+                ASSERT_TRUE(glm::all(glm::greaterThanEqual(p, part.m_BoundingBox.Min)));
+                ASSERT_TRUE(glm::all(glm::lessThanEqual(p, part.m_BoundingBox.Max)));
+            }
+        }
+        ASSERT_EQ(initial->GetVertices().Num(), moving->GetVertices().Num());
+        f32 largestDisplacement = 0.0f;
+        const i32 count = moving->GetVertices().Num();
+        for (i32 i = 0; i < count; ++i)
+            largestDisplacement = std::max(largestDisplacement, glm::length(moving->GetVertices()[i].Position - initial->GetVertices()[i].Position));
+        EXPECT_GT(largestDisplacement, 1e-4f);
     }
 } // namespace OloEngine::Tests

@@ -590,6 +590,7 @@ namespace OloEngine
             data.Scene.PrevEntityTransforms.clear();
             data.Scene.PrevInstanceTransforms.clear();
             data.SceneGPU.ForgetMotionHistory();
+            data.Scene.LastPoseHistoryResetFrame = Renderer3D::GetPhysicalFrameSerial();
             data.Scene.PoseHistoryResetPending = false;
         }
 

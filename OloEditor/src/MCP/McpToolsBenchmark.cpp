@@ -634,9 +634,10 @@ namespace OloEngine::MCP
             }
 
             auto counters = std::make_shared<Benchmark::RendererCounters>();
+            auto crowd = std::make_shared<CrowdVisibilityCounts>();
             auto memoryReport = std::make_shared<std::optional<RendererMemoryReport>>();
             host.MarshalRead(
-                [&host, applied, passTimings, timingValidity, resolution, counters, memoryReport, configuration]() -> Json
+                [&host, applied, passTimings, timingValidity, resolution, counters, crowd, memoryReport, configuration]() -> Json
                 {
                     *passTimings = Benchmark::SnapshotPassTimings();
                     *timingValidity = Benchmark::SnapshotTimingValidity();
@@ -646,6 +647,9 @@ namespace OloEngine::MCP
                     // benchmark's.
                     *resolution = Benchmark::SnapshotResolution();
                     *counters = Benchmark::SnapshotRendererCounters();
+                    if (host.Context().GetActiveScene)
+                        if (const auto active = host.Context().GetActiveScene())
+                            *crowd = active->ReadCrowdVisibilityCounts();
                     // The whole physical report, still under the benchmark's configuration
                     // (#1342): owners, capacity versus demand, reconciliation, residency.
                     *memoryReport = RendererMemoryTracker::GetInstance().BuildReport();
@@ -716,6 +720,7 @@ namespace OloEngine::MCP
             runInfo.Timing = *timingValidity;
             runInfo.Resolution = *resolution;
             runInfo.Counters = *counters;
+            runInfo.Crowd = *crowd;
             runInfo.MemoryReport = std::move(*memoryReport);
             runInfo.Measurement = *measurement;
             runInfo.Configuration = *configuration;

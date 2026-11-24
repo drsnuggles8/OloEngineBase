@@ -27,6 +27,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Crowd/CrowdLod.h"
 #include "ProcessRendererInit.h"
 
 #include <gtest/gtest.h>
@@ -411,6 +412,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     runInfo.Measurement = std::move(runInfoMeasurement);
     // Keep the renderer and asset manager alive: this isolates the cost of
     // releasing the scene while exposing caches and pools that remain live.
+    runInfo.Crowd = scene->ReadCrowdVisibilityCounts();
     scene = nullptr;
     runInfo.GpuResidentBytesAfterSceneRelease = RendererMemoryTracker::GetInstance().GetGpuResidentBytes();
 

@@ -3460,6 +3460,7 @@ namespace OloEngine
                 case UBO_SSS:               // snow SSS blur, skin diffusion
                 case UBO_PRECIPITATION:     // precipitation, shadow probes, material lab
                 case UBO_DEFERRED_LIGHTING: // deferred controls, spike parameters
+                case UBO_INSTANCE_CULL:     // ordinary instances and animated crowd tiers
                 case UBO_RAY_TRACING:       // every ray-tracing and deform producer
                     return true;
                 default:
@@ -4561,7 +4562,7 @@ namespace OloEngine
                 case UBO_VIRTUAL_RASTER:
                     return name.contains("VirtualRaster") || name.contains("virtualRaster");
                 case UBO_INSTANCE_CULL:
-                    return name.contains("InstanceCull") || name.contains("instanceCull");
+                    return name.contains("InstanceCull") || name.contains("instanceCull") || name == "CrowdCullParams";
                 // Issue #691 — the sweep's completion.
                 case UBO_OCEAN_FFT:
                     return name.contains("OceanFFT") || name.contains("oceanFFT");
@@ -5216,7 +5217,7 @@ layout(std140, binding = 25) uniform ForwardPlusParams {
         }
 
         // Per-instance data SSBO indexed by gl_InstanceIndex. Layout mirrors
-        // OloEngine::InstanceData (Renderer/Instancing/InstanceData.h, 256 B
+        // OloEngine::InstanceData (Renderer/Instancing/InstanceData.h, 272 B
         // std430). Shaders migrating from the legacy ModelUBO (binding = 3)
         // replace `u_Model` with `instances[gl_InstanceIndex].Transform`,
         // `u_Normal` with `instances[gl_InstanceIndex].Normal`, etc. Non-
@@ -5237,6 +5238,7 @@ struct InstanceData {
     uvec2 StableID;
     vec4 LightmapScaleOffset;
     uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

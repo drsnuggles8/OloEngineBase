@@ -651,6 +651,7 @@ add_executable(OloEngine-Tests
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
+		Rendering/CrowdFarGeometryTest.cpp
 		Rendering/AnimatedModelDedupTest.cpp
 		Rendering/AnimatedModelImportSettingsTest.cpp
 		Rendering/AssimpSmoothNormalsTest.cpp
@@ -1198,6 +1199,8 @@ add_executable(OloEngine-Tests
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/GroomSceneShadowSaveLoadTest.cpp
 		SaveGame/AnimationClipRequestSaveLoadTest.cpp
+		SaveGame/InstancePlacementSaveLoadTest.cpp
+		Scripting/CrowdManagedBindingTest.cpp
 		SaveGame/BoneAttachmentSaveLoadTest.cpp
 		SaveGame/PlayComponentsSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
@@ -1954,6 +1957,8 @@ add_executable(OloEngine-Tests
 		# Skinned auto-batching (issue #1031): a same-pose crowd must collapse into
 		# one instanced draw and render the same colour AND motion vectors as the
 		# one-draw-per-actor path, measured against a same-input control render.
+		Rendering/PropertyTests/CrowdCullTest.cpp
+		Rendering/PropertyTests/CrowdVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SkinnedCrowdBatchingVisualEvidenceTest.cpp
 		# Script-driven runtime spawning (issue #643): the deferred entity-command
 		# queue driven from Lua through real Scene::OnUpdateRuntime ticks, under

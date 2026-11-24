@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Commands/CommandLifecycle.h"
 
 #include <cstring>
+#include <algorithm>
 
 namespace OloEngine
 {
@@ -144,17 +145,23 @@ namespace OloEngine
         return true;
     }
 
-    u32 FrameDataBuffer::AllocateBoneMatrices(u32 count)
+    u32 FrameDataBuffer::AllocateBoneMatrices(u32 count, BoneAllocation mode)
     {
         if (count == 0)
             return 0;
 
         TUniqueLock<FMutex> lock(m_BoneMutex);
 
-        u32 offset = m_BoneMatrixOffset;
-
-        // Check for overflow before addition
-        if (count > static_cast<u32>(static_cast<sizet>(m_BoneMatrices.Num())) - offset)
+        const u32 offset = m_BoneMatrixOffset;
+        const u64 required = static_cast<u64>(offset) + count;
+        const u64 capacity = static_cast<u64>(m_BoneMatrices.Num());
+        if (required > capacity && required <= UINT32_MAX &&
+            mode == BoneAllocation::GrowDuringGather && m_PublishedBoneMatrices == 0)
+        {
+            const u64 grown = std::clamp(capacity * 2, required, static_cast<u64>(UINT32_MAX));
+            m_BoneMatrices.SetNum(static_cast<i64>(grown), EAllowShrinking::No);
+        }
+        else if (required > capacity)
         {
             if (!m_BoneOverflowLogged)
             {

@@ -10,7 +10,7 @@
 // varying.
 //
 // Layout matches OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 256 B std430). For a single-instance / non-instanced draw the C++ side
+// 272 B std430). For a single-instance / non-instanced draw the C++ side
 // uploads a length-1 buffer; gl_InstanceIndex is 0, so
 // instances[gl_InstanceIndex] is instances[0] just like the fragment stage's.
 struct InstanceData {
@@ -30,6 +30,7 @@ struct InstanceData {
     // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
     // by hand: an index without its generation is a stale-slot read.
     uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

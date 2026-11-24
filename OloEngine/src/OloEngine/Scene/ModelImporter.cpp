@@ -163,7 +163,8 @@ namespace OloEngine
 
         // Every mesh, as submeshes of one source (issue #1533; see GetEntityMeshSource).
         const Ref<MeshSource> meshSource = model->GetEntityMeshSource();
-        const Ref<Skeleton> skeleton = model->HasSkeleton() ? model->GetSkeleton() : nullptr;
+        const auto& rig = model->GetSkeleton();
+        const Ref<Skeleton> skeleton = rig ? rig->Instantiate() : nullptr;
         // A MaterialComponent replaces the material of EVERY submesh, so it is
         // added only for a one-mesh model. A multi-material model shades each
         // submesh with its own imported material, and a MaterialOverridesComponent

@@ -189,7 +189,7 @@ namespace OloEngine
         // behavioural fields plus instance-list manipulation.
         lua.new_usertype<InstancedMeshComponent>("InstancedMeshComponent", "cast_shadows", &InstancedMeshComponent::CastShadows, "frustum_cull_per_instance", &InstancedMeshComponent::FrustumCullPerInstance, "cull_distance", &InstancedMeshComponent::CullDistance, "lightmap_static", &InstancedMeshComponent::LightmapStatic, "instance_count", sol::readonly_property([](const InstancedMeshComponent& c) -> int
                                                                                                                                                                                                                                                                                                                                                                             { return static_cast<int>(c.Instances.Num()); }),
-                                                 "clear_instances", [](InstancedMeshComponent& c)
+                                                 "set_instance_animation", &InstancedMeshComponent::SetInstanceAnimation, "clear_instances", [](InstancedMeshComponent& c)
                                                  { c.Instances.Reset(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
                                                  {
                                 // Fifteen raw floats straight from script. A NaN in any of

@@ -1,0 +1,138 @@
+#version 450 core
+
+layout(local_size_x = 128) in;
+
+// std430 twin of InstanceData. StableID is two words on both backends,
+// including hardware without shaderInt64.
+struct Member
+{
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int EntityID;
+    float Custom;
+    uvec2 StableID;
+    vec4 LightmapScaleOffset;
+    uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
+};
+
+// One invocation emits at most one record. Each output has InputCount or
+// more prefix slots, with its read-only palette atlas beyond that prefix.
+layout(std430, binding = 16) readonly buffer CrowdMembers { Member members[]; };
+layout(std430, binding = 15) writeonly buffer CrowdNear { Member nearMembers[]; };
+layout(std430, binding = 21) writeonly buffer CrowdMid { Member midMembers[]; };
+layout(std430, binding = 22) writeonly buffer CrowdFar { Member farMembers[]; };
+// Only the second word of each DrawElementsIndirectCommand changes.
+layout(std430, binding = 17) buffer CrowdNearArgs { uint indexCount; uint instanceCount; } nearArgs;
+layout(std430, binding = 23) buffer CrowdMidArgs { uint indexCount; uint instanceCount; } midArgs;
+layout(std430, binding = 24) buffer CrowdFarArgs { uint indexCount; uint instanceCount; } farArgs;
+layout(std430, binding = 25) readonly buffer CrowdPreviousHistory { uvec4 previousHistory[]; };
+layout(std430, binding = 26) writeonly buffer CrowdNextHistory { uvec4 nextHistory[]; };
+
+layout(std140, binding = 71) uniform CrowdCullParams
+{
+    vec4 u_Planes[6];         // culling camera, render-origin relative
+    vec4 u_VisualSphere;      // projected size for LOD
+    vec4 u_AnimatedSphere;    // contains the full posed envelope
+    vec4 u_Origin;            // xyz render origin, w nonzero enables frustum cull
+    vec4 u_EyeScale;          // xyz relative culling eye, w height * |projection[1][1]|
+    vec4 u_Lod;               // near px, far px, hysteresis, orthographic flag
+    vec4 u_Clock;             // current and previous cycles, current and previous loop flags
+    uvec4 u_Layout;           // input count, atlas start, frame count, bone count
+    uint u_PreviousCount;     // zero on a cut or clip replacement
+    uint u_CoarseIntervals;   // the coarse atlas has one additional terminal frame
+    uint u_Remapped;          // group reordered: CrowdPose.x names the old row plus one
+    uvec4 u_VertexFrameStrides; // optional baked vertex frames after both bone palettes, per output tier
+};
+
+bool outsideFrustum(mat4 model)
+{
+    if (u_Origin.w < 0.5)
+        return false;
+    vec3 center = (model * vec4(u_AnimatedSphere.xyz, 1.0)).xyz;
+    // Project the transformed sphere onto each plane. The resulting support
+    // radius stays conservative for a sheared as well as a scaled placement.
+    mat3 worldToPlane = transpose(mat3(model));
+    for (int i = 0; i < 6; ++i)
+    {
+        vec4 plane = u_Planes[i];
+        float extent = u_AnimatedSphere.w * length(worldToPlane * plane.xyz);
+        if (dot(plane, vec4(center, 1.0)) < -extent)
+            return true;
+    }
+    return false;
+}
+
+// Twin of SelectCrowdLod. Test both thresholds, even after a two-tier cut.
+uint classify(mat4 model, uint previous)
+{
+    vec3 center = (model * vec4(u_VisualSphere.xyz, 1.0)).xyz;
+    float scale = max(length(model[0].xyz), max(length(model[1].xyz), length(model[2].xyz)));
+    float divisor = u_Lod.w > 0.5 ? 1.0 : max(length(center - u_EyeScale.xyz), 0.001);
+    float pixels = u_VisualSphere.w * scale * u_EyeScale.w / divisor;
+    float nearFactor = previous == 0u ? 1.0 - u_Lod.z : previous == 3u ? 1.0 : 1.0 + u_Lod.z;
+    float farFactor = previous == 2u ? 1.0 + u_Lod.z : previous == 3u ? 1.0 : 1.0 - u_Lod.z;
+    if (pixels >= u_Lod.x * nearFactor) return 0u;
+    return pixels >= u_Lod.y * farFactor ? 1u : 2u;
+}
+
+uvec2 samplePose(float cycles, uint tier, bool loop, uint drawTier)
+{
+    float phase = loop ? fract(cycles) : clamp(cycles, 0.0, 1.0);
+    uint recordsPerFrame = (u_Layout.w + 2u) / 3u;
+    uint intervals = tier == 0u ? u_Layout.z - 1u : u_CoarseIntervals;
+    uint start = u_Layout.y;
+    if (tier != 0u)
+        start += u_Layout.z * recordsPerFrame; // contiguous coarse samples after the full clip
+    float scaled = phase * float(intervals);
+    uint frame = uint(scaled);
+    uint weight = uint(round(fract(scaled) * 65535.0));
+    // At a handover the previous tier may have used the other sampling rate.
+    // Resolve it through the bone palette on this draw's actual topology.
+    uint vertexStride = u_VertexFrameStrides[drawTier];
+    if (vertexStride != 0u && ((tier == 0u) == (drawTier == 0u)))
+    {
+        uint vertexBase = u_Layout.y + (u_Layout.z + u_CoarseIntervals + 1u) * recordsPerFrame;
+        return uvec2((vertexBase + frame * vertexStride + 1u) | 0x80000000u, weight);
+    }
+    // At the held end phase is exactly one and weight is zero. The vertex
+    // stage reads the terminal frame alone, without advancing past the tail.
+    return uvec2(start + frame * recordsPerFrame + 1u, weight);
+}
+
+void main()
+{
+    uint row = gl_GlobalInvocationID.x;
+    if (row >= u_Layout.x) return;
+
+    Member m = members[row];
+    m.Transform[3].xyz -= u_Origin.xyz;
+    m.PrevTransform[3].xyz -= u_Origin.xyz;
+    uvec4 last = uvec4(0u);
+    // A zero remap marks a newcomer (UINT_MAX after subtraction). Read a
+    // separate generation so another invocation cannot overwrite our old row.
+    uint oldRow = u_Remapped != 0u ? m.CrowdPose.x - 1u : row;
+    if (oldRow < u_PreviousCount)
+        last = previousHistory[oldRow];
+    bool known = oldRow < u_PreviousCount && all(equal(last.xy, m.StableID));
+    uint tier = classify(m.Transform, known ? last.z : 3u);
+    float offset = (isnan(m.Custom) || isinf(m.Custom)) ? 0.0 : m.Custom;
+    nextHistory[row] = uvec4(m.StableID, tier, floatBitsToUint(offset));
+    if (outsideFrustum(m.Transform)) return;
+
+    uvec2 pose = samplePose(u_Clock.x + offset, tier, u_Clock.z > 0.5, tier);
+    uvec2 prev = pose;
+    if (known)
+        prev = samplePose(u_Clock.y + uintBitsToFloat(last.w), last.z, u_Clock.w > 0.5, tier);
+    else if (m.CrowdPose.y == 0u)
+        m.PrevTransform = m.Transform;
+    m.CrowdPose = uvec4(pose.x, prev.x, pose.y | (prev.y << 16u), u_Layout.w);
+    if (tier == 0u)
+        nearMembers[atomicAdd(nearArgs.instanceCount, 1u)] = m;
+    else if (tier == 1u)
+        midMembers[atomicAdd(midArgs.instanceCount, 1u)] = m;
+    else
+        farMembers[atomicAdd(farArgs.instanceCount, 1u)] = m;
+}

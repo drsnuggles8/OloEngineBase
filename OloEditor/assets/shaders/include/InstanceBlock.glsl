@@ -2,7 +2,7 @@
 #define INSTANCE_BLOCK_GLSL
 
 // Per-draw instance data SSBO. Layout mirrors OloEngine::InstanceData
-// (OloEngine/Renderer/Instancing/InstanceData.h, 256 B std430). Indexed by
+// (OloEngine/Renderer/Instancing/InstanceData.h, 272 B std430). Indexed by
 // gl_InstanceIndex — for non-instanced draws gl_InstanceIndex is 0 and the
 // C++ side uploads a length-1 InstanceBuffer.
 //
@@ -27,6 +27,7 @@ struct InstanceData {
     // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
     // by hand: an index without its generation is a stale-slot read.
     uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {
