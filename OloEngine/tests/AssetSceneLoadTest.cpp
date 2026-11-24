@@ -420,7 +420,21 @@ namespace OloEngine::Tests
             if (entry.is_regular_file() && entry.path().extension() == ".olo")
                 scenes.push_back(entry.path());
         }
+        ASSERT_FALSE(ec) << ec.message();
         ASSERT_FALSE(scenes.empty()) << "No scenes found under " << scenesDir.string();
+
+        // The benchmark and dog-authoring scene sources also use Sandbox assets.
+        // Copy them into the staging tree so their sidecars stay off the source paths.
+        const auto repoRoot = fs::path(OLO_TEST_EDITOR_ROOT).parent_path();
+        const auto sourceScenes = tempRoot / "SourceScenes";
+        fs::create_directories(sourceScenes);
+        for (const auto& source : { repoRoot / "scripts/perf/fixtures/RuntimeDogAndFern.olo",
+                                    repoRoot / "tools/dog-authoring/sources/Bernese/Bernese.olo" })
+        {
+            const auto staged = sourceScenes / source.filename();
+            ASSERT_TRUE(fs::copy_file(source, staged)) << source;
+            scenes.push_back(staged);
+        }
         std::ranges::sort(scenes);
 
         struct Failure
