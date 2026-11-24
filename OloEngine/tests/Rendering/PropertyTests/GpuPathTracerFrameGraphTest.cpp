@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -19,6 +20,7 @@
 
 #include <cmath>
 #include <nlohmann/json.hpp>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <string_view>
@@ -183,6 +185,41 @@ namespace OloEngine::Tests
         RunEditorFrames(camera, 1);
         EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 0u);
         EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 1u);
+
+        // Vegetation can withhold a previously published TLAS during the build,
+        // after the pass verdict used to compile the graph. Inject that producer
+        // verdict at its publication point without an entire vegetation workload.
+        const auto readAccumulation = [&](std::vector<f32>& values)
+        {
+            const auto target = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
+            ASSERT_TRUE(target);
+            ReadbackRgbaFloat(target->GetColorAttachmentHandle(1), kWidth, kHeight, values);
+        };
+        std::vector<f32> previous;
+        ASSERT_NO_FATAL_FAILURE(readAccumulation(previous));
+        struct RestoreTraceScene
+        {
+            RenderGraph& Graph;
+            ~RestoreTraceScene()
+            {
+                Graph.RemovePostPassHook("WithholdTraceScene");
+                Renderer3D::GetRayTracingScene().SetVegetationReady(true);
+            }
+        };
+        {
+            const RestoreTraceScene restore{ *graph };
+            graph->AddPostPassHook("WithholdTraceScene", [](std::string_view pass, RenderGraph&)
+                                   {
+                if (pass == "RayTracingScenePass")
+                    Renderer3D::GetRayTracingScene().SetVegetationReady(false); });
+            RunEditorFrames(camera, 1);
+        }
+        EXPECT_EQ(tracer->GetStats().Fallback, GpuPathTracerFallbackReason::AccelerationStructureWithheld);
+        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 0u);
+        std::vector<f32> retained;
+        ASSERT_NO_FATAL_FAILURE(readAccumulation(retained));
+        ASSERT_EQ(previous.size(), retained.size());
+        EXPECT_EQ(std::memcmp(previous.data(), retained.data(), retained.size() * sizeof(f32)), 0);
     }
 
     INSTANTIATE_TEST_SUITE_P(ReferencePaths, GpuPathTracerFrameGraphTest,

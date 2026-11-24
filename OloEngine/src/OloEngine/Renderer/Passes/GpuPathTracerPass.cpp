@@ -446,6 +446,13 @@ namespace OloEngine
             ReportFallback(GpuPathTracerFallbackReason::TargetUnavailable);
             return;
         }
+        // RayTracingScenePass publishes this frame's TLAS after pass configuration.
+        // If it withheld a previously ready structure, the shader will carry the
+        // histories forward. Its CPU sample count must take the same branch.
+        const u64 tlasAddress = m_Stats.Active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
+        if (m_Stats.Active && tlasAddress == 0u)
+            ReportFallback(m_RayTracingScene->IsTlasWithheld() ? GpuPathTracerFallbackReason::AccelerationStructureWithheld
+                                                               : GpuPathTracerFallbackReason::AccelerationStructureEmpty);
         const bool active = m_Stats.Active;
 
         const auto& outSpec = outputFramebuffer->GetSpecification();
@@ -476,7 +483,6 @@ namespace OloEngine
         // A ZERO TLAS ADDRESS IS THE OFF SWITCH, uploaded deliberately: it is
         // the value the shader's first guard tests, so an inactive tracer
         // reaches the GPU as "pass through" instead of as a stale address.
-        const u64 tlasAddress = active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
         params.TlasAddress = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                         static_cast<u32>(tlasAddress >> 32u), RayTracing::kInstanceMaskAll,
                                         settings.Seed);
