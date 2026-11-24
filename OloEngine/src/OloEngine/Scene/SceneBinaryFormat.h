@@ -118,8 +118,9 @@ namespace OloEngine
         // entity after the first coat-shadow block.
         // v8 (#1558): GroomComponent gains its segment budget. Rebuild the
         // fixed-order binary component payload from the source YAML.
-        constexpr u32 CurrentVersion = 8;
-        constexpr u32 MinSupportedVersion = 8;
+        // v9 (#1623): Cinematic and handle-backed components join the generated blocks.
+        constexpr u32 CurrentVersion = 9;
+        constexpr u32 MinSupportedVersion = 9;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

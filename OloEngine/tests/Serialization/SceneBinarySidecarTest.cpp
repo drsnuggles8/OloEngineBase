@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -430,6 +431,56 @@ namespace OloEngine::Tests
             EXPECT_NEAR(cr.Thickness, 0.55f, kEpsilon);
             EXPECT_NEAR(cr.Fade, 0.021f, kEpsilon);
         }
+    }
+
+    TEST_F(SceneBinarySidecarTest, RejectChecksEnumWireValueBeforeNarrowing)
+    {
+        const auto path = ScenePath("enum-reject.olo");
+        const auto sidecar = std::filesystem::path(path).concat(".scenebin");
+        const glm::vec4 color{ 0.375f, 0.1875f, 0.625f, 0.8125f };
+        constexpr auto authoredAlignment = UITextAlignment::MiddleLeft;
+        {
+            auto scene = Scene::Create();
+            auto& text = scene->CreateEntity("Text").AddComponent<UITextComponent>();
+            text.m_Color = color;
+            text.m_Alignment = authoredAlignment;
+            ASSERT_TRUE(SceneSerializer(scene).Serialize(path));
+        }
+        {
+            auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).Deserialize(path));
+        }
+
+        // Locate the exact color/alignment pair from the generated UIText block.
+        std::ostringstream expected;
+        SceneBinIO::Write(expected, color);
+        SceneBinIO::Write(expected, authoredAlignment);
+        const auto expectedBytes = expected.str();
+        std::string bytes;
+        {
+            std::ifstream in(sidecar, std::ios::binary);
+            ASSERT_TRUE(in);
+            bytes.assign(std::istreambuf_iterator<char>(in), {});
+        }
+        const auto offset = bytes.find(expectedBytes);
+        ASSERT_NE(offset, std::string::npos);
+        ASSERT_EQ(bytes.find(expectedBytes, offset + 1), std::string::npos);
+
+        std::ostringstream replacement;
+        SceneBinIO::Write(replacement, color);
+        SceneBinIO::Write(replacement, i32{ 256 });
+        bytes.replace(offset, expectedBytes.size(), replacement.str());
+        {
+            std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(out.write(bytes.data(), static_cast<std::streamsize>(bytes.size())));
+        }
+
+        auto scene = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(scene).Deserialize(path));
+        Entity text = scene->FindEntityByName("Text");
+        ASSERT_TRUE(text && text.HasComponent<UITextComponent>());
+        // YAML still names MiddleLeft. Narrowing before validation gives TopLeft.
+        EXPECT_EQ(text.GetComponent<UITextComponent>().m_Alignment, UITextAlignment::MiddleCenter);
     }
 
     // MaterialOverridesComponent (issue #1533) is binary-covered through the

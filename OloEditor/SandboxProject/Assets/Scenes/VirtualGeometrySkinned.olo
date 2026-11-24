@@ -1,5 +1,5 @@
 Scene: VirtualGeometrySkinned.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Skinned virtualized geometry (issue #1150) — a rigged character drawn through

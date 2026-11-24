@@ -78,7 +78,7 @@ def vec(v):
 
 HEADER = """\
 Scene: Courtyard.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # DENSE ARCHITECTURAL / FOLIAGE benchmark scene (issue #974).
@@ -344,7 +344,7 @@ def spot_light(direction, color, intensity, range_, inner, outer,
     )
 
 
-def decal(color, size, mode, albedo_tex=None, emissive_tex=None):
+def decal(color, size, mode, albedo_handle=None, emissive_handle=None):
     # Key shape: DeserializeDecalComponent (SceneSerializer.cpp) /
     # DecalModeMatrixTest.olo.
     s = (
@@ -354,10 +354,10 @@ def decal(color, size, mode, albedo_tex=None, emissive_tex=None):
         "      FadeDistance: 0.02\n"
         "      NormalAngleThreshold: 0.5\n"
     )
-    if albedo_tex:
-        s += f"      AlbedoTexturePath: {albedo_tex}\n"
-    if emissive_tex:
-        s += f"      EmissiveTexturePath: {emissive_tex}\n"
+    if albedo_handle:
+        s += f"      AlbedoTextureHandle: {albedo_handle}\n"
+    if emissive_handle:
+        s += f"      EmissiveTextureHandle: {emissive_handle}\n"
     s += (
         f"      Mode: {mode}\n"
         "      Transparent: false\n"
@@ -660,16 +660,16 @@ def build():
 
     # ── Decals: one per DecalMode on the atrium floor (DecalModeMatrixTest
     #    shape). Kept off the fountain (x ~ 0).
-    checker = "Assets/Textures/Checkerboard.png"
+    checker = 4  # Sandbox AssetRegistry.oar
     w.entity("Decal Albedo", (-8.5, 0.05, 0.8), (0, 0, 0), (1, 1, 1),
-             decal([0.9, 0.3, 0.2, 1], [3, 2, 3], 0, albedo_tex=checker),
+             decal([0.9, 0.3, 0.2, 1], [3, 2, 3], 0, albedo_handle=checker),
              comment="── Decal mode matrix on the atrium floor: Albedo / Normal / RMA / Emissive ──")
     w.entity("Decal Normal", (-5, 0.05, 0.8), (0, 0, 0), (1, 1, 1),
              decal([1, 1, 1, 1], [3, 2, 3], 1))
     w.entity("Decal RMA", (3.5, 0.05, 0.8), (0, 0, 0), (1, 1, 1),
              decal([1, 1, 1, 1], [3, 2, 3], 2))
     w.entity("Decal Emissive", (7, 0.05, 0.8), (0, 0, 0), (1, 1, 1),
-             decal([0.2, 0.9, 1, 1], [3, 2, 3], 3, emissive_tex=checker))
+             decal([0.2, 0.9, 1, 1], [3, 2, 3], 3, emissive_handle=checker))
 
     # ── 6 shadow-casting point lights on the atrium centre-line.
     for i, x in enumerate((-10, -6, -2, 2, 6, 10)):

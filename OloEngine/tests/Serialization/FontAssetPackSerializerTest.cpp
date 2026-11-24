@@ -217,6 +217,22 @@ class FontAssetPackSerializerTest : public ::testing::Test
     Ref<EditorAssetManager> m_AssetManager;
 };
 
+TEST_F(FontAssetPackSerializerTest, RegisteredFontResolvesFromProjectRoot)
+{
+    const auto source = ResolveReferenceFont();
+    ASSERT_FALSE(source.empty());
+    const auto localFont = m_TempDir / "Assets" / "ProjectFont.ttf";
+    ASSERT_TRUE(fs::copy_file(source, localFont));
+    const auto handle = m_AssetManager->ImportAsset(localFont);
+    ASSERT_NE(handle, AssetHandle(0));
+    ASSERT_EQ(m_AssetManager->GetMetadata(handle).FilePath, fs::path("Assets/ProjectFont.ttf"));
+
+    const auto font = m_AssetManager->GetAsset(handle).As<Font>();
+    ASSERT_TRUE(font && font->IsLoaded());
+    EXPECT_EQ(font->GetHandle(), handle);
+    EXPECT_EQ(fs::path(font->GetPath()), fs::weakly_canonical(localFont));
+}
+
 TEST_F(FontAssetPackSerializerTest, AssetPackRoundTrip)
 {
     const fs::path fontPath = ResolveReferenceFont();

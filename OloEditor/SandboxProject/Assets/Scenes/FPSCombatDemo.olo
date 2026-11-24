@@ -1,5 +1,5 @@
 Scene: FPSCombatDemo.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 4360000000000000001
     TagComponent:

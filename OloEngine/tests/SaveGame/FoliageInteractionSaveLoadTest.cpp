@@ -201,7 +201,7 @@ namespace OloEngine::Tests
         // response of 1 — NOT 0 — and with nothing that emits an influence, so
         // its foliage renders exactly as it rendered.
         const std::string priorYaml = R"(Scene: Prior
-Version: 1
+Version: 2
 Entities:
   - Entity: 12345678901234567891
     TagComponent:
@@ -239,7 +239,7 @@ Entities:
         // here is not a wrong-looking bend — it is a bend that never recovers,
         // because NaN compares false against the retire threshold.
         const std::string hostileYaml = R"(Scene: Hostile
-Version: 1
+Version: 2
 Entities:
   - Entity: 12345678901234567891
     TagComponent:

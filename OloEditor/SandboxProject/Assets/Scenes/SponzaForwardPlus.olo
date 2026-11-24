@@ -1,5 +1,5 @@
 Scene: SponzaForwardPlus.olo
-Version: 1
+Version: 2
 RenderingPath: ForwardPlus
 PostProcessSettings:
   TonemapOperator: 0

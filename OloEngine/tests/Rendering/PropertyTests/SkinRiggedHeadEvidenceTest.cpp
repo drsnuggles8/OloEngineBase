@@ -509,7 +509,7 @@ namespace OloEngine::Tests
         const fs::path scene = project / "Assets" / "Scenes" / "Head.olo";
         {
             std::ofstream out(scene);
-            out << "Scene: Head.olo\nVersion: 1\nEntities:\n";
+            out << "Scene: Head.olo\nVersion: 2\nEntities:\n";
             std::istringstream block(kAcceptanceHumanEntity);
             for (std::string line; std::getline(block, line);)
                 out << "  " << line << "\n";

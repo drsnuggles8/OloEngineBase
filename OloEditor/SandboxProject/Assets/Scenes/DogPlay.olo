@@ -1,5 +1,5 @@
 Scene: DogPlay
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 2
   Exposure: 1

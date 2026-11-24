@@ -367,7 +367,7 @@ namespace OloEngine::Tests
     {
         auto loaded = Scene::Create();
         ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(
-            "Scene: Wet\nVersion: 1\nEntities:\n  - Entity: 1615\n    TagComponent:\n      Tag: Coat\n    GroomWetnessComponent: {}\n"
+            "Scene: Wet\nVersion: 2\nEntities:\n  - Entity: 1615\n    TagComponent:\n      Tag: Coat\n    GroomWetnessComponent: {}\n"
             "  - Entity: 1616\n    TagComponent:\n      Tag: Wild\n    GroomWetnessComponent:\n      Band: 50\n      Darkening: 0.2\n"
             "      Immersion: 7\n"));
         const auto coat = loaded->FindEntityByName("Coat");

@@ -31,6 +31,8 @@
 
 namespace OloEngine
 {
+    class Texture2D;
+
     /**
      * @brief Editor asset manager with file-based loading and hot-reload support
      *
@@ -369,6 +371,7 @@ namespace OloEngine
          * @return Handle of the imported asset, or 0 if failed
          */
         AssetHandle ImportAsset(const std::filesystem::path& filepath);
+        [[nodiscard]] Ref<Texture2D> ImportTexture(const std::filesystem::path& filepath, bool srgb);
 
         /**
          * @brief Serialize the asset registry to disk

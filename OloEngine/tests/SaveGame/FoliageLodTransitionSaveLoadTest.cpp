@@ -131,7 +131,7 @@ namespace OloEngine::Tests
         // not with a plausible-looking default that changes its image.
         auto scene = Scene::Create();
         const std::string yaml = R"(Scene: Untitled
-Version: 1
+Version: 2
 Entities:
   - Entity: 1234567890123456
     TagComponent:
@@ -161,7 +161,7 @@ Entities:
     {
         auto scene = Scene::Create();
         const std::string yaml = R"(Scene: Untitled
-Version: 1
+Version: 2
 Entities:
   - Entity: 1234567890123456
     TagComponent:
