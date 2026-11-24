@@ -825,7 +825,7 @@ def main():
     if args.scene != "all" and args.scene not in SCENES:
         print(f"Unknown scene '{args.scene}'. Use --list.", file=sys.stderr)
         return 1
-    if args.scene == "all" and (args.count or args.counts):
+    if args.scene == "all" and (args.count is not None or args.counts):
         print("--count/--counts only apply to a single --scene.", file=sys.stderr)
         return 1
 
