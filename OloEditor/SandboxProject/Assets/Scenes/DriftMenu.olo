@@ -1,5 +1,5 @@
 Scene: DriftMenu.olo
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -287,7 +287,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     UIImageComponent:
-      TexturePath: Assets/Textures/DriftMenuBackground-v2.png
+      TextureHandle: 4896684622676915326
       Color: [1, 1, 1, 1]
       BorderInsets: [0, 0, 0, 0]
     UIPanelComponent:
@@ -313,7 +313,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: DRIFT
-      FontPath: assets/fonts/opensans/OpenSans-Light.ttf
+      FontAssetHandle: 11619896480214797109
       FontSize: 104
       Color: [0.94, 0.96, 0.96, 1]
       Alignment: 3
@@ -340,7 +340,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: SAIL BEYOND THE LAST LIGHT
-      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontAssetHandle: 12458656870877501212
       FontSize: 20
       Color: [0.92, 0.68, 0.34, 1]
       Alignment: 3
@@ -367,7 +367,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: W/S  THROTTLE     A/D  HELM     Q/E  SAIL     C  LOOK ASTERN
-      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontAssetHandle: 12333194640582576626
       FontSize: 15
       Color: [0.62, 0.69, 0.72, 0.9]
       Alignment: 6
@@ -415,7 +415,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: A solitary voyage across a restless archipelago.
-      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontAssetHandle: 12333194640582576626
       FontSize: 18
       Color: [0.62, 0.69, 0.72, 1]
       Alignment: 3
@@ -594,7 +594,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: NEW GAME
-      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontAssetHandle: 12458656870877501212
       FontSize: 22
       Color: [0.92, 0.95, 1, 1]
       Alignment: 3
@@ -621,7 +621,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: CONTINUE
-      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontAssetHandle: 12458656870877501212
       FontSize: 22
       Color: [0.92, 0.95, 1, 1]
       Alignment: 3
@@ -648,7 +648,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: CONTROLS
-      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontAssetHandle: 12458656870877501212
       FontSize: 22
       Color: [0.92, 0.95, 1, 1]
       Alignment: 3
@@ -675,7 +675,7 @@ Entities:
       Scale: [1, 1, 1]
     UITextComponent:
       Text: QUIT
-      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontAssetHandle: 12458656870877501212
       FontSize: 22
       Color: [0.92, 0.95, 1, 1]
       Alignment: 3

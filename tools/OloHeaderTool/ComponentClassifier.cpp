@@ -976,15 +976,15 @@ namespace OloHeaderTool
                 continue;
             }
             // Clamp (issue #451) is supported on scalar Float/Int/UInt/SmallInt/
-            // SmallUInt/Enum fields, and — the vec3-Clamp follow-up slice — glm::vec3
+            // SmallUInt/Enum fields, and — the vec3-Clamp follow-up slice — glm::vec3/vec4
             // (clamped per-component, mirroring the hand-written SanitizeVec3Clamped
-            // idiom). Requesting it on any other type (Vec2/Vec4/Struct/…), or with
+            // idiom). Requesting it on any other type (Vec2/Struct/…), or with
             // neither Min nor Max given, marks the whole component non-trivial rather
             // than silently dropping the annotation (ambiguity fails safe, same
             // discipline as every other unsupported construct in this parser).
             static const std::set<PropType> kClampEligible = {
                 PropType::Float, PropType::Int, PropType::UInt,
-                PropType::SmallInt, PropType::SmallUInt, PropType::Enum, PropType::Vec3
+                PropType::SmallInt, PropType::SmallUInt, PropType::Enum, PropType::Vec3, PropType::Vec4
             };
             if (fieldHasClamp && (!kClampEligible.contains(pt) || (!fieldClampMin && !fieldClampMax)))
             {

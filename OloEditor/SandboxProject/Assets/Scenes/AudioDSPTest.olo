@@ -1,5 +1,5 @@
 Scene: AudioDSPTest.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 8800000000000000001
     TagComponent:
@@ -14,7 +14,6 @@ Entities:
       Color: [0.2, 0.6, 1, 1]
       SortingOrder: 0
       TilingFactor: 1
-      TexturePath: ""
     AudioSourceComponent:
       Filepath: Audio/ding.wav
       VolumeMultiplier: 1
@@ -48,7 +47,6 @@ Entities:
       Color: [1, 0.4, 0.2, 1]
       SortingOrder: 0
       TilingFactor: 1
-      TexturePath: ""
     AudioSourceComponent:
       Filepath: Audio/ding.wav
       VolumeMultiplier: 1
@@ -82,7 +80,6 @@ Entities:
       Color: [0.8, 0.2, 0.8, 1]
       SortingOrder: 0
       TilingFactor: 1
-      TexturePath: ""
     AudioSourceComponent:
       Filepath: Audio/ding.wav
       VolumeMultiplier: 0.800000012

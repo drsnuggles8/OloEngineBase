@@ -1,5 +1,5 @@
 Scene: DecalModeMatrixTest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # Decal MODE MATRIX (issue #853).
 #
@@ -177,6 +177,6 @@ Entities:
       Size: [3.5, 2, 3.5]
       FadeDistance: 0.02
       NormalAngleThreshold: 0.5
-      EmissiveTexturePath: Assets/Textures/Checkerboard.png
+      EmissiveTextureHandle: 4
       Mode: 3
       Transparent: false

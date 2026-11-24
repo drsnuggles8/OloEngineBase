@@ -1,5 +1,5 @@
 Scene: ParallelRecording
-Version: 1
+Version: 2
 Entities:
   - Entity: 1013000001000000
     TagComponent:

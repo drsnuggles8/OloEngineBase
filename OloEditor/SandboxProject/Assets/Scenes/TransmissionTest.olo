@@ -1,5 +1,5 @@
 Scene: TransmissionTest.olo
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1

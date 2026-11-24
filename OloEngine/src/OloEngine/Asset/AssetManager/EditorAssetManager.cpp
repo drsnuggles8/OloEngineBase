@@ -425,10 +425,8 @@ namespace OloEngine
             auto placeholderAsset = AssetManager::GetPlaceholderAsset(type);
             if (placeholderAsset)
             {
-                // Set the placeholder's handle to match the original asset handle
-                placeholderAsset->SetHandle(assetHandle);
-
-                // Cache the placeholder asset so callers get a valid asset reference
+                // The manager shares one placeholder per type. Keep the requested
+                // handle in the cache key and leave the shared object unchanged.
                 {
                     TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
                     m_LoadedAssets[assetHandle] = placeholderAsset;
@@ -908,6 +906,33 @@ namespace OloEngine
         if (ec)
             return walkFailed(assetDirectory, ec);
         return registered;
+    }
+
+    Ref<Texture2D> EditorAssetManager::ImportTexture(const std::filesystem::path& filepath, bool srgb)
+    {
+        const auto handle = ImportAsset(filepath);
+        if (handle == 0 || GetAssetType(handle) != AssetType::Texture2D)
+            return nullptr;
+
+        // A scene can be saved or packed immediately after the drop. Make the
+        // registry entry durable before the inspector can assign the handle.
+        if (!SerializeAssetRegistry())
+            return nullptr;
+
+        const auto texture = GetAsset(handle).As<Texture2D>();
+        if (!texture || !texture->IsLoaded() || texture->GetSpecification().SRGB == srgb)
+            return texture;
+
+        // Keep the dropped slot's preview color space without changing the shared
+        // asset. Saving still writes the registered source handle.
+        const auto metadata = GetMetadata(handle);
+        auto preview = Texture2D::Create(GetFileSystemPath(metadata).string(), srgb, metadata.FilePath.string());
+        if (preview && preview->IsLoaded())
+        {
+            preview->SetHandle(handle);
+            return preview;
+        }
+        return texture;
     }
 
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)

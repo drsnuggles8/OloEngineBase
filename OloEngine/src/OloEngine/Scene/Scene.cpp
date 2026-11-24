@@ -522,6 +522,7 @@ namespace OloEngine
 
         Ref<Scene> newScene = Ref<Scene>::Create();
 
+        newScene->m_Name = other->m_Name;
         newScene->m_ViewportWidth = other->m_ViewportWidth;
         newScene->m_ViewportHeight = other->m_ViewportHeight;
         newScene->m_StreamingSettings = other->m_StreamingSettings;

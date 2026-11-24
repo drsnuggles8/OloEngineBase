@@ -1,5 +1,5 @@
 Scene: SSGITest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Screen-Space Global Illumination demo scene.

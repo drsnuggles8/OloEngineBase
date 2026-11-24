@@ -1,5 +1,5 @@
 Scene: PlayerRigFirstPerson.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 6450000000000000001
     TagComponent:

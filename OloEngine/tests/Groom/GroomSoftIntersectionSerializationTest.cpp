@@ -43,7 +43,7 @@ namespace OloEngine::Tests
     {
         auto loaded = Scene::Create();
         ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(
-            "Scene: Contact\nVersion: 1\nEntities:\n  - Entity: 1614\n    TagComponent:\n      Tag: Coat\n    GroomSoftIntersectionComponent: {}\n"));
+            "Scene: Contact\nVersion: 2\nEntities:\n  - Entity: 1614\n    TagComponent:\n      Tag: Coat\n    GroomSoftIntersectionComponent: {}\n"));
         const auto coat = loaded->FindEntityByName("Coat");
         ASSERT_TRUE(coat && coat.HasComponent<GroomSoftIntersectionComponent>());
         EXPECT_TRUE(coat.GetComponent<GroomSoftIntersectionComponent>() == GroomSoftIntersectionComponent{});

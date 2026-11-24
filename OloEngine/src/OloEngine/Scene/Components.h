@@ -2449,6 +2449,7 @@ namespace OloEngine
         f32 Kerning = 0.0f;
         OLO_PROPERTY()
         f32 LineSpacing = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f)
         f32 MaxWidth = 0.0f; // 0 = no wrapping
         bool DropShadow = false;
         f32 ShadowDistance = 0.02f;
@@ -4263,6 +4264,7 @@ namespace OloEngine
         f32 m_FontSize = 24.0f;
         OLO_PROPERTY()
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_SERIALIZE(Reject, Min = 0, Max = 8)
         UITextAlignment m_Alignment = UITextAlignment::MiddleCenter;
         OLO_PROPERTY()
         f32 m_Kerning = 0.0f;
@@ -7788,10 +7790,14 @@ namespace OloEngine
         Ref<Texture2D> m_NormalTexture = nullptr;   // Tangent-space normal map (Normal mode)
         Ref<Texture2D> m_RMATexture = nullptr;      // R=Roughness, G=Metallic, B=AO (RMA mode)
         Ref<Texture2D> m_EmissiveTexture = nullptr; // RGB=emissive, A=mask (Emissive mode)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec3 m_Size = { 1.0f, 1.0f, 1.0f };
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_FadeDistance = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_NormalAngleThreshold = 0.5f;
+        OLO_SERIALIZE(Reject, Min = 0, Max = 3)
         DecalMode m_Mode = DecalMode::Albedo;
         // Force the forward (alpha-blended / WB-OIT) decal path even when
         // the active RenderingPath is Deferred. Opaque deferred decals are

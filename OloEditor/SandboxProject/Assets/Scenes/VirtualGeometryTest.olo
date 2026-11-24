@@ -1,5 +1,5 @@
 Scene: VirtualGeometryTest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry (issue #629).

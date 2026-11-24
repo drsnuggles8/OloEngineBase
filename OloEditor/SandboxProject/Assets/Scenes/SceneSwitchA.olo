@@ -1,5 +1,5 @@
 Scene: SceneSwitchA.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 6420000000000000001
     TagComponent:

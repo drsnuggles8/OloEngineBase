@@ -3,6 +3,8 @@
 #include "MCP/McpInputInject.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpToolsCommon.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
 
 #include <exception>
 #include <atomic>
@@ -33,6 +35,28 @@
 
 namespace OloEngine::MCP
 {
+    void InputInject::CaptureEntityIdentities(McpInputStateSnapshot& state, const Scene* activeScene,
+                                              const Entity& selected, const Entity& hovered)
+    {
+        const auto capture = [activeScene](const Entity& entity, u64& id, std::string& name)
+        {
+            // A cached handle can outlive a deferred destroy or a scene switch.
+            if (activeScene && entity.GetScene() == activeScene &&
+                activeScene->GetAllEntitiesWith<IDComponent, TagComponent>().contains(entity))
+            {
+                id = static_cast<u64>(entity.GetUUID());
+                name = entity.GetComponent<TagComponent>().Tag;
+            }
+            else
+            {
+                id = 0;
+                name.clear();
+            }
+        };
+        capture(selected, state.SelectedEntityId, state.SelectedEntityName);
+        capture(hovered, state.HoveredEntityId, state.HoveredEntityName);
+    }
+
     namespace
     {
         namespace Inject = InputInject;

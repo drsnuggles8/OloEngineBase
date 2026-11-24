@@ -1,5 +1,5 @@
 Scene: particle_test.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 2499230237858324228
     TagComponent:
