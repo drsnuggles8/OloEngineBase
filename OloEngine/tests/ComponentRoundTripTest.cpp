@@ -4655,6 +4655,16 @@ Entities:
         EXPECT_EQ(restored.GetComponent<TerrainComponent>().m_VoxelMesher, VoxelMesherKind::MarchingCubes);
     }
 
+    TEST(ComponentRoundTrip, AuthoredNameSurvivesSceneCopy)
+    {
+        auto authored = Scene::Create();
+        authored->SetName("KestrelStart.olo");
+
+        const auto clone = Scene::Copy(authored);
+        ASSERT_TRUE(clone);
+        EXPECT_EQ(clone->GetName(), "KestrelStart.olo");
+    }
+
     // -------------------------------------------------------------------------
     // TerrainComponent — the OTHER two destinations a new field has to reach
     // -------------------------------------------------------------------------
