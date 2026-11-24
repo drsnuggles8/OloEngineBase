@@ -1491,9 +1491,9 @@ namespace OloEngine
     {
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        return entity && entity.HasComponent<InstancedMeshComponent>() &&
-               entity.GetComponent<InstancedMeshComponent>().SetInstanceAnimation(index, clipIndex, phase);
+        auto entity = scene->TryGetEntityWithUUID(entityID);
+        return entity && entity->HasComponent<InstancedMeshComponent>() &&
+               entity->GetComponent<InstancedMeshComponent>().SetInstanceAnimation(index, clipIndex, phase);
     }
 
     static void InstancedMeshComponent_ClearInstances(UUID entityID)
