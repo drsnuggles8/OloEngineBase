@@ -406,7 +406,8 @@ namespace OloEngine
                     {
                         const RayTracing::DeformedSurfaceBinding deformed = s_Data.DeformedSurfaces.FindResident(
                             RayTracing::DeformedSurfaceKey{ .EntityId = stableEntityId,
-                                                            .RestVertexBuffer = RHI::HashKey(vertexHandle) });
+                                                            .RestVertexBuffer = RHI::HashKey(vertexHandle),
+                                                            .InstanceId = stableInstanceId });
                         if (deformed.IsValid())
                             vertexHandle = deformed.Handle;
                     }
@@ -489,6 +490,7 @@ namespace OloEngine
             const RayTracing::DeformedSurfaceKey deformedKey{
                 .EntityId = stableEntityId,
                 .RestVertexBuffer = RHI::HashKey(vertexHandle),
+                .InstanceId = stableInstanceId,
             };
             const std::span<const glm::mat4> bonePalette{
                 animatedSurface.m_BonePalette,

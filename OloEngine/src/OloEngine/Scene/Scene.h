@@ -67,6 +67,8 @@ namespace OloEngine
     class JoltScene;
     class FluidWorld;
     class SceneStreamer;
+    class CrowdRenderer;
+    struct CrowdVisibilityCounts;
     struct IKTargetComponent;
     struct TerrainComponent;
     struct SpringBoneComponent;
@@ -159,6 +161,8 @@ namespace OloEngine
         ~Scene();
 
         static Ref<Scene> Create();
+        // Synchronous GPU readback for capture tools, outside the timed interval.
+        [[nodiscard]] CrowdVisibilityCounts ReadCrowdVisibilityCounts() const;
         static Ref<Scene> Copy(Ref<Scene>& other);
 
         // Release the process-wide render defaults Scene.cpp caches lazily (currently
@@ -1715,6 +1719,7 @@ namespace OloEngine
         // sufficient: an allocator may reuse a destroyed Scene's address and
         // accidentally carry temporal history into the replacement scene.
         UUID m_GPUSceneOwnerToken;
+        std::unique_ptr<CrowdRenderer> m_CrowdRenderer;
 
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;

@@ -966,6 +966,27 @@ namespace OloEngine
 		}
 	}
 
+	public partial class CrowdAnimationComponent : Component
+	{
+		public float NearPixels
+		{
+			get => InternalCalls.CrowdAnimationComponent_GetNearPixels(Entity.ID);
+			set => InternalCalls.CrowdAnimationComponent_SetNearPixels(Entity.ID, value);
+		}
+
+		public float FarPixels
+		{
+			get => InternalCalls.CrowdAnimationComponent_GetFarPixels(Entity.ID);
+			set => InternalCalls.CrowdAnimationComponent_SetFarPixels(Entity.ID, value);
+		}
+
+		public float Hysteresis
+		{
+			get => InternalCalls.CrowdAnimationComponent_GetHysteresis(Entity.ID);
+			set => InternalCalls.CrowdAnimationComponent_SetHysteresis(Entity.ID, value);
+		}
+	}
+
 	public partial class DestructibleComponent : Component
 	{
 		public float Health

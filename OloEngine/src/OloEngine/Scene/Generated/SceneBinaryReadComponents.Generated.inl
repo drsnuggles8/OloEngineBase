@@ -330,6 +330,17 @@ case 3559159903u: // CloudscapeComponent
     if (!SceneBinIO::Read(reader, comp.m_AffectIBL)) return false;
     break;
 }
+case 3669621371u: // CrowdAnimationComponent
+{
+    auto& comp = deserializedEntity.AddComponent<CrowdAnimationComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_NearPixels)) return false;
+    comp.m_NearPixels = std::clamp(comp.m_NearPixels, static_cast<f32>(1.0f), static_cast<f32>(4096.0f));
+    if (!SceneBinIO::Read(reader, comp.m_FarPixels)) return false;
+    comp.m_FarPixels = std::clamp(comp.m_FarPixels, static_cast<f32>(1.0f), static_cast<f32>(4096.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Hysteresis)) return false;
+    comp.m_Hysteresis = std::clamp(comp.m_Hysteresis, static_cast<f32>(0.0f), static_cast<f32>(0.45f));
+    break;
+}
 case 2359936345u: // DebrisComponent
 {
     auto& comp = deserializedEntity.AddComponent<DebrisComponent>();

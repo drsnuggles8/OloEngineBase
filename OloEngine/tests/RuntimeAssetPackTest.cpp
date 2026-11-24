@@ -40,6 +40,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
@@ -146,6 +147,53 @@ namespace
         return serializer.SerializeToString(scene);
     }
 } // namespace
+
+TEST(RuntimeAssetPackTest, CrowdSettingsAndMemberPhasesSurviveYamlAndPack)
+{
+    auto scene = Scene::Create();
+    Entity batch = scene->CreateEntity("Crowd");
+    const auto id = batch.GetUUID();
+    auto& settings = batch.AddComponent<CrowdAnimationComponent>();
+    settings.m_NearPixels = 64.0f;
+    settings.m_FarPixels = 9.5f;
+    settings.m_Hysteresis = 0.125f;
+    InstanceData member;
+    member.StableID = 42;
+    member.SetCrowdClipIndex(2);
+    member.Custom = 0.375f;
+    batch.AddComponent<InstancedMeshComponent>().Instances.Add(member);
+    SceneAssetSerializer assets;
+    const auto yaml = assets.SerializeToString(scene);
+    auto loose = Scene::Create();
+    ASSERT_TRUE(SceneSerializer(loose).DeserializeFromYAML(yaml));
+    const auto path = OloEngine::Tests::TempFile("crowd_scene_blob.bin");
+    {
+        FileStreamWriter writer(path);
+        ASSERT_TRUE(writer.IsStreamGood());
+        const std::string blob = MakeSceneBlob(yaml);
+        writer.WriteData(blob.data(), blob.size());
+    }
+    FileStreamReader reader(path);
+    AssetPackFile::SceneInfo info{};
+    info.Handle = static_cast<AssetHandle>(0x1749u);
+    const Ref<Scene> packed = assets.DeserializeSceneFromAssetPack(reader, info);
+    ASSERT_TRUE(packed);
+    for (auto restored : { loose, packed })
+    {
+        Entity actor = restored->GetEntityByUUID(id);
+        ASSERT_TRUE(actor && actor.HasComponent<CrowdAnimationComponent>());
+        const auto& lod = actor.GetComponent<CrowdAnimationComponent>();
+        EXPECT_FLOAT_EQ(lod.m_NearPixels, settings.m_NearPixels);
+        EXPECT_FLOAT_EQ(lod.m_FarPixels, settings.m_FarPixels);
+        EXPECT_FLOAT_EQ(lod.m_Hysteresis, settings.m_Hysteresis);
+        ASSERT_TRUE(actor.HasComponent<InstancedMeshComponent>());
+        const auto& placements = actor.GetComponent<InstancedMeshComponent>().Instances;
+        ASSERT_EQ(placements.Num(), 1);
+        EXPECT_FLOAT_EQ(placements[0].Custom, member.Custom);
+        EXPECT_EQ(placements[0].StableID, member.StableID);
+        EXPECT_EQ(placements[0].GetCrowdClipIndex(), 2);
+    }
+}
 
 TEST(RuntimeAssetPackTest, SceneRegistryPathsLoadAndSaveUnderTheProjectRoot)
 {

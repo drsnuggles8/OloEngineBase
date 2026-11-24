@@ -103,6 +103,7 @@ namespace OloEngine
     struct GroomSimulationComponent;
     struct GroomLodComponent;
     struct AnimalBudgetComponent;
+    struct CrowdAnimationComponent;
     struct AnimalPathComponent;
     struct GroomSceneShadowComponent;
     struct FluidComponent;
@@ -261,6 +262,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, GroomSimulationComponent& c);
         static void Serialize(FArchive& ar, GroomLodComponent& c);
         static void Serialize(FArchive& ar, AnimalBudgetComponent& c);
+        static void Serialize(FArchive& ar, CrowdAnimationComponent& c);
         static void Serialize(FArchive& ar, AnimalPathComponent& c);
         static void Serialize(FArchive& ar, GroomSceneShadowComponent& c);
         static void Serialize(FArchive& ar, FluidComponent& c);

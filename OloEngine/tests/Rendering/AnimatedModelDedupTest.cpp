@@ -37,6 +37,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Renderer/Crowd/CrowdGeometry.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
@@ -382,5 +383,56 @@ namespace OloEngine::Tests
         const Material* resolved = ResolveMaterialPatch(patches, source->GetImportedMaterialPtrForSubmesh(0));
         ASSERT_NE(resolved, nullptr) << "submesh 0 does not resolve to the patched copy";
         EXPECT_EQ(resolved->GetMaterialKind(), MaterialKind::Skin);
+    }
+    TEST(CrowdGeometry, MidMeshAndPosedProxyPreserveBothHorseMaterials)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        EnsureProcessRendererInitialized();
+        GLStateGuard guard("CrowdGeometry.MultiMaterial", GLStateGuard::Policy::Restore);
+        const auto path = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject/Assets/Models/Horse/Horse.gltf";
+        auto horse = Ref<AnimatedModel>::Create(path.string());
+        auto source = horse->GetEntityMeshSource();
+        ASSERT_TRUE(source && horse->HasSkeleton());
+        ASSERT_FALSE(horse->GetAnimations().empty());
+        ASSERT_EQ(source->GetSubmeshes().Num(), 2);
+        auto mid = MakeCrowdMidGeometry(source);
+        ASSERT_TRUE(mid);
+        EXPECT_LT(mid->GetIndices().Num(), source->GetIndices().Num());
+        EXPECT_EQ(mid->GetBoneInfluences().Num(), mid->GetVertices().Num());
+
+        CrowdClip clip;
+        ASSERT_TRUE(BakeCrowdClip(*horse->GetSkeleton(), horse->GetAnimations().front(), clip));
+        auto initial = BakeCrowdProxy(mid, clip, 0);
+        auto moving = BakeCrowdProxy(mid, clip, clip.FrameCount / 4u);
+        ASSERT_TRUE(initial && moving);
+        EXPECT_FALSE(moving->HasSkeleton());
+        EXPECT_FALSE(moving->HasBoneInfluences());
+        ASSERT_EQ(mid->GetSubmeshes().Num(), 2);
+        ASSERT_EQ(moving->GetSubmeshes().Num(), 2);
+        for (u32 slot = 0; slot < 2; ++slot)
+        {
+            const auto& part = moving->GetSubmeshes()[slot];
+            const auto& original = source->GetSubmeshes()[slot];
+            EXPECT_EQ(part.m_MaterialIndex, original.m_MaterialIndex);
+            EXPECT_EQ(moving->GetImportedMaterialPtrForSubmesh(slot), source->GetImportedMaterialPtrForSubmesh(slot));
+            EXPECT_FALSE(part.m_IsRigged);
+            ASSERT_GT(part.m_IndexCount, 0u);
+            ASSERT_EQ(part.m_IndexCount, mid->GetSubmeshes()[slot].m_IndexCount);
+            for (u32 i = 0; i < part.m_IndexCount; ++i)
+            {
+                const auto index = moving->GetIndices()[part.m_BaseIndex + i];
+                ASSERT_GE(index, original.m_BaseVertex);
+                ASSERT_LT(index - original.m_BaseVertex, original.m_VertexCount);
+                const auto& p = moving->GetVertices()[index].Position;
+                ASSERT_TRUE(glm::all(glm::greaterThanEqual(p, part.m_BoundingBox.Min)));
+                ASSERT_TRUE(glm::all(glm::lessThanEqual(p, part.m_BoundingBox.Max)));
+            }
+        }
+        ASSERT_EQ(initial->GetVertices().Num(), moving->GetVertices().Num());
+        f32 largestDisplacement = 0.0f;
+        const i32 count = moving->GetVertices().Num();
+        for (i32 i = 0; i < count; ++i)
+            largestDisplacement = std::max(largestDisplacement, glm::length(moving->GetVertices()[i].Position - initial->GetVertices()[i].Position));
+        EXPECT_GT(largestDisplacement, 1e-4f);
     }
 } // namespace OloEngine::Tests

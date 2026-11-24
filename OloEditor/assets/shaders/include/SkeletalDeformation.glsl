@@ -77,12 +77,6 @@ layout(std140, binding = 4) uniform OloBoneMatrices
 	mat4 u_BoneTransforms[OLO_MAX_BONES];
 };
 
-// The default palette access: the per-draw UBO above, bounded by its declared
-// length. Both are macros so that a consumer with a different STORAGE can
-// redirect them without the skinning itself being written a second time.
-#define OLO_DEFORM_BONE(i) u_BoneTransforms[i]
-#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES
-
 #ifdef OLO_DEFORM_WANT_PREV
 // Previous-frame bone palette. CommandDispatch::UploadBoneMatrices always
 // populates this UBO: when the draw carries no previous pose it aliases the
@@ -92,8 +86,58 @@ layout(std140, binding = 31) uniform OloPrevBoneMatrices
 {
 	mat4 u_PrevBoneTransforms[OLO_MAX_BONES];
 };
+#endif
+
+#ifdef INSTANCE_BLOCK_VERTEX_GLSL
+// The crowd cull writes frame addresses into each surviving instance and
+// leaves the clip's shared samples in the tail of that same SSBO. Each
+// frame contains ceil(boneCount / 3) consecutive records.
+mat4 OloCrowdMatrix(uint record, uint lane)
+{
+    if (lane == 0u) return instances[record].Transform;
+    if (lane == 1u) return instances[record].Normal;
+    return instances[record].PrevTransform;
+}
+
+mat4 OloCrowdBone(uint addressPlusOne, uint weight, uint boneCount, uint bone)
+{
+    uint record = addressPlusOne - 1u + bone / 3u;
+    uint lane = bone % 3u;
+    mat4 current = OloCrowdMatrix(record, lane);
+    if (weight == 0u)
+        return current;
+    mat4 next = OloCrowdMatrix(record + (boneCount + 2u) / 3u, lane);
+    return current + (next - current) * (float(weight) / 65535.0);
+}
+
+mat4 OloDrawBone(int bone)
+{
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if (pose.x == 0u) return u_BoneTransforms[bone];
+    return OloCrowdBone(pose.x, pose.z & 0xffffu, pose.w, uint(bone));
+}
+#define OLO_DEFORM_BONE(i) OloDrawBone(i)
+#define OLO_DEFORM_BONE_COUNT (instances[gl_InstanceIndex].CrowdPose.x == 0u ? uint(OLO_MAX_BONES) : instances[gl_InstanceIndex].CrowdPose.w)
+
+#ifdef OLO_DEFORM_WANT_PREV
+mat4 OloDrawPrevBone(int bone)
+{
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if (pose.x == 0u) return u_PrevBoneTransforms[bone];
+    if (pose.y == 0u) return OloCrowdBone(pose.x, pose.z & 0xffffu, pose.w, uint(bone));
+    return OloCrowdBone(pose.y, pose.z >> 16u, pose.w, uint(bone));
+}
+#define OLO_DEFORM_PREV_BONE(i) OloDrawPrevBone(i)
+#endif
+#else
+// Consumers without the instance stream (such as the VSM depth passes)
+// read only the palettes bound for this draw.
+#define OLO_DEFORM_BONE(i) u_BoneTransforms[i]
+#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES
+#ifdef OLO_DEFORM_WANT_PREV
 #define OLO_DEFORM_PREV_BONE(i) u_PrevBoneTransforms[i]
 #endif
+#endif // INSTANCE_BLOCK_VERTEX_GLSL
 #endif // !OLO_DEFORM_EXTERNAL_PALETTE
 
 #if !defined(OLO_DEFORM_BONE) || !defined(OLO_DEFORM_BONE_COUNT)

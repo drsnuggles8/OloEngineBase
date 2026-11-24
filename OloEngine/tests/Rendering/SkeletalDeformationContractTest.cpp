@@ -28,7 +28,10 @@
 
 #include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Animation/SkeletonData.h"
+#include "OloEngine/Renderer/Crowd/CrowdClip.h"
+#include "OloEngine/Renderer/Crowd/CrowdIndividual.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "Functional/Helpers/AnimationFixtures.h"
 
 #include <gtest/gtest.h>
 
@@ -36,6 +39,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -205,6 +209,127 @@ namespace OloEngine::Tests
             std::string_view{ "OloDeformSkinnedPosition" },
         };
     } // namespace
+
+    TEST(CrowdClipSampling, FourBonesSpanTwoRecordsThroughTheAuthoredEndpoint)
+    {
+        constexpr u32 bones = 4;
+        Skeleton rig(bones);
+        auto clip = Functional::Fixtures::MakeTranslationClip(1.0f);
+        const BoneAnimation rootTrack = clip->BoneAnimations.front();
+        clip->BoneAnimations.clear();
+        for (u32 bone = 0; bone < bones; ++bone)
+        {
+            rig.m_BoneNames[bone] = "bone" + std::to_string(bone);
+            rig.m_ParentIndices[bone] = -1;
+            BoneAnimation track = rootTrack;
+            track.BoneName = rig.m_BoneNames[bone];
+            track.PositionKeys.back().Position.y = static_cast<f32>(bone + 1u);
+            clip->BoneAnimations.push_back(std::move(track));
+        }
+        clip->InvalidateBoneCache();
+        rig.SetBindPose();
+        rig.m_FinalBoneMatrices[0][3].x = 17.0f;
+        CrowdClip baked;
+        ASSERT_TRUE(BakeCrowdClip(rig, clip, baked));
+        EXPECT_EQ(baked.BoneCount, bones);
+        EXPECT_EQ(baked.RecordsPerFrame(), 2u);
+        ASSERT_EQ(baked.FrameCount, 61u);
+        ASSERT_EQ(baked.Atlas.Num(), 122);
+        for (u32 bone = 0; bone < bones; ++bone)
+        {
+            const f32 end = static_cast<f32>(bone + 1u);
+            EXPECT_NEAR(baked.Bone(0, bone)[3].y, 0.0f, 1e-5f);
+            EXPECT_NEAR(baked.Bone(30, bone)[3].y, 0.5f * end, 1e-5f);
+            EXPECT_NEAR(baked.Bone(60, bone)[3].y, end, 1e-5f);
+        }
+        EXPECT_NEAR(baked.Atlas[120].Transform[3].y, 1.0f, 1e-5f);
+        EXPECT_NEAR(baked.Atlas[120].Normal[3].y, 2.0f, 1e-5f);
+        EXPECT_NEAR(baked.Atlas[120].PrevTransform[3].y, 3.0f, 1e-5f);
+        EXPECT_NEAR(baked.Atlas[121].Transform[3].y, 4.0f, 1e-5f);
+        EXPECT_FLOAT_EQ(rig.m_FinalBoneMatrices[0][3].x, 17.0f);
+    }
+
+    TEST(CrowdClipSampling, RejectsUnrepresentableDurationBeforeAllocating)
+    {
+        auto rig = Functional::Fixtures::MakeSingleBoneSkeleton();
+        auto clip = Functional::Fixtures::MakeTranslationClip(1.0f);
+        CrowdClip baked;
+        ASSERT_TRUE(BakeCrowdClip(*rig, clip, baked));
+        clip->Duration = std::numeric_limits<f32>::max();
+        EXPECT_FALSE(BakeCrowdClip(*rig, clip, baked));
+        EXPECT_TRUE(baked.Atlas.IsEmpty());
+        EXPECT_EQ(baked.FrameCount, 0u);
+    }
+
+    TEST(CrowdIndividualHistory, MembersKeepIndependentBlendClocksPreviousTransformsAndPalettes)
+    {
+        auto rig = Functional::Fixtures::MakeSingleBoneSkeleton();
+        rig->AdvanceBoneHistory();
+        rig->AdvanceBoneHistory();
+        ASSERT_TRUE(rig->HasBoneHistory());
+
+        // The current clip moves one unit up per second; the next moves one
+        // unit right. Offsetting both by a quarter cycle means +0.5 and +1.0
+        // seconds respectively, so using one clip's length for both fails.
+        AnimationStateComponent state(Functional::Fixtures::MakeTranslationClip(
+            2.0f, "Root", glm::vec3(0.0f), glm::vec3(0.0f, 2.0f, 0.0f)));
+        state.m_NextClip = Functional::Fixtures::MakeTranslationClip(
+            4.0f, "Root", glm::vec3(0.0f), glm::vec3(4.0f, 0.0f, 0.0f));
+        state.m_Blending = true;
+        state.m_BlendDuration = 1.0f;
+        state.m_BlendTime = state.m_BlendFactor = 0.25f;
+        state.m_CurrentTime = 0.25f;
+        state.m_NextTime = 0.5f;
+
+        CrowdIndividual renderer;
+        InstanceData a{}, b{};
+        a.StableID = 1;
+        b.StableID = 2;
+        a.Transform[3].x = 10.0f;
+        b.Transform[3].x = -8.0f;
+        b.Custom = 0.25f;
+        const auto& firstA = renderer.Evaluate(42, a, rig, state, 10);
+        const auto& firstB = renderer.Evaluate(42, b, rig, state, 10);
+        EXPECT_NEAR(firstA.Pose->m_FinalBoneMatrices[0][3].x, 0.125f, 1e-5f);
+        EXPECT_NEAR(firstB.Pose->m_FinalBoneMatrices[0][3].x, 0.375f, 1e-5f);
+        EXPECT_NEAR(firstA.Pose->m_FinalBoneMatrices[0][3].y, 0.1875f, 1e-5f);
+        EXPECT_NEAR(firstB.Pose->m_FinalBoneMatrices[0][3].y, 0.5625f, 1e-5f);
+
+        state.m_CurrentTime += 0.25f;
+        state.m_NextTime += 0.25f;
+        a.Transform[3].x += 2.0f;
+        b.Transform[3].x += 5.0f;
+        const auto& secondB = renderer.Evaluate(42, b, rig, state, 11);
+        const auto& secondA = renderer.Evaluate(42, a, rig, state, 11);
+        ASSERT_TRUE(secondA.Pose->HasBoneHistory() && secondB.Pose->HasBoneHistory());
+        EXPECT_FLOAT_EQ(secondA.PreviousTransform[3].x, 10.0f);
+        EXPECT_FLOAT_EQ(secondB.PreviousTransform[3].x, -8.0f);
+        EXPECT_NEAR(secondA.Pose->m_PrevFinalBoneMatrices[0][3].x, 0.125f, 1e-5f);
+        EXPECT_NEAR(secondB.Pose->m_PrevFinalBoneMatrices[0][3].y, 0.5625f, 1e-5f);
+        EXPECT_NEAR(secondA.Pose->m_FinalBoneMatrices[0][3].x, 0.1875f, 1e-5f);
+        EXPECT_NEAR(secondB.Pose->m_FinalBoneMatrices[0][3].y, 0.75f, 1e-5f);
+
+        // A second view must not rotate current onto previous.
+        const auto& otherView = renderer.Evaluate(42, a, rig, state, 11);
+        EXPECT_FLOAT_EQ(otherView.PreviousTransform[3].x, 10.0f);
+        EXPECT_NEAR(otherView.Pose->m_PrevFinalBoneMatrices[0][3].x, 0.125f, 1e-5f);
+        // On a seek the old pose is still the last rendered sample. No delta
+        // can reconstruct it from the newly supplied clock.
+        state.m_CurrentTime = 1.75f;
+        state.m_NextTime = 3.0f;
+        const auto& sought = renderer.Evaluate(42, a, rig, state, 12);
+        EXPECT_NEAR(sought.Pose->m_PrevFinalBoneMatrices[0][3].x, 0.1875f, 1e-5f);
+        EXPECT_NEAR(sought.Pose->m_FinalBoneMatrices[0][3].x, 0.75f, 1e-5f);
+        state.m_RootMotion = true;
+        const auto& inPlace = renderer.Evaluate(42, a, rig, state, 13);
+        EXPECT_NEAR(inPlace.Pose->m_FinalBoneMatrices[0][3].x, 0.0f, 1e-5f);
+        EXPECT_NEAR(inPlace.Pose->m_FinalBoneMatrices[0][3].y, 0.0f, 1e-5f);
+        auto newRig = Functional::Fixtures::MakeSingleBoneSkeleton();
+        const auto& rebound = renderer.Evaluate(42, a, newRig, state, 14);
+        EXPECT_FALSE(rebound.Pose->HasBoneHistory());
+        EXPECT_FLOAT_EQ(rebound.PreviousTransform[3].x, a.Transform[3].x);
+        EXPECT_EQ(rebound.Pose->m_DeformationResetCause, static_cast<u8>(Animation::DeformationHistoryResetCause::SkeletonReplaced));
+    }
 
     TEST(SkeletalDeformationContract, ProducerIncludeExists)
     {

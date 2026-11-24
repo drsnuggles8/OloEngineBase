@@ -37,7 +37,7 @@
 layout(local_size_x = 256) in;
 
 // Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 256 B std430). Pinned by InstanceDataLayoutTest.
+// 272 B std430). Pinned by InstanceDataLayoutTest.
 struct InstanceData {
     mat4 Transform;
     mat4 Normal;
@@ -57,6 +57,7 @@ struct InstanceData {
     // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
     // by hand: an index without its generation is a stale-slot read.
     uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 
 layout(std430, binding = 16) readonly buffer InstanceCullInput {

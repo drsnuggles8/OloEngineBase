@@ -1464,8 +1464,17 @@ namespace OloEngine
     [[nodiscard]] static bool UploadBoneMatrices(RendererAPI& api, bool isAnimated, u32 boneBufferOffset, u32 boneCount,
                                                  u32 prevBoneBufferOffset = UINT32_MAX)
     {
-        if (!isAnimated || !Data().Uploads.BoneMatricesUBO || boneCount == 0)
+        if (!isAnimated || !Data().Uploads.BoneMatricesUBO)
             return true;
+        if (boneCount == 0)
+        {
+            // Clip-atlas draws read their bones from the instance SSBO. The
+            // same shader still declares its ordinary palette bindings.
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION, Data().Uploads.BoneMatricesUBO->GetRHIHandle());
+            if (Data().Uploads.PrevBoneMatricesUBO)
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION_PREV, Data().Uploads.PrevBoneMatricesUBO->GetRHIHandle());
+            return true;
+        }
 
         using namespace UBOStructures;
         constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;

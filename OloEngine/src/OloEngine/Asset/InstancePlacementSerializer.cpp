@@ -33,6 +33,8 @@ namespace OloEngine
                 out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
             if (inst.StableID != 0)
                 out << YAML::Key << "StableID" << YAML::Value << inst.StableID;
+            if (inst.GetCrowdClipIndex() >= 0)
+                out << YAML::Key << "ClipIndex" << YAML::Value << inst.GetCrowdClipIndex();
             // Skip emitting Custom when it's exactly the default — bit-exact
             // sentinel comparison per cpp-coding-quality §2a.
             {
@@ -71,6 +73,8 @@ namespace OloEngine
                 out.EntityID = node["EntityID"].as<i32>();
             if (node["StableID"])
                 out.StableID = node["StableID"].as<u64>();
+            if (node["ClipIndex"])
+                out.SetCrowdClipIndex(node["ClipIndex"].as<i32>());
             if (node["Custom"])
             {
                 out.Custom = node["Custom"].as<f32>();

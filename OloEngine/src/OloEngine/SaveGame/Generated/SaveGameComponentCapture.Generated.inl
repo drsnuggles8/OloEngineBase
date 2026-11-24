@@ -40,6 +40,7 @@ SAVE_COMPONENT(CircleRendererComponent, entity, writer);
 SAVE_COMPONENT(ClothComponent, entity, writer);
 SAVE_COMPONENT(CloudscapeComponent, entity, writer);
 SAVE_COMPONENT(ConvexMeshCollider3DComponent, entity, writer);
+SAVE_COMPONENT(CrowdAnimationComponent, entity, writer);
 SAVE_COMPONENT(DecalComponent, entity, writer);
 SAVE_COMPONENT(DestructibleComponent, entity, writer);
 SAVE_COMPONENT(DialogueComponent, entity, writer);

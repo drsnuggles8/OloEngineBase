@@ -279,6 +279,17 @@ if (entity.HasComponent<CloudscapeComponent>())
     out << YAML::EndMap; // CloudscapeComponent
 }
 
+if (entity.HasComponent<CrowdAnimationComponent>())
+{
+    out << YAML::Key << "CrowdAnimationComponent";
+    out << YAML::BeginMap; // CrowdAnimationComponent
+    auto const& comp = entity.GetComponent<CrowdAnimationComponent>();
+    out << YAML::Key << "NearPixels" << YAML::Value << comp.m_NearPixels;
+    out << YAML::Key << "FarPixels" << YAML::Value << comp.m_FarPixels;
+    out << YAML::Key << "Hysteresis" << YAML::Value << comp.m_Hysteresis;
+    out << YAML::EndMap; // CrowdAnimationComponent
+}
+
 if (entity.HasComponent<DebrisComponent>())
 {
     out << YAML::Key << "DebrisComponent";

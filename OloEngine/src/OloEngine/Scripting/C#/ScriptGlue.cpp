@@ -1487,6 +1487,15 @@ namespace OloEngine
         entity.GetComponent<InstancedMeshComponent>().Instances.Add(inst);
     }
 
+    static bool InstancedMeshComponent_SetInstanceAnimation(UUID entityID, i32 index, i32 clipIndex, f32 phase)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        Entity entity = scene->GetEntityByUUID(entityID);
+        return entity && entity.HasComponent<InstancedMeshComponent>() &&
+               entity.GetComponent<InstancedMeshComponent>().SetInstanceAnimation(index, clipIndex, phase);
+    }
+
     static void InstancedMeshComponent_ClearInstances(UUID entityID)
     {
         OLO_PROFILE_FUNCTION();
@@ -4388,6 +4397,7 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_GetInstanceCount);
         OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_AddInstance);
+        OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_SetInstanceAnimation);
         OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_ClearInstances);
         OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_GetCastShadows);
         OLO_ADD_INTERNAL_CALL(InstancedMeshComponent_SetCastShadows);

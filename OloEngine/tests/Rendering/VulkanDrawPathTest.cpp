@@ -854,6 +854,8 @@ struct InstanceData {
     float Custom;
     uvec2 StableID;
     vec4 LightmapScaleOffset;
+    uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 layout(std430, binding = 15) readonly buffer InstanceCullOutput {
     InstanceData outputInstances[];
@@ -2208,7 +2210,7 @@ layout(std140,binding=2) uniform SelectParams { uvec4 refs[2]; uvec4 mode; };
 void main() {
     uint i=gl_GlobalInvocationID.x;
     if (i>=instanceCount) return;
-    uint base=i*64u;
+    uint base=i*68u;
     uint selected=(words[base+52u]+mode.x)&1u;
     uvec4 ref=refs[selected];
     if (mode.y==1u) ref.w+=1u;
@@ -2217,7 +2219,7 @@ void main() {
 }
 )");
     ASSERT_TRUE(selector && selector->IsValid());
-    static_assert(sizeof(InstanceData) / sizeof(u32) == 64u);
+    static_assert(sizeof(InstanceData) / sizeof(u32) == 68u);
     static_assert(offsetof(InstanceData, EntityID) / sizeof(u32) == 52u);
     static_assert(offsetof(InstanceData, GPUSceneRef) / sizeof(u32) == 60u);
 

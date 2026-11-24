@@ -347,6 +347,17 @@ if (auto node = entity["CloudscapeComponent"]; node)
     comp.m_AffectIBL = node["AffectIBL"].as<bool>(comp.m_AffectIBL);
 }
 
+if (auto node = entity["CrowdAnimationComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<CrowdAnimationComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["NearPixels"], v))
+        comp.m_NearPixels = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(4096.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FarPixels"], v))
+        comp.m_FarPixels = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(4096.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Hysteresis"], v))
+        comp.m_Hysteresis = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.45f));
+}
+
 if (auto node = entity["DebrisComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DebrisComponent>();

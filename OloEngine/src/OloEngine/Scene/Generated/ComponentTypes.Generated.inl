@@ -35,6 +35,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<ClothComponent, true>("ClothComponent");
     visitor.template operator()<CloudscapeComponent, true>("CloudscapeComponent");
     visitor.template operator()<ConvexMeshCollider3DComponent, true>("ConvexMeshCollider3DComponent");
+    visitor.template operator()<CrowdAnimationComponent, true>("CrowdAnimationComponent");
     visitor.template operator()<DebrisComponent, true>("DebrisComponent");
     visitor.template operator()<DecalComponent, true>("DecalComponent");
     visitor.template operator()<DestructibleComponent, true>("DestructibleComponent");

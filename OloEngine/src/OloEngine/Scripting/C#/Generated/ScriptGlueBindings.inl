@@ -3244,6 +3244,76 @@ static void CloudscapeComponent_SetVolumetricSelfShadow(UUID entityID, bool valu
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// CrowdAnimationComponent                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float CrowdAnimationComponent_GetNearPixels(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    return comp.m_NearPixels;
+}
+
+static void CrowdAnimationComponent_SetNearPixels(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    comp.m_NearPixels = value;
+}
+
+static float CrowdAnimationComponent_GetFarPixels(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    return comp.m_FarPixels;
+}
+
+static void CrowdAnimationComponent_SetFarPixels(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    comp.m_FarPixels = value;
+}
+
+static float CrowdAnimationComponent_GetHysteresis(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    return comp.m_Hysteresis;
+}
+
+static void CrowdAnimationComponent_SetHysteresis(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CrowdAnimationComponent>();
+    comp.m_Hysteresis = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // DestructibleComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

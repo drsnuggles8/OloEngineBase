@@ -326,6 +326,14 @@ OLO_ADD_INTERNAL_CALL(CloudscapeComponent_SetCastCloudShadows);
 OLO_ADD_INTERNAL_CALL(CloudscapeComponent_GetVolumetricSelfShadow);
 OLO_ADD_INTERNAL_CALL(CloudscapeComponent_SetVolumetricSelfShadow);
 
+// CrowdAnimationComponent
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_GetNearPixels);
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_SetNearPixels);
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_GetFarPixels);
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_SetFarPixels);
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_GetHysteresis);
+OLO_ADD_INTERNAL_CALL(CrowdAnimationComponent_SetHysteresis);
+
 // DestructibleComponent
 OLO_ADD_INTERNAL_CALL(DestructibleComponent_GetHealth);
 OLO_ADD_INTERNAL_CALL(DestructibleComponent_SetHealth);

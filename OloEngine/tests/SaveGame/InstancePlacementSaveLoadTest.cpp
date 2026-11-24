@@ -14,6 +14,7 @@ namespace OloEngine::Tests
         InstancedMeshComponent source, restored;
         InstanceData member;
         member.StableID = 48;
+        member.SetCrowdClipIndex(1);
         member.EntityID = 17;
         member.Custom = 0.375f;
         member.Color = { 0.25f, 0.5f, 0.75f, 1.0f };
@@ -30,6 +31,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(restored.Instances.Num(), 1);
         const auto& result = restored.Instances[0];
         EXPECT_EQ(result.StableID, member.StableID);
+        EXPECT_EQ(result.GetCrowdClipIndex(), 1);
         EXPECT_EQ(result.EntityID, member.EntityID);
         EXPECT_FLOAT_EQ(result.Custom, member.Custom);
         for (int channel = 0; channel < 4; ++channel)

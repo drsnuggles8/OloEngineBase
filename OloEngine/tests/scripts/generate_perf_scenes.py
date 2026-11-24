@@ -490,7 +490,7 @@ def build_anim_crowd(w, n, rng):
                  anim_fox(clip_index=i % 3, time_offset=(i % 100) / 33.0))
 
 
-def build_crowd_reference(w, n, rng, phase_bins=None):
+def build_crowd_reference(w, n, rng, phase_bins=None, instanced=False):
     # Spread the population across the camera footprint so the row distance
     # covers several LODs and the reference actually draws the requested count.
     height = 65.0
@@ -502,6 +502,7 @@ def build_crowd_reference(w, n, rng, phase_bins=None):
     model = json.loads((REPO_ROOT / "OloEditor/assets/models/Fox/Fox.gltf").read_text())
     durations = [max(model["accessors"][s["input"]]["max"][0] for s in clip["samplers"])
                  for clip in model["animations"]]
+    batches = [[] for _ in durations]
     if not n:
         return
     # Fill the trapezoid on the ground at uniform world density. Equal spacing
@@ -529,9 +530,21 @@ def build_crowd_reference(w, n, rng, phase_bins=None):
             phase = (actor + 0.5) / n
             if phase_bins:
                 phase = math.floor(phase * phase_bins) / phase_bins
-            w.entity(f"crowd{actor}", (x, 0, -distance), (0, rng.uniform(0, math.tau), 0),
-                     (0.02, 0.02, 0.02), anim_fox(clip, phase * durations[clip]))
+            yaw = rng.uniform(0, math.tau)
+            if instanced:
+                c, s = 0.02 * math.cos(yaw), 0.02 * math.sin(yaw)
+                transform = [c, 0, -s, 0, 0, 0.02, 0, 0, s, 0, c, 0, x, 0, -distance, 1]
+                batches[clip].append(f"        - {{Transform: {vec(transform)}, "
+                                     f"StableID: {actor + 1}, Custom: {phase:.8f}}}\n")
+            else:
+                w.entity(f"crowd{actor}", (x, 0, -distance), (0, yaw, 0),
+                         (0.02, 0.02, 0.02), anim_fox(clip, phase * durations[clip]))
         first = end
+    for clip, placements in enumerate(batches):
+        if placements:
+            components = (anim_fox(clip, 0) + "    CrowdAnimationComponent: {}\n"
+                          "    InstancedMeshComponent:\n      CastShadows: true\n      Instances:\n")
+            w.entity(f"CrowdClip{clip}", components=components + "".join(placements))
 
 
 def write_crowd_capture(scene_path, scene, scene_id, count, seed):
@@ -723,6 +736,8 @@ SCENES = {
                          "Independent skeletal animation with shadows at strategy-camera distance"),
     "crowd_shared_trial": (build_crowd_reference, 5000, True, "crowd0",
                            "Same placement and clips with eight phase cohorts per clip"),
+    "crowd_lod":        (build_crowd_reference, 5000, True, "CrowdClip0",
+                         "Instanced clip-atlas crowd with GPU LOD selection and shadows"),
     "scripts_swarm":    (build_scripts_swarm,    5000,  True, "s0",
                          "N entities each with a trivial per-frame Lua script"),
     "scripts_swarm_cs": (build_scripts_swarm,    2000,  True, "s0",
@@ -761,6 +776,8 @@ def build_scene(scene, count, seed):
         builder(w, count, rng, shadowed=(scene == "lights_shadowed"))
     elif scene == "crowd_shared_trial":
         builder(w, count, rng, phase_bins=8)
+    elif scene == "crowd_lod":
+        builder(w, count, rng, instanced=True)
     elif scene in ("scripts_swarm", "scripts_swarm_cs"):
         builder(w, count, rng, lang=("lua" if scene == "scripts_swarm" else "cs"))
     else:
@@ -781,11 +798,21 @@ def main():
     ap.add_argument("--list", action="store_true", help="list scene ids and defaults")
     ap.add_argument("--smoke", action="store_true",
                     help="(re)generate the tiny committed PerfStressSmoke.olo and exit")
+    ap.add_argument("--kestrel-crowd", action="store_true",
+                    help="regenerate KestrelCrowd.olo with 5,000 animated stand-ins")
     args = ap.parse_args()
 
     if args.list:
         for k, (_, dflt, play, _probe, desc) in SCENES.items():
             print(f"{k:18s} default={dflt:<7d} play_mode={'yes' if play else 'no ':3s} {desc}")
+        return 0
+
+    if args.kestrel_crowd:
+        path = REPO_ROOT / "OloEditor/KestrelProject/Assets/Scenes/KestrelCrowd.olo"
+        scene = SceneWriter(path.name)
+        build_crowd_reference(scene, 5000, random.Random(args.seed), instanced=True)
+        path.write_text(scene.text(), encoding="utf-8", newline="\n")
+        print(f"crowd scene -> {path}")
         return 0
 
     if args.smoke:
@@ -825,7 +852,7 @@ def main():
         text = w.text()
         out = args.out_dir / f"{name}.olo"
         out.write_text(text, encoding="utf-8", newline="\n")
-        if scene in ("crowd_reference", "crowd_shared_trial"):
+        if scene in ("crowd_reference", "crowd_shared_trial", "crowd_lod"):
             write_crowd_capture(out, w, scene, count, args.seed)
         dt = time.perf_counter() - t0
         size_mb = out.stat().st_size / (1024 * 1024)

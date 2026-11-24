@@ -81,6 +81,7 @@ namespace OloEngine::RayTracing
     {
         u64 EntityId = 0;
         u64 RestVertexBuffer = 0; ///< RHI::ResourceHandle, packed.
+        u64 InstanceId = 0;       ///< Stable placement within an instanced owner.
 
         [[nodiscard]] auto operator==(const DeformedSurfaceKey&) const -> bool = default;
     };
@@ -89,7 +90,7 @@ namespace OloEngine::RayTracing
     {
         [[nodiscard]] sizet operator()(const DeformedSurfaceKey& key) const noexcept
         {
-            // FNV-1a over the two lanes. Not a shift-and-xor: the entity id and
+            // FNV-1a over the identity lanes. Not a shift-and-xor: the entity id and
             // the handle are both dense small integers in practice, and xoring
             // them collides every (entity, buffer) pair with its transpose.
             u64 hash = 1469598103934665603ull;
@@ -100,6 +101,7 @@ namespace OloEngine::RayTracing
             };
             mix(key.EntityId);
             mix(key.RestVertexBuffer);
+            mix(key.InstanceId);
             return static_cast<sizet>(hash);
         }
     };

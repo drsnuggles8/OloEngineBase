@@ -2,6 +2,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/DeferredForwardOverlayRoute.h"
+#include "OloEngine/Renderer/Crowd/CrowdCull.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -1035,7 +1036,7 @@ namespace OloEngine
         return packet;
     }
 
-    Renderer3D::InstancedShaderRouting Renderer3D::SelectInstancedShaderRouting(const Material& material)
+    Renderer3D::InstancedShaderRouting Renderer3D::SelectInstancedShaderRouting(const Material& material, bool skinned)
     {
         // Deferred G-Buffer routing — mirrors DrawMesh() exactly (see its
         // comment for the full rationale). Instanced draws share the same
@@ -1065,17 +1066,19 @@ namespace OloEngine
             // Transmission (issue #970) and alpha blending (issue #1404) have no
             // G-Buffer representation — see ShouldRerouteToForwardOverlay at the
             // top of this file.
+            const auto& forward = skinned ? s_Data.PBRSkinnedShader : s_Data.PBRShader;
+            const auto& gbuffer = skinned ? s_Data.PBRGBufferSkinnedShader : s_Data.PBRGBufferShader;
             const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
             if (ShouldRerouteToForwardOverlay(
-                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
+                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, forward))
             {
-                routing.ShaderToUse = s_Data.PBRShader;
+                routing.ShaderToUse = forward;
                 routing.OverlayRoute = true;
             }
-            else if (deferred && s_Data.PBRGBufferShader)
-                routing.ShaderToUse = s_Data.PBRGBufferShader;
+            else if (deferred && gbuffer)
+                routing.ShaderToUse = gbuffer;
             else
-                routing.ShaderToUse = s_Data.PBRShader;
+                routing.ShaderToUse = forward;
         }
         return routing;
     }
@@ -1483,6 +1486,77 @@ namespace OloEngine
         return packet;
     }
 
+    static void FillIndirectMeshPacket(CommandPacket* packet, const Ref<Mesh>& mesh, const Ref<Shader>& shader,
+                                       u32 materialDataIndex, u32 renderStateIndex, u32 memberCount,
+                                       RHI::ResourceHandle outputInstanceBuffer, RHI::ResourceHandle indirectBuffer,
+                                       RHI::ResourceHandle rootDataBuffer, u32 rootDataAddressOffsetBytes, bool atlasSkinning)
+    {
+        auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
+        const auto vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        cmd->header.type = CommandType::DrawMeshInstanced;
+        cmd->meshHandle = mesh->GetHandle();
+        cmd->vertexArrayID = vertexArrayID;
+        cmd->indexCount = mesh->GetIndexCount();
+        cmd->baseIndex = mesh->GetBaseIndex();
+        // Pre-cull count for the profiler; the GPU determines the real
+        // survivor count at draw time via the indirect command.
+        cmd->transformCount = memberCount;
+        cmd->instanceCount = memberCount;
+        cmd->shaderHandle = shader->GetHandle();
+        cmd->materialDataIndex = materialDataIndex;
+        cmd->renderStateIndex = renderStateIndex;
+        cmd->isAnimatedMesh = atlasSkinning;
+        cmd->boneCountPerInstance = 0;
+        cmd->cullOutputInstanceBufferID = outputInstanceBuffer;
+        cmd->cullIndirectBufferID = indirectBuffer;
+        cmd->cullRootDataBufferID = rootDataBuffer;
+        cmd->cullRootDataAddressOffsetBytes = rootDataAddressOffsetBytes;
+
+        packet->SetCommandType(cmd->header.type);
+        packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+    }
+
+    bool Renderer3D::SubmitCrowdTiers(const std::array<Ref<Mesh>, 3>& meshes, const Material& material,
+                                      u32 memberCount, const CrowdCull& cull)
+    {
+        const auto routing = SelectInstancedShaderRouting(material, true);
+        if (!routing.ShaderToUse)
+            return false;
+        const auto program = routing.ShaderToUse->GetRHIHandle();
+        auto& frame = FrameDataBufferManager::Get();
+        const auto materialIndex = frame.AllocateMaterialData(CreatePODMaterialDataForMaterial(material, program));
+        const auto stateIndex = frame.AllocateRenderState(CreatePODRenderStateForMaterial(material));
+        if (materialIndex == INVALID_MATERIAL_DATA_INDEX || stateIndex == INVALID_RENDER_STATE_INDEX)
+            return false;
+        std::array<CommandPacket*, 3> packets{};
+        for (u32 tier = 0; tier < packets.size(); ++tier)
+        {
+            const auto& mesh = meshes[tier];
+            if (!mesh || !mesh->GetVertexArray() || !cull.Instances(tier).IsValid() || !cull.Indirect(tier).IsValid() ||
+                !ValidateDrawMeshResources("Renderer3D::SubmitCrowdTiers", mesh->GetVertexArray()->GetRHIHandle(), program))
+                return false;
+            auto* packet = routing.OverlayRoute ? CreateForwardOverlayDrawCall<DrawMeshInstancedCommand>()
+                                                : CreateDrawCall<DrawMeshInstancedCommand>();
+            if (!packet)
+                return false;
+            FillIndirectMeshPacket(packet, mesh, routing.ShaderToUse, materialIndex, stateIndex, memberCount,
+                                   cull.Instances(tier), cull.Indirect(tier), {}, 0, true);
+            auto metadata = packet->GetMetadata();
+            metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, program.Index & 0xffff, ComputeMaterialID(material), 0);
+            metadata.m_DebugName = GetMeshDebugName(mesh);
+            packet->SetMetadata(metadata);
+            packets[tier] = packet;
+        }
+        // Publish only the complete set. A failed allocation can then take
+        // the independent draw path without drawing any member twice.
+        for (auto* packet : packets)
+            if (routing.OverlayRoute)
+                SubmitForwardOverlayPacket(packet);
+            else
+                SubmitPacket(packet);
+        return true;
+    }
+
     CommandPacket* Renderer3D::SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
                                                         std::span<const glm::mat4> transforms,
                                                         const Material& material, bool isStatic,
@@ -1586,27 +1660,8 @@ namespace OloEngine
                                         : CreateDrawCall<DrawMeshInstancedCommand>();
             if (!packet)
                 return nullptr;
-            auto* cmd = packet->GetCommandData<DrawMeshInstancedCommand>();
-            cmd->header.type = CommandType::DrawMeshInstanced;
-            cmd->meshHandle = mesh->GetHandle();
-            cmd->vertexArrayID = vertexArrayID;
-            cmd->indexCount = mesh->GetIndexCount();
-            cmd->baseIndex = mesh->GetBaseIndex();
-            // Pre-cull count for the profiler; the GPU determines the real
-            // survivor count at draw time via the indirect command.
-            cmd->transformCount = static_cast<u32>(transforms.size());
-            cmd->instanceCount = static_cast<u32>(transforms.size());
-            cmd->shaderHandle = shaderToUse->GetHandle();
-            cmd->materialDataIndex = materialDataIndex;
-            cmd->renderStateIndex = renderStateIndex;
-            cmd->isAnimatedMesh = false;
-            cmd->cullOutputInstanceBufferID = outputInstanceBuffer;
-            cmd->cullIndirectBufferID = indirectBuffer;
-            cmd->cullRootDataBufferID = rootDataBuffer;
-            cmd->cullRootDataAddressOffsetBytes = rootDataAddressOffsetBytes;
-
-            packet->SetCommandType(cmd->header.type);
-            packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
+            FillIndirectMeshPacket(packet, mesh, shaderToUse, materialDataIndex, renderStateIndex, static_cast<u32>(transforms.size()),
+                                   outputInstanceBuffer, indirectBuffer, rootDataBuffer, rootDataAddressOffsetBytes, false);
 
             PacketMetadata metadata = packet->GetMetadata();
             if (material.GetFlag(MaterialFlag::Blend))
@@ -1716,6 +1771,11 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
+    {
+        return DrawAnimatedMesh(mesh, modelMatrix, material, boneMatrices, prevBoneMatrices, isStatic, entityID, gpuSceneDrawLink, nullptr);
+    }
+
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink, const InstanceData* member)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1920,7 +1980,12 @@ namespace OloEngine
         // variants consume u_PrevModel + the prev-bone palette (binding 31)
         // to emit per-bone velocity into their respective velocity targets
         // (scene FB RT3 in Forward/Forward+, G-Buffer RT3 in Deferred).
-        cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
+        cmd->prevTransform = member ? member->PrevTransform : GetAndRecordPrevTransform(entityID, cmd->transform);
+        if (member)
+        {
+            cmd->color = member->Color;
+            cmd->custom = member->Custom;
+        }
         cmd->shaderHandle = shaderToUse->GetHandle();
 
         // Material data via table.

@@ -3141,6 +3141,18 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, CrowdAnimationComponent& c)
+    {
+        ar << c.m_NearPixels << c.m_FarPixels << c.m_Hysteresis;
+        if (ar.IsLoading())
+        {
+            const CrowdAnimationComponent defaults;
+            c.m_NearPixels = std::isfinite(c.m_NearPixels) ? std::clamp(c.m_NearPixels, 1.0f, 4096.0f) : defaults.m_NearPixels;
+            c.m_FarPixels = std::isfinite(c.m_FarPixels) ? std::clamp(c.m_FarPixels, 1.0f, 4096.0f) : defaults.m_FarPixels;
+            c.m_Hysteresis = std::isfinite(c.m_Hysteresis) ? std::clamp(c.m_Hysteresis, 0.0f, 0.45f) : defaults.m_Hysteresis;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimalBudgetComponent& c)
     {
         ar << c.m_FullRateMotionMetres;
@@ -4984,6 +4996,10 @@ namespace OloEngine
             // re-derive it on load would stale the bake for any list with a gap
             // — and silently, since a stale bake just falls back to probes.
             ar << inst.StableID;
+            i32 clip = inst.GetCrowdClipIndex();
+            ar << clip;
+            if (ar.IsLoading())
+                inst.SetCrowdClipIndex(clip);
             ar << inst.EntityID << inst.Custom;
             ar << inst.Color.r << inst.Color.g << inst.Color.b << inst.Color.a;
             if (ar.IsLoading())
@@ -5509,6 +5525,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomSimulationComponent);
         REGISTER_SAVE_COMPONENT(GroomLodComponent);
         REGISTER_SAVE_COMPONENT(AnimalBudgetComponent);
+        REGISTER_SAVE_COMPONENT(CrowdAnimationComponent);
         REGISTER_SAVE_COMPONENT(AnimalPathComponent);
         REGISTER_SAVE_COMPONENT(GroomSceneShadowComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
