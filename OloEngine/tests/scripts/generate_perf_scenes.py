@@ -837,6 +837,9 @@ def main():
     else:
         jobs = [(args.scene, args.count or SCENES[args.scene][1])]
 
+    if any(count < 0 for _, count in jobs):
+        ap.error("scene counts must be non-negative")
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = args.out_dir / "manifest.json"
     manifest = {}
