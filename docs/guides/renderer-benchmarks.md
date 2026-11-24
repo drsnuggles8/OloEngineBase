@@ -53,7 +53,9 @@ Depth and color draws share the same animation samples. For meshes that fit the
 skinned positions and normals once per clip and interpolates them per member.
 Near geometry uses the full-rate clip. Mid and far geometry use eight intervals.
 A draw can read its shared bone palette when a vertex table does not fit or when
-the previous frame used a different sampling rate at an LOD transition.
+the previous frame used a different sampling rate at an LOD transition. Morph-bearing
+meshes use individual skeletal draws against the owner’s current deformed vertex
+surface, including its active animated mesh LOD. Placements share the owner’s morph expression.
 
 Generate the matched SandboxProject capture inputs from the repo root:
 

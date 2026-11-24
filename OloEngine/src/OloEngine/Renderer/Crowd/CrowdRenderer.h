@@ -8,19 +8,22 @@
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 
 #include <memory>
+#include <optional>
 #include <map>
 #include <unordered_map>
 
 namespace OloEngine
 {
     class MaterialOverrideCache;
-    struct CrowdMaterials
+    struct CrowdDrawState
     {
         const Material* Override;
         const MaterialOverrideCache* Patches;
         const Material& Default;
         GPUSceneMaterialOverrideLane Lane;
         bool CastShadows;
+        std::optional<u64> MorphStateHash; // present for a mutable, CPU-morphed surface
+        f32 SkinExpressionDetail = 0.0f;
     };
 
     // Scene-owned caches. Animation time and transform history advance once per
@@ -31,7 +34,7 @@ namespace OloEngine
         bool Submit(u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                     const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                     std::span<const InstanceData> placements, sizet inlineCount,
-                    const CrowdMaterials& materials, bool castShadows);
+                    const CrowdDrawState& materials, bool castShadows);
         void Remove(u64 owner);
         void FinishView();
         [[nodiscard]] CrowdVisibilityCounts ReadVisibilityCounts() const;
@@ -48,6 +51,6 @@ namespace OloEngine
         bool SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                          const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                          std::span<const InstanceData> placements,
-                         const CrowdMaterials& materials, bool castShadows);
+                         const CrowdDrawState& materials, bool castShadows);
     };
 } // namespace OloEngine

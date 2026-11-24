@@ -122,7 +122,7 @@ namespace OloEngine
 
     void CrowdIndividual::SubmitPart(u64 owner, i32 pickingID, const Ref<Mesh>& mesh, const Ref<Skeleton>& rig,
                                      const AnimationStateComponent& animation, const InstanceData& member, const Material& material,
-                                     bool shadows, const GPUSceneMaterialKey& key, u32 visibilityMask)
+                                     bool shadows, const GPUSceneMaterialKey& key, u32 visibilityMask, u64 morphStateHash)
     {
         if (!mesh || !rig || rig->m_FinalBoneMatrices.empty())
             return;
@@ -135,6 +135,7 @@ namespace OloEngine
             .m_ResetCause = pose.m_DeformationResetCause,
             .m_BonePalette = pose.m_FinalBoneMatrices.data(),
             .m_BoneCount = static_cast<u32>(pose.m_FinalBoneMatrices.size()),
+            .m_MorphStateHash = morphStateHash,
         };
         const u32 link = Renderer3D::ExtractGPUSceneMesh(owner, member.StableID, mesh->GetMeshSource(), mesh->GetSubmeshIndex(),
                                                          sample.Transform, key, GPUSceneDrawLinkRequest::Link, animated,

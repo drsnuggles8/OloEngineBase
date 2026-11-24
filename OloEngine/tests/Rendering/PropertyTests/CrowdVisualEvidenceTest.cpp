@@ -4,6 +4,7 @@
 #include "VisualEvidenceGuards.h"
 #include "TestRenderBackend.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -255,6 +256,52 @@ namespace OloEngine::Tests
         const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
         EXPECT_EQ(frame.m_AnimatedSubmeshPackets, static_cast<u32>(Placements.Num()));
         EXPECT_GT(frame.m_AnimatedSubmissionMs, 0.0);
+    }
+
+    TEST_F(CrowdVisualEvidence, IndependentlySkinnedMembersDrawTheActiveMorphSurface)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Owner.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        auto& members = Owner.GetComponent<InstancedMeshComponent>();
+        members.Instances = Placements;
+        members.InvalidateMergedCache();
+        auto source = Owner.GetComponent<MeshComponent>().m_MeshSource;
+        ASSERT_TRUE(source && source->GetVertices().Num() > 0);
+        const glm::vec3 rest = source->GetVertices()[0].Position;
+        const u32 vertexCount = static_cast<u32>(source->GetVertices().Num());
+        MorphTarget lift("Lift", vertexCount);
+        for (auto& delta : lift.Vertices)
+            delta.DeltaPosition = { 0.0f, 40.0f, 0.0f };
+        auto targets = Ref<MorphTargetSet>::Create();
+        targets->AddTarget(lift);
+        EditorCamera camera(45.0f, 640.0f / 360.0f, 0.05f, 1400.0f);
+        camera.SetViewportSize(640, 360);
+        camera.SetPose({ 0, 4, 12 }, 0, std::atan2(4.0f, 20.0f));
+        source->SetMorphTargets(targets);
+        Frame neutral, repeat, raised, restored;
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, neutral));
+        EXPECT_EQ(RendererProfiler::GetInstance().GetLastCompletedFrameData().m_AnimatedSubmeshPackets, static_cast<u32>(members.Instances.Num()));
+
+        // A component can supply its own target set even when the mesh has none.
+        source->SetMorphTargets(nullptr);
+        auto& morph = Owner.AddComponent<MorphTargetComponent>();
+        morph.MorphTargets = targets;
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, repeat));
+        morph.SetWeight("Lift", 1.0f);
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, raised));
+        EXPECT_NEAR(source->GetVertices()[0].Position.y, rest.y + 40.0f, 1.0e-4f);
+        EXPECT_EQ(RendererProfiler::GetInstance().GetLastCompletedFrameData().m_AnimatedSubmeshPackets, static_cast<u32>(members.Instances.Num()));
+        const f64 floor = VisualEvidence::Rgba8Rmse(neutral.Pixels, repeat.Pixels);
+        VisualEvidence::ExpectCapturesAreDistinct({ repeat.Pixels, raised.Pixels }, { "neutral", "raised" }, floor);
+        const u32 changed = ChangedPixels(repeat, raised);
+        EXPECT_GT(changed, 32u);
+        ASSERT_NO_FATAL_FAILURE(WriteCrowdFrame(repeat, "CrowdOff", "IndividualMorph"));
+        ASSERT_NO_FATAL_FAILURE(WriteCrowdFrame(raised, "Crowd", "IndividualMorph"));
+        std::cout << "[ CROWD ] IndividualMorph changedPixels=" << changed << " repeatRmse=" << floor << '\n';
+        morph.SetWeight("Lift", 0.0f);
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, restored));
+        EXPECT_NEAR(source->GetVertices()[0].Position.y, rest.y, 1.0e-4f);
+        EXPECT_LE(VisualEvidence::Rgba8Rmse(repeat.Pixels, restored.Pixels), floor + 0.1);
     }
 
     TEST_F(CrowdVisualEvidence, MixedMaterialsCountEachVisibleMemberOnce)

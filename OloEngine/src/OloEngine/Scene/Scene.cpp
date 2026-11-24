@@ -17374,10 +17374,16 @@ namespace OloEngine
                         if (!m_CrowdRenderer)
                             m_CrowdRenderer = std::make_unique<CrowdRenderer>();
                         const auto submitStart = std::chrono::steady_clock::now();
-                        const auto* patches = model->m_MeshSource ? PrepareMaterialOverrides(entity, model->m_MeshSource->GetImportedMaterials()) : nullptr;
+                        const auto* morph = m_Registry.try_get<MorphTargetComponent>(entity);
+                        // Select the same vertex buffer updated by EvaluateEntityMorphTargets.
+                        const auto surface = morph ? AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(entity), *model) : model->m_MeshSource;
+                        const auto* patches = surface ? PrepareMaterialOverrides(entity, surface->GetImportedMaterials()) : nullptr;
                         const bool handled = m_CrowdRenderer->Submit(stableEntityId, static_cast<i32>(std::to_underlying(entity)),
-                                                                     model->m_MeshSource, rig->m_Skeleton, *animation, *crowd, { instData, totalCount }, inlineCount,
-                                                                     { overrideMaterial, patches, GetDefaultMaterial(), overrideLane, imc.CastShadows }, imc.CastShadows && meshHasActiveShadows);
+                                                                     surface, rig->m_Skeleton, *animation, *crowd, { instData, totalCount }, inlineCount,
+                                                                     { overrideMaterial, patches, GetDefaultMaterial(), overrideLane, imc.CastShadows,
+                                                                       morph ? std::optional{ HashMorphState(morph) } : std::nullopt,
+                                                                       morph ? SkinExpressionDetailWeight(morph->AppliedWeights) : 0.0f },
+                                                                     imc.CastShadows && meshHasActiveShadows);
                         const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - submitStart;
                         RendererProfiler::GetInstance().RecordAnimatedSubmission(0u, elapsed.count());
                         if (handled)

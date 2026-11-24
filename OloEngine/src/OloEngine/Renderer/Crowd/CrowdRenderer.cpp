@@ -51,7 +51,7 @@ namespace OloEngine
             u32 VisibilityMask;
         };
 
-        PartMaterial ExtractCrowdMaterial(u64 owner, const Ref<MeshSource>& source, u32 part, const CrowdMaterials& materials)
+        PartMaterial ExtractCrowdMaterial(u64 owner, const Ref<MeshSource>& source, u32 part, const CrowdDrawState& materials)
         {
             const auto* imported = source->GetImportedMaterialPtrForSubmesh(part);
             const auto* patch = ResolveMaterialPatch(materials.Patches, imported);
@@ -70,16 +70,23 @@ namespace OloEngine
         // must never make a whole population disappear.
         void SubmitIndividual(CrowdIndividual& individual, u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                               const AnimationStateComponent& animation, std::span<const InstanceData> members,
-                              const CrowdMaterials& materials, bool shadows)
+                              const CrowdDrawState& materials, bool shadows)
         {
             for (u32 part = 0; part < static_cast<u32>(source->GetSubmeshes().Num()); ++part)
             {
                 const auto [material, key, visibilityMask] = ExtractCrowdMaterial(owner, source, part, materials);
                 const auto mesh = Ref<Mesh>::Create(source, part);
+                std::optional<Material> expressive;
+                if (materials.SkinExpressionDetail > 0.0f && material.GetMaterialKind() == MaterialKind::Skin)
+                {
+                    expressive = material;
+                    expressive->SetSkinExpressionDetail(materials.SkinExpressionDetail);
+                }
                 for (sizet row = 0; row < members.size(); ++row)
                 {
                     const auto& member = members[row];
-                    individual.SubmitPart(owner, pickingID, mesh, rig, animation, member, material, shadows, key, visibilityMask);
+                    individual.SubmitPart(owner, pickingID, mesh, rig, animation, member, expressive ? *expressive : material, shadows, key, visibilityMask,
+                                          materials.MorphStateHash.value_or(0));
                 }
             }
         }
@@ -174,8 +181,7 @@ namespace OloEngine
                 for (i32 part = 0; part < parts; ++part)
                 {
                     auto& frames = VertexFrames[part * 3 + static_cast<i32>(tier)];
-                    if (!source->HasMorphTargets())
-                        frames = BakeCrowdVertexFrames(*Tiers[tier].Source, static_cast<u32>(part), tier == 0 ? Baked : coarse, remaining);
+                    frames = BakeCrowdVertexFrames(*Tiers[tier].Source, static_cast<u32>(part), tier == 0 ? Baked : coarse, remaining);
                     remaining -= static_cast<u32>(frames.Records.Num());
                 }
             }
@@ -350,7 +356,7 @@ namespace OloEngine
     bool CrowdRenderer::Submit(u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                                const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                                std::span<const InstanceData> placements, sizet inlineCount,
-                               const CrowdMaterials& materials, bool castShadows)
+                               const CrowdDrawState& materials, bool castShadows)
     {
         if (!source || !rig)
             return false;
@@ -410,9 +416,11 @@ namespace OloEngine
     bool CrowdRenderer::SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                                     const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
                                     std::span<const InstanceData> placements,
-                                    const CrowdMaterials& materials, bool castShadows)
+                                    const CrowdDrawState& materials, bool castShadows)
     {
-        if (!animation.m_CurrentClip || animation.m_Blending || animation.m_RootMotion)
+        // Morph evaluation rewrites the active mesh's rest vertex stream. The
+        // immutable tier meshes, caster proxies and clip bounds cannot follow it.
+        if (source->HasMorphTargets() || materials.MorphStateHash.has_value() || !animation.m_CurrentClip || animation.m_Blending || animation.m_RootMotion)
         {
             SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, materials, castShadows);
             return true;
