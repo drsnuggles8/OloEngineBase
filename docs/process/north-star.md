@@ -67,7 +67,9 @@ ticked when all of them close. Draft lines nobody has confirmed stay out until t
 - [ ] Strategy camera and build tools: lifts with terrain-following towers, trails cut through forest and graded, buildings, cost previews, undo (#1740, #1741, #1742)
 - [ ] Lifts from the 1950s: rope tow, T-bar, single and double chair, with capacity, queues, wind holds and breakdowns (#1743, #1744)
 - [ ] Guests: thousands of skiers with skills and wants choosing runs on the trail network, riding lifts, crashing, eating, with a satisfaction score; detailed simulation near the camera, cheap simulation far away (#1745, #1746, #1747)
-- [ ] Skiers on screen: skiing animation, many instanced characters with level of detail (#1748, #1749)
+- [ ] Skiers on screen
+  - [ ] Skier model and skiing animation (#1748)
+  - [x] Crowd rendering with animated level of detail (#1749). At native 1080p, 5,000 stand-ins added 2.876–2.885 ms on the RX 5600 XT. [Benchmark](https://github.com/drsnuggles8/OloEngineBase/actions/runs/45456157390)
 - [ ] Staff: lift operators, ski patrol, groomers, simple for the slice (#1750)
 - [ ] Economy and reputation: ticket prices, running costs, loans, a finance screen, a star rating (#1751)
 - [ ] Tech tree and eras: research with unlocks gated by year, 1950 to about 1965 (#1752)
