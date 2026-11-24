@@ -819,35 +819,8 @@ jobs:
         env:
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
         run: |
-          set -euo pipefail
-          out="$GITHUB_WORKSPACE/test_results/crowd-benchmark"
-          mkdir -p "$out"
-          python3 ../OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_reference --counts 0,5000
-          python3 ../OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_lod --counts 200,1000,5000
-          captures=()
-          capture() {
-            local scene="$1" directory="$out/$1-run$2"
-            mkdir "$directory"
-            local manifest="$PWD/SandboxProject/Assets/Scenes/PerfStress/$scene.capture.yaml"
-            if ! ../build/OloEngine/tests/OloEngine-Tests --olo-gl-backend=egl --olo-require-gpu \
-                --olo-perf-machine=selfhosted-amd-navi10-linux \
-                --olo-capture-manifest="$manifest" --olo-capture-out="$directory" > "$directory/process.log" 2>&1; then
-              tail -100 "$directory/process.log"
-              return 1
-            fi
-            captures+=("$directory")
-          }
-          # Fresh process per arm. Alternate the control and workload to expose clock drift.
-          capture crowd_reference_0 1
-          capture crowd_lod_5000 1
-          capture crowd_lod_5000 2
-          capture crowd_reference_0 2
-          capture crowd_reference_0 3
-          capture crowd_lod_5000 3
-          capture crowd_lod_200 1
-          capture crowd_lod_1000 1
-          capture crowd_reference_5000 1
-          python3 ../scripts/perf/report-crowd.py "${captures[@]}" | tee "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          bash ../scripts/perf/capture-amd-crowd.sh "$GITHUB_WORKSPACE/test_results/crowd-benchmark"
+          cat ../test_results/crowd-benchmark/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload crowd benchmark samples and visual controls
         if: always() && github.event_name == 'workflow_dispatch' && inputs.crowd_benchmark

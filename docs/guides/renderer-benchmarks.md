@@ -68,8 +68,9 @@ target-class result, repeat the same captures on a GTX 1660 or RX 5600 and compa
 The manual GPU Conformance (AMD, self-hosted) workflow can run the comparison on its RX
 5600 XT. When the AMD GPU is idle, dispatch the reviewed branch with
 `gh workflow run gpu-conformance-amd.yml --ref <branch> -f crowd_benchmark=true`.
-The `crowd-benchmark-amd` artifact contains the raw samples, per-tier counts, and crowd
-images. The job summary gives the three alternating empty/5,000 pairs, the 200- and
+The `crowd-benchmark-amd` artifact contains the raw samples, per-tier counts, crowd
+images and render-node client traces. Each arm must observe its own PID as the sole
+render-node client. The job summary gives the three alternating empty/5,000 pairs, the 200- and
 1,000-member scaling runs, and the independent 5,000-actor control.
 
 ## Directory layout
