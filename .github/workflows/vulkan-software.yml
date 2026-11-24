@@ -630,6 +630,25 @@ jobs:
             --capability-report ..\test_results\vulkan_capability_report.md @suiteArgs
           exit $LASTEXITCODE
 
+      - name: Verify the reference tracer's raster fallback without ray queries
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && !inputs.scene_gtest_filter && !inputs.gtest_filter }}
+        working-directory: OloEditor
+        env:
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+          OLO_VULKAN_NO_RAY_TRACING: '1'
+        run: |
+          $suite = 'GpuPathTracerFallbackTest'
+          $report = '..\test_results\vulkan_path_tracer_fallback.xml'
+          $expected = '..\test_results\vulkan_path_tracer_fallback_cases.txt'
+          $exe = "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe"
+          & $exe --gtest_list_tests "--gtest_filter=$suite.*" *> $expected
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe --olo-rhi=vulkan --olo-require-vulkan "--gtest_filter=$suite.*" "--gtest_output=xml:$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ..\scripts\vulkan_ray_query_coverage.py --require --suite $suite --report $report --expected-list $expected --title 'Reference tracer on Vulkan without ray queries'
+          exit $LASTEXITCODE
+
       - name: Upload Vulkan software test results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -637,6 +656,7 @@ jobs:
           name: vulkan_software_results
           path: |
             test_results/vulkan_software.xml
+            test_results/vulkan_path_tracer_fallback.xml
             test_results/ray_query_cases.txt
             test_results/vulkan_scene.xml
             test_results/vulkan_scene_isolated_*.xml

@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
@@ -19,6 +20,8 @@
 #include "OloEngine/Scene/Entity.h"
 
 #include <cmath>
+#include <algorithm>
+#include <array>
 #include <nlohmann/json.hpp>
 #include <cstring>
 #include <filesystem>
@@ -65,7 +68,7 @@ namespace OloEngine::Tests
                 const auto memory = graph.MeasureScreenMemory();
                 const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
                 nlohmann::json row{
-                    { "cpuFrame", frame }, { "gpuFrame", gpu.FrameNumber }, { "gpuAge", gpu.AgeFrames }, { "transientDemandBytes", memory.TransientDemandBytes }, { "targetBytes", memory.NodeTargetBytes }
+                    { "observation", frame }, { "cpuFrame", gpu.CurrentFrameNumber }, { "gpuFrame", gpu.FrameNumber }, { "gpuAge", gpu.AgeFrames }, { "transientDemandBytes", memory.TransientDemandBytes }, { "targetBytes", memory.NodeTargetBytes }
                 };
                 if (gpu.Frame.IsValid())
                     row["gpuMs"] = gpu.Frame.GpuMs;
@@ -79,6 +82,85 @@ namespace OloEngine::Tests
             RecordProperty("frameCosts", frames.dump());
         }
 
+        void CheckWithheldFrame(const EditorCamera& camera, RenderGraph& graph, GpuPathTracerPass& tracer)
+        {
+            // Vegetation can withhold a previously published TLAS during the build,
+            // after the pass verdict used to compile the graph. Inject that producer
+            // verdict at its publication point without an entire vegetation workload.
+            using HistoryPlanes = std::array<std::vector<f32>, 4>;
+            const auto readHistories = [&](HistoryPlanes& planes)
+            {
+                const auto target = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
+                ASSERT_TRUE(target);
+                for (u32 plane = 0; plane < planes.size(); ++plane)
+                    ReadbackRgbaFloat(target->GetColorAttachmentHandle(plane + 1), kWidth, kHeight, planes[plane]);
+            };
+            HistoryPlanes previous;
+            ASSERT_NO_FATAL_FAILURE(readHistories(previous));
+            struct ScopedSnapshot
+            {
+                RenderGraphPassSnapshot Snapshot;
+                ~ScopedSnapshot()
+                {
+                    Snapshot.Disarm();
+                    Snapshot.ReleaseScratch();
+                }
+            } capture;
+            TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;
+            requests.AddTail(RenderGraphPassSnapshot::Request("RasterInput", [&]()
+                                                              { return graph.ResolveTextureHandle(tracer.GetPrimaryInputTextureHandle()); }));
+            requests.AddTail(RenderGraphPassSnapshot::Request("TracerOutput", [&]()
+                                                              { return graph.ResolveTextureHandle(tracer.GetPrimaryOutputTextureHandle()); }));
+            capture.Snapshot.Arm(&graph, "GpuPathTracerPass", std::move(requests));
+            struct RestoreTraceScene
+            {
+                RenderGraph& Graph;
+                ~RestoreTraceScene()
+                {
+                    Graph.RemovePostPassHook("WithholdTraceScene");
+                    Renderer3D::GetRayTracingScene().SetVegetationReady(true);
+                }
+            };
+            {
+                const RestoreTraceScene restore{ graph };
+                graph.AddPostPassHook("WithholdTraceScene", [](std::string_view pass, RenderGraph&)
+                                      {
+                if (pass == "RayTracingScenePass")
+                    Renderer3D::GetRayTracingScene().SetVegetationReady(false); });
+                RunEditorFrames(camera, 1);
+            }
+            EXPECT_EQ(tracer.GetStats().Fallback, GpuPathTracerFallbackReason::AccelerationStructureWithheld);
+            EXPECT_EQ(tracer.GetStats().SamplesTracedThisFrame, 0u);
+            HistoryPlanes retained;
+            ASSERT_NO_FATAL_FAILURE(readHistories(retained));
+            for (sizet plane = 0; plane < retained.size(); ++plane)
+            {
+                ASSERT_EQ(previous[plane].size(), retained[plane].size());
+                EXPECT_EQ(std::memcmp(previous[plane].data(), retained[plane].data(), retained[plane].size() * sizeof(f32)), 0) << plane;
+            }
+
+            // Compare both ends of the pass on the SAME frame. Comparing final composites
+            // on successive frames also compares all of the downstream temporal state.
+            const auto& captures = capture.Snapshot.GetResults();
+            ASSERT_EQ(captures.Num(), 2);
+            ASSERT_TRUE(captures[0].Captured) << captures[0].Error.ToStdString();
+            ASSERT_TRUE(captures[1].Captured) << captures[1].Error.ToStdString();
+            std::vector<f32> raster, fallback;
+            ReadbackRgbaFloat(captures[0].Handle, kWidth, kHeight, raster);
+            ReadbackRgbaFloat(captures[1].Handle, kWidth, kHeight, fallback);
+            ASSERT_EQ(raster.size(), fallback.size());
+            u32 differentPixels = 0u;
+            f32 maxDifference = 0.0f;
+            for (sizet pixel = 0; pixel < raster.size(); pixel += 4)
+            {
+                if (std::memcmp(raster.data() + pixel, fallback.data() + pixel, 3 * sizeof(f32)) != 0)
+                    ++differentPixels;
+                for (sizet channel = 0; channel < 3; ++channel)
+                    maxDifference = std::max(maxDifference, std::abs(raster[pixel + channel] - fallback[pixel + channel]));
+            }
+            EXPECT_EQ(differentPixels, 0u) << "maximum RGB difference " << maxDifference;
+        }
+
         void BuildScene() override
         {
             if (!RenderCommand::SupportsRayTracing())
@@ -87,33 +169,36 @@ namespace OloEngine::Tests
             // Use the exact geometry and materials of the CPU/device parity fixture,
             // through scene extraction and the production acceleration-structure pass.
             const auto fixture = PathTracingFixtures::MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
-            RunInFrame([&]()
-                       {
-                for (const auto& instance : fixture.Scene.GetInstances())
-                {
-                    const auto& geometry = fixture.Scene.GetGeometry(instance.GeometryIndex);
-                    const auto vertices = geometry.GetVertices();
-                    const auto indices = geometry.GetIndices();
-                    auto source = Ref<MeshSource>::Create(
-                        TArray<Vertex>(vertices.data(), static_cast<i32>(vertices.size())),
-                        TArray<u32>(indices.data(), static_cast<i32>(indices.size())));
-                    Submesh submesh;
-                    submesh.m_VertexCount = static_cast<u32>(vertices.size());
-                    submesh.m_IndexCount = static_cast<u32>(indices.size());
-                    submesh.m_BoundingBox = geometry.GetLocalBounds();
-                    source->AddSubmesh(submesh);
-                    source->Build();
-                    auto entity = GetScene().CreateEntity("Cornell surface");
-                    entity.GetComponent<TransformComponent>().SetTransform(instance.Transform);
-                    entity.AddComponent<MeshComponent>(source);
-                    const auto& material = fixture.Scene.GetMaterial(instance.MaterialIndex);
-                    auto& surface = entity.AddComponent<MaterialComponent>().m_Material;
-                    surface.SetBaseColorFactor(glm::vec4(material.BaseColor, 1.0f));
-                    surface.SetEmissiveFactor(glm::vec4(material.Emissive, 0.0f));
-                    surface.SetMetallicFactor(material.Metallic);
-                    surface.SetRoughnessFactor(material.Roughness);
-                    surface.SetPBRModel(material.Model);
-                } });
+            RunInFrame([this, &fixture]
+                       { AddSurfaces(fixture); });
+        }
+        void AddSurfaces(const PathTracingFixtures::CornellBoxScene& fixture)
+        {
+            for (const auto& instance : fixture.Scene.GetInstances())
+            {
+                const auto& geometry = fixture.Scene.GetGeometry(instance.GeometryIndex);
+                const auto vertices = geometry.GetVertices();
+                const auto indices = geometry.GetIndices();
+                auto source = Ref<MeshSource>::Create(
+                    TArray<Vertex>(vertices.data(), static_cast<i32>(vertices.size())),
+                    TArray<u32>(indices.data(), static_cast<i32>(indices.size())));
+                Submesh submesh;
+                submesh.m_VertexCount = static_cast<u32>(vertices.size());
+                submesh.m_IndexCount = static_cast<u32>(indices.size());
+                submesh.m_BoundingBox = geometry.GetLocalBounds();
+                source->AddSubmesh(submesh);
+                source->Build();
+                auto entity = GetScene().CreateEntity("Cornell surface");
+                entity.GetComponent<TransformComponent>().SetTransform(instance.Transform);
+                entity.AddComponent<MeshComponent>(source);
+                const auto& material = fixture.Scene.GetMaterial(instance.MaterialIndex);
+                auto& surface = entity.AddComponent<MaterialComponent>().m_Material;
+                surface.SetBaseColorFactor(glm::vec4(material.BaseColor, 1.0f));
+                surface.SetEmissiveFactor(glm::vec4(material.Emissive, 0.0f));
+                surface.SetMetallicFactor(material.Metallic);
+                surface.SetRoughnessFactor(material.Roughness);
+                surface.SetPBRModel(material.Model);
+            }
         }
     };
 
@@ -186,40 +271,32 @@ namespace OloEngine::Tests
         EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 0u);
         EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 1u);
 
-        // Vegetation can withhold a previously published TLAS during the build,
-        // after the pass verdict used to compile the graph. Inject that producer
-        // verdict at its publication point without an entire vegetation workload.
-        const auto readAccumulation = [&](std::vector<f32>& values)
-        {
-            const auto target = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
-            ASSERT_TRUE(target);
-            ReadbackRgbaFloat(target->GetColorAttachmentHandle(1), kWidth, kHeight, values);
-        };
-        std::vector<f32> previous;
-        ASSERT_NO_FATAL_FAILURE(readAccumulation(previous));
-        struct RestoreTraceScene
-        {
-            RenderGraph& Graph;
-            ~RestoreTraceScene()
-            {
-                Graph.RemovePostPassHook("WithholdTraceScene");
-                Renderer3D::GetRayTracingScene().SetVegetationReady(true);
-            }
-        };
-        {
-            const RestoreTraceScene restore{ *graph };
-            graph->AddPostPassHook("WithholdTraceScene", [](std::string_view pass, RenderGraph&)
-                                   {
-                if (pass == "RayTracingScenePass")
-                    Renderer3D::GetRayTracingScene().SetVegetationReady(false); });
-            RunEditorFrames(camera, 1);
-        }
-        EXPECT_EQ(tracer->GetStats().Fallback, GpuPathTracerFallbackReason::AccelerationStructureWithheld);
-        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 0u);
-        std::vector<f32> retained;
-        ASSERT_NO_FATAL_FAILURE(readAccumulation(retained));
-        ASSERT_EQ(previous.size(), retained.size());
-        EXPECT_EQ(std::memcmp(previous.data(), retained.data(), retained.size() * sizeof(f32)), 0);
+        ASSERT_NO_FATAL_FAILURE(CheckWithheldFrame(camera, *graph, *tracer));
+
+        settings.Enabled = false;
+        RunEditorFrames(camera, 1);
+        EXPECT_EQ(tracer->GetStats().Fallback, GpuPathTracerFallbackReason::NotRequested);
+        EXPECT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor), nullptr);
+        settings.Enabled = true;
+        settings.DebugView = GpuPathTracerDebugView::SampleCount;
+        settings.SampleCountDisplayScale = 0.125f;
+        RunEditorFrames(camera, 4);
+        constexpr u32 resizedWidth = 384, resizedHeight = 216;
+        ResizeRenderTarget(resizedWidth, resizedHeight);
+        camera.SetViewportSize(resizedWidth, resizedHeight);
+        RunEditorFrames(camera, 1);
+        ASSERT_TRUE(tracer->GetStats().Active);
+        EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 0u);
+        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 1u);
+        const auto resized = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
+        ASSERT_TRUE(resized);
+        ASSERT_EQ(resized->GetSpecification().Width, resizedWidth);
+        ASSERT_EQ(resized->GetSpecification().Height, resizedHeight);
+        std::vector<f32> countView;
+        ReadbackRgbaFloat(resized->GetColorAttachmentHandle(0), resizedWidth, resizedHeight, countView);
+        ASSERT_EQ(countView.size(), static_cast<sizet>(resizedWidth) * resizedHeight * 4u);
+        EXPECT_FLOAT_EQ(countView[0], settings.SampleCountDisplayScale);
+        ASSERT_NO_FATAL_FAILURE(SaveComposite("ResizedSampleCount", resizedWidth, resizedHeight));
     }
 
     INSTANTIATE_TEST_SUITE_P(ReferencePaths, GpuPathTracerFrameGraphTest,

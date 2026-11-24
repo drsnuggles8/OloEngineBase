@@ -1,8 +1,8 @@
 // OLO_TEST_LAYER: integration
 // =============================================================================
 // GpuPathTracerFallbackTest.cpp — the GPU reference path tracer on a machine
-// that CANNOT ray trace, which is the path every CI runner takes (issue
-// #1055). Drives the real render pipeline on OpenGL or Vulkan without ray queries with the
+// without ray queries (issue #1055). Drives the real render pipeline on
+// OpenGL or Vulkan with ray queries disabled, with the
 // tracer switched ON and demonstrates, rather than asserts, that:
 //
 //   * the frame is BYTE-IDENTICAL to the tracer-off frame — the fallback is
@@ -160,23 +160,23 @@ namespace OloEngine::Tests
             };
             save(off, "GpuPathTracerOff");
             save(on, "GpuPathTracerFallback");
+
+            GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass();
+            ASSERT_NE(pass, nullptr) << "the pass exists on every backend; only its shader is conditional";
+            EXPECT_FALSE(pass->IsReadyForExecution());
+            const GpuPathTracerStats& stats = pass->GetStats();
+            EXPECT_FALSE(stats.Active);
+            EXPECT_EQ(stats.Fallback, GpuPathTracerFallbackReason::ShaderUnavailable)
+                << "the reason is resolved every frame from the per-frame wiring, not from Execute, which a culled pass "
+                   "never runs; got: "
+                << ToString(stats.Fallback);
+            EXPECT_FALSE(ToString(stats.Fallback).empty());
+
+            // The graph declared no target: the structural half of the fallback.
+            EXPECT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor), nullptr);
+
+            // And the light table was never gathered — it costs nothing here.
+            EXPECT_EQ(stats.EmissiveTriangles, 0u);
         }
-
-        GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass();
-        ASSERT_NE(pass, nullptr) << "the pass exists on every backend; only its shader is conditional";
-        EXPECT_FALSE(pass->IsReadyForExecution());
-        const GpuPathTracerStats& stats = pass->GetStats();
-        EXPECT_FALSE(stats.Active);
-        EXPECT_EQ(stats.Fallback, GpuPathTracerFallbackReason::ShaderUnavailable)
-            << "the reason is resolved every frame from the per-frame wiring, not from Execute, which a culled pass "
-               "never runs; got: "
-            << ToString(stats.Fallback);
-        EXPECT_FALSE(ToString(stats.Fallback).empty());
-
-        // The graph declared no target: the structural half of the fallback.
-        EXPECT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor), nullptr);
-
-        // And the light table was never gathered — it costs nothing here.
-        EXPECT_EQ(stats.EmissiveTriangles, 0u);
     }
 } // namespace OloEngine::Tests
