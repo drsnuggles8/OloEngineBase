@@ -177,19 +177,19 @@ namespace OloEngine::Tests
         };
         ASSERT_TRUE(dispatch(true));
         constexpr u32 tag = 0x80000000u;
-        const auto near = ReadMember(culler, 0);
-        ASSERT_NE(near.CrowdPose.x & tag, 0u);
-        EXPECT_EQ(ReadMember(culler, 0, (near.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(40, 2, 0, 0));
+        const auto nearMember = ReadMember(culler, 0);
+        ASSERT_NE(nearMember.CrowdPose.x & tag, 0u);
+        EXPECT_EQ(ReadMember(culler, 0, (nearMember.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(40, 2, 0, 0));
         members[0] = Placed(10, 0.4f, 45.0f, 0.0f);
         ASSERT_TRUE(dispatch(false));
-        const auto far = ReadMember(culler, 2);
-        ASSERT_NE(far.CrowdPose.x & tag, 0u);
-        EXPECT_EQ(ReadMember(culler, 2, (far.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(42, 2, 0, 0));
+        const auto farMember = ReadMember(culler, 2);
+        ASSERT_NE(farMember.CrowdPose.x & tag, 0u);
+        EXPECT_EQ(ReadMember(culler, 2, (farMember.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(42, 2, 0, 0));
         // The previous pose came from the full-rate near palette: four
         // frames after the single input record, plus the address sentinel.
-        EXPECT_EQ(far.CrowdPose.y, 6u);
+        EXPECT_EQ(farMember.CrowdPose.y, 6u);
         ASSERT_TRUE(dispatch(false));
-        EXPECT_EQ(ReadMember(culler, 2).CrowdPose.y, far.CrowdPose.x);
+        EXPECT_EQ(ReadMember(culler, 2).CrowdPose.y, farMember.CrowdPose.x);
     }
 
     TEST_F(CrowdCullTest, RetainedMemberKeepsHistoryWhenClipGroupRowsChange)
