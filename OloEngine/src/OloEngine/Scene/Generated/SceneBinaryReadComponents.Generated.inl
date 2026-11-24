@@ -251,6 +251,15 @@ case 1484055434u: // CharacterController3DComponent
     if (!SceneBinIO::Read(reader, comp.m_ControlRotationInAir)) return false;
     break;
 }
+case 3624405597u: // CinematicComponent
+{
+    auto& comp = deserializedEntity.AddComponent<CinematicComponent>();
+    if (!SceneBinIO::Read(reader, comp.Sequence)) return false;
+    if (!SceneBinIO::Read(reader, comp.PlayOnStart)) return false;
+    if (!SceneBinIO::Read(reader, comp.Loop)) return false;
+    if (!SceneBinIO::Read(reader, comp.PlaybackSpeed)) return false;
+    break;
+}
 case 3105399945u: // CircleRendererComponent
 {
     auto& comp = deserializedEntity.AddComponent<CircleRendererComponent>();

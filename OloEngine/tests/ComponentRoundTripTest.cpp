@@ -2419,6 +2419,12 @@ namespace OloEngine::Tests
             cine.PlayOnStart = expectedPlayOnStart;
             cine.Loop = expectedLoop;
             cine.PlaybackSpeed = expectedPlaybackSpeed;
+            cine.RuntimeSequence = Ref<CinematicSequence>::Create();
+            cine.Playing = true;
+            cine.Time = 8.0f;
+            cine.PreviousTime = 7.0f;
+            cine.Finished = true;
+            cine.EventsFiredThisFrame.emplace_back("Marker");
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2434,6 +2440,15 @@ namespace OloEngine::Tests
         EXPECT_EQ(cine.PlayOnStart, expectedPlayOnStart);
         EXPECT_EQ(cine.Loop, expectedLoop);
         EXPECT_NEAR(cine.PlaybackSpeed, expectedPlaybackSpeed, kFloatEpsilon);
+        const auto component = YAML::Load(yaml)["Entities"][0]["CinematicComponent"];
+        ASSERT_TRUE(component.IsMap());
+        EXPECT_EQ(component.size(), 4u);
+        EXPECT_FALSE(cine.RuntimeSequence);
+        EXPECT_FALSE(cine.Playing);
+        EXPECT_FLOAT_EQ(cine.Time, 0.0f);
+        EXPECT_FLOAT_EQ(cine.PreviousTime, -1.0f);
+        EXPECT_FALSE(cine.Finished);
+        EXPECT_TRUE(cine.EventsFiredThisFrame.empty());
     }
 
     // -------------------------------------------------------------------------

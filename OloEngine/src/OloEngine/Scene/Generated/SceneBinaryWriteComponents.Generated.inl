@@ -175,6 +175,16 @@ if (entity.HasComponent<CharacterController3DComponent>())
     SceneBinIO::Write(out, comp.m_ControlRotationInAir);
 }
 
+if (entity.HasComponent<CinematicComponent>())
+{
+    SceneBinIO::WriteU32(out, 3624405597u); // CinematicComponent
+    auto const& comp = entity.GetComponent<CinematicComponent>();
+    SceneBinIO::Write(out, comp.Sequence);
+    SceneBinIO::Write(out, comp.PlayOnStart);
+    SceneBinIO::Write(out, comp.Loop);
+    SceneBinIO::Write(out, comp.PlaybackSpeed);
+}
+
 if (entity.HasComponent<CircleRendererComponent>())
 {
     SceneBinIO::WriteU32(out, 3105399945u); // CircleRendererComponent

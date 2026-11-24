@@ -261,6 +261,16 @@ if (auto node = entity["CharacterController3DComponent"]; node)
     comp.m_ControlRotationInAir = node["ControlRotationInAir"].as<bool>(comp.m_ControlRotationInAir);
 }
 
+if (auto node = entity["CinematicComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<CinematicComponent>();
+    comp.Sequence = node["Sequence"].as<u64>(static_cast<u64>(comp.Sequence));
+    comp.PlayOnStart = node["PlayOnStart"].as<bool>(comp.PlayOnStart);
+    comp.Loop = node["Loop"].as<bool>(comp.Loop);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PlaybackSpeed"], v))
+        comp.PlaybackSpeed = v;
+}
+
 if (auto node = entity["CircleRendererComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<CircleRendererComponent>();

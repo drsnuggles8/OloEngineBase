@@ -212,6 +212,18 @@ if (entity.HasComponent<CharacterController3DComponent>())
     out << YAML::EndMap; // CharacterController3DComponent
 }
 
+if (entity.HasComponent<CinematicComponent>())
+{
+    out << YAML::Key << "CinematicComponent";
+    out << YAML::BeginMap; // CinematicComponent
+    auto const& comp = entity.GetComponent<CinematicComponent>();
+    out << YAML::Key << "Sequence" << YAML::Value << static_cast<u64>(comp.Sequence);
+    out << YAML::Key << "PlayOnStart" << YAML::Value << comp.PlayOnStart;
+    out << YAML::Key << "Loop" << YAML::Value << comp.Loop;
+    out << YAML::Key << "PlaybackSpeed" << YAML::Value << comp.PlaybackSpeed;
+    out << YAML::EndMap; // CinematicComponent
+}
+
 if (entity.HasComponent<CircleRendererComponent>())
 {
     out << YAML::Key << "CircleRendererComponent";

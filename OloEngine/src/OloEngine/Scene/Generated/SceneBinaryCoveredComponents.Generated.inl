@@ -15,6 +15,7 @@ ids.insert(entt::type_hash<BoneAttachmentComponent>::value());
 ids.insert(entt::type_hash<BuoyancyComponent>::value());
 ids.insert(entt::type_hash<CameraRigComponent>::value());
 ids.insert(entt::type_hash<CharacterController3DComponent>::value());
+ids.insert(entt::type_hash<CinematicComponent>::value());
 ids.insert(entt::type_hash<CircleRendererComponent>::value());
 ids.insert(entt::type_hash<ClothComponent>::value());
 ids.insert(entt::type_hash<CloudscapeComponent>::value());

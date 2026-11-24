@@ -1135,7 +1135,6 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "VideoOverlayComponent",
     "VideoSurfaceComponent",
     "WaterComponent",
-    "CinematicComponent",
     "DecalComponent",
     "DialogueComponent",
     "DialogueStateComponent",
@@ -1161,6 +1160,8 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "FootIKStateComponent",
     "LocomotionStateComponent",
     "ProceduralSkyComponent",
+    // A loaded probe must request a rebake; the generated reader has no post-load hook.
+    // Keep the resolution clamp and the blend-distance and intensity rejection with it.
     "ReflectionProbeComponent",
     "RetargetingStateComponent",
     "Rigidbody3DComponent",
