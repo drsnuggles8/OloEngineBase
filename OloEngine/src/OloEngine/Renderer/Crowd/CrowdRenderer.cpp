@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace OloEngine
 {
@@ -130,7 +131,7 @@ namespace OloEngine
         Ref<Skeleton> Rig;
         CrowdClip Baked;
         std::array<Surface, 3> Tiers;
-        TArray<std::array<CrowdVertexFrames, 3>> VertexFrames;
+        std::vector<std::array<CrowdVertexFrames, 3>> VertexFrames;
         std::array<std::array<Surface, kShadowPhases + 1>, 2> Proxies;
         struct Caster
         {
@@ -166,7 +167,7 @@ namespace OloEngine
             // can interpolate the same exact samples without reskinning every
             // placement. Larger assets retain the shared-bone path.
             u32 remaining = (32u * 1024u * 1024u) / sizeof(InstanceData);
-            VertexFrames.SetNum(parts);
+            VertexFrames.resize(static_cast<sizet>(parts));
             for (u32 tier : { 1u, 2u, 0u })
             {
                 for (i32 part = 0; part < parts; ++part)
