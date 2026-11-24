@@ -76,6 +76,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [guides/integrated-renderer-benchmark.md](guides/integrated-renderer-benchmark.md) — the integrated renderer workload (#1338): how `IntegratedRenderer.olo` is generated and captured; the measurements are in [analysis/integrated-renderer-budgets-1338.md](analysis/integrated-renderer-budgets-1338.md).
 - [guides/unified-image-layouts-validation.md](guides/unified-image-layouts-validation.md) — validating Vulkan unified image layouts (#1181) against both the clean baseline and the runtime-disabled policy before attributing a change to them.
 - [guides/player-camera-rigs.md](guides/player-camera-rigs.md) — reusable player + camera rigs (first-person / third-person follow spring arm).
+- [guides/strategy-build-tools.md](guides/strategy-build-tools.md) — KESTREL controls and the strategy camera and build command APIs for new tools.
 - [guides/procedural-terrain.md](guides/procedural-terrain.md) — procedural terrain generation.
 - [guides/ui-system.md](guides/ui-system.md) — runtime UI system.
 - [guides/video-playback.md](guides/video-playback.md) — video playback component.
