@@ -60,9 +60,19 @@
 #include <string_view>
 #include <vector>
 
+namespace OloEngine
+{
+    class Entity;
+    class Scene;
+} // namespace OloEngine
+
 namespace OloEngine::MCP::InputInject
 {
     using Json = nlohmann::json;
+
+    // Called on the game thread with the current scene and cached editor handles.
+    void CaptureEntityIdentities(McpInputStateSnapshot& state, const Scene* activeScene,
+                                 const Entity& selected, const Entity& hovered);
 
     // ---- timing constants (the load-bearing part) ------------------------------
 

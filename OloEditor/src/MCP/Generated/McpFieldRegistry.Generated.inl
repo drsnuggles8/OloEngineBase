@@ -297,11 +297,11 @@ registry.push_back(OLO_GFW_FIELD(DebrisComponent, "TotalLifetime", m_TotalLifeti
 registry.push_back(OLO_GFW_FIELD(DebrisComponent, "Age", m_Age));
 
 // DecalComponent
-registry.push_back(OLO_GFW_FIELD(DecalComponent, "Color", m_Color));
+registry.push_back(OLO_GFW_FIELD_RANGE(DecalComponent, "Color", m_Color, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Size", m_Size));
-registry.push_back(OLO_GFW_FIELD(DecalComponent, "FadeDistance", m_FadeDistance));
-registry.push_back(OLO_GFW_FIELD(DecalComponent, "NormalAngleThreshold", m_NormalAngleThreshold));
-registry.push_back(OLO_GFW_FIELD(DecalComponent, "Mode", m_Mode));
+registry.push_back(OLO_GFW_FIELD_RANGE(DecalComponent, "FadeDistance", m_FadeDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(DecalComponent, "NormalAngleThreshold", m_NormalAngleThreshold, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(DecalComponent, "Mode", m_Mode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Transparent", m_Transparent));
 
 // DestructibleComponent
@@ -1226,7 +1226,7 @@ registry.push_back(OLO_GFW_FIELD(TextComponent, "TextString", TextString));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "Color", Color));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "Kerning", Kerning));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "LineSpacing", LineSpacing));
-registry.push_back(OLO_GFW_FIELD(TextComponent, "MaxWidth", MaxWidth));
+registry.push_back(OLO_GFW_FIELD_RANGE(TextComponent, "MaxWidth", MaxWidth, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "DropShadow", DropShadow));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "ShadowDistance", ShadowDistance));
 registry.push_back(OLO_GFW_FIELD(TextComponent, "ShadowColor", ShadowColor));
@@ -1377,7 +1377,7 @@ registry.push_back(OLO_GFW_FIELD(UISliderComponent, "Interactable", m_Interactab
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Text", m_Text));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "FontSize", m_FontSize));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Color", m_Color));
-registry.push_back(OLO_GFW_FIELD(UITextComponent, "Alignment", m_Alignment));
+registry.push_back(OLO_GFW_FIELD_RANGE(UITextComponent, "Alignment", m_Alignment, OLO_GFW_BOUND(0), OLO_GFW_BOUND(8)));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Kerning", m_Kerning));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "LineSpacing", m_LineSpacing));
 

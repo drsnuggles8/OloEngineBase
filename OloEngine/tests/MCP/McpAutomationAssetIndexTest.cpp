@@ -90,14 +90,14 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, FindsAProjectRelativeSceneReference)
     {
         Write(m_Project / "Assets" / "Scenes" / "Test.olo",
-              "Scene: Test\nEntities:\n  - Entity: 12345\n    DecalComponent:\n"
-              "      AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
+              "Scene: Test\nEntities:\n  - Entity: 12345\n    MaterialComponent:\n"
+              "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
 
         const AssetIndex index = Build();
         const auto referrers = FindReferrers(index, ProjectTexture(), 0);
         ASSERT_EQ(referrers.size(), 1u) << "a scene naming a texture project-relative must be found -- this is the "
                                            "spelling SceneSerializer writes today";
-        EXPECT_EQ(referrers[0].Key, "AlbedoTexturePath");
+        EXPECT_EQ(referrers[0].Key, "AlbedoMapPath");
         EXPECT_EQ(referrers[0].RawValue, "Assets/Textures/Checkerboard.png");
         EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::ProjectRelative);
         EXPECT_EQ(referrers[0].Line, 5u);
@@ -122,8 +122,8 @@ namespace OloEngine::Automation::Tests
         Write(m_Project / "Assets" / "Textures" / "Shared.png", "project-copy");
         Write(m_Root / "engineassets" / "Shared.png", "engine-copy");
         Write(m_Project / "Assets" / "Scenes" / "Engine.olo",
-              "Scene: Engine\nEntities:\n  - Entity: 1\n    DecalComponent:\n"
-              "      AlbedoTexturePath: engineassets/Shared.png\n");
+              "Scene: Engine\nEntities:\n  - Entity: 1\n    MaterialComponent:\n"
+              "      AlbedoMapPath: engineassets/Shared.png\n");
 
         const AssetIndex index = Build();
         const auto projectReferrers = FindReferrers(
@@ -231,7 +231,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, IgnoresACommentedOutReference)
     {
         Write(m_Project / "Assets" / "Scenes" / "Commented.olo",
-              "Scene: Commented\n# AlbedoTexturePath: Assets/Textures/Checkerboard.png\n"
+              "Scene: Commented\n# AlbedoMapPath: Assets/Textures/Checkerboard.png\n"
               "Entities: []\n");
 
         const AssetIndex index = Build();
@@ -425,8 +425,8 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, DependenciesAreTheReferencesInsideTheFile)
     {
         const auto scene = m_Project / "Assets" / "Scenes" / "Deps.olo";
-        Write(scene, "Scene: Deps\nEntities:\n  - Entity: 1\n    DecalComponent:\n"
-                     "      AlbedoTexturePath: Assets/Textures/Checkerboard.png\n"
+        Write(scene, "Scene: Deps\nEntities:\n  - Entity: 1\n    MaterialComponent:\n"
+                     "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n"
                      "    MeshComponent:\n      MeshHandle: 777\n");
 
         const AssetIndex index = Build();
@@ -441,7 +441,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, RespellKeepsTheStyleTheFileAlreadyUsed)
     {
         Write(m_Project / "Assets" / "Scenes" / "Project.olo",
-              "Scene: P\n  AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
+              "Scene: P\n  AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
         Write(m_Project / "Assets" / "Scenes" / "AssetDir.olo",
               "Scene: A\n  MeshPath: Textures/Checkerboard.png\n");
 
@@ -523,32 +523,32 @@ namespace OloEngine::Automation::Tests
         const auto scene = m_Project / "Assets" / "Scenes" / "Twice.olo";
         // The same text appears twice. A search-and-replace would edit both.
         Write(scene, "Scene: Twice\n  Note: Assets/Textures/Checkerboard.png\n"
-                     "  AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
+                     "  AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
 
         const AssetIndex index = Build();
         const auto referrers = FindReferrers(index, ProjectTexture(), 0);
         ASSERT_EQ(referrers.size(), 2u);
         const auto target = std::ranges::find_if(referrers, [](const AssetReference& reference)
-                                                 { return reference.Key == "AlbedoTexturePath"; });
+                                                 { return reference.Key == "AlbedoMapPath"; });
         ASSERT_NE(target, referrers.end());
 
         std::string text = Read(scene);
         ASSERT_TRUE(ApplyReferenceEdit(text, *target, "Assets/Textures/New.png"));
         EXPECT_NE(text.find("  Note: Assets/Textures/Checkerboard.png\n"), std::string::npos)
             << "the untargeted line must be untouched";
-        EXPECT_NE(text.find("  AlbedoTexturePath: Assets/Textures/New.png\n"), std::string::npos);
+        EXPECT_NE(text.find("  AlbedoMapPath: Assets/Textures/New.png\n"), std::string::npos);
     }
 
     TEST_F(AutomationAssetIndexTest, ApplyEditRefusesWhenTheFileMovedUnderTheIndex)
     {
         const auto scene = m_Project / "Assets" / "Scenes" / "Shift.olo";
-        Write(scene, "Scene: Shift\n  AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
+        Write(scene, "Scene: Shift\n  AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
         const AssetIndex index = Build();
         const auto referrers = FindReferrers(index, ProjectTexture(), 0);
         ASSERT_EQ(referrers.size(), 1u);
 
         // Somebody inserted a line. The recorded span now points at other text.
-        std::string text = "Scene: Shift\n# inserted\n  AlbedoTexturePath: Assets/Textures/Checkerboard.png\n";
+        std::string text = "Scene: Shift\n# inserted\n  AlbedoMapPath: Assets/Textures/Checkerboard.png\n";
         EXPECT_FALSE(ApplyReferenceEdit(text, referrers[0], "Assets/Textures/New.png"))
             << "the honest answer is refusal; falling back to a textual replace here is exactly how a rewrite "
                "corrupts an unrelated line";

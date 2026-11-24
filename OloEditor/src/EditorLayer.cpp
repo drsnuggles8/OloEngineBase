@@ -8,6 +8,7 @@
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
 #include "MCP/McpScriptTools.h"
+#include "MCP/McpInputInject.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpTools.h"
@@ -1663,18 +1664,8 @@ namespace OloEngine
         state.MouseX = mouse.x - info.WindowX;
         state.MouseY = mouse.y - info.WindowY;
 
-        // Entity::GetName() is non-const, so take copies (an Entity is a handle pair —
-        // copying it is free) rather than widening this method's constness.
-        if (Entity selected = m_SceneHierarchyPanel.GetSelectedEntity(); selected)
-        {
-            state.SelectedEntityId = static_cast<u64>(selected.GetUUID());
-            state.SelectedEntityName = selected.GetName();
-        }
-        if (Entity hovered = m_HoveredEntity; hovered)
-        {
-            state.HoveredEntityId = static_cast<u64>(hovered.GetUUID());
-            state.HoveredEntityName = hovered.GetName();
-        }
+        MCP::InputInject::CaptureEntityIdentities(state, m_ActiveScene.get(),
+                                                  m_SceneHierarchyPanel.GetSelectedEntity(), m_HoveredEntity);
 
         // The accumulated relative displacement of the "mouseDelta" action. Unlike the
         // absolute override this OUTLIVES the plan (that is the entire point — see
@@ -3005,8 +2996,8 @@ namespace OloEngine
                 if (m_SceneState == SceneState::Edit && [&ext]
                     { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
-                    // Sprite art is colour content, treat the dropped image as sRGB.
-                    const Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
+                    auto manager = Project::GetAssetManager().As<EditorAssetManager>();
+                    const auto texture = manager ? manager->ImportTexture(path, /*srgb=*/true) : nullptr;
                     if (texture && texture->IsLoaded())
                     {
                         auto oldComponent = m_HoveredEntity.GetComponent<SpriteRendererComponent>();

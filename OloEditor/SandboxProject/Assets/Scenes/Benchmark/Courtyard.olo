@@ -1,5 +1,5 @@
 Scene: Courtyard.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # DENSE ARCHITECTURAL / FOLIAGE benchmark scene (issue #974).
@@ -542,7 +542,7 @@ Entities:
       Size: [3, 2, 3]
       FadeDistance: 0.02
       NormalAngleThreshold: 0.5
-      AlbedoTexturePath: Assets/Textures/Checkerboard.png
+      AlbedoTextureHandle: 4
       Mode: 0
       Transparent: false
   - Entity: 974000002000009
@@ -585,7 +585,7 @@ Entities:
       Size: [3, 2, 3]
       FadeDistance: 0.02
       NormalAngleThreshold: 0.5
-      EmissiveTexturePath: Assets/Textures/Checkerboard.png
+      EmissiveTextureHandle: 4
       Mode: 3
       Transparent: false
   # ── 6 shadow-casting points, atrium centre-line ──

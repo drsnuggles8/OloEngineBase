@@ -80,7 +80,7 @@ TEST(RuntimeAssetPackTest, SceneSourceReadAndWriteUseTheProjectDirectory)
     const auto root = OloEngine::Tests::TempDir("pack-scene-source");
     const auto relative = fs::path("Assets") / "Scenes" / "Registered.oloscene";
     fs::create_directories((root / relative).parent_path());
-    std::ofstream(root / relative) << "Scene: Registered\nVersion: 1\nEntities:\n"
+    std::ofstream(root / relative) << "Scene: Registered\nVersion: 2\nEntities:\n"
                                       "  - Entity: 42\n    TagComponent:\n      Tag: PackSceneProbe\n";
 
     struct ProjectScope

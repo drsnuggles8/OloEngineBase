@@ -1,5 +1,5 @@
 Scene: Drift.olo
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 1
   Exposure: 1
@@ -3390,7 +3390,7 @@ Entities:
       Scale: [1, 1]
     UITextComponent:
       Text: "Discovered 0 of 0"
-      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontAssetHandle: 12333194640582576626
       FontSize: 26
       Color: [1, 1, 1, 1]
       Alignment: 0

@@ -1,5 +1,5 @@
 Scene: AnimalPopulation
-Version: 1
+Version: 2
 # MIXED-DISTANCE ANIMAL POPULATION (issue #1258), with bound fox coats (#1259).
 #
 # GENERATED — edit OloEngine/tests/scripts/generate_animal_population_scene.py,

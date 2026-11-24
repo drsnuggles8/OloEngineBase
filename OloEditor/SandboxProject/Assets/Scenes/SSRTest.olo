@@ -1,5 +1,5 @@
 Scene: SSRTest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Screen-Space Reflections demo scene.

@@ -1,5 +1,5 @@
 Scene: GameplayEventsDemo.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 7000000000000000001
     TagComponent:

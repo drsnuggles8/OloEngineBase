@@ -1,5 +1,5 @@
 Scene: FSR2UpscaleTest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # FSR2 temporal upscaling (#684) — the scene this feature is verified in.
 #

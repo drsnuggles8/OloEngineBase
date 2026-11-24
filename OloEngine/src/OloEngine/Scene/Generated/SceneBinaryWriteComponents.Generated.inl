@@ -175,6 +175,16 @@ if (entity.HasComponent<CharacterController3DComponent>())
     SceneBinIO::Write(out, comp.m_ControlRotationInAir);
 }
 
+if (entity.HasComponent<CinematicComponent>())
+{
+    SceneBinIO::WriteU32(out, 3624405597u); // CinematicComponent
+    auto const& comp = entity.GetComponent<CinematicComponent>();
+    SceneBinIO::Write(out, comp.Sequence);
+    SceneBinIO::Write(out, comp.PlayOnStart);
+    SceneBinIO::Write(out, comp.Loop);
+    SceneBinIO::Write(out, comp.PlaybackSpeed);
+}
+
 if (entity.HasComponent<CircleRendererComponent>())
 {
     SceneBinIO::WriteU32(out, 3105399945u); // CircleRendererComponent
@@ -252,6 +262,22 @@ if (entity.HasComponent<DebrisComponent>())
     SceneBinIO::Write(out, comp.m_RemainingLifetime);
     SceneBinIO::Write(out, comp.m_TotalLifetime);
     SceneBinIO::Write(out, comp.m_Age);
+}
+
+if (entity.HasComponent<DecalComponent>())
+{
+    SceneBinIO::WriteU32(out, 3815007389u); // DecalComponent
+    auto const& comp = entity.GetComponent<DecalComponent>();
+    SceneBinIO::WriteU64(out, (comp.m_AlbedoTexture && comp.m_AlbedoTexture->GetHandle() != 0) ? static_cast<u64>(comp.m_AlbedoTexture->GetHandle()) : 0ull);
+    SceneBinIO::WriteU64(out, (comp.m_NormalTexture && comp.m_NormalTexture->GetHandle() != 0) ? static_cast<u64>(comp.m_NormalTexture->GetHandle()) : 0ull);
+    SceneBinIO::WriteU64(out, (comp.m_RMATexture && comp.m_RMATexture->GetHandle() != 0) ? static_cast<u64>(comp.m_RMATexture->GetHandle()) : 0ull);
+    SceneBinIO::WriteU64(out, (comp.m_EmissiveTexture && comp.m_EmissiveTexture->GetHandle() != 0) ? static_cast<u64>(comp.m_EmissiveTexture->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.m_Color);
+    SceneBinIO::Write(out, comp.m_Size);
+    SceneBinIO::Write(out, comp.m_FadeDistance);
+    SceneBinIO::Write(out, comp.m_NormalAngleThreshold);
+    SceneBinIO::Write(out, comp.m_Mode);
+    SceneBinIO::Write(out, comp.m_Transparent);
 }
 
 if (entity.HasComponent<DestructibleComponent>())
@@ -972,6 +998,15 @@ if (entity.HasComponent<SpringBoneComponent>())
     SceneBinIO::Write(out, comp.Weight);
 }
 
+if (entity.HasComponent<SpriteRendererComponent>())
+{
+    SceneBinIO::WriteU32(out, 4233792822u); // SpriteRendererComponent
+    auto const& comp = entity.GetComponent<SpriteRendererComponent>();
+    SceneBinIO::Write(out, comp.Color);
+    SceneBinIO::WriteU64(out, (comp.Texture && comp.Texture->GetHandle() != 0) ? static_cast<u64>(comp.Texture->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.TilingFactor);
+}
+
 if (entity.HasComponent<StructuralNodeComponent>())
 {
     SceneBinIO::WriteU32(out, 2489598917u); // StructuralNodeComponent
@@ -982,6 +1017,21 @@ if (entity.HasComponent<StructuralNodeComponent>())
     SceneBinIO::Write(out, comp.m_CollapseDelay);
     SceneBinIO::Write(out, comp.m_FallDuration);
     SceneBinIO::Write(out, comp.m_ShatterOnCollapse);
+}
+
+if (entity.HasComponent<TextComponent>())
+{
+    SceneBinIO::WriteU32(out, 2892956045u); // TextComponent
+    auto const& comp = entity.GetComponent<TextComponent>();
+    SceneBinIO::Write(out, comp.TextString);
+    SceneBinIO::WriteU64(out, (comp.FontAsset && comp.FontAsset->GetHandle() != 0) ? static_cast<u64>(comp.FontAsset->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.Color);
+    SceneBinIO::Write(out, comp.Kerning);
+    SceneBinIO::Write(out, comp.LineSpacing);
+    SceneBinIO::Write(out, comp.MaxWidth);
+    SceneBinIO::Write(out, comp.DropShadow);
+    SceneBinIO::Write(out, comp.ShadowDistance);
+    SceneBinIO::Write(out, comp.ShadowColor);
 }
 
 if (entity.HasComponent<TilemapComponent>())
@@ -1065,6 +1115,25 @@ if (entity.HasComponent<UICheckboxComponent>())
     SceneBinIO::Write(out, comp.m_Interactable);
 }
 
+if (entity.HasComponent<UIDropdownComponent>())
+{
+    SceneBinIO::WriteU32(out, 1516665977u); // UIDropdownComponent
+    auto const& comp = entity.GetComponent<UIDropdownComponent>();
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Options.Num()));
+    for (auto const& be0 : comp.m_Options)
+    {
+        SceneBinIO::Write(out, be0.m_Label);
+    }
+    SceneBinIO::Write(out, comp.m_SelectedIndex);
+    SceneBinIO::Write(out, comp.m_BackgroundColor);
+    SceneBinIO::Write(out, comp.m_HighlightColor);
+    SceneBinIO::Write(out, comp.m_TextColor);
+    SceneBinIO::WriteU64(out, (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0) ? static_cast<u64>(comp.m_FontAsset->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.m_FontSize);
+    SceneBinIO::Write(out, comp.m_ItemHeight);
+    SceneBinIO::Write(out, comp.m_Interactable);
+}
+
 if (entity.HasComponent<UIGridLayoutComponent>())
 {
     SceneBinIO::WriteU32(out, 2378242016u); // UIGridLayoutComponent
@@ -1075,6 +1144,38 @@ if (entity.HasComponent<UIGridLayoutComponent>())
     SceneBinIO::Write(out, comp.m_StartCorner);
     SceneBinIO::Write(out, comp.m_StartAxis);
     SceneBinIO::Write(out, comp.m_ConstraintCount);
+}
+
+if (entity.HasComponent<UIImageComponent>())
+{
+    SceneBinIO::WriteU32(out, 906139791u); // UIImageComponent
+    auto const& comp = entity.GetComponent<UIImageComponent>();
+    SceneBinIO::WriteU64(out, (comp.m_Texture && comp.m_Texture->GetHandle() != 0) ? static_cast<u64>(comp.m_Texture->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.m_Color);
+    SceneBinIO::Write(out, comp.m_BorderInsets);
+}
+
+if (entity.HasComponent<UIInputFieldComponent>())
+{
+    SceneBinIO::WriteU32(out, 1151303646u); // UIInputFieldComponent
+    auto const& comp = entity.GetComponent<UIInputFieldComponent>();
+    SceneBinIO::Write(out, comp.m_Text);
+    SceneBinIO::Write(out, comp.m_Placeholder);
+    SceneBinIO::WriteU64(out, (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0) ? static_cast<u64>(comp.m_FontAsset->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.m_FontSize);
+    SceneBinIO::Write(out, comp.m_TextColor);
+    SceneBinIO::Write(out, comp.m_PlaceholderColor);
+    SceneBinIO::Write(out, comp.m_BackgroundColor);
+    SceneBinIO::Write(out, comp.m_CharacterLimit);
+    SceneBinIO::Write(out, comp.m_Interactable);
+}
+
+if (entity.HasComponent<UIPanelComponent>())
+{
+    SceneBinIO::WriteU32(out, 1596836942u); // UIPanelComponent
+    auto const& comp = entity.GetComponent<UIPanelComponent>();
+    SceneBinIO::Write(out, comp.m_BackgroundColor);
+    SceneBinIO::WriteU64(out, (comp.m_BackgroundTexture && comp.m_BackgroundTexture->GetHandle() != 0) ? static_cast<u64>(comp.m_BackgroundTexture->GetHandle()) : 0ull);
 }
 
 if (entity.HasComponent<UIProgressBarComponent>())
@@ -1128,6 +1229,19 @@ if (entity.HasComponent<UISliderComponent>())
     SceneBinIO::Write(out, comp.m_FillColor);
     SceneBinIO::Write(out, comp.m_HandleColor);
     SceneBinIO::Write(out, comp.m_Interactable);
+}
+
+if (entity.HasComponent<UITextComponent>())
+{
+    SceneBinIO::WriteU32(out, 2448574091u); // UITextComponent
+    auto const& comp = entity.GetComponent<UITextComponent>();
+    SceneBinIO::Write(out, comp.m_Text);
+    SceneBinIO::WriteU64(out, (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0) ? static_cast<u64>(comp.m_FontAsset->GetHandle()) : 0ull);
+    SceneBinIO::Write(out, comp.m_FontSize);
+    SceneBinIO::Write(out, comp.m_Color);
+    SceneBinIO::Write(out, comp.m_Alignment);
+    SceneBinIO::Write(out, comp.m_Kerning);
+    SceneBinIO::Write(out, comp.m_LineSpacing);
 }
 
 if (entity.HasComponent<UIToggleComponent>())

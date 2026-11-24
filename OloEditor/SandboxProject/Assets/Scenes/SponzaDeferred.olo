@@ -1,5 +1,5 @@
 Scene: SponzaDeferred.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # NOTE: SponzaDeferred.olo is the deferred-path companion to SponzaCSM.olo —
 # similar geometry, but NOT byte-for-byte identical. Differences to keep in

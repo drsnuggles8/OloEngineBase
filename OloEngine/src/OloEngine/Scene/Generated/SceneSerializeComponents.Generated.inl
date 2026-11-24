@@ -212,6 +212,18 @@ if (entity.HasComponent<CharacterController3DComponent>())
     out << YAML::EndMap; // CharacterController3DComponent
 }
 
+if (entity.HasComponent<CinematicComponent>())
+{
+    out << YAML::Key << "CinematicComponent";
+    out << YAML::BeginMap; // CinematicComponent
+    auto const& comp = entity.GetComponent<CinematicComponent>();
+    out << YAML::Key << "Sequence" << YAML::Value << static_cast<u64>(comp.Sequence);
+    out << YAML::Key << "PlayOnStart" << YAML::Value << comp.PlayOnStart;
+    out << YAML::Key << "Loop" << YAML::Value << comp.Loop;
+    out << YAML::Key << "PlaybackSpeed" << YAML::Value << comp.PlaybackSpeed;
+    out << YAML::EndMap; // CinematicComponent
+}
+
 if (entity.HasComponent<CircleRendererComponent>())
 {
     out << YAML::Key << "CircleRendererComponent";
@@ -299,6 +311,28 @@ if (entity.HasComponent<DebrisComponent>())
     out << YAML::Key << "TotalLifetime" << YAML::Value << comp.m_TotalLifetime;
     out << YAML::Key << "Age" << YAML::Value << comp.m_Age;
     out << YAML::EndMap; // DebrisComponent
+}
+
+if (entity.HasComponent<DecalComponent>())
+{
+    out << YAML::Key << "DecalComponent";
+    out << YAML::BeginMap; // DecalComponent
+    auto const& comp = entity.GetComponent<DecalComponent>();
+    if (comp.m_AlbedoTexture && comp.m_AlbedoTexture->GetHandle() != 0)
+        out << YAML::Key << "AlbedoTextureHandle" << YAML::Value << static_cast<u64>(comp.m_AlbedoTexture->GetHandle());
+    if (comp.m_NormalTexture && comp.m_NormalTexture->GetHandle() != 0)
+        out << YAML::Key << "NormalTextureHandle" << YAML::Value << static_cast<u64>(comp.m_NormalTexture->GetHandle());
+    if (comp.m_RMATexture && comp.m_RMATexture->GetHandle() != 0)
+        out << YAML::Key << "RMATextureHandle" << YAML::Value << static_cast<u64>(comp.m_RMATexture->GetHandle());
+    if (comp.m_EmissiveTexture && comp.m_EmissiveTexture->GetHandle() != 0)
+        out << YAML::Key << "EmissiveTextureHandle" << YAML::Value << static_cast<u64>(comp.m_EmissiveTexture->GetHandle());
+    out << YAML::Key << "Color" << YAML::Value << comp.m_Color;
+    out << YAML::Key << "Size" << YAML::Value << comp.m_Size;
+    out << YAML::Key << "FadeDistance" << YAML::Value << comp.m_FadeDistance;
+    out << YAML::Key << "NormalAngleThreshold" << YAML::Value << comp.m_NormalAngleThreshold;
+    out << YAML::Key << "Mode" << YAML::Value << static_cast<int>(comp.m_Mode);
+    out << YAML::Key << "Transparent" << YAML::Value << comp.m_Transparent;
+    out << YAML::EndMap; // DecalComponent
 }
 
 if (entity.HasComponent<DestructibleComponent>())
@@ -1118,6 +1152,18 @@ if (entity.HasComponent<SpringBoneComponent>())
     out << YAML::EndMap; // SpringBoneComponent
 }
 
+if (entity.HasComponent<SpriteRendererComponent>())
+{
+    out << YAML::Key << "SpriteRendererComponent";
+    out << YAML::BeginMap; // SpriteRendererComponent
+    auto const& comp = entity.GetComponent<SpriteRendererComponent>();
+    out << YAML::Key << "Color" << YAML::Value << comp.Color;
+    if (comp.Texture && comp.Texture->GetHandle() != 0)
+        out << YAML::Key << "TextureHandle" << YAML::Value << static_cast<u64>(comp.Texture->GetHandle());
+    out << YAML::Key << "TilingFactor" << YAML::Value << comp.TilingFactor;
+    out << YAML::EndMap; // SpriteRendererComponent
+}
+
 if (entity.HasComponent<StructuralNodeComponent>())
 {
     out << YAML::Key << "StructuralNodeComponent";
@@ -1130,6 +1176,24 @@ if (entity.HasComponent<StructuralNodeComponent>())
     out << YAML::Key << "FallDuration" << YAML::Value << comp.m_FallDuration;
     out << YAML::Key << "ShatterOnCollapse" << YAML::Value << comp.m_ShatterOnCollapse;
     out << YAML::EndMap; // StructuralNodeComponent
+}
+
+if (entity.HasComponent<TextComponent>())
+{
+    out << YAML::Key << "TextComponent";
+    out << YAML::BeginMap; // TextComponent
+    auto const& comp = entity.GetComponent<TextComponent>();
+    out << YAML::Key << "TextString" << YAML::Value << comp.TextString;
+    if (comp.FontAsset && comp.FontAsset->GetHandle() != 0)
+        out << YAML::Key << "FontAssetHandle" << YAML::Value << static_cast<u64>(comp.FontAsset->GetHandle());
+    out << YAML::Key << "Color" << YAML::Value << comp.Color;
+    out << YAML::Key << "Kerning" << YAML::Value << comp.Kerning;
+    out << YAML::Key << "LineSpacing" << YAML::Value << comp.LineSpacing;
+    out << YAML::Key << "MaxWidth" << YAML::Value << comp.MaxWidth;
+    out << YAML::Key << "DropShadow" << YAML::Value << comp.DropShadow;
+    out << YAML::Key << "ShadowDistance" << YAML::Value << comp.ShadowDistance;
+    out << YAML::Key << "ShadowColor" << YAML::Value << comp.ShadowColor;
+    out << YAML::EndMap; // TextComponent
 }
 
 if (entity.HasComponent<TilemapComponent>())
@@ -1227,6 +1291,31 @@ if (entity.HasComponent<UICheckboxComponent>())
     out << YAML::EndMap; // UICheckboxComponent
 }
 
+if (entity.HasComponent<UIDropdownComponent>())
+{
+    out << YAML::Key << "UIDropdownComponent";
+    out << YAML::BeginMap; // UIDropdownComponent
+    auto const& comp = entity.GetComponent<UIDropdownComponent>();
+    out << YAML::Key << "Options" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.m_Options)
+    {
+        out << YAML::BeginMap;
+        out << YAML::Key << "Label" << YAML::Value << e.m_Label.ToStdString();
+        out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+    out << YAML::Key << "SelectedIndex" << YAML::Value << comp.m_SelectedIndex;
+    out << YAML::Key << "BackgroundColor" << YAML::Value << comp.m_BackgroundColor;
+    out << YAML::Key << "HighlightColor" << YAML::Value << comp.m_HighlightColor;
+    out << YAML::Key << "TextColor" << YAML::Value << comp.m_TextColor;
+    if (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0)
+        out << YAML::Key << "FontAssetHandle" << YAML::Value << static_cast<u64>(comp.m_FontAsset->GetHandle());
+    out << YAML::Key << "FontSize" << YAML::Value << comp.m_FontSize;
+    out << YAML::Key << "ItemHeight" << YAML::Value << comp.m_ItemHeight;
+    out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
+    out << YAML::EndMap; // UIDropdownComponent
+}
+
 if (entity.HasComponent<UIGridLayoutComponent>())
 {
     out << YAML::Key << "UIGridLayoutComponent";
@@ -1239,6 +1328,47 @@ if (entity.HasComponent<UIGridLayoutComponent>())
     out << YAML::Key << "StartAxis" << YAML::Value << static_cast<int>(comp.m_StartAxis);
     out << YAML::Key << "ConstraintCount" << YAML::Value << comp.m_ConstraintCount;
     out << YAML::EndMap; // UIGridLayoutComponent
+}
+
+if (entity.HasComponent<UIImageComponent>())
+{
+    out << YAML::Key << "UIImageComponent";
+    out << YAML::BeginMap; // UIImageComponent
+    auto const& comp = entity.GetComponent<UIImageComponent>();
+    if (comp.m_Texture && comp.m_Texture->GetHandle() != 0)
+        out << YAML::Key << "TextureHandle" << YAML::Value << static_cast<u64>(comp.m_Texture->GetHandle());
+    out << YAML::Key << "Color" << YAML::Value << comp.m_Color;
+    out << YAML::Key << "BorderInsets" << YAML::Value << comp.m_BorderInsets;
+    out << YAML::EndMap; // UIImageComponent
+}
+
+if (entity.HasComponent<UIInputFieldComponent>())
+{
+    out << YAML::Key << "UIInputFieldComponent";
+    out << YAML::BeginMap; // UIInputFieldComponent
+    auto const& comp = entity.GetComponent<UIInputFieldComponent>();
+    out << YAML::Key << "Text" << YAML::Value << comp.m_Text;
+    out << YAML::Key << "Placeholder" << YAML::Value << comp.m_Placeholder;
+    if (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0)
+        out << YAML::Key << "FontAssetHandle" << YAML::Value << static_cast<u64>(comp.m_FontAsset->GetHandle());
+    out << YAML::Key << "FontSize" << YAML::Value << comp.m_FontSize;
+    out << YAML::Key << "TextColor" << YAML::Value << comp.m_TextColor;
+    out << YAML::Key << "PlaceholderColor" << YAML::Value << comp.m_PlaceholderColor;
+    out << YAML::Key << "BackgroundColor" << YAML::Value << comp.m_BackgroundColor;
+    out << YAML::Key << "CharacterLimit" << YAML::Value << comp.m_CharacterLimit;
+    out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
+    out << YAML::EndMap; // UIInputFieldComponent
+}
+
+if (entity.HasComponent<UIPanelComponent>())
+{
+    out << YAML::Key << "UIPanelComponent";
+    out << YAML::BeginMap; // UIPanelComponent
+    auto const& comp = entity.GetComponent<UIPanelComponent>();
+    out << YAML::Key << "BackgroundColor" << YAML::Value << comp.m_BackgroundColor;
+    if (comp.m_BackgroundTexture && comp.m_BackgroundTexture->GetHandle() != 0)
+        out << YAML::Key << "BackgroundTextureHandle" << YAML::Value << static_cast<u64>(comp.m_BackgroundTexture->GetHandle());
+    out << YAML::EndMap; // UIPanelComponent
 }
 
 if (entity.HasComponent<UIProgressBarComponent>())
@@ -1300,6 +1430,22 @@ if (entity.HasComponent<UISliderComponent>())
     out << YAML::Key << "HandleColor" << YAML::Value << comp.m_HandleColor;
     out << YAML::Key << "Interactable" << YAML::Value << comp.m_Interactable;
     out << YAML::EndMap; // UISliderComponent
+}
+
+if (entity.HasComponent<UITextComponent>())
+{
+    out << YAML::Key << "UITextComponent";
+    out << YAML::BeginMap; // UITextComponent
+    auto const& comp = entity.GetComponent<UITextComponent>();
+    out << YAML::Key << "Text" << YAML::Value << comp.m_Text;
+    if (comp.m_FontAsset && comp.m_FontAsset->GetHandle() != 0)
+        out << YAML::Key << "FontAssetHandle" << YAML::Value << static_cast<u64>(comp.m_FontAsset->GetHandle());
+    out << YAML::Key << "FontSize" << YAML::Value << comp.m_FontSize;
+    out << YAML::Key << "Color" << YAML::Value << comp.m_Color;
+    out << YAML::Key << "Alignment" << YAML::Value << static_cast<int>(comp.m_Alignment);
+    out << YAML::Key << "Kerning" << YAML::Value << comp.m_Kerning;
+    out << YAML::Key << "LineSpacing" << YAML::Value << comp.m_LineSpacing;
+    out << YAML::EndMap; // UITextComponent
 }
 
 if (entity.HasComponent<UIToggleComponent>())

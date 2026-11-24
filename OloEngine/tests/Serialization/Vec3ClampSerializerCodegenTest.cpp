@@ -21,7 +21,7 @@
 // access shape used throughout this codegen (see ContainerSerializerCodegenTest
 // / NestedStructSerializerCodegenTest for the same convention).
 //
-// If you change EmitDeserializeFields' PropType::Vec3 branch or ApplyVec3Clamp,
+// If you change EmitDeserializeFields' PropType::Vec3 branch or ApplyVectorClamp,
 // update the mirrored Deserialize* helper below to match.
 // =============================================================================
 

@@ -30,7 +30,7 @@ Scene: GroomBoundCoat
 # the OpaqueRibbon fallback tier rather than StochasticAlpha. That is #1246's
 # behaviour and is not what this scene is about.
 # ──────────────────────────────────────────────────────────────────────────────
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 2
   Exposure: 1
