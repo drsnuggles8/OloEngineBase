@@ -253,6 +253,9 @@ namespace OloEngine::Benchmark
         u64 GpuResidentBytes = 0;           // physical GPU backing, live + retiring (#1342)
         u64 CpuTrackedBytes = 0;            // CPU-side bookings, never added to the GPU figure
         u32 DrawCalls = 0;
+        u32 AnimatedSubmeshPackets = 0;
+        u32 SkinnedBatchedCommands = 0;
+        f64 AnimatedSubmissionMs = 0.0;
         FRepresentationStreamingStats Streaming;
         u64 GroomPinnedCpuBytes = 0;
         u64 GroomPinnedGpuBytes = 0;
@@ -313,6 +316,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GpuResidentBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::CpuTrackedBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AnimatedSubmeshPackets)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::SkinnedBatchedCommands)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::AnimatedSubmissionMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Streaming)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomPinnedCpuBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomPinnedGpuBytes)> &&

@@ -616,6 +616,9 @@ namespace OloEngine::Benchmark
         sample.RecordingWallMs = frame.m_ParallelRecording.RegionWallMs;
         sample.RecordingJoinWaitMs = frame.m_ParallelRecording.JoinWaitMs;
         sample.DrawCalls = frame.m_DrawCalls;
+        sample.AnimatedSubmeshPackets = frame.m_AnimatedSubmeshPackets;
+        sample.AnimatedSubmissionMs = frame.m_AnimatedSubmissionMs;
+        sample.SkinnedBatchedCommands = frame.m_SkinnedBatchedCommands;
         const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
         sample.GpuFrameId = gpu.FrameNumber;
         sample.Gpu = gpu.Frame;
@@ -1253,7 +1256,7 @@ namespace OloEngine::Benchmark
             std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
             std::ofstream passes(outDir / "measurement-passes.jsonl", std::ios::binary | std::ios::trunc);
             std::ofstream streaming(outDir / "measurement-streaming.jsonl", std::ios::binary | std::ios::trunc);
-            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId\n";
+            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId,animatedSubmeshPackets,animatedSubmissionMs,skinnedBatchedCommands\n";
             std::vector<f64> wall;
             wall.reserve(runInfo.Measurement.Frames.Num());
             std::map<std::string, std::vector<f64>> byCamera;
@@ -1280,7 +1283,8 @@ namespace OloEngine::Benchmark
                     raw << frame.Gpu.GpuMs;
                 raw << ',' << (frame.Gpu.IsValid() && !uniqueGpu ? "duplicate" : ToString(frame.Gpu.Status))
                     << ',' << frame.GpuResidentBytes << ',' << frame.CpuTrackedBytes << ',' << frame.DrawCalls
-                    << ',' << frame.RecordingWallMs << ',' << frame.RecordingJoinWaitMs << ',' << frame.CpuFrameId << '\n';
+                    << ',' << frame.RecordingWallMs << ',' << frame.RecordingJoinWaitMs << ',' << frame.CpuFrameId
+                    << ',' << frame.AnimatedSubmeshPackets << ',' << frame.AnimatedSubmissionMs << ',' << frame.SkinnedBatchedCommands << '\n';
                 nlohmann::json passFrame{ { "camera", frame.CameraId.ToStdString() }, { "index", frame.Index }, { "gpuFrameId", frame.GpuFrameId }, { "passes", nlohmann::json::array() } };
                 for (const auto& timing : frame.GpuPasses)
                 {

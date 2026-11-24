@@ -519,7 +519,10 @@ namespace OloEngine
         // work has been submitted (graph execute, HZB rebuild, capture commit).
         GPUPassTimerPool::GetInstance().EndFrame();
 
-        RendererProfiler::GetInstance().EndFrame();
+        auto& profiler = RendererProfiler::GetInstance();
+        if (auto* geometry = static_cast<SceneRenderPass*>(GetRenderStreamNode(RenderStreamType::Geometry)))
+            profiler.SetSkinnedBatchedCommands(geometry->GetCommandBucket().GetStatistics().SkinnedBatchedCommands);
+        profiler.EndFrame();
 
         // End frame for double-buffered resources (inserts GPU fence). Once
         // per physical frame: a bracketed frame ends them in EndFrame, after

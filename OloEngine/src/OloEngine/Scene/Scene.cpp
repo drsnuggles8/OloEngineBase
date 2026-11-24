@@ -122,6 +122,7 @@
 #include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -17559,6 +17560,8 @@ namespace OloEngine
 
         // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
         {
+            const auto submitStart = std::chrono::steady_clock::now();
+            u32 animatedPackets = 0;
             auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
             for (auto entity : view)
             {
@@ -17741,6 +17744,7 @@ namespace OloEngine
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);
+                            ++animatedPackets;
 
                             // Shadow caster reuses bone data from the scene packet
                             if (castsShadow && submesh)
@@ -17781,6 +17785,8 @@ namespace OloEngine
                         m_SkeletonVisualization.BoneThickness);
                 }
             }
+            const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - submitStart;
+            RendererProfiler::GetInstance().RecordAnimatedSubmission(animatedPackets, elapsed.count());
         }
 
         // Draw tile renderer entities (grid of instanced mesh tiles)

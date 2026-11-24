@@ -45,6 +45,9 @@ namespace OloEngine
         f64 m_FenceWaitTime = 0.0;   // blocked on a frame fence (FrameResourceManager)
         f64 m_PresentWaitTime = 0.0; // the SwapBuffers span (see above)
         u32 m_DrawCalls = 0;
+        u32 m_AnimatedSubmeshPackets = 0;
+        u32 m_SkinnedBatchedCommands = 0;
+        f64 m_AnimatedSubmissionMs = 0.0;
         u32 m_StateChanges = 0;
         u32 m_ShaderBinds = 0;
         u32 m_TextureBinds = 0;
@@ -103,6 +106,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_FenceWaitTime)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_PresentWaitTime)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_DrawCalls)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_AnimatedSubmeshPackets)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_SkinnedBatchedCommands)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_AnimatedSubmissionMs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_StateChanges)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_ShaderBinds)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_TextureBinds)>::Value &&
@@ -442,6 +448,17 @@ namespace OloEngine
         {
             m_CurrentFrame.m_GPUSceneLinkedDraws = linked;
             m_CurrentFrame.m_GPUSceneUnlinkedDraws = unlinked;
+        }
+
+        void RecordAnimatedSubmission(u32 packets, f64 timeMs)
+        {
+            m_CurrentFrame.m_AnimatedSubmeshPackets += packets;
+            m_CurrentFrame.m_AnimatedSubmissionMs += timeMs;
+        }
+
+        void SetSkinnedBatchedCommands(u32 commands)
+        {
+            m_CurrentFrame.m_SkinnedBatchedCommands = commands;
         }
 
         void SetGPUSceneConsumptionCounts(u32 consumed, u32 fallback)
