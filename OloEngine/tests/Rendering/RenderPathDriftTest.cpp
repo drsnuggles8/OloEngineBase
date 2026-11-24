@@ -481,7 +481,11 @@ namespace OloEngine::Tests
         // The G-Buffer PBR default shader, as each path spells it. On the parallel path
         // ctx.SceneContext->PBRShader IS PBRGBufferShader when Deferred is active.
         const std::regex selectionRe(
-            R"((shaderToUse|routing\.ShaderToUse)\s*=\s*(s_Data\.PBRGBufferShader|s_Data\.PBRGBufferSkinnedShader|ctx\.SceneContext->PBRShader)\s*;)");
+            R"((shaderToUse|routing\.ShaderToUse)\s*=\s*(s_Data\.PBRGBufferShader|s_Data\.PBRGBufferSkinnedShader|gbuffer|ctx\.SceneContext->PBRShader)\s*;)");
+        // The instanced route chooses the appropriate G-Buffer shader once for both mesh types.
+        const std::regex instancedGBufferAliasRe(
+            R"(const auto& gbuffer\s*=\s*skinned\s*\?\s*s_Data\.PBRGBufferSkinnedShader\s*:\s*s_Data\.PBRGBufferShader\s*;)");
+        EXPECT_TRUE(std::regex_search(source, instancedGBufferAliasRe));
         const std::regex rerouteRe(R"(ShouldRerouteToForwardOverlay\s*\()");
         // A member-function definition: a line at namespace-body indentation naming Renderer3D::.
         const std::regex functionStartRe(R"(\n    [A-Za-z][^\n;]*Renderer3D::[A-Za-z]+\s*\()");

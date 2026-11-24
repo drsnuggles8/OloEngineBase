@@ -62,6 +62,22 @@ namespace OloEngine::GPUSceneLegacyAdapters
                       "caller below consumes a draw link instead.",
         },
         Adapter{
+            .m_File = "OloEngine/src/OloEngine/Renderer/Crowd/CrowdRenderer.cpp",
+            .m_Name = "GPU-compacted animated crowd placements",
+            .m_UnsupportedCategory = std::nullopt,
+            .m_Exit = "Compacted instances need stable-ID motion across clip and LOD changes. "
+                      "Their GPU Scene records currently name posed cohort proxies whose geometry changes with the pose. "
+                      "Retire the placement history when each compacted instance can link to a stable raster record independent of its proxy.",
+        },
+        Adapter{
+            .m_File = "OloEngine/src/OloEngine/Renderer/Crowd/CrowdIndividual.cpp",
+            .m_Name = "Individually sampled crowd member draw",
+            .m_UnsupportedCategory = std::nullopt,
+            .m_Exit = "The skinned command requests its own draw link. It still needs a previous member transform "
+                      "when extraction cannot resolve the link or auto-batching drops it. Retire the fallback when "
+                      "all these draws retain a resolvable per-member link through replay.",
+        },
+        Adapter{
             .m_File = "OloEngine/src/OloEngine/Renderer/Renderer3DMeshSubmission.cpp",
             .m_Name = "Renderer3D submission (skinned, parallel, instanced, quad)",
             .m_UnsupportedCategory = std::nullopt,
