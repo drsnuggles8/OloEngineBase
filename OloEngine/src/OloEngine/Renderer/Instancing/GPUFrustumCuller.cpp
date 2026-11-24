@@ -82,7 +82,7 @@ namespace OloEngine
         if (!m_CullParamsUBO)
         {
             m_CullParamsUBO = UniformBuffer::Create(UBOStructures::InstanceCullUBO::GetSize(),
-                                                    ShaderBindingLayout::UBO_INSTANCE_CULL);
+                                                    ShaderBindingLayout::UBO_INSTANCE_CULL, "InstanceCullParams");
         }
         m_CullParamsUBO->SetData(&params, sizeof(params));
         m_CullParamsUBO->Bind();

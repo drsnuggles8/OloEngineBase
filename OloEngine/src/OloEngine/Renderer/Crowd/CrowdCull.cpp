@@ -159,7 +159,7 @@ namespace OloEngine
         if (!m_Shader || !m_Shader->IsValid())
             return false;
         if (!m_Parameters)
-            m_Parameters = UniformBuffer::Create(sizeof(CullParams), ShaderBindingLayout::UBO_INSTANCE_CULL);
+            m_Parameters = UniformBuffer::Create(sizeof(CullParams), ShaderBindingLayout::UBO_INSTANCE_CULL, "CrowdCullParams");
         const u32 count = static_cast<u32>(instances.size());
         if (!m_Parameters || !PrepareBuffers(count, clip))
             return false;
