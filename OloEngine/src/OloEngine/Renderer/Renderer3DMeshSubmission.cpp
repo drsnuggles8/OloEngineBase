@@ -1871,7 +1871,7 @@ namespace OloEngine
         // Allocate space in FrameDataBuffer for bone matrices.
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
         u32 boneCount = static_cast<u32>(boneMatrices.size());
-        u32 boneBufferOffset = frameBuffer.AllocateBoneMatrices(boneCount);
+        u32 boneBufferOffset = frameBuffer.AllocateBoneMatrices(boneCount, FrameDataBuffer::BoneAllocation::GrowDuringGather);
         if (boneBufferOffset == UINT32_MAX)
         {
             OLO_CORE_ERROR("Renderer3D::DrawAnimatedMesh: Failed to allocate bone buffer space");
@@ -1891,7 +1891,7 @@ namespace OloEngine
                                     prevBoneMatrices.size() == boneMatrices.size();
         if (wantPrevStream)
         {
-            u32 prevOffset = frameBuffer.AllocateBoneMatrices(boneCount);
+            u32 prevOffset = frameBuffer.AllocateBoneMatrices(boneCount, FrameDataBuffer::BoneAllocation::GrowDuringGather);
             if (prevOffset != UINT32_MAX)
             {
                 frameBuffer.WriteBoneMatrices(prevOffset, prevBoneMatrices.data(), boneCount);
