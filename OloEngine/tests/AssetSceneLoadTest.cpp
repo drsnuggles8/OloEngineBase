@@ -1125,7 +1125,7 @@ namespace OloEngine::Tests
             decal.m_RMATexture = texture;
             decal.m_EmissiveTexture = texture;
             decal.m_Mode = DecalMode::Emissive;
-            decal.m_Color = { -0.5f, 0.25f, 1.5f, 0.75f };
+            decal.m_Color = { -0.5f, 1.25f, 1.5f, -0.75f };
             entity.AddComponent<TextComponent>().FontAsset = font;
             entity.AddComponent<UITextComponent>().m_FontAsset = font;
             entity.AddComponent<UIInputFieldComponent>().m_FontAsset = font;
@@ -1218,9 +1218,9 @@ namespace OloEngine::Tests
             checkTexture(decal.m_EmissiveTexture, texture);
             EXPECT_EQ(decal.m_Mode, DecalMode::Emissive);
             EXPECT_FLOAT_EQ(decal.m_Color.r, 0.0f);
-            EXPECT_FLOAT_EQ(decal.m_Color.g, 0.25f);
+            EXPECT_FLOAT_EQ(decal.m_Color.g, 1.0f);
             EXPECT_FLOAT_EQ(decal.m_Color.b, 1.0f);
-            EXPECT_FLOAT_EQ(decal.m_Color.a, 0.75f);
+            EXPECT_FLOAT_EQ(decal.m_Color.a, 0.0f);
             checkFont(entity.GetComponent<TextComponent>().FontAsset);
             checkFont(entity.GetComponent<UITextComponent>().m_FontAsset);
             checkFont(entity.GetComponent<UIInputFieldComponent>().m_FontAsset);

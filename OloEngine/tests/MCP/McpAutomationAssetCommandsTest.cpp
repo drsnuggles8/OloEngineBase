@@ -112,8 +112,8 @@ namespace OloEngine::Automation::Tests
                                "Entities:\n"
                                "  - Entity: 900001\n"
                                "    TagComponent:\n"
-                               "      Tag: Decal\n"
-                               "    DecalComponent:\n"
+                               "      Tag: Material\n"
+                               "    MaterialComponent:\n"
                                "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
 
             Write(m_Project / "Test.oloproj", "Project:\n"

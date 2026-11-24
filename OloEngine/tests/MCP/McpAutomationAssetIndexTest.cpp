@@ -90,7 +90,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, FindsAProjectRelativeSceneReference)
     {
         Write(m_Project / "Assets" / "Scenes" / "Test.olo",
-              "Scene: Test\nEntities:\n  - Entity: 12345\n    DecalComponent:\n"
+              "Scene: Test\nEntities:\n  - Entity: 12345\n    MaterialComponent:\n"
               "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
 
         const AssetIndex index = Build();
@@ -122,7 +122,7 @@ namespace OloEngine::Automation::Tests
         Write(m_Project / "Assets" / "Textures" / "Shared.png", "project-copy");
         Write(m_Root / "engineassets" / "Shared.png", "engine-copy");
         Write(m_Project / "Assets" / "Scenes" / "Engine.olo",
-              "Scene: Engine\nEntities:\n  - Entity: 1\n    DecalComponent:\n"
+              "Scene: Engine\nEntities:\n  - Entity: 1\n    MaterialComponent:\n"
               "      AlbedoMapPath: engineassets/Shared.png\n");
 
         const AssetIndex index = Build();
@@ -425,7 +425,7 @@ namespace OloEngine::Automation::Tests
     TEST_F(AutomationAssetIndexTest, DependenciesAreTheReferencesInsideTheFile)
     {
         const auto scene = m_Project / "Assets" / "Scenes" / "Deps.olo";
-        Write(scene, "Scene: Deps\nEntities:\n  - Entity: 1\n    DecalComponent:\n"
+        Write(scene, "Scene: Deps\nEntities:\n  - Entity: 1\n    MaterialComponent:\n"
                      "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n"
                      "    MeshComponent:\n      MeshHandle: 777\n");
 
