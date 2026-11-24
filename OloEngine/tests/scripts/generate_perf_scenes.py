@@ -465,6 +465,8 @@ def build_lights(w, n, rng, shadowed):
         z = rorigin + (i // rside) * rspacing
         w.entity(f"r{i}", (x, 0.5, z), (0, 0, 0), (1, 1, 1),
                  mesh(1) + material([0.8, 0.8, 0.8], 0.2, 0.3))
+    if n == 0:
+        return
     lside = math.ceil(math.sqrt(n))
     lspacing = (rside * rspacing) / lside
     lorigin = -(lside - 1) * lspacing / 2
