@@ -24,7 +24,6 @@ namespace OloEngine
         constexpr u32 kNextHistorySlot = 26;
         constexpr u32 kMaxRecords = (128u * 1024u * 1024u) / sizeof(InstanceData);
         constexpr u32 kGroupSize = 128;
-        constexpr u32 kCoarseIntervals = 8;
 
         struct DrawArgs
         {
@@ -38,7 +37,7 @@ namespace OloEngine
             glm::vec4 VisualSphere, AnimatedSphere, Origin, EyeScale, Lod, Clock;
             glm::uvec4 Layout;
             u32 PreviousCount;
-            u32 CoarseIntervals = kCoarseIntervals;
+            u32 CoarseIntervals = CrowdCoarseIntervals;
             u32 Remapped;
             u32 Pad{};
         };
@@ -54,6 +53,42 @@ namespace OloEngine
         }
     } // namespace
 
+    CrowdClip SampleCoarseCrowdClip(const CrowdClip& full)
+    {
+        const u32 stride = full.RecordsPerFrame();
+        if (full.FrameCount < 2u || full.BoneCount == 0u || full.BoneCount > UBOStructures::AnimationConstants::MAX_BONES ||
+            static_cast<u64>(full.FrameCount) * stride != static_cast<u64>(full.Atlas.Num()))
+            return {};
+
+        CrowdClip coarse;
+        coarse.Duration = full.Duration;
+        coarse.BoneCount = full.BoneCount;
+        coarse.FrameCount = CrowdCoarseIntervals + 1u;
+        coarse.Atlas.Reserve(coarse.FrameCount * stride);
+        for (u32 i = 0; i < coarse.FrameCount; ++i)
+        {
+            const u64 position = static_cast<u64>(full.FrameCount - 1u) * i;
+            const u32 sourceFrame = static_cast<u32>(position / CrowdCoarseIntervals);
+            const InstanceData* first = full.Atlas.GetData() + sourceFrame * stride;
+            coarse.Atlas.Append(first, stride);
+            const u32 fraction = static_cast<u32>(position % CrowdCoarseIntervals);
+            if (fraction == 0u)
+                continue; // Exact sample, including the endpoint: no next frame required.
+            const f32 weight = static_cast<f32>(fraction) / CrowdCoarseIntervals;
+            for (u32 record = 0; record < stride; ++record)
+            {
+                // The three matrix lanes hold successive bones. Use the same
+                // elementwise interpolation as OloCrowdBone in the vertex shader.
+                auto& sample = coarse.Atlas[i * stride + record];
+                const auto& next = first[stride + record];
+                sample.Transform += (next.Transform - sample.Transform) * weight;
+                sample.Normal += (next.Normal - sample.Normal) * weight;
+                sample.PrevTransform += (next.PrevTransform - sample.PrevTransform) * weight;
+            }
+        }
+        return coarse;
+    }
+
     bool CrowdCull::PrepareBuffers(u32 count, const CrowdClip& clip)
     {
         if (m_AtlasData == clip.Atlas.GetData() && count <= m_Capacity)
@@ -61,8 +96,8 @@ namespace OloEngine
 
         const RendererMemoryOwnerScope allocationOwner("Crowd cull buffers", MemoryLifetime::Pooled);
         const u32 atlasRecords = static_cast<u32>(clip.Atlas.Num());
-        const u32 stride = clip.RecordsPerFrame();
-        const u32 coarseRecords = (kCoarseIntervals + 1u) * stride;
+        const CrowdClip coarse = SampleCoarseCrowdClip(clip);
+        const u32 coarseRecords = static_cast<u32>(coarse.Atlas.Num());
         const u32 capacity = std::clamp(m_Capacity * 2u, count, kMaxRecords - atlasRecords - coarseRecords);
         const u32 inputBytes = capacity * static_cast<u32>(sizeof(InstanceData));
         const u32 atlasBytes = atlasRecords * static_cast<u32>(sizeof(InstanceData));
@@ -73,21 +108,12 @@ namespace OloEngine
         auto nextHistory = MakeStorage(historyBytes);
         if (!input || !previousHistory || !nextHistory)
             return false;
-        // Contiguous coarse frames let the vertex shader blend the next
-        // sample with the same stride it already uses for the full clip.
-        TArray<InstanceData> coarse;
-        coarse.Reserve(coarseRecords);
-        for (u32 i = 0; i <= kCoarseIntervals; ++i)
-        {
-            const u32 frame = (clip.FrameCount - 1u) * i / kCoarseIntervals;
-            coarse.Append(clip.Atlas.GetData() + frame * stride, stride);
-        }
         std::array<Ref<StorageBuffer>, 3> outputs;
         for (auto& out : outputs)
         {
             out = MakeStorage(inputBytes + atlasBytes + coarseBytes);
             if (!out || !RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), inputBytes, atlasBytes, clip.Atlas.GetData()) ||
-                !RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), inputBytes + atlasBytes, coarseBytes, coarse.GetData()))
+                !RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), inputBytes + atlasBytes, coarseBytes, coarse.Atlas.GetData()))
                 return false;
         }
         for (auto& args : m_Indirect)
@@ -124,7 +150,7 @@ namespace OloEngine
             static_cast<u64>(clip.FrameCount) * clip.RecordsPerFrame() != atlasRecords ||
             !std::isfinite(now) || !std::isfinite(previous))
             return false;
-        const u64 tailRecords = atlasRecords + (kCoarseIntervals + 1u) * clip.RecordsPerFrame();
+        const u64 tailRecords = atlasRecords + (CrowdCoarseIntervals + 1u) * clip.RecordsPerFrame();
         if (tailRecords >= kMaxRecords || instances.size() > kMaxRecords - tailRecords)
             return false;
 
@@ -190,7 +216,7 @@ namespace OloEngine
         params.EyeScale = glm::vec4(Renderer3D::GetCullViewPositionRelative(), std::abs(projection[1][1]) * static_cast<f32>(view.ScreenHeight));
         params.Lod = { std::max(farPixels, settings.m_NearPixels), farPixels, std::clamp(settings.m_Hysteresis, 0.0f, 0.45f),
                        std::abs(projection[3][3]) > 0.5f ? 1.0f : 0.0f };
-        params.Clock = { now, previous, loop ? 1.0f : 0.0f, 0.0f };
+        params.Clock = { now, previous, loop ? 1.0f : 0.0f, m_PreviousLoop ? 1.0f : 0.0f };
         params.Layout = { count, m_Capacity, clip.FrameCount, clip.BoneCount };
         params.PreviousCount = previousCount;
         params.Remapped = remap ? 1u : 0u;
@@ -220,6 +246,7 @@ namespace OloEngine
                 m_PreviousIDs.Add(member.StableID);
         }
         m_Frame = frame;
+        m_PreviousLoop = loop;
         return true;
     }
 } // namespace OloEngine

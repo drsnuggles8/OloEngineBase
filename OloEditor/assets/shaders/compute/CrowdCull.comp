@@ -39,7 +39,7 @@ layout(std140, binding = 71) uniform CrowdCullParams
     vec4 u_Origin;            // xyz render origin, w nonzero enables frustum cull
     vec4 u_EyeScale;          // xyz relative culling eye, w height * |projection[1][1]|
     vec4 u_Lod;               // near px, far px, hysteresis, orthographic flag
-    vec4 u_Clock;             // current and previous cycles, loop flag
+    vec4 u_Clock;             // current and previous cycles, current and previous loop flags
     uvec4 u_Layout;           // input count, atlas start, frame count, bone count
     uint u_PreviousCount;     // zero on a cut or clip replacement
     uint u_CoarseIntervals;   // the coarse atlas has one additional terminal frame
@@ -77,9 +77,9 @@ uint classify(mat4 model, uint previous)
     return pixels >= u_Lod.y * farFactor ? 1u : 2u;
 }
 
-uvec2 samplePose(float cycles, uint tier)
+uvec2 samplePose(float cycles, uint tier, bool loop)
 {
-    float phase = u_Clock.z > 0.5 ? fract(cycles) : clamp(cycles, 0.0, 1.0);
+    float phase = loop ? fract(cycles) : clamp(cycles, 0.0, 1.0);
     uint recordsPerFrame = (u_Layout.w + 2u) / 3u;
     uint intervals = tier == 0u ? u_Layout.z - 1u : u_CoarseIntervals;
     uint start = u_Layout.y;
@@ -113,11 +113,11 @@ void main()
     nextHistory[row] = uvec4(m.StableID, tier, floatBitsToUint(offset));
     if (outsideFrustum(m.Transform)) return;
 
-    uvec2 pose = samplePose(u_Clock.x + offset, tier);
+    uvec2 pose = samplePose(u_Clock.x + offset, tier, u_Clock.z > 0.5);
     uvec2 prev = pose;
     if (known)
-        prev = samplePose(u_Clock.y + uintBitsToFloat(last.w), last.z);
-    else
+        prev = samplePose(u_Clock.y + uintBitsToFloat(last.w), last.z, u_Clock.w > 0.5);
+    else if (m.CrowdPose.y == 0u)
         m.PrevTransform = m.Transform;
     m.CrowdPose = uvec4(pose.x, prev.x, pose.y | (prev.y << 16u), u_Layout.w);
     if (tier == 0u)

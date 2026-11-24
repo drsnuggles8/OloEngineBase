@@ -114,12 +114,15 @@ namespace OloEngine::Tests
         // Change only the high half of this slot's identity. The newcomer
         // must have zero bone velocity even at the same position.
         members[1].StableID += (u64{ 1 } << 32u);
+        members[1].PrevTransform[3].x = 2.5f;
+        members[1].CrowdPose.y = 1u; // arrived from another clip, with genuine owner-level model history
         ASSERT_TRUE(dispatch(0.25f, first, false));
         ExpectCount(culler, 0, ranges[0], 1u);
         ExpectCount(culler, 1, ranges[1], 1u);
         ExpectCount(culler, 2, ranges[2], 1u);
         const auto newcomer = ReadMember(culler, 1);
         EXPECT_EQ(newcomer.CrowdPose.x, newcomer.CrowdPose.y);
+        EXPECT_FLOAT_EQ(newcomer.PrevTransform[3].x, 2.5f);
         const auto switched = ReadMember(culler, 2);
         ASSERT_EQ(switched.StableID, 10u);
         EXPECT_EQ(switched.CrowdPose.x, coarseBase + 4u);
@@ -204,5 +207,56 @@ namespace OloEngine::Tests
         const auto afterGap = ReadMember(culler, 1);
         EXPECT_EQ(afterGap.CrowdPose.y, afterGap.CrowdPose.x);
         EXPECT_FLOAT_EQ(afterGap.PrevTransform[3].x, afterGap.Transform[3].x);
+    }
+
+    TEST_F(CrowdCullTest, TwoFrameCoarseClipInterpolatesEveryEighthAndUsesThePreviousLoopMode)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        CrowdClip clip;
+        clip.FrameCount = 2;
+        clip.BoneCount = 4; // all three matrix lanes plus a second record
+        const u32 stride = clip.RecordsPerFrame();
+        clip.Atlas.SetNum(clip.FrameCount * stride);
+        clip.Atlas[stride].Transform[3].x = 8.0f;
+        clip.Atlas[stride].Normal[3].y = -16.0f;
+        clip.Atlas[stride].PrevTransform[3].z = 4.0f;
+        clip.Atlas[stride + 1u].Transform[3].x = 24.0f;
+        CrowdCull culler;
+        const std::array members{ Placed(202, 1.0f, 15.0f, 0.75f) };
+        const std::array<CrowdDrawRange, 3> ranges{ { { 81, 6 }, { 45, 9 }, { 3, 12 } } };
+        const glm::vec4 sphere{ 0.0f, 0.0f, 0.0f, 1.0f };
+        auto dispatch = [&](bool loop)
+        {
+            RunFrames(1);
+            bool ran = false;
+            RunInFrame([&]
+                       { ran = culler.Dispatch(members, clip, 0.25f, 0.25f, loop, false, {}, sphere, sphere, ranges); });
+            return ran;
+        };
+        ASSERT_TRUE(dispatch(true));
+        ExpectCount(culler, 1, ranges[1], 1u);
+        constexpr u32 coarseBase = 6u; // one member + four full-rate records + encoded one
+        for (u32 i = 0; i <= 8u; ++i)
+        {
+            const u32 row = coarseBase - 1u + i * stride;
+            const auto sample = ReadMember(culler, 1, row);
+            const f32 eighth = static_cast<f32>(i);
+            EXPECT_FLOAT_EQ(sample.Transform[3].x, eighth);
+            EXPECT_FLOAT_EQ(sample.Normal[3].y, -2.0f * eighth);
+            EXPECT_FLOAT_EQ(sample.PrevTransform[3].z, 0.5f * eighth);
+            EXPECT_FLOAT_EQ(ReadMember(culler, 1, row + 1u).Transform[3].x, 3.0f * eighth);
+        }
+        constexpr u32 terminal = coarseBase + 8u * 2u;
+        // Clock + offset = one cycle. Loop mode alone decides whether the
+        // vertices use the first or last pose, independently in each frame.
+        EXPECT_EQ(ReadMember(culler, 1).CrowdPose.x, coarseBase);
+        ASSERT_TRUE(dispatch(false));
+        const auto held = ReadMember(culler, 1);
+        EXPECT_EQ(held.CrowdPose.x, terminal);
+        EXPECT_EQ(held.CrowdPose.y, coarseBase);
+        ASSERT_TRUE(dispatch(true));
+        const auto wrapped = ReadMember(culler, 1);
+        EXPECT_EQ(wrapped.CrowdPose.x, coarseBase);
+        EXPECT_EQ(wrapped.CrowdPose.y, terminal);
     }
 } // namespace OloEngine::Tests

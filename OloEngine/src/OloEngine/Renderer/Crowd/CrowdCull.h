@@ -11,6 +11,12 @@
 
 namespace OloEngine
 {
+    inline constexpr u32 CrowdCoarseIntervals = 8;
+
+    // Shared samples for the compacted draw's atlas and the posed shadow
+    // meshes. Both endpoints are included, even on a two-frame source clip.
+    [[nodiscard]] CrowdClip SampleCoarseCrowdClip(const CrowdClip& full);
+
     struct CrowdDrawRange
     {
         u32 Count = 0;
@@ -51,5 +57,6 @@ namespace OloEngine
         TArray<u64> m_PreviousIDs;
         const InstanceData* m_AtlasData = nullptr;
         u64 m_Frame = 0;
+        bool m_PreviousLoop = false;
     };
 } // namespace OloEngine
