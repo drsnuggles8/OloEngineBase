@@ -588,7 +588,7 @@ namespace OloEngine
             const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
             GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link,
             const GPUSceneAnimatedSurface& animatedSurface = {},
-            const glm::vec3& tint = glm::vec3(1.0f));
+            const glm::vec3& tint = glm::vec3(1.0f), u32 visibilityMask = std::numeric_limits<u32>::max());
         // Stages a virtual-geometry RAY-TRACING PROXY as a GPU Scene instance
         // (issue #1144): an ordinary rigid geometry + instance pair built from
         // the coarsest DAG cut, so a virtualized entity is present in the TLAS

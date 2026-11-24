@@ -1986,6 +1986,7 @@ namespace OloEngine
         {
             cmd->color = member->Color;
             cmd->custom = member->Custom;
+            cmd->lightmapScaleOffset = member->LightmapScaleOffset;
         }
         cmd->shaderHandle = shaderToUse->GetHandle();
 

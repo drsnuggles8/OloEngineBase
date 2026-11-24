@@ -383,7 +383,7 @@ namespace OloEngine
                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
                                         GPUSceneDrawLinkRequest linkRequest,
                                         const GPUSceneAnimatedSurface& animatedSurface,
-                                        const glm::vec3& tint)
+                                        const glm::vec3& tint, u32 visibilityMask)
     {
         if (!s_Data.Frame.GPUSceneExtractionActive)
         {
@@ -521,7 +521,7 @@ namespace OloEngine
                                          .m_VertexCount = submesh.m_VertexCount,
                                          .m_Flags = useDeformed ? GPUSceneGeometryFlagDeformed : 0u,
                                      },
-                                     worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask,
+                                     worldTransform, materialKey, visibilityMask,
                                      resolvedAnimated, tint);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.

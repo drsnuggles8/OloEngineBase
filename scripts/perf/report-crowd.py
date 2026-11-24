@@ -16,6 +16,8 @@ def summarize(directory):
         raise ValueError("expected a generated crowd capture manifest")
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     actual = result["output"]["actual"]
+    if not isinstance(actual, dict):
+        raise ValueError("capture has no observed resolution")
     if [actual[key] for key in ("renderWidth", "renderHeight", "displayWidth", "displayHeight")] != [1920, 1080] * 2:
         raise ValueError("expected native 1920 x 1080")
     with (directory / "measurement.csv").open(newline="", encoding="utf-8") as stream:
@@ -26,6 +28,12 @@ def summarize(directory):
     if len(valid) < 100 or len({row["gpuFrameId"] for row in valid}) != len(valid):
         raise ValueError("fewer than 100 unique valid GPU samples or repeated frame IDs")
     if kind == "crowd_lod" and count:
+        # The fixture has one submesh and up to three nonempty clip batches.
+        # Every successful GPU batch submits exactly three tier packets.
+        expected_packets = 3 * min(count, 3)
+        if any(int(row["animatedSubmeshPackets"]) != expected_packets or
+               int(row["crowdMembersSubmitted"]) != count for row in rows):
+            raise ValueError("timed frames did not submit the complete GPU crowd")
         visibility = json.loads((directory / "crowd-visibility.json").read_text(encoding="utf-8"))
         tiers = [visibility[key] for key in ("near", "mid", "far")]
         if visibility["members"] != count or sum(tiers) != count or (count == 5000 and min(tiers) == 0):

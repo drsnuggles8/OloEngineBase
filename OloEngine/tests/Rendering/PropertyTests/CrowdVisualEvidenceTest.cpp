@@ -1,6 +1,7 @@
 // OLO_TEST_LAYER: integration
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
+#include "VisualEvidenceGuards.h"
 #include "TestRenderBackend.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -13,6 +14,7 @@
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -94,12 +96,12 @@ namespace OloEngine::Tests
             light.m_Intensity = 3.0f;
             light.m_CastShadows = true;
             Owner = scene.CreateEntity("Crowd");
-            RunInFrame([&]
-                       {
+            ASSERT_NO_FATAL_FAILURE(RunInFrame([&]
+                                               {
                 const auto model = Ref<AnimatedModel>::Create("assets/models/Fox/Fox.gltf");
                 ASSERT_TRUE(model->HasSkeleton());
                 ASSERT_GE(model->GetAnimations().size(), 2u);
-                ModelImporter::PopulateAnimatedEntity(Owner, model, "assets/models/Fox/Fox.gltf"); });
+                ModelImporter::PopulateAnimatedEntity(Owner, model, "assets/models/Fox/Fox.gltf"); }));
             auto& animation = Owner.GetComponent<AnimationStateComponent>();
             animation.m_CurrentClipIndex = 1;
             animation.m_CurrentClip = animation.m_AvailableClips[1];
@@ -255,6 +257,43 @@ namespace OloEngine::Tests
         EXPECT_GT(frame.m_AnimatedSubmissionMs, 0.0);
     }
 
+    TEST_F(CrowdVisualEvidence, MixedMaterialsCountEachVisibleMemberOnce)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (Owner.HasComponent<MaterialComponent>())
+            Owner.RemoveComponent<MaterialComponent>();
+        ASSERT_NO_FATAL_FAILURE(RunInFrame([&]
+                                           {
+            const std::string path = "SandboxProject/Assets/Models/Horse/Horse.gltf";
+            const auto horse = Ref<AnimatedModel>::Create(path);
+            ASSERT_TRUE(horse->HasSkeleton());
+            ModelImporter::PopulateAnimatedEntity(Owner, horse, path);
+            auto source = Owner.GetComponent<MeshComponent>().m_MeshSource;
+            ASSERT_EQ(source->GetSubmeshes().Num(), 2);
+            TArray<Ref<Material>> materials;
+            for (const auto& original : source->GetImportedMaterials())
+                materials.Add(original ? Ref<Material>::Create(*original) : nullptr);
+            const auto slot = source->GetSubmeshes()[0].m_MaterialIndex;
+            ASSERT_LT(slot, static_cast<u32>(materials.Num()));
+            ASSERT_TRUE(materials[slot]);
+            materials[slot]->SetAlphaMode(AlphaMode::Blend);
+            materials[slot]->SetFlag(MaterialFlag::Blend, true);
+            source->SetImportedMaterials(std::move(materials)); }));
+        auto& batch = Owner.GetComponent<InstancedMeshComponent>();
+        batch.Instances.Append(Placements.GetData(), 6);
+        batch.InvalidateMergedCache();
+        EditorCamera camera(45.0f, 640.0f / 360.0f, 0.05f, 1400.0f);
+        camera.SetViewportSize(640, 360);
+        camera.SetPose({ 0, 4, 12 }, 0, std::atan2(4.0f, 20.0f));
+        RunEditorFrames(camera, 4);
+        const auto counts = GetScene().ReadCrowdVisibilityCounts();
+        EXPECT_EQ(counts.Members, 6u);
+        EXPECT_EQ(counts.Visible[0] + counts.Visible[1] + counts.Visible[2], 6u);
+        const auto& frame = RendererProfiler::GetInstance().GetLastCompletedFrameData();
+        EXPECT_EQ(frame.m_CrowdMembersSubmitted, 6u);
+        EXPECT_EQ(frame.m_AnimatedSubmeshPackets, 9u);
+    }
+
     TEST_F(CrowdVisualEvidence, CommittedKestrelPopulation)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -277,8 +316,8 @@ namespace OloEngine::Tests
         project.Assets->Initialize(false);
         Project::SetAssetManager(project.Assets);
         auto skiers = Scene::Create();
-        RunInFrame([&]
-                   { ASSERT_TRUE(SceneSerializer(skiers).Deserialize(Project::GetAssetDirectory() / "Scenes/KestrelCrowd.olo")); });
+        ASSERT_NO_FATAL_FAILURE(RunInFrame([&]
+                                           { ASSERT_TRUE(SceneSerializer(skiers).Deserialize(Project::GetAssetDirectory() / "Scenes/KestrelCrowd.olo")); }));
         skiers->SetIs3DModeEnabled(true);
         skiers->SetGridVisible(false);
         skiers->SetWorldAxisHelperVisible(false);
@@ -353,6 +392,21 @@ namespace OloEngine::Tests
 
         Owner.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         auto& instances = Owner.GetComponent<InstancedMeshComponent>();
+        const auto nonShadowRayInstances = []
+        {
+            const auto& gpuScene = Renderer3D::GetGPUScene();
+            u32 count = 0;
+            for (u32 slot = 0; slot < gpuScene.GetInstanceSlotCount(); ++slot)
+            {
+                const auto* record = gpuScene.GetLiveInstanceRecordBySlot(slot);
+                if (record && !(RayTracing::PackInstanceMask(record->VisibilityMask) & RayTracing::kInstanceMaskShadowCaster))
+                {
+                    EXPECT_NE(RayTracing::PackInstanceMask(record->VisibilityMask), 0u);
+                    ++count;
+                }
+            }
+            return count;
+        };
         for (const bool vsm : { false, true })
         {
             auto settings = Renderer3D::GetShadowMap().GetSettings();
@@ -360,10 +414,12 @@ namespace OloEngine::Tests
             Renderer3D::GetShadowMap().SetSettings(settings);
             const std::string name = vsm ? "Deferred_VSM" : "Deferred_CSM";
             instances.CastShadows = false;
-            CheckCell(RenderingPath::Deferred, name + "_NoCasters");
+            ASSERT_NO_FATAL_FAILURE(CheckCell(RenderingPath::Deferred, name + "_NoCasters"));
+            const auto withoutShadows = nonShadowRayInstances();
             Frame unshadowed = LastOn;
             instances.CastShadows = true;
-            CheckCell(RenderingPath::Deferred, name);
+            ASSERT_NO_FATAL_FAILURE(CheckCell(RenderingPath::Deferred, name));
+            EXPECT_EQ(withoutShadows, nonShadowRayInstances() + static_cast<u32>(Placements.Num()));
             const u32 pixels = ChangedPixels(LastOn, unshadowed);
             const auto& shadowMap = Renderer3D::GetShadowMap();
             EXPECT_EQ(shadowMap.IsVirtualShadowMapActive(), vsm);
@@ -417,7 +473,8 @@ namespace OloEngine::Tests
             ASSERT_EQ(counts.Visible[cell.Tier], 6u);
             const u32 noise = ChangedPixels(a, repeat);
             const u32 motion = ChangedPixels(a, b);
-            EXPECT_GT(motion, noise);
+            const f64 noiseFloor = VisualEvidence::Rgba8Rmse(a.Pixels, repeat.Pixels);
+            VisualEvidence::ExpectCapturesAreDistinct({ a.Pixels, b.Pixels }, { "phase A", "phase B" }, noiseFloor);
             std::cout << "[ CROWD ] " << cell.Name << " motionPixels=" << motion << " repeatPixels=" << noise;
             if (std::string_view(cell.Name) == "Mid" || cell.Tier == 2)
                 std::cout << " samePoseTierDifference=" << ChangedPixels(previousTier, a);

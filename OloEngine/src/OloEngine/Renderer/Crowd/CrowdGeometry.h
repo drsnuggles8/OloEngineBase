@@ -6,7 +6,7 @@
 namespace OloEngine
 {
     // Each tier keeps the source's submesh order, material slots and rig.
-    // Thus one indirect draw per material suffices for every animation phase.
+    // Each submesh draws once per LOD tier across all animation phases.
     [[nodiscard]] Ref<MeshSource> MakeCrowdMidGeometry(const Ref<MeshSource>& source);
     [[nodiscard]] Ref<MeshSource> MakeCrowdFarGeometry(const Ref<MeshSource>& source);
 

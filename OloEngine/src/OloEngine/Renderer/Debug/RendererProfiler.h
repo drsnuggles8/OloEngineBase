@@ -46,6 +46,7 @@ namespace OloEngine
         f64 m_PresentWaitTime = 0.0; // the SwapBuffers span (see above)
         u32 m_DrawCalls = 0;
         u32 m_AnimatedSubmeshPackets = 0;
+        u32 m_CrowdMembersSubmitted = 0;
         u32 m_SkinnedBatchedCommands = 0;
         f64 m_AnimatedSubmissionMs = 0.0;
         u32 m_StateChanges = 0;
@@ -107,6 +108,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_PresentWaitTime)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_DrawCalls)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_AnimatedSubmeshPackets)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_CrowdMembersSubmitted)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_SkinnedBatchedCommands)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_AnimatedSubmissionMs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererProfilerFrameData::m_StateChanges)>::Value &&
@@ -448,6 +450,11 @@ namespace OloEngine
         {
             m_CurrentFrame.m_GPUSceneLinkedDraws = linked;
             m_CurrentFrame.m_GPUSceneUnlinkedDraws = unlinked;
+        }
+
+        void RecordCrowdMembers(u32 members)
+        {
+            m_CurrentFrame.m_CrowdMembersSubmitted += members;
         }
 
         void RecordAnimatedSubmission(u32 packets, f64 timeMs)

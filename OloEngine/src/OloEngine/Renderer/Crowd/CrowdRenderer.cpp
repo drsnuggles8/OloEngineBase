@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 
 #include <array>
 #include <cmath>
@@ -19,7 +20,7 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr u32 kShadowPhases = 8;
+        constexpr u32 kShadowPhases = CrowdCoarseIntervals;
         struct Surface
         {
             Ref<MeshSource> Source;
@@ -47,6 +48,7 @@ namespace OloEngine
         {
             const Material& MaterialToDraw;
             GPUSceneMaterialKey Key;
+            u32 VisibilityMask;
         };
 
         PartMaterial ExtractCrowdMaterial(u64 owner, const Ref<MeshSource>& source, u32 part, const CrowdMaterials& materials)
@@ -57,7 +59,10 @@ namespace OloEngine
             const auto key = Renderer3D::ResolveGPUSceneMaterialKey(materials.Override, patch, owner, source, imported,
                                                                     source->GetSubmeshes()[part].m_MaterialIndex, materials.Lane);
             Renderer3D::ExtractGPUSceneMaterial(key, material);
-            return { material, key };
+            const u32 mask = materials.CastShadows && !material.GetFlag(MaterialFlag::DisableShadowCasting)
+                                 ? GPUSceneInstanceInput{}.m_VisibilityMask
+                                 : RayTracing::kVisibilityMaskNoShadowCast;
+            return { material, key, mask };
         }
 
         // Clips in a cross-fade and rigs outside the atlas budget can still
@@ -65,22 +70,59 @@ namespace OloEngine
         // must never make a whole population disappear.
         void SubmitIndividual(CrowdIndividual& individual, u64 owner, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                               const AnimationStateComponent& animation, std::span<const InstanceData> members,
-                              sizet inlineCount, const CrowdMaterials& materials, bool shadows)
+                              const CrowdMaterials& materials, bool shadows)
         {
             for (u32 part = 0; part < static_cast<u32>(source->GetSubmeshes().Num()); ++part)
             {
-                const auto [material, key] = ExtractCrowdMaterial(owner, source, part, materials);
+                const auto [material, key, visibilityMask] = ExtractCrowdMaterial(owner, source, part, materials);
                 const auto mesh = Ref<Mesh>::Create(source, part);
                 for (sizet row = 0; row < members.size(); ++row)
                 {
-                    auto member = members[row];
-                    if (row >= inlineCount)
-                        member.StableID |= InstancedMeshComponent::AssetStableIDNamespace;
-                    individual.SubmitPart(owner, pickingID, mesh, rig, animation, member, material, shadows, key);
+                    const auto& member = members[row];
+                    individual.SubmitPart(owner, pickingID, mesh, rig, animation, member, material, shadows, key, visibilityMask);
                 }
             }
         }
     } // namespace
+
+    struct CrowdRenderer::Owner
+    {
+        u64 Serial = std::numeric_limits<u64>::max();
+        std::unordered_map<u64, glm::mat4> Transforms, PreviousTransforms;
+        TArray<InstanceData> Members;
+
+        std::span<const InstanceData> Prepare(std::span<const InstanceData> placements, sizet inlineCount, i32 pickingID)
+        {
+            const u64 frame = Renderer3D::GetPhysicalFrameSerial();
+            if (Serial != frame)
+            {
+                const bool continuous = Serial != std::numeric_limits<u64>::max() && frame == Serial + 1;
+                Serial = frame;
+                PreviousTransforms.swap(Transforms);
+                Transforms.clear();
+                Members.Reset();
+                Members.Reserve(placements.size());
+                for (sizet i = 0; i < placements.size(); ++i)
+                {
+                    InstanceData member = placements[i];
+                    if (i >= inlineCount)
+                        member.StableID |= InstancedMeshComponent::AssetStableIDNamespace;
+                    if (member.EntityID < 0)
+                        member.EntityID = pickingID;
+                    member.Normal = glm::transpose(glm::inverse(member.Transform));
+                    const auto old = PreviousTransforms.find(member.StableID);
+                    const bool hasPrevious = continuous && old != PreviousTransforms.end();
+                    member.PrevTransform = hasPrevious ? old->second : member.Transform;
+                    // A member moving to a new clip needs fresh bone history
+                    // but its world transform still belongs to the same actor.
+                    member.CrowdPose.y = hasPrevious ? 1u : 0u;
+                    Transforms.emplace(member.StableID, member.Transform);
+                    Members.Add(member);
+                }
+            }
+            return { Members.GetData(), static_cast<sizet>(Members.Num()) };
+        }
+    };
 
     struct CrowdRenderer::Batch
     {
@@ -97,14 +139,13 @@ namespace OloEngine
         };
         struct View
         {
-            bool Dispatched = false;
+            i32 CountSource = -1;
             TArray<Ref<CrowdCull>> Cullers;
             TArray<Caster> Casters;
             u64 LastFrame = std::numeric_limits<u64>::max();
         };
         std::unordered_map<u64, View> Views;
-        std::unordered_map<u64, glm::mat4> Transforms, PreviousTransforms;
-        TArray<InstanceData> Instances;
+        u32 MemberCount = 0;
         glm::vec4 LocalSphere{};
         glm::vec4 CullSphere{};
         u64 Serial = std::numeric_limits<u64>::max();
@@ -119,14 +160,14 @@ namespace OloEngine
                 !Tiers[1].Set(MakeCrowdMidGeometry(source)) || !Tiers[2].Set(MakeCrowdFarGeometry(source)))
                 return false;
             const i32 parts = Tiers[0].Meshes.Num();
+            const auto coarse = SampleCoarseCrowdClip(Baked);
             for (u32 level = 0; level < 2; ++level)
             {
                 if (Tiers[level + 1].Meshes.Num() != parts)
                     return false;
                 for (u32 phase = 0; phase <= kShadowPhases; ++phase)
                 {
-                    const u32 frame = (Baked.FrameCount - 1) * phase / kShadowPhases;
-                    if (!Proxies[level][phase].Set(BakeCrowdProxy(Tiers[level + 1].Source, Baked, frame)))
+                    if (!Proxies[level][phase].Set(BakeCrowdProxy(Tiers[level + 1].Source, coarse, phase)))
                         return false;
                 }
             }
@@ -186,7 +227,7 @@ namespace OloEngine
             return true;
         }
 
-        void UpdateShadowLods(View& view, const CrowdAnimationComponent& settings, bool loop) const
+        void UpdateShadowLods(View& view, const CrowdAnimationComponent& settings, bool loop, std::span<const InstanceData> members) const
         {
             const auto& lodView = Renderer3D::GetLODViewParams();
             const auto& projection = Renderer3D::GetCullProjectionMatrix();
@@ -195,17 +236,17 @@ namespace OloEngine
             const bool reset = Discontinuous || view.LastFrame + 1 != Serial;
             view.LastFrame = Serial;
             std::unordered_map<u64, CrowdLod> previousTiers;
-            const bool orderChanged = !reset && (view.Casters.Num() != Instances.Num() ||
-                                                 !std::equal(view.Casters.begin(), view.Casters.end(), Instances.begin(),
+            const bool orderChanged = !reset && (view.Casters.Num() != static_cast<i32>(members.size()) ||
+                                                 !std::equal(view.Casters.begin(), view.Casters.end(), members.begin(),
                                                              [](const Caster& caster, const InstanceData& member)
                                                              { return caster.ID == member.StableID; }));
             if (orderChanged)
                 for (const auto& caster : view.Casters)
                     previousTiers.emplace(caster.ID, caster.Tier);
-            view.Casters.SetNum(Instances.Num(), EAllowShrinking::No);
-            for (i32 i = 0; i < Instances.Num(); ++i)
+            view.Casters.SetNum(static_cast<i32>(members.size()), EAllowShrinking::No);
+            for (i32 i = 0; i < static_cast<i32>(members.size()); ++i)
             {
-                const auto& member = Instances[i];
+                const auto& member = members[i];
                 auto& caster = view.Casters[i];
                 auto lastTier = !reset && caster.ID == member.StableID ? caster.Tier : CrowdLod::Unseen;
                 if (orderChanged)
@@ -225,8 +266,7 @@ namespace OloEngine
             }
         }
 
-        void Prepare(const AnimationStateComponent& animation, std::span<const InstanceData> placements,
-                     sizet inlineCount, i32 pickingID)
+        void Prepare(const AnimationStateComponent& animation, u32 memberCount)
         {
             const u64 serial = Renderer3D::GetPhysicalFrameSerial();
             if (Serial == serial)
@@ -242,23 +282,7 @@ namespace OloEngine
             if (Discontinuous)
                 PreviousClock = Clock;
             Serial = serial;
-            PreviousTransforms.swap(Transforms);
-            Transforms.clear();
-            Instances.Reset();
-            Instances.Reserve(placements.size());
-            for (sizet i = 0; i < placements.size(); ++i)
-            {
-                InstanceData member = placements[i];
-                if (i >= inlineCount)
-                    member.StableID |= InstancedMeshComponent::AssetStableIDNamespace;
-                if (member.EntityID < 0)
-                    member.EntityID = pickingID;
-                member.Normal = glm::transpose(glm::inverse(member.Transform));
-                const auto last = PreviousTransforms.find(member.StableID);
-                member.PrevTransform = !Discontinuous && last != PreviousTransforms.end() ? last->second : member.Transform;
-                Transforms.emplace(member.StableID, member.Transform);
-                Instances.Add(member);
-            }
+            MemberCount = memberCount;
             std::erase_if(Views, [](const auto& view)
                           { return !Renderer3D::IsViewAlive(RenderViewId{ view.first }); });
         }
@@ -270,6 +294,7 @@ namespace OloEngine
     void CrowdRenderer::Remove(u64 owner)
     {
         m_Individual.Remove(owner);
+        m_Owners.erase(owner);
         std::erase_if(m_Batches, [owner](const auto& entry)
                       { return entry.first.first == owner; });
     }
@@ -278,6 +303,8 @@ namespace OloEngine
     {
         const auto serial = Renderer3D::GetPhysicalFrameSerial();
         m_Individual.FinishFrame(serial);
+        std::erase_if(m_Owners, [serial](const auto& owner)
+                      { return owner.second->Serial != serial; });
         std::erase_if(m_Batches, [serial](const auto& entry)
                       { return !entry.second || entry.second->Serial != serial; });
     }
@@ -290,12 +317,12 @@ namespace OloEngine
             const auto view = batch->Views.find(Renderer3D::GetActiveView().Value);
             if (view == batch->Views.end() || view->second.LastFrame != Renderer3D::GetPhysicalFrameSerial())
                 continue;
-            result.Members += static_cast<u32>(batch->Instances.Num());
-            if (view->second.Dispatched)
+            result.Members += batch->MemberCount;
+            if (view->second.CountSource >= 0)
                 for (u32 tier = 0; tier < result.Visible.size(); ++tier)
                 {
                     u32 count = 0;
-                    RenderCommand::ReadBufferSubData(view->second.Cullers[0]->Indirect(tier), sizeof(u32), sizeof(count), &count);
+                    RenderCommand::ReadBufferSubData(view->second.Cullers[view->second.CountSource]->Indirect(tier), sizeof(u32), sizeof(count), &count);
                     result.Visible[tier] += count;
                 }
         }
@@ -311,9 +338,14 @@ namespace OloEngine
             return false;
         if (placements.empty())
             return true;
+        auto& motion = m_Owners[owner];
+        if (!motion)
+            motion = std::make_unique<Owner>();
+        placements = motion->Prepare(placements, inlineCount, pickingID);
+        RendererProfiler::GetInstance().RecordCrowdMembers(static_cast<u32>(placements.size()));
         if (std::ranges::none_of(placements, [](const InstanceData& m)
                                  { return m.GetCrowdClipIndex() >= 0; }))
-            return SubmitGroup(owner, -1, pickingID, source, rig, animation, settings, placements, inlineCount, materials, castShadows);
+            return SubmitGroup(owner, -1, pickingID, source, rig, animation, settings, placements, materials, castShadows);
 
         // Members keep the same canonical (owner, StableID) when changing clips.
         // An override samples its chosen clip at the owner's normalised playback
@@ -322,9 +354,7 @@ namespace OloEngine
         std::map<i32, TArray<InstanceData>> groups;
         for (sizet i = 0; i < placements.size(); ++i)
         {
-            InstanceData member = placements[i];
-            if (i >= inlineCount)
-                member.StableID |= InstancedMeshComponent::AssetStableIDNamespace;
+            const auto& member = placements[i];
             const i32 clip = member.GetCrowdClipIndex();
             const bool valid = clip >= 0 && static_cast<sizet>(clip) < animation.m_AvailableClips.size() && animation.m_AvailableClips[clip];
             groups[valid ? clip : -1].Add(member);
@@ -342,19 +372,19 @@ namespace OloEngine
                 state.m_NextClip = nullptr;
             }
             const auto count = static_cast<sizet>(group.Num());
-            SubmitGroup(owner, index, pickingID, source, rig, state, settings, { group.GetData(), count }, count, materials, castShadows);
+            SubmitGroup(owner, index, pickingID, source, rig, state, settings, { group.GetData(), count }, materials, castShadows);
         }
         return true;
     }
 
     bool CrowdRenderer::SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                                     const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
-                                    std::span<const InstanceData> placements, sizet inlineCount,
+                                    std::span<const InstanceData> placements,
                                     const CrowdMaterials& materials, bool castShadows)
     {
         if (!animation.m_CurrentClip || animation.m_Blending || animation.m_RootMotion)
         {
-            SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, materials, castShadows);
+            SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, materials, castShadows);
             return true;
         }
         auto& cache = m_Batches[{ owner, clipIndex }];
@@ -363,22 +393,23 @@ namespace OloEngine
             auto candidate = std::make_unique<Batch>();
             if (!candidate->Init(source, rig, animation.m_CurrentClip))
             {
-                SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, inlineCount, materials, castShadows);
+                SubmitIndividual(m_Individual, owner, pickingID, source, rig, animation, placements, materials, castShadows);
                 return true;
             }
             cache = std::move(candidate);
         }
         Batch& batch = *cache;
-        batch.Prepare(animation, placements, inlineCount, pickingID);
+        batch.Prepare(animation, static_cast<u32>(placements.size()));
         auto& view = batch.Views[Renderer3D::GetActiveView().Value];
         auto& cullers = view.Cullers;
         const auto parts = static_cast<u32>(source->GetSubmeshes().Num());
         cullers.SetNum(parts, EAllowShrinking::No);
-        batch.UpdateShadowLods(view, settings, animation.m_Loop);
+        batch.UpdateShadowLods(view, settings, animation.m_Loop, placements);
+        view.CountSource = -1;
         u32 packets = 0;
         for (u32 part = 0; part < parts; ++part)
         {
-            const auto [material, key] = ExtractCrowdMaterial(owner, source, part, materials);
+            const auto [material, key, visibilityMask] = ExtractCrowdMaterial(owner, source, part, materials);
             std::array<CrowdDrawRange, 3> ranges;
             for (u32 tier = 0; tier < ranges.size(); ++tier)
             {
@@ -388,18 +419,18 @@ namespace OloEngine
             if (!cullers[part])
                 cullers[part] = Ref<CrowdCull>::Create();
             auto& cull = *cullers[part];
-            const std::span<const InstanceData> members{ batch.Instances.GetData(), static_cast<sizet>(batch.Instances.Num()) };
+            const auto members = placements;
             const bool sortable = !material.GetFlag(MaterialFlag::Blend) && material.GetAlphaMode() != AlphaMode::Blend &&
                                   material.GetTransmissionFactor() <= 0.0f && !material.GetShader();
             const std::array<Ref<Mesh>, 3> meshes{ batch.Tiers[0].Meshes[part], batch.Tiers[1].Meshes[part], batch.Tiers[2].Meshes[part] };
             const bool batched = sortable && cull.Dispatch(members, batch.Baked, batch.Clock, batch.PreviousClock, animation.m_Loop, batch.Discontinuous, settings, batch.LocalSphere, batch.CullSphere, ranges) &&
                                  Renderer3D::SubmitCrowdTiers(meshes, material, static_cast<u32>(members.size()), cull);
-            if (part == 0)
-                view.Dispatched = batched;
+            if (batched && view.CountSource < 0)
+                view.CountSource = static_cast<i32>(part);
             if (!batched)
             {
                 for (const auto& member : members)
-                    m_Individual.SubmitPart(owner, pickingID, meshes[0], rig, animation, member, material, castShadows, key);
+                    m_Individual.SubmitPart(owner, pickingID, meshes[0], rig, animation, member, material, castShadows, key, visibilityMask);
                 continue;
             }
             packets += 3u;
@@ -413,7 +444,7 @@ namespace OloEngine
                 const auto& proxy = batch.Proxies[caster.Tier == CrowdLod::Far ? 1 : 0][caster.Cohort];
                 const auto& mesh = proxy.Meshes[part];
                 (void)Renderer3D::ExtractGPUSceneMesh(owner, member.StableID, proxy.Source, part, member.Transform, key,
-                                                      GPUSceneDrawLinkRequest::None, {}, InstanceTint(member.Color));
+                                                      GPUSceneDrawLinkRequest::None, {}, InstanceTint(member.Color), visibilityMask);
                 if (castShadows && material.GetAlphaMode() == AlphaMode::Opaque && !material.GetFlag(MaterialFlag::DisableShadowCasting))
                 {
                     Renderer3D::AddMeshShadowCaster(mesh->GetVertexArray()->GetRHIHandle(), mesh->GetIndexCount(),

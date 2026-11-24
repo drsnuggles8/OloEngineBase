@@ -191,6 +191,7 @@ namespace OloEngine
         m_CurrentFrame.m_PresentWaitTime = 0.0;
         m_CurrentFrame.m_DrawCalls = 0;
         m_CurrentFrame.m_AnimatedSubmeshPackets = 0;
+        m_CurrentFrame.m_CrowdMembersSubmitted = 0;
         m_CurrentFrame.m_SkinnedBatchedCommands = 0;
         m_CurrentFrame.m_AnimatedSubmissionMs = 0.0;
         m_CurrentFrame.m_StateChanges = 0;
@@ -1277,6 +1278,7 @@ namespace OloEngine
         m_PresentWaitTime = 0.0;
         m_DrawCalls = 0;
         m_AnimatedSubmeshPackets = 0;
+        m_CrowdMembersSubmitted = 0;
         m_SkinnedBatchedCommands = 0;
         m_AnimatedSubmissionMs = 0.0;
         m_StateChanges = 0;

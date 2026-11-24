@@ -20,6 +20,7 @@ namespace OloEngine
         const MaterialOverrideCache* Patches;
         const Material& Default;
         GPUSceneMaterialOverrideLane Lane;
+        bool CastShadows;
     };
 
     // Scene-owned caches. Animation time and transform history advance once per
@@ -39,11 +40,13 @@ namespace OloEngine
 
       private:
         struct Batch;
+        struct Owner;
+        std::unordered_map<u64, std::unique_ptr<Owner>> m_Owners;
         CrowdIndividual m_Individual;
         std::map<std::pair<u64, i32>, std::unique_ptr<Batch>> m_Batches;
         bool SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                          const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,
-                         std::span<const InstanceData> placements, sizet inlineCount,
+                         std::span<const InstanceData> placements,
                          const CrowdMaterials& materials, bool castShadows);
     };
 } // namespace OloEngine

@@ -2888,6 +2888,11 @@ namespace OloEngine
             // the counters stable across frames where cull ratios vary.
             auto& profiler = RendererProfiler::GetInstance();
             profiler.IncrementCounter(RendererProfiler::MetricType::InstancedDrawCalls, 1);
+            // Each crowd tier has the full input bound but renders a disjoint
+            // subset. Its population is already recorded once at submission.
+            // Exact survivors come from the post-frame indirect readback.
+            if (cmd->isAnimatedMesh && cmd->boneCountPerInstance == 0)
+                return;
             const u32 preCullCount = cmd->transformCount;
             profiler.IncrementCounter(RendererProfiler::MetricType::InstancesRendered, preCullCount);
             if (preCullCount > 1)

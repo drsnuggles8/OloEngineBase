@@ -27,7 +27,7 @@ namespace OloEngine
                                              const AnimationStateComponent& animation, u64 serial);
         void SubmitPart(u64 owner, i32 pickingID, const Ref<Mesh>& mesh, const Ref<Skeleton>& rig,
                         const AnimationStateComponent& animation, const InstanceData& member, const Material& material,
-                        bool shadows, const GPUSceneMaterialKey& key);
+                        bool shadows, const GPUSceneMaterialKey& key, u32 visibilityMask);
         void Remove(u64 owner);
         void FinishFrame(u64 serial);
 

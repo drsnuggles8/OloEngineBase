@@ -101,7 +101,8 @@ namespace OloEngine
         }
         if (continuous)
             result.Pose->AdvanceBoneHistory();
-        result.PreviousTransform = continuous ? result.Transform : member.Transform;
+        const auto& previousModel = member.CrowdPose.y != 0u ? member.PrevTransform : member.Transform;
+        result.PreviousTransform = continuous ? result.Transform : previousModel;
         result.Transform = member.Transform;
         SampleAtPhase(*result.Pose, *rig, animation, member.Custom);
         if (!continuous)
@@ -121,7 +122,7 @@ namespace OloEngine
 
     void CrowdIndividual::SubmitPart(u64 owner, i32 pickingID, const Ref<Mesh>& mesh, const Ref<Skeleton>& rig,
                                      const AnimationStateComponent& animation, const InstanceData& member, const Material& material,
-                                     bool shadows, const GPUSceneMaterialKey& key)
+                                     bool shadows, const GPUSceneMaterialKey& key, u32 visibilityMask)
     {
         if (!mesh || !rig || rig->m_FinalBoneMatrices.empty())
             return;
@@ -137,7 +138,7 @@ namespace OloEngine
         };
         const u32 link = Renderer3D::ExtractGPUSceneMesh(owner, member.StableID, mesh->GetMeshSource(), mesh->GetSubmeshIndex(),
                                                          sample.Transform, key, GPUSceneDrawLinkRequest::Link, animated,
-                                                         InstanceTint(member.Color));
+                                                         InstanceTint(member.Color), visibilityMask);
         InstanceData instance = member;
         instance.PrevTransform = sample.PreviousTransform;
         const std::span<const glm::mat4> previous = pose.HasBoneHistory() ? std::span<const glm::mat4>{ pose.m_PrevFinalBoneMatrices }
