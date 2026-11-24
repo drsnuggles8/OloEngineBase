@@ -22,6 +22,7 @@
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
@@ -90,6 +91,23 @@ TEST(ModelImporterTest, AnimatedModelWiresAllComponents)
     EXPECT_FALSE(anim.m_IsPlaying);
 
     EXPECT_TRUE(entity.HasComponent<MaterialComponent>());
+}
+
+TEST(ModelImporterTest, DuplicatedActorCanAdvanceWithoutPosingItsSource)
+{
+    auto scene = Scene::Create();
+    Entity source = scene->CreateEntity("Actor");
+    auto pose = Fx::MakeSingleBoneSkeleton();
+    const auto clips = MakeClips(1);
+    ModelImporter::PopulateAnimatedEntityFromParts(source, Ref<MeshSource>::Create(), pose, clips, nullptr, "Actor.gltf");
+    Entity duplicate = scene->DuplicateEntity(source);
+    auto& duplicatePose = duplicate.GetComponent<SkeletonComponent>().m_Skeleton;
+    ASSERT_TRUE(duplicatePose);
+    EXPECT_EQ(duplicate.GetComponent<MeshComponent>().m_MeshSource, source.GetComponent<MeshComponent>().m_MeshSource);
+    ASSERT_NE(duplicatePose, pose);
+    Animation::AnimationSystem::Update(duplicate.GetComponent<AnimationStateComponent>(), *duplicatePose, 0.5f);
+    EXPECT_NEAR(duplicatePose->m_FinalBoneMatrices[0][3].y, 0.25f, 1e-5f);
+    EXPECT_NEAR(pose->m_FinalBoneMatrices[0][3].y, 0.0f, 1e-5f);
 }
 
 // A model with no skeleton and no clips is purely static: only a MeshComponent.

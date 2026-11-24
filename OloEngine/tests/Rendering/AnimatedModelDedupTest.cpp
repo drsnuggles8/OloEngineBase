@@ -7,11 +7,8 @@
 // resolved SourceFilePath (e.g. a crowd of the same rigged character), the
 // deserializer must reuse the already-loaded Ref<AnimatedModel> instead of
 // re-running Assimp import + allocating a fresh MeshSource/GPU-buffer graph
-// per entity. Model/mesh data (MeshComponent::m_MeshSource,
-// SkeletonComponent::m_Skeleton) must end up SHARED (same Ref target), while
-// per-entity playback state (AnimationStateComponent scalars) must stay
-// independent — that's the correctness subtlety the HANDOVER.md research
-// flagged as needing verification, not just a speed measurement.
+// per entity. Actors share mesh data and clips. Each owns the current and
+// previous bone matrices written by animation and consumed by rendering.
 //
 // Needs a live GL context: loading the real glTF exercises the full
 // AnimatedModel -> MeshSource::Build() path (glCreateVertexArrays / GPU
@@ -27,6 +24,8 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -239,9 +238,10 @@ namespace OloEngine::Tests
 
         ASSERT_TRUE(restoredA.HasComponent<SkeletonComponent>());
         ASSERT_TRUE(restoredB.HasComponent<SkeletonComponent>());
-        EXPECT_EQ(restoredA.GetComponent<SkeletonComponent>().m_Skeleton,
-                  restoredB.GetComponent<SkeletonComponent>().m_Skeleton)
-            << "Two entities sharing a SourceFilePath must reuse the same Skeleton.";
+        auto& poseA = restoredA.GetComponent<SkeletonComponent>().m_Skeleton;
+        const auto& poseB = restoredB.GetComponent<SkeletonComponent>().m_Skeleton;
+        ASSERT_TRUE(poseA && poseB);
+        ASSERT_NE(poseA, poseB);
 
         // --- Playback state stays INDEPENDENT per entity ---
         ASSERT_TRUE(restoredA.HasComponent<AnimationStateComponent>());
@@ -253,9 +253,19 @@ namespace OloEngine::Tests
         EXPECT_TRUE(restoredAnimA.m_IsPlaying);
         EXPECT_FALSE(restoredAnimB.m_IsPlaying);
 
-        // Mutating one entity's playback state post-load must not leak into the
-        // other, even though they share the underlying model/skeleton Refs.
-        restoredA.GetComponent<AnimationStateComponent>().m_CurrentTime = 0.9f;
+        ASSERT_TRUE(restoredAnimA.m_CurrentClip);
+        EXPECT_EQ(restoredAnimA.m_CurrentClip, restoredAnimB.m_CurrentClip);
+        const auto pausedMatrices = poseB->m_FinalBoneMatrices;
+        Animation::AnimationSystem::Update(restoredA.GetComponent<AnimationStateComponent>(), *poseA, 0.125f);
+        ASSERT_FALSE(pausedMatrices.empty());
+        ASSERT_EQ(pausedMatrices.size(), poseA->m_FinalBoneMatrices.size());
+        bool animated = false;
+        for (sizet i = 0; i < pausedMatrices.size(); ++i)
+        {
+            EXPECT_TRUE(Math::BitwiseEqual(pausedMatrices[i], poseB->m_FinalBoneMatrices[i]));
+            animated |= !Math::BitwiseEqual(pausedMatrices[i], poseA->m_FinalBoneMatrices[i]);
+        }
+        EXPECT_TRUE(animated);
         EXPECT_NEAR(restoredB.GetComponent<AnimationStateComponent>().m_CurrentTime, 0.75f, 1e-5f)
             << "Entity B's playback state was corrupted by mutating entity A — "
                "the dedup cache must not alias per-entity AnimationStateComponents.";
