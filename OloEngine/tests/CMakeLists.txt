@@ -609,6 +609,7 @@ add_executable(OloEngine-Tests
 		# every CI runner takes. Drives the real pipeline on the GL fixture and
 		# demonstrates a byte-identical frame plus a named reason.
 		Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
+		Rendering/PropertyTests/GpuPathTracerFrameGraphTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
