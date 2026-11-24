@@ -1266,6 +1266,12 @@ namespace OloEngine::Tests
             "MeshHandle",
             "MaterialHandle",
             "TextureHandle",
+            "AlbedoTextureHandle",
+            "BackgroundTextureHandle",
+            "EmissiveTextureHandle",
+            "NormalTextureHandle",
+            "RMATextureHandle",
+            "FontAssetHandle",
             "FontHandle",
             "AudioFileHandle",
             "ColliderAsset",     // MeshCollider3D / ConvexMeshCollider3D / TriangleMeshCollider3D
@@ -2324,8 +2330,7 @@ namespace OloEngine::Tests
     // Some asset references in scene YAML are stored as raw paths
     // (legacy Hazel-derived content) rather than UUIDs through the
     // registry: `AudioSourceComponent.Filepath`, `MeshComponent.FilePath`,
-    // `TextComponent.FontPath`, `SpriteRendererComponent.TexturePath`,
-    // `EnvironmentMapComponent.FilePath`, etc.
+    // and `EnvironmentMapComponent.FilePath`, for example.
     //
     // The conventions vary by content era — newer engine code resolves
     // paths against `Project::GetAssetDirectory()`, but older content

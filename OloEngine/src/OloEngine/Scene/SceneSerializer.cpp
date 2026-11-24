@@ -129,20 +129,45 @@ namespace OloEngine
         return true;
     }
 
-    // Load a texture referenced by scene YAML through the asset registry so
-    // it participates in hot-reload and is de-duplicated across the scene
-    // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
-    // is active (e.g. the runtime path loading a scene with raw texture paths) --
-    // matches the legacy behaviour exactly in that case.
-    //
-    // Every failure is counted in t_SceneTextureLoadFailures. A component keeps
-    // its texture as the loaded object, not the path, so a failed load loses
-    // the path, and the binary sidecar written after the load would store the
-    // component without it: every later load of the scene would then come up
-    // without the texture, with nothing in the log, until the `.olo` changed.
-    // Deserialize writes no sidecar after a load that counted a failure.
-    static thread_local u32 t_SceneTextureLoadFailures = 0;
+    // The component keeps the resolved object. A default or placeholder can
+    // lose the authored reference, so Deserialize skips the sidecar write
+    // after a failed resolution.
+    static thread_local u32 t_SceneAssetLoadFailures = 0;
 
+    template<class T>
+    static bool RestoreSceneAssetReference(Ref<T>& target, AssetHandle handle)
+    {
+        if (handle == 0)
+            return true;
+
+        if (Project::HasAssetManager())
+        {
+            // Check metadata before loading. A scene handle in a texture slot
+            // must never start a second scene load from inside this one.
+            if (AssetManager::GetAssetType(handle) == T::GetStaticType())
+            {
+                auto asset = AssetManager::GetAsset<T>(handle);
+                const bool resolved = asset && asset->GetHandle() == handle;
+                if (resolved || !target)
+                    target = std::move(asset);
+                if (resolved)
+                    return true;
+            }
+            else
+            {
+                OLO_CORE_WARN("SceneSerializer: asset {} is missing or has an unexpected type", handle);
+            }
+        }
+        else
+        {
+            OLO_CORE_WARN("SceneSerializer: cannot resolve asset {} without a project asset manager", handle);
+        }
+        ++t_SceneAssetLoadFailures;
+        return false;
+    }
+
+    // Material maps still support paths. Prefer the registry for hot reload and
+    // fall back to a direct load when the path has no editor asset.
     static Ref<Texture2D> LoadSceneTexture(const std::string& texPath)
     {
         if (texPath.empty())
@@ -161,7 +186,7 @@ namespace OloEngine
                 Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(imported);
                 if (!texture || PlaceholderAssetManager::IsPlaceholderAsset(texture))
                 {
-                    ++t_SceneTextureLoadFailures;
+                    ++t_SceneAssetLoadFailures;
                     // The import registered a handle but nothing usable came
                     // back. Say so HERE, naming the path: the component-level
                     // consequence is silent and does not look like an asset
@@ -194,19 +219,13 @@ namespace OloEngine
         Ref<Texture2D> texture = Texture2D::Create(texPath);
         if (!texture || !texture->IsLoaded())
         {
-            ++t_SceneTextureLoadFailures;
+            ++t_SceneAssetLoadFailures;
         }
         return texture;
     }
 
     // The roots a relative scene resource path is written against and read back
     // from, most specific first.
-    //
-    // ONE list, shared by the writer (MakePortableSceneResourcePath) and the reader
-    // (ResolveSceneFontPath), because the two disagreeing is the whole of the font
-    // defect: the writer made a path relative to either root, the reader only ever
-    // prefixed the first, and every path written against the second was unreadable.
-    // Two functions deriving "the roots" separately is the shape that failure needs.
     //
     // The working directory is the STARTUP one where there is an Application, so a
     // later chdir cannot move what a path means mid-session. There is no Application
@@ -236,10 +255,8 @@ namespace OloEngine
         return roots;
     }
 
-    // Runtime-facing resource paths must survive moving a project or launching a
-    // packaged game on another machine. Font::Create stores the resolved absolute
-    // path, so serializing GetPath() directly would rewrite a portable authored
-    // path into the editor host's C:\... path whenever Build Game saves the scene.
+    // A scene resource still stored by path must survive moving the project
+    // or launching a packaged game on another machine.
     static std::string MakePortableSceneResourcePath(const std::filesystem::path& path)
     {
         if (path.empty() || !path.is_absolute())
@@ -258,63 +275,6 @@ namespace OloEngine
         }
         return path.generic_string();
     }
-
-    // The read side of MakePortableSceneResourcePath, and it has to try the SAME
-    // roots that one writes against.
-    //
-    // The writer makes a font path relative to the project directory OR to the
-    // startup working directory, whichever it matches first. The reader only ever
-    // prefixed the project directory, so every path written against the second root
-    // was unreadable — and that is not a corner: the shipped scenes reference
-    // "assets/fonts/opensans/OpenSans-Regular.ttf", an ENGINE asset under
-    // OloEditor/assets/, which is startup-cwd-relative by construction. Drift,
-    // DriftMenu and FontRenderingTest all failed every font load, and the failure
-    // was quiet — Font::Create logs a miss and the text silently falls back to the
-    // default font, so the UI still draws, in the wrong typeface.
-    //
-    // Existence-checked rather than first-root-wins, because the two roots overlap
-    // (the project lives under the startup directory in this repo) and a path that
-    // exists under only the second one must still resolve. Project first, so a
-    // project-owned font continues to shadow an engine-owned one of the same name —
-    // the same precedence the writer encodes.
-    //
-    // When neither root has it, the project-rooted spelling is returned so
-    // Font::Create's existing error names a concrete path, and a warning here names
-    // every root actually tried — the missing half of the old message, which
-    // reported one root while the file was under another.
-    static std::filesystem::path ResolveSceneFontPath(const std::filesystem::path& path)
-    {
-        if (path.empty() || path.is_absolute())
-        {
-            return path;
-        }
-
-        const std::vector<std::filesystem::path> roots = SceneResourceRoots();
-        for (const auto& root : roots)
-        {
-            std::error_code ec;
-            if (std::filesystem::path candidate = root / path;
-                std::filesystem::exists(candidate, ec) && !ec)
-            {
-                return candidate;
-            }
-        }
-
-        std::string tried;
-        for (const auto& root : roots)
-        {
-            if (!tried.empty())
-                tried += "', '";
-            tried += (root / path).generic_string();
-        }
-        OLO_CORE_WARN("SceneSerializer: font '{}' was not found under any scene resource root (tried '{}'). "
-                      "The component will fall back to the default font.",
-                      path.generic_string(), tried);
-
-        return roots.empty() ? path : (roots.front() / path);
-    }
-
-    // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------
 
     /// Replace non-finite values with \p fallback, then clamp to [lo, hi].
     static void SanitizeFloat(f32& v, f32 lo, f32 hi, f32 fallback)
@@ -1098,61 +1058,6 @@ namespace OloEngine
                 }
             }
         }
-    }
-
-    static void DeserializeDecalComponent(Entity& entity, const YAML::Node& node)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        auto& dc = entity.AddComponent<DecalComponent>();
-        TrySet(dc.m_Color, node["Color"]);
-        TrySet(dc.m_Size, node["Size"]);
-        TrySet(dc.m_FadeDistance, node["FadeDistance"]);
-        TrySet(dc.m_NormalAngleThreshold, node["NormalAngleThreshold"]);
-
-        if (node["AlbedoTexturePath"])
-        {
-            auto texPath = node["AlbedoTexturePath"].as<std::string>("");
-            dc.m_AlbedoTexture = LoadSceneTexture(texPath);
-        }
-        if (node["NormalTexturePath"])
-        {
-            auto texPath = node["NormalTexturePath"].as<std::string>("");
-            dc.m_NormalTexture = LoadSceneTexture(texPath);
-        }
-        if (node["RMATexturePath"])
-        {
-            auto texPath = node["RMATexturePath"].as<std::string>("");
-            dc.m_RMATexture = LoadSceneTexture(texPath);
-        }
-        if (node["EmissiveTexturePath"])
-        {
-            auto texPath = node["EmissiveTexturePath"].as<std::string>("");
-            dc.m_EmissiveTexture = LoadSceneTexture(texPath);
-        }
-        if (node["Mode"])
-        {
-            u32 mode = node["Mode"].as<u32>(0);
-            if (mode <= 3)
-                dc.m_Mode = static_cast<DecalMode>(mode);
-        }
-        TrySet(dc.m_Transparent, node["Transparent"]);
-
-        // Validate
-        SanitizeVec3(dc.m_Size, glm::vec3(1.0f));
-        for (int i = 0; i < 4; ++i)
-        {
-            if (!std::isfinite(dc.m_Color[i]))
-            {
-                dc.m_Color[i] = 1.0f;
-            }
-            else
-            {
-                dc.m_Color[i] = std::clamp(dc.m_Color[i], 0.0f, 1.0f);
-            }
-        }
-        SanitizeFloat(dc.m_FadeDistance, 0.0f, 100.0f, 0.5f);
-        SanitizeFloat(dc.m_NormalAngleThreshold, 0.0f, 1.0f, 0.5f);
     }
 
     static void DeserializeParticleSystemComponent(ParticleSystemComponent& psc, const YAML::Node& particleComponent)
@@ -2419,21 +2324,6 @@ namespace OloEngine
             SanitizeFloat(vsc.Volume, 0.0f, 1.0f, 0.5f);
         }
 
-        if (auto spriteRendererComponent = entity["SpriteRendererComponent"]; spriteRendererComponent)
-        {
-            auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-            src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-            if (spriteRendererComponent["TexturePath"])
-            {
-                src.Texture = LoadSceneTexture(spriteRendererComponent["TexturePath"].as<std::string>());
-            }
-
-            if (spriteRendererComponent["TilingFactor"])
-            {
-                src.TilingFactor = spriteRendererComponent["TilingFactor"].as<f32>();
-            }
-        }
-
         if (auto rigidbody2DComponent = entity["Rigidbody2DComponent"]; rigidbody2DComponent)
         {
             auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
@@ -2474,32 +2364,6 @@ namespace OloEngine
             SanitizeFloat(cc2d.Restitution, 0.0f, 1.0f, 0.0f);
             cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
             SanitizeFloat(cc2d.RestitutionThreshold, 0.0f, 1.0e6f, 0.5f);
-        }
-
-        if (auto textComponent = entity["TextComponent"]; textComponent)
-        {
-            auto& tc = deserializedEntity.AddComponent<TextComponent>();
-            tc.TextString = textComponent["TextString"].as<std::string>();
-            if (textComponent["FontPath"])
-            {
-                tc.FontAsset = Font::Create(ResolveSceneFontPath(textComponent["FontPath"].as<std::string>()));
-            }
-            tc.Color = textComponent["Color"].as<glm::vec4>();
-            tc.Kerning = textComponent["Kerning"].as<float>();
-            tc.LineSpacing = textComponent["LineSpacing"].as<float>();
-            TrySet(tc.MaxWidth, textComponent["MaxWidth"]);
-            if (!std::isfinite(tc.MaxWidth) || tc.MaxWidth < 0.0f)
-                tc.MaxWidth = 0.0f;
-            TrySet(tc.DropShadow, textComponent["DropShadow"]);
-            TrySet(tc.ShadowDistance, textComponent["ShadowDistance"]);
-            if (!std::isfinite(tc.ShadowDistance))
-                tc.ShadowDistance = 0.02f;
-            TrySet(tc.ShadowColor, textComponent["ShadowColor"]);
-            for (int ci = 0; ci < 4; ++ci)
-            {
-                if (!std::isfinite(tc.ShadowColor[ci]))
-                    tc.ShadowColor[ci] = (ci == 3) ? 1.0f : 0.0f;
-            }
         }
 
         if (auto meshComponent = entity["MeshComponent"]; meshComponent)
@@ -3574,42 +3438,6 @@ namespace OloEngine
         // a glm::vec2). Its serialize/deserialize blocks live in
         // Scene{Serialize,Deserialize}Components.Generated.inl (issue #451 enum slice).
 
-        if (auto uiImageComponent = entity["UIImageComponent"]; uiImageComponent)
-        {
-            auto& image = deserializedEntity.AddComponent<UIImageComponent>();
-            if (uiImageComponent["TexturePath"])
-            {
-                image.m_Texture = LoadSceneTexture(uiImageComponent["TexturePath"].as<std::string>());
-            }
-            TrySet(image.m_Color, uiImageComponent["Color"]);
-            TrySet(image.m_BorderInsets, uiImageComponent["BorderInsets"]);
-        }
-
-        if (auto uiPanelComponent = entity["UIPanelComponent"]; uiPanelComponent)
-        {
-            auto& panel = deserializedEntity.AddComponent<UIPanelComponent>();
-            TrySet(panel.m_BackgroundColor, uiPanelComponent["BackgroundColor"]);
-            if (uiPanelComponent["BackgroundTexturePath"])
-            {
-                panel.m_BackgroundTexture = LoadSceneTexture(uiPanelComponent["BackgroundTexturePath"].as<std::string>());
-            }
-        }
-
-        if (auto uiTextComponent = entity["UITextComponent"]; uiTextComponent)
-        {
-            auto& text = deserializedEntity.AddComponent<UITextComponent>();
-            TrySet(text.m_Text, uiTextComponent["Text"]);
-            if (uiTextComponent["FontPath"])
-            {
-                text.m_FontAsset = Font::Create(ResolveSceneFontPath(uiTextComponent["FontPath"].as<std::string>()));
-            }
-            TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
-            TrySet(text.m_Color, uiTextComponent["Color"]);
-            TrySetEnum(text.m_Alignment, uiTextComponent["Alignment"]);
-            TrySet(text.m_Kerning, uiTextComponent["Kerning"]);
-            TrySet(text.m_LineSpacing, uiTextComponent["LineSpacing"]);
-        }
-
         // UIButtonComponent — auto-generated. All authored fields are trivial; the
         // runtime-only m_State is marked OLO_SERIALIZE(Skip), so the generated block
         // round-trips everything but m_State (issue #451 OLO_SERIALIZE(Skip) slice).
@@ -3625,51 +3453,9 @@ namespace OloEngine
         // reference + a glm::vec3 offset). Its serialize/deserialize blocks live in
         // Scene{Serialize,Deserialize}Components.Generated.inl (issue #451).
 
-        if (auto uiInputFieldComponent = entity["UIInputFieldComponent"]; uiInputFieldComponent)
-        {
-            auto& input = deserializedEntity.AddComponent<UIInputFieldComponent>();
-            TrySet(input.m_Text, uiInputFieldComponent["Text"]);
-            TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
-            if (uiInputFieldComponent["FontPath"])
-            {
-                input.m_FontAsset = Font::Create(ResolveSceneFontPath(uiInputFieldComponent["FontPath"].as<std::string>()));
-            }
-            TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
-            TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
-            TrySet(input.m_PlaceholderColor, uiInputFieldComponent["PlaceholderColor"]);
-            TrySet(input.m_BackgroundColor, uiInputFieldComponent["BackgroundColor"]);
-            TrySet(input.m_CharacterLimit, uiInputFieldComponent["CharacterLimit"]);
-            TrySet(input.m_Interactable, uiInputFieldComponent["Interactable"]);
-        }
-
         // UIScrollViewComponent — auto-generated (all-trivial: two glm::vec2s, a
         // ScrollDirection enum, a f32, two bools, two glm::vec4 colors). Block lives
         // in the generated .inl (issue #451 enum slice).
-
-        if (auto uiDropdownComponent = entity["UIDropdownComponent"]; uiDropdownComponent)
-        {
-            auto& dropdown = deserializedEntity.AddComponent<UIDropdownComponent>();
-            if (uiDropdownComponent["Options"])
-            {
-                for (const auto& optionNode : uiDropdownComponent["Options"])
-                {
-                    UIDropdownOption option;
-                    option.m_Label = optionNode.as<std::string>("");
-                    dropdown.m_Options.Add(option);
-                }
-            }
-            TrySet(dropdown.m_SelectedIndex, uiDropdownComponent["SelectedIndex"]);
-            TrySet(dropdown.m_BackgroundColor, uiDropdownComponent["BackgroundColor"]);
-            TrySet(dropdown.m_HighlightColor, uiDropdownComponent["HighlightColor"]);
-            TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
-            if (uiDropdownComponent["FontPath"])
-            {
-                dropdown.m_FontAsset = Font::Create(ResolveSceneFontPath(uiDropdownComponent["FontPath"].as<std::string>()));
-            }
-            TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
-            TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);
-            TrySet(dropdown.m_Interactable, uiDropdownComponent["Interactable"]);
-        }
 
         // UIGridLayoutComponent — auto-generated (all-trivial: two glm::vec2s, a
         // glm::vec4, two enums StartCorner/StartAxis, an i32). Block lives in the
@@ -3697,11 +3483,6 @@ namespace OloEngine
         {
             auto& water = deserializedEntity.AddComponent<WaterComponent>();
             DeserializeWaterComponent(water, waterComponent);
-        }
-
-        if (auto decalComponent = entity["DecalComponent"]; decalComponent)
-        {
-            DeserializeDecalComponent(deserializedEntity, decalComponent);
         }
 
         if (auto submeshComponent = entity["SubmeshComponent"]; submeshComponent)
@@ -4862,26 +4643,6 @@ namespace OloEngine
             out << YAML::EndMap; // VideoSurfaceComponent
         }
 
-        if (entity.HasComponent<SpriteRendererComponent>())
-        {
-            out << YAML::Key << "SpriteRendererComponent";
-            out << YAML::BeginMap; // SpriteRendererComponent
-
-            auto const& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
-            out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
-            // TilingFactor is authored data whether or not a texture is bound yet:
-            // it used to be written only INSIDE the texture branch, so a sprite
-            // whose tiling was set before its texture silently lost the value on
-            // save while the loader read it back unconditionally.
-            out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
-            if (auto& texture = spriteRendererComponent.Texture)
-            {
-                out << YAML::Key << "TexturePath" << YAML::Value << std::string(texture->GetPath());
-            }
-
-            out << YAML::EndMap; // SpriteRendererComponent
-        }
-
         if (entity.HasComponent<Rigidbody2DComponent>())
         {
             out << YAML::Key << "Rigidbody2DComponent";
@@ -4926,28 +4687,6 @@ namespace OloEngine
             out << YAML::Key << "RestitutionThreshold" << YAML::Value << cc2dComponent.RestitutionThreshold;
 
             out << YAML::EndMap; // CircleCollider2DComponent
-        }
-
-        if (entity.HasComponent<TextComponent>())
-        {
-            out << YAML::Key << "TextComponent";
-            out << YAML::BeginMap; // TextComponent
-
-            auto const& textComponent = entity.GetComponent<TextComponent>();
-            out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
-            if (textComponent.FontAsset)
-            {
-                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(textComponent.FontAsset->GetPath());
-            }
-            out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
-            out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
-            out << YAML::Key << "LineSpacing" << YAML::Value << textComponent.LineSpacing;
-            out << YAML::Key << "MaxWidth" << YAML::Value << textComponent.MaxWidth;
-            out << YAML::Key << "DropShadow" << YAML::Value << textComponent.DropShadow;
-            out << YAML::Key << "ShadowDistance" << YAML::Value << textComponent.ShadowDistance;
-            out << YAML::Key << "ShadowColor" << YAML::Value << textComponent.ShadowColor;
-
-            out << YAML::EndMap; // TextComponent
         }
 
         if (entity.HasComponent<MeshComponent>())
@@ -5600,57 +5339,6 @@ namespace OloEngine
         // UICanvasComponent serialize — auto-generated (issue #451 enum slice); see
         // the matching note in DeserializeEntityComponents.
 
-        if (entity.HasComponent<UIImageComponent>())
-        {
-            out << YAML::Key << "UIImageComponent";
-            out << YAML::BeginMap; // UIImageComponent
-
-            auto const& image = entity.GetComponent<UIImageComponent>();
-            if (image.m_Texture)
-            {
-                out << YAML::Key << "TexturePath" << YAML::Value << std::string(image.m_Texture->GetPath());
-            }
-            out << YAML::Key << "Color" << YAML::Value << image.m_Color;
-            out << YAML::Key << "BorderInsets" << YAML::Value << image.m_BorderInsets;
-
-            out << YAML::EndMap; // UIImageComponent
-        }
-
-        if (entity.HasComponent<UIPanelComponent>())
-        {
-            out << YAML::Key << "UIPanelComponent";
-            out << YAML::BeginMap; // UIPanelComponent
-
-            auto const& panel = entity.GetComponent<UIPanelComponent>();
-            out << YAML::Key << "BackgroundColor" << YAML::Value << panel.m_BackgroundColor;
-            if (panel.m_BackgroundTexture)
-            {
-                out << YAML::Key << "BackgroundTexturePath" << YAML::Value << std::string(panel.m_BackgroundTexture->GetPath());
-            }
-
-            out << YAML::EndMap; // UIPanelComponent
-        }
-
-        if (entity.HasComponent<UITextComponent>())
-        {
-            out << YAML::Key << "UITextComponent";
-            out << YAML::BeginMap; // UITextComponent
-
-            auto const& text = entity.GetComponent<UITextComponent>();
-            out << YAML::Key << "Text" << YAML::Value << text.m_Text;
-            if (text.m_FontAsset)
-            {
-                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(text.m_FontAsset->GetPath());
-            }
-            out << YAML::Key << "FontSize" << YAML::Value << text.m_FontSize;
-            out << YAML::Key << "Color" << YAML::Value << text.m_Color;
-            out << YAML::Key << "Alignment" << YAML::Value << static_cast<int>(std::to_underlying(text.m_Alignment));
-            out << YAML::Key << "Kerning" << YAML::Value << text.m_Kerning;
-            out << YAML::Key << "LineSpacing" << YAML::Value << text.m_LineSpacing;
-
-            out << YAML::EndMap; // UITextComponent
-        }
-
         // UIButtonComponent / UISliderComponent — auto-generated. Their runtime-only
         // fields (m_State / m_IsDragging) carry OLO_SERIALIZE(Skip); every authored
         // field is trivial, so both serialize blocks live in the generated .inl
@@ -5662,57 +5350,8 @@ namespace OloEngine
         // UIWorldAnchorComponent — auto-generated (see the matching note in
         // DeserializeEntityComponents); block lives in the generated .inl (issue #451).
 
-        if (entity.HasComponent<UIInputFieldComponent>())
-        {
-            out << YAML::Key << "UIInputFieldComponent";
-            out << YAML::BeginMap; // UIInputFieldComponent
-
-            auto const& input = entity.GetComponent<UIInputFieldComponent>();
-            out << YAML::Key << "Text" << YAML::Value << input.m_Text;
-            out << YAML::Key << "Placeholder" << YAML::Value << input.m_Placeholder;
-            if (input.m_FontAsset)
-            {
-                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(input.m_FontAsset->GetPath());
-            }
-            out << YAML::Key << "FontSize" << YAML::Value << input.m_FontSize;
-            out << YAML::Key << "TextColor" << YAML::Value << input.m_TextColor;
-            out << YAML::Key << "PlaceholderColor" << YAML::Value << input.m_PlaceholderColor;
-            out << YAML::Key << "BackgroundColor" << YAML::Value << input.m_BackgroundColor;
-            out << YAML::Key << "CharacterLimit" << YAML::Value << input.m_CharacterLimit;
-            out << YAML::Key << "Interactable" << YAML::Value << input.m_Interactable;
-
-            out << YAML::EndMap; // UIInputFieldComponent
-        }
-
         // UIScrollViewComponent serialize — auto-generated (issue #451 enum slice);
         // see the matching note in DeserializeEntityComponents.
-
-        if (entity.HasComponent<UIDropdownComponent>())
-        {
-            out << YAML::Key << "UIDropdownComponent";
-            out << YAML::BeginMap; // UIDropdownComponent
-
-            auto const& dropdown = entity.GetComponent<UIDropdownComponent>();
-            out << YAML::Key << "Options" << YAML::Value << YAML::BeginSeq;
-            for (const auto& option : dropdown.m_Options)
-            {
-                out << option.m_Label.ToStdString();
-            }
-            out << YAML::EndSeq;
-            out << YAML::Key << "SelectedIndex" << YAML::Value << dropdown.m_SelectedIndex;
-            out << YAML::Key << "BackgroundColor" << YAML::Value << dropdown.m_BackgroundColor;
-            out << YAML::Key << "HighlightColor" << YAML::Value << dropdown.m_HighlightColor;
-            out << YAML::Key << "TextColor" << YAML::Value << dropdown.m_TextColor;
-            if (dropdown.m_FontAsset)
-            {
-                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(dropdown.m_FontAsset->GetPath());
-            }
-            out << YAML::Key << "FontSize" << YAML::Value << dropdown.m_FontSize;
-            out << YAML::Key << "ItemHeight" << YAML::Value << dropdown.m_ItemHeight;
-            out << YAML::Key << "Interactable" << YAML::Value << dropdown.m_Interactable;
-
-            out << YAML::EndMap; // UIDropdownComponent
-        }
 
         // UIGridLayoutComponent serialize — auto-generated (issue #451 enum slice);
         // see the matching note in DeserializeEntityComponents.
@@ -6261,39 +5900,6 @@ namespace OloEngine
             out << YAML::Key << "FFTCascades" << YAML::Value << water.m_FFTCascades;
 
             out << YAML::EndMap; // WaterComponent
-        }
-
-        if (entity.HasComponent<DecalComponent>())
-        {
-            out << YAML::Key << "DecalComponent";
-            out << YAML::BeginMap;
-
-            auto const& dc = entity.GetComponent<DecalComponent>();
-            out << YAML::Key << "Color" << YAML::Value << dc.m_Color;
-            out << YAML::Key << "Size" << YAML::Value << dc.m_Size;
-            out << YAML::Key << "FadeDistance" << YAML::Value << dc.m_FadeDistance;
-            out << YAML::Key << "NormalAngleThreshold" << YAML::Value << dc.m_NormalAngleThreshold;
-
-            if (dc.m_AlbedoTexture)
-            {
-                out << YAML::Key << "AlbedoTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_AlbedoTexture->GetPath());
-            }
-            if (dc.m_NormalTexture)
-            {
-                out << YAML::Key << "NormalTexturePath" << YAML::Value << MakePortableSceneResourcePath(dc.m_NormalTexture->GetPath());
-            }
-            if (dc.m_RMATexture)
-            {
-                out << YAML::Key << "RMATexturePath" << YAML::Value << std::string(dc.m_RMATexture->GetPath());
-            }
-            if (dc.m_EmissiveTexture)
-            {
-                out << YAML::Key << "EmissiveTexturePath" << YAML::Value << std::string(dc.m_EmissiveTexture->GetPath());
-            }
-            out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(std::to_underlying(dc.m_Mode));
-            out << YAML::Key << "Transparent" << YAML::Value << dc.m_Transparent;
-
-            out << YAML::EndMap; // DecalComponent
         }
 
         if (entity.HasComponent<SubmeshComponent>())
@@ -7797,7 +7403,7 @@ namespace OloEngine
 
         // Compared, not reset, so a scene loaded inside this one cannot clear
         // a failure this load counted.
-        const u32 textureFailuresBefore = t_SceneTextureLoadFailures;
+        const u32 assetFailuresBefore = t_SceneAssetLoadFailures;
 
         YAML::Node data;
         try
@@ -7925,15 +7531,13 @@ namespace OloEngine
         // is reached only after CheckSceneVersion above passed, so a sidecar
         // never vouches for a `.olo` this build would reject (#1496).
         //
-        // Not after a texture failed to load (t_SceneTextureLoadFailures): the
-        // sidecar would store the component without the texture's path, and
-        // every later load would be served from it. A Vulkan Build Game that
-        // lost the device wrote such sidecars for every scene it touched.
-        if (const u32 textureFailures = t_SceneTextureLoadFailures - textureFailuresBefore; textureFailures > 0)
+        // A missing asset is replaced by a default or placeholder. Caching that
+        // result loses the reference and prevents retry after the asset is restored.
+        if (const u32 assetFailures = t_SceneAssetLoadFailures - assetFailuresBefore; assetFailures > 0)
         {
-            OLO_CORE_WARN("SceneSerializer: {} texture(s) in '{}' failed to load; no binary sidecar written, so the "
+            OLO_CORE_WARN("SceneSerializer: {} asset(s) in '{}' failed to load; no binary sidecar written, so the "
                           "next load reads the YAML again",
-                          textureFailures, filepath.string());
+                          assetFailures, filepath.string());
         }
         else
         {

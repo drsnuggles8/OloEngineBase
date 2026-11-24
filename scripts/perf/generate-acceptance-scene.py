@@ -492,7 +492,7 @@ def compose() -> str:
         "# the bound short- and long-coat horses walking in the meadow, and the rigged human head\n"
         "# with its hair in a studio beside the terrain.\n"
     )
-    return "Scene: Acceptance\nVersion: 1\n" + note + header + "\nEntities:\n" + "\n".join(out) + "\n"
+    return "Scene: Acceptance\nVersion: 2\n" + note + header + "\nEntities:\n" + "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------------------------

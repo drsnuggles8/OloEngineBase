@@ -585,7 +585,7 @@ namespace OloEngine::Tests::ImportedCorpus
         const std::string riggedPath = ModelPath("RiggedSimple/RiggedSimple.gltf").generic_string();
         // One entity per model; {MORPH} and {RIGGED} are replaced below.
         std::string yaml = R"(Scene: MorphOnly1439
-Version: 1
+Version: 2
 Entities:
   - Entity: 1439000000000001
     TagComponent:

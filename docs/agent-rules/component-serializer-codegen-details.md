@@ -159,13 +159,11 @@ mistaking it for the field.
 
 Saturates an out-of-range value to the nearest bound — the `SanitizeFloat`/`std::clamp` idiom.
 
-Supported on scalar `Float`/`Int`/`UInt`/`SmallInt`/`SmallUInt`/`Enum` **and** `glm::vec3`
+Supported on scalar `Float`/`Int`/`UInt`/`SmallInt`/`SmallUInt`/`Enum` and `glm::vec3`/`glm::vec4`
 (`kClampEligible` in `ParseComponentFields`). An enum clamps its underlying `int` before the cast
-back, matching `static_cast<EnumType>(std::clamp(intValue, lo, hi))`. A `glm::vec3` appends a
-component-wise `glm::clamp`/`glm::max`/`glm::min` step via `ApplyVec3Clamp` (the vec3 sibling of
-`ApplyClamp`) *after* the plain finite-validated `.as<glm::vec3>(lhs)` read — mirroring the
-hand-written `SanitizeVec3Clamped` idiom, except the finite-fallback stays whole-vector (from
-`DecodeVec3`); the annotation only adds the range step on top.
+back, matching `static_cast<EnumType>(std::clamp(intValue, lo, hi))`. YAML vector reads keep the
+whole constructor value on non-finite input. On a finite vector, `ApplyVectorClamp` applies a
+component-wise `glm::clamp`/`glm::max`/`glm::min` step.
 
 Give at least one of `Min`/`Max` — both is `std::clamp`, one only is a one-sided
 `std::max`/`std::min`. For a non-enum field both bounds are cast to the field's own type at emit

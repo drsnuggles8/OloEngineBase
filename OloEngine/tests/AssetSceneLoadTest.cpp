@@ -60,6 +60,9 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Project/Project.h"
@@ -72,6 +75,7 @@
 #include "OloEngine/Renderer/RendererTypes.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -80,6 +84,7 @@
 #include "OloEngine/Asset/AssetRegistry.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -122,8 +127,9 @@ namespace OloEngine::Tests
             // so it can never be a live staging tree belonging to a concurrent run.
             // That is the property the hand-rolled claim loop here used to provide.
             std::error_code ec;
-            const fs::path tempRoot = OloEngine::Tests::TempDir("sandbox");
-            if (!fs::is_directory(tempRoot, ec))
+            const fs::path stagingRoot = OloEngine::Tests::TempDir("sandbox");
+            const fs::path tempRoot = stagingRoot / "SandboxProject";
+            if (!fs::create_directories(tempRoot, ec))
             {
                 error = "could not create a staging dir at " + tempRoot.string();
                 return {};
@@ -148,6 +154,18 @@ namespace OloEngine::Tests
                     // is the next run's confusing failure.
                     error += " (cleanup of " + tempRoot.string() + " also failed: " + cleanupEc.message() + ")";
                 }
+                return {};
+            }
+
+            // The staged registry retains its ../assets paths. Stage the
+            // registered engine fonts in that same layout.
+            const auto fonts = fs::path("assets/fonts/opensans");
+            fs::create_directories((stagingRoot / fonts).parent_path(), ec);
+            if (!ec)
+                fs::copy(fs::path(OLO_TEST_EDITOR_ROOT) / fonts, stagingRoot / fonts, fs::copy_options::recursive, ec);
+            if (ec)
+            {
+                error = "could not stage engine fonts: " + ec.message();
                 return {};
             }
 
@@ -376,6 +394,21 @@ namespace OloEngine::Tests
                 EXPECT_FALSE(Project::HasAssetManager());
             }
         } assetManagerShutdown{ assetManager, sharedAssets };
+
+        for (const char* name : { "FirstPersonPlayer", "ThirdPersonPlayer" })
+        {
+            SCOPED_TRACE(name);
+            AssetMetadata metadata;
+            metadata.FilePath = fs::path("Assets/Prefabs") / (std::string(name) + ".oloprefab");
+            metadata.Type = AssetType::Prefab;
+            Ref<Asset> asset;
+            ASSERT_TRUE(PrefabSerializer().TryLoadData(metadata, asset));
+            const auto prefab = asset.As<Prefab>();
+            ASSERT_TRUE(prefab);
+            Entity root = prefab->GetRootEntity();
+            ASSERT_TRUE(root);
+            EXPECT_EQ(root.GetName(), name);
+        }
 
         const fs::path scenesDir = tempRoot / "Assets" / "Scenes";
         std::vector<fs::path> scenes;
@@ -686,7 +719,7 @@ namespace OloEngine::Tests
     // caught. Two loads of the same scene path are checked because the reported failure is
     // a "second load" class of bug: the binary sidecar written on the first load must carry
     // the same correct path forward, not silently drop it.
-    TEST(AssetSceneLoad, DecalAndSpriteTexturePathsSurviveRoundTrip)
+    TEST(AssetSceneLoad, DecalAndSpriteTextureHandlesSurviveYAMLAndSidecar)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -886,28 +919,10 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------------
-    // A scene's font path resolves against the SAME roots the serializer writes it
-    // against.
-    //
-    // `MakePortableSceneResourcePath` makes a font path relative to the project
-    // directory OR to the process working directory, whichever matches first;
-    // `ResolveSceneFontPath` used to prefix only the project directory. Every path
-    // written against the second root was therefore unreadable — and that is not a
-    // corner case: the shipped scenes reference "assets/fonts/opensans/...", an
-    // ENGINE asset under OloEditor/assets/, which is working-directory-relative by
-    // construction. Drift, DriftMenu and FontRenderingTest failed every font load.
-    //
-    // The failure was quiet, which is why no test caught it: Font::Create returns a
-    // non-null Ref whose IsLoaded() is false, the text still draws in the fallback
-    // typeface, and the only signal is a "Failed to open font file" line naming a
-    // path under the project — a root the font was never under. So this asserts
-    // IsLoaded(), not non-null; non-null was always true.
-    //
-    // AssetContentValidity already checks the scene CONTENT resolves, and passed
-    // throughout, because it tries several candidate roots. That is the gap: the
-    // content was fine and the runtime resolver was not.
-    // -------------------------------------------------------------------------------
-    TEST(AssetSceneLoad, SceneFontPathsResolveAgainstTheWorkingDirectoryRootToo)
+    // The committed scene references an OpenSans font from the registry.
+    // The default uses the same source file, so a loaded font alone does
+    // not prove that the authored reference was restored.
+    TEST(AssetSceneLoad, AuthoredFontResolvesByHandle)
     {
         // Font::Create rasterises an MSDF atlas into a GPU texture.
         OLO_ENSURE_GPU_OR_SKIP();
@@ -915,17 +930,6 @@ namespace OloEngine::Tests
         OloEngine::Tests::EnsureProcessRendererInitialized();
 
         GLStateGuard glGuard("AssetSceneLoad.SceneFontPaths", GLStateGuard::Policy::Restore);
-
-        // The engine-owned font tree is reached through the working directory, and
-        // ctest runs this suite with WORKING_DIRECTORY = <repo>/OloEditor (see
-        // OloEngine/tests/CMakeLists.txt). Assert rather than skip: a wrong cwd is an
-        // environment error worth reporting, and silently skipping here would hide
-        // exactly the root this test exists to cover.
-        const fs::path engineFont = fs::path("assets") / "fonts" / "opensans" / "OpenSans-Regular.ttf";
-        ASSERT_TRUE(fs::exists(engineFont))
-            << "Expected the engine font tree relative to the working directory, but '"
-            << engineFont.string() << "' does not exist from cwd '"
-            << fs::current_path().string() << "'. Run this suite from OloEditor/.";
 
         std::string stageError;
         const fs::path tempRoot = StageSandboxProjectIntoTemp(stageError);
@@ -966,7 +970,7 @@ namespace OloEngine::Tests
             {
                 if (Mgr)
                     Mgr->Shutdown();
-                // See DecalAndSpriteTexturePathsSurviveRoundTrip: a shut-down manager
+                // See DecalAndSpriteTextureHandlesSurviveYAMLAndSidecar: a shut-down manager
                 // left installed poisons every later test in the process (#1074).
                 Project::Unload();
             }
@@ -986,6 +990,9 @@ namespace OloEngine::Tests
         {
             const auto& [tag, text] = view.get<TagComponent, TextComponent>(entity);
             ASSERT_TRUE(text.FontAsset) << "entity '" << tag.Tag << "' has a null font ref";
+            const auto expectedHandle = assetManager->GetAssetHandleFromFilePath(tempRoot / "../assets/fonts/opensans/OpenSans-Regular.ttf");
+            ASSERT_NE(expectedHandle, AssetHandle(0));
+            EXPECT_EQ(text.FontAsset->GetHandle(), expectedHandle) << tag.Tag;
             EXPECT_TRUE(text.FontAsset->IsLoaded())
                 << "entity '" << tag.Tag << "': the scene's font did not load. Font::Create hands back a "
                                             "non-null, UNLOADED Font on a miss and the text falls back to the default typeface, "
@@ -996,16 +1003,15 @@ namespace OloEngine::Tests
 
         EXPECT_GT(checked, 0u)
             << "FontRenderingTest.olo carries no TextComponent any more — this test is asserting nothing. "
-               "Point it at another scene with a FontPath, or delete it.";
+               "Point it at another scene with a registered font handle.";
     }
 
     // A texture imported as a project asset reports its project-relative path in
     // the platform's spelling, and the scene wrote it verbatim: the dog showcase
     // exported "AlbedoMapPath: Assets\Models\Dog\DogIrisColor.png" on Windows, a
-    // name that is no file on Linux (#1533). The material maps and the decal
-    // textures are written with forward slashes. On Linux the platform spelling
-    // already is that, so this bites only where it was broken.
-    TEST(AssetSceneLoad, MaterialAndDecalTexturePathsAreWrittenWithForwardSlashes)
+    // name that is no file on Linux (#1533). Material maps are written with
+    // forward slashes.
+    TEST(AssetSceneLoad, MaterialTexturePathsAreWrittenWithForwardSlashes)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -1025,11 +1031,9 @@ namespace OloEngine::Tests
         auto& material = eye.AddComponent<MaterialComponent>().m_Material;
         material.SetAlbedoMap(texture);
         material.SetNormalMap(texture);
-        Entity decal = scene->CreateEntity("Decal");
-        decal.AddComponent<DecalComponent>().m_AlbedoTexture = texture;
 
         const std::string yaml = SceneSerializer(scene).SerializeToYAML();
-        for (const char* key : { "AlbedoMapPath", "NormalMapPath", "AlbedoTexturePath" })
+        for (const char* key : { "AlbedoMapPath", "NormalMapPath" })
         {
             EXPECT_NE(yaml.find(std::string(key) + ": Assets/Textures/Checkerboard.png"), std::string::npos)
                 << key << " was not written as a forward-slash project-relative path";
@@ -1037,12 +1041,168 @@ namespace OloEngine::Tests
         EXPECT_EQ(yaml.find("Assets\\"), std::string::npos) << "a texture path was written with backslashes";
     }
 
-    // A load where a scene texture failed writes NO binary sidecar. A component keeps
-    // its texture as the loaded object, not the path, so the sidecar would store
-    // the sprite without its path, and every later load of the unchanged `.olo`
-    // would be served the texture-less copy. A Vulkan Build Game that lost the
-    // device wrote such sidecars, and AssetSceneLoad then failed on every run.
-    // The same scene without the texture path is the control: it does write one.
+    TEST(AssetSceneLoad, SceneTextureAndFontHandlesResolveLooseAndPacked)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        EnsureProcessRendererInitialized();
+        GLStateGuard glGuard("AssetSceneLoad.HandleRoundTrip", GLStateGuard::Policy::Restore);
+        struct UnloadProject
+        {
+            ~UnloadProject()
+            {
+                Project::Unload();
+            }
+        } unloadProject;
+
+        const fs::path root = TempDir("scene-handle-round-trip");
+        fs::create_directories(root / "Assets");
+        ProjectConfig config;
+        config.Name = "SceneHandleRoundTrip";
+        config.AssetDirectory = "Assets";
+        ASSERT_TRUE(Project::NewInMemory(root, config));
+        auto editor = Ref<EditorAssetManager>::Create();
+        editor->Initialize(false);
+        Project::SetAssetManager(editor);
+
+        const fs::path editorRoot{ OLO_TEST_EDITOR_ROOT };
+        const fs::path texturePath = root / "Assets" / "Checkerboard.png";
+        const fs::path normalPath = root / "Assets" / "Checkerboard_Normal.png";
+        const fs::path fontPath = root / "Assets" / "OpenSans-Light.ttf";
+        ASSERT_TRUE(fs::copy_file(editorRoot / "SandboxProject/Assets/Textures/Checkerboard.png", texturePath));
+        ASSERT_TRUE(fs::copy_file(texturePath, normalPath));
+        ASSERT_TRUE(fs::copy_file(editorRoot / "assets/fonts/opensans/OpenSans-Light.ttf", fontPath));
+        const auto spritePreview = editor->ImportTexture(texturePath, true);
+        const auto dataPreview = editor->ImportTexture(texturePath, false);
+        ASSERT_TRUE(spritePreview && spritePreview->IsLoaded());
+        ASSERT_TRUE(dataPreview && dataPreview->IsLoaded());
+        EXPECT_TRUE(spritePreview->GetSpecification().SRGB);
+        EXPECT_FALSE(dataPreview->GetSpecification().SRGB);
+        const auto textureHandle = spritePreview->GetHandle();
+        EXPECT_EQ(dataPreview->GetHandle(), textureHandle);
+        const auto normal = editor->ImportTexture(normalPath, false);
+        ASSERT_TRUE(normal && normal->IsLoaded());
+        const auto normalHandle = normal->GetHandle();
+        ASSERT_NE(normalHandle, textureHandle);
+        {
+            AssetRegistry savedRegistry;
+            ASSERT_TRUE(savedRegistry.Deserialize(root / "AssetRegistry.oar"));
+            EXPECT_EQ(savedRegistry.GetHandleFromPath("Assets/Checkerboard.png"), textureHandle);
+            EXPECT_EQ(savedRegistry.GetHandleFromPath("Assets/Checkerboard_Normal.png"), normalHandle);
+        }
+        const auto fontHandle = editor->ImportAsset(fontPath);
+        ASSERT_NE(textureHandle, AssetHandle(0));
+        ASSERT_NE(fontHandle, AssetHandle(0));
+        const auto texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+        const auto font = AssetManager::GetAsset<Font>(fontHandle);
+        ASSERT_TRUE(texture && texture->IsLoaded());
+        ASSERT_TRUE(font && font->IsLoaded());
+
+        const fs::path scenePath = root / "Assets" / "HandleProbe.olo";
+        {
+            const auto scene = Scene::Create();
+            auto entity = scene->CreateEntity("HandleProbe");
+            entity.AddComponent<SpriteRendererComponent>().Texture = spritePreview;
+            entity.AddComponent<UIImageComponent>().m_Texture = texture;
+            entity.AddComponent<UIPanelComponent>().m_BackgroundTexture = texture;
+            auto& decal = entity.AddComponent<DecalComponent>();
+            decal.m_AlbedoTexture = texture;
+            decal.m_NormalTexture = normal;
+            decal.m_RMATexture = texture;
+            decal.m_EmissiveTexture = texture;
+            decal.m_Mode = DecalMode::Emissive;
+            decal.m_Color = { -0.5f, 0.25f, 1.5f, 0.75f };
+            entity.AddComponent<TextComponent>().FontAsset = font;
+            entity.AddComponent<UITextComponent>().m_FontAsset = font;
+            entity.AddComponent<UIInputFieldComponent>().m_FontAsset = font;
+            auto& dropdown = entity.AddComponent<UIDropdownComponent>();
+            dropdown.m_FontAsset = font;
+            dropdown.m_Options.Add(UIDropdownOption{ "First" });
+            dropdown.m_Options.Add(UIDropdownOption{ "Second" });
+            dropdown.m_SelectedIndex = 1;
+            ASSERT_TRUE(SceneSerializer(scene).Serialize(scenePath));
+        }
+        const auto sceneHandle = editor->ImportAsset(scenePath);
+        ASSERT_NE(sceneHandle, AssetHandle(0));
+        ASSERT_TRUE(editor->SerializeAssetRegistry());
+
+        const auto assertHandles = [&](const Ref<Scene>& scene)
+        {
+            ASSERT_TRUE(scene);
+            Entity entity = scene->FindEntityByName("HandleProbe");
+            ASSERT_TRUE(entity);
+            ASSERT_TRUE((entity.HasComponent<SpriteRendererComponent>() && entity.HasComponent<UIImageComponent>() &&
+                         entity.HasComponent<UIPanelComponent>() && entity.HasComponent<DecalComponent>() &&
+                         entity.HasComponent<TextComponent>() && entity.HasComponent<UITextComponent>() &&
+                         entity.HasComponent<UIInputFieldComponent>() && entity.HasComponent<UIDropdownComponent>()));
+            const auto checkTexture = [](const Ref<Texture2D>& actual, const Ref<Texture2D>& expected)
+            {
+                ASSERT_TRUE(actual && actual->IsLoaded());
+                EXPECT_EQ(actual->GetHandle(), expected->GetHandle());
+                EXPECT_EQ(actual->GetSpecification().SRGB, expected->GetSpecification().SRGB);
+            };
+            const auto checkFont = [&](const Ref<Font>& actual)
+            {
+                ASSERT_TRUE(actual && actual->IsLoaded());
+                EXPECT_EQ(actual->GetHandle(), fontHandle);
+            };
+            checkTexture(entity.GetComponent<SpriteRendererComponent>().Texture, texture);
+            checkTexture(entity.GetComponent<UIImageComponent>().m_Texture, texture);
+            checkTexture(entity.GetComponent<UIPanelComponent>().m_BackgroundTexture, texture);
+            const auto& decal = entity.GetComponent<DecalComponent>();
+            checkTexture(decal.m_AlbedoTexture, texture);
+            checkTexture(decal.m_NormalTexture, normal);
+            checkTexture(decal.m_RMATexture, texture);
+            checkTexture(decal.m_EmissiveTexture, texture);
+            EXPECT_EQ(decal.m_Mode, DecalMode::Emissive);
+            EXPECT_FLOAT_EQ(decal.m_Color.r, 0.0f);
+            EXPECT_FLOAT_EQ(decal.m_Color.g, 0.25f);
+            EXPECT_FLOAT_EQ(decal.m_Color.b, 1.0f);
+            EXPECT_FLOAT_EQ(decal.m_Color.a, 0.75f);
+            checkFont(entity.GetComponent<TextComponent>().FontAsset);
+            checkFont(entity.GetComponent<UITextComponent>().m_FontAsset);
+            checkFont(entity.GetComponent<UIInputFieldComponent>().m_FontAsset);
+            const auto& dropdown = entity.GetComponent<UIDropdownComponent>();
+            checkFont(dropdown.m_FontAsset);
+            ASSERT_EQ(dropdown.m_Options.Num(), 2);
+            EXPECT_EQ(dropdown.m_Options[0].m_Label.ToStdString(), "First");
+            EXPECT_EQ(dropdown.m_Options[1].m_Label.ToStdString(), "Second");
+            EXPECT_EQ(dropdown.m_SelectedIndex, 1);
+        };
+
+        {
+            SCOPED_TRACE("Loose scene YAML");
+            ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
+        }
+        {
+            SCOPED_TRACE("Binary scene sidecar");
+            ASSERT_TRUE(fs::is_regular_file(fs::path(scenePath).concat(".scenebin")));
+            const auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).Deserialize(scenePath));
+            ASSERT_NO_FATAL_FAILURE(assertHandles(scene));
+        }
+
+        AssetPackBuilder::BuildSettings settings;
+        settings.m_OutputPath = root / "SceneHandles.olopack";
+        settings.m_CompressAssets = true;
+        settings.m_IncludeScriptModule = false;
+        std::atomic<f32> progress{ 0.0f };
+        const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+        ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+        EXPECT_EQ(built.m_FailedAssetCount, 0u);
+        ASSERT_TRUE(fs::remove(texturePath));
+        ASSERT_TRUE(fs::remove(normalPath));
+        ASSERT_TRUE(fs::remove(fontPath));
+        ASSERT_TRUE(fs::remove(scenePath));
+
+        SCOPED_TRACE("Runtime scene and assets from pack without loose sources");
+        const auto runtime = Ref<RuntimeAssetManager>::Create(false);
+        ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
+        Project::SetAssetManager(runtime);
+        assertHandles(AssetManager::GetAsset<Scene>(sceneHandle));
+    }
+
+    // Caching a failed texture resolution would lose the authored handle.
+    // The scene with an empty texture slot is the control and writes a sidecar.
     TEST(AssetSceneLoad, AFailedTextureLoadWritesNoBinarySidecar)
     {
         // A failed load still builds a texture object (the raw load's, or the
@@ -1064,7 +1224,7 @@ namespace OloEngine::Tests
                    "  ScriptModulePath: \"\"\n";
         }
         ASSERT_TRUE(Project::Load(project / "Sidecar.oloproj"));
-        // Unloaded, not restored, as in DecalAndSpriteTexturePathsSurviveRoundTrip:
+        // Unloaded, not restored, as in DecalAndSpriteTextureHandlesSurviveYAMLAndSidecar:
         // a previous project can be a shut-down one, and adopting it poisons
         // every later test in the process (#1074).
         struct UnloadProject
@@ -1078,7 +1238,7 @@ namespace OloEngine::Tests
         manager->Initialize(false);
         Project::SetAssetManager(manager);
 
-        const auto writeSprite = [&project](const char* name, const char* texturePathLine)
+        const auto writeSprite = [&project](const char* name, const char* textureHandleLine)
         {
             const auto path = project / "Assets" / "Scenes" / name;
             std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -1094,11 +1254,11 @@ namespace OloEngine::Tests
                    "      Scale: [1.0, 1.0, 1.0]\n"
                    "    SpriteRendererComponent:\n"
                    "      Color: [1.0, 1.0, 1.0, 1.0]\n"
-                << texturePathLine;
+                << textureHandleLine;
             return path;
         };
 
-        const auto missing = writeSprite("Missing.olo", "      TexturePath: Assets/Textures/DoesNotExist.png\n");
+        const auto missing = writeSprite("Missing.olo", "      TextureHandle: 424242\n");
         {
             auto scene = Scene::Create();
             ASSERT_TRUE(SceneSerializer(scene).Deserialize(missing)) << "a missing texture does not fail the load";
@@ -1112,7 +1272,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(SceneSerializer(scene).Deserialize(control));
         }
         EXPECT_TRUE(fs::exists(fs::path(control).concat(".scenebin")))
-            << "the same sprite with no texture path does write a sidecar";
+            << "the same sprite with no texture reference does write a sidecar";
     }
 
 } // namespace OloEngine::Tests

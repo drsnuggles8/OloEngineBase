@@ -1059,45 +1059,8 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     as DialogueStateComponent) or auto-gen would persist a purely-derived value that
 //     gets recomputed from TransformComponent + RelationshipComponent next frame anyway.
 //
-// The #451 Ref<T> slice (CollectAssetTypes) flipped 16 components whose only
-// remaining obstacle was a Ref<T> field to all-trivial. Every one is kept
-// hand-written, for one of three reasons — none is a clean auto-gen migration
-// (unlike MeshComponent's Ref<MeshSource>, which turned out NOT to be clean either,
-// see below):
-//   * ON-DISK FORMAT INCOMPATIBILITY — the hand-written block persists the asset by
-//     FILE PATH (a "*Path" string key resolved via LoadSceneTexture / Font::Create),
-//     not by AssetManager handle, so auto-gen's "<Key>Handle" u64 key would silently
-//     stop round-tripping existing scenes' texture/font references: DecalComponent
-//     (AlbedoTexturePath/NormalTexturePath/RMATexturePath/EmissiveTexturePath, plus
-//     Sanitize/clamp on Color/Size/FadeDistance/NormalAngleThreshold),
-//     SpriteRendererComponent (TexturePath), TextComponent (FontPath),
-//     UIImageComponent (TexturePath), UIPanelComponent (BackgroundTexturePath),
-//     UITextComponent / UIInputFieldComponent / UIDropdownComponent (FontPath).
-//   * DROPPED CUSTOM LOAD LOGIC — the hand-written deserialize does something
-//     auto-gen's plain field-by-field read cannot express: ModelComponent calls
-//     `mc.Reload()` from `m_FilePath` when present (auto-gen would leave m_Model
-//     null); MeshComponent range-validates `Primitive` (falls back to `None` +
-//     warns on an out-of-range value) AND reconstructs `m_MeshSource` from the
-//     primitive when no explicit mesh asset was authored (auto-gen would silently
-//     leave a primitive-only mesh with a null MeshSource); SubmeshComponent's
-//     `m_Mesh` is explicitly NOT persisted — reconstructed from the parent
-//     MeshComponent at runtime (a hand-written comment says so); ProceduralSkyComponent
-//     / StarNestSkyComponent / ReflectionProbeComponent deserialize with per-field
-//     positivity/range guards (turbidity > 0, resolution clamped to a sane range,
-//     iterations/volSteps bounds, …) well beyond plain finiteness.
-//   * RUNTIME-ONLY FIELDS AUTO-GEN WOULD NEWLY PERSIST — CinematicComponent's
-//     `RuntimeSequence` Ref plus `Playing`/`Time`/`PreviousTime`/`Finished`/
-//     `EventsFiredThisFrame` are explicitly "never serialized" runtime playback
-//     state (per the component's own header comment); ReflectionProbeComponent's
-//     `m_BakedEnvironment` likewise (baked at runtime, not persisted — the header
-//     comment on m_NeedsBake says so) and its deserialize forces `m_NeedsBake = true`
-//     unconditionally regardless of what a plain round-trip would read back.
-// None of the 16 is a false positive needing correction here — see each component's
-// own header/serializer comments for confirmation. A future slice could migrate any
-// of these off this set with OLO_SERIALIZE(Skip) on the runtime fields (mirroring how
-// UIButtonComponent/UISliderComponent migrated off in the earlier Skip slice) or, for
-// the format-incompatible ones, by first migrating their on-disk format to the
-// handle-based scheme in a dedicated slice.
+// #1623 migrated Cinematic and the scene texture/font path keys to codegen.
+// The mesh/model and sky/probe exclusions below still need custom load behavior.
 //
 // DISJOINTNESS is guarded by ComponentSerializerCoverageTest: a component must be
 // handled by EXACTLY ONE of the generated .inl or the hand-written serializer —
@@ -1135,7 +1098,6 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "VideoOverlayComponent",
     "VideoSurfaceComponent",
     "WaterComponent",
-    "DecalComponent",
     "DialogueComponent",
     "DialogueStateComponent",
     "IDComponent",
@@ -1167,19 +1129,12 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "Rigidbody3DComponent",
     "ScriptComponent",
     "SphereAreaLightComponent",
-    "SpriteRendererComponent",
     "SpringBoneStateComponent",
     "StarNestSkyComponent",
     "StreamingVolumeComponent",
     "SubmeshComponent",
     "TagComponent",
-    "TextComponent",
-    "UIDropdownComponent",
-    "UIImageComponent",
-    "UIInputFieldComponent",
-    "UIPanelComponent",
     "UIResolvedRectComponent",
-    "UITextComponent",
     "WorldTransformComponent",
 };
 
@@ -1460,10 +1415,10 @@ static std::string SceneWriteExpr(PropType t, const std::string& expr)
     }
 }
 
-// Shared clamp-expression assembler behind ApplyClamp/ApplyVec3Clamp: given the
+// Shared clamp-expression assembler behind ApplyClamp/ApplyVectorClamp: given the
 // clamp-function namespace prefix ("std::" or "glm::") and the ALREADY-WRAPPED
 // Min/Max bound expressions (a scalar static_cast for ApplyClamp, a glm::vec3(...)
-// broadcast for ApplyVec3Clamp), assembles the same both-bounds -> clamp /
+// broadcast for ApplyVectorClamp), assembles the same both-bounds -> clamp /
 // one-sided -> max/min / neither -> unchanged branching (issue #451's Clamp
 // annotation: both bounds given -> clamp, one bound given -> max/min, neither
 // given -> returns `expr` unchanged — ParseComponentFields never produces this
@@ -1518,20 +1473,16 @@ static std::string RejectRangeCondition(const std::string& v, const std::string&
     return cond.empty() ? "true" : cond;
 }
 
-// Wrap a glm::vec3 deserialize expression `expr` in a PER-COMPONENT range clamp
-// per the field's Clamp annotation (issue #451's vec3-Clamp slice) — mirrors the
-// hand-written SanitizeVec3Clamped idiom, applied AFTER the plain `.as<glm::vec3>`
-// read (which already finiteness-validates the whole vector, falling back to the
-// pre-existing value on any non-finite component — see DecodeVec3). glm::clamp /
-// glm::max / glm::min have vector-vs-scalar overloads that broadcast the scalar
-// bound across all three components, matching std::clamp/max/min per component.
-static std::string ApplyVec3Clamp(const std::string& expr, const SerField& f)
+// Broadcast each bound over the vector. The YAML and binary decoders validate
+// finiteness before the per-component clamp.
+static std::string ApplyVectorClamp(const std::string& expr, const SerField& f)
 {
+    const std::string type = f.type == PropType::Vec3 ? "glm::vec3" : "glm::vec4";
     std::optional<std::string> wrappedMin, wrappedMax;
     if (f.clampMin)
-        wrappedMin = "glm::vec3(" + *f.clampMin + ")";
+        wrappedMin = type + "(" + *f.clampMin + ")";
     if (f.clampMax)
-        wrappedMax = "glm::vec3(" + *f.clampMax + ")";
+        wrappedMax = type + "(" + *f.clampMax + ")";
     return AssembleClampExpr(expr, "glm::", wrappedMin, wrappedMax);
 }
 
@@ -1720,16 +1671,13 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
             }
             continue;
         }
-        // Ref<T> (issue #451 Ref<T> slice) — resolve via AssetManager::GetAsset<T>. A
-        // missing key or an unresolvable handle leaves the Ref at its constructor
-        // default (null) — matches the hand-written MeshComponent::m_MeshSource
-        // pattern, which never crashes on a stale/deleted asset reference.
+        // Keep the default for an empty handle. A failed resolution is recorded
+        // by the loader so the sidecar cannot persist a fallback in its place.
         if (f.type == PropType::Ref)
         {
             const std::string handleKey = node + "[\"" + f.key + "Handle\"]";
             out << indent << "if (auto h" << depth << " = " << handleKey << "; h" << depth << ")\n";
-            out << indent << "    " << lhs << " = AssetManager::GetAsset<" << f.refType << ">(h" << depth
-                << ".as<u64>());\n";
+            out << indent << "    RestoreSceneAssetReference(" << lhs << ", h" << depth << ".as<u64>(0));\n";
             continue;
         }
         // std::unordered_set<E> (issue #451 unordered_map/set slice) — rebuild the
@@ -1868,10 +1816,12 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 // separate clamp step on top of DecodeVec3's whole-vector fallback.
                 out << indent << lhs << " = " << key << ".as<glm::vec3>(" << lhs << ");\n";
                 if (f.hasClamp)
-                    out << indent << lhs << " = " << ApplyVec3Clamp(lhs, f) << ";\n";
+                    out << indent << lhs << " = " << ApplyVectorClamp(lhs, f) << ";\n";
                 break;
             case PropType::Vec4:
                 out << indent << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";
+                if (f.hasClamp)
+                    out << indent << lhs << " = " << ApplyVectorClamp(lhs, f) << ";\n";
                 break;
             case PropType::IVec2:
                 out << indent << lhs << " = " << key << ".as<glm::ivec2>(" << lhs << ");\n";
@@ -2057,7 +2007,7 @@ static std::string BinVar(const char* base, int depth)
 
 // Emit the post-read range clamp for a scalar / vec3 field carrying
 // OLO_SERIALIZE(Clamp, …). Applied after the value has been read into `lhs`;
-// reuses the same ApplyClamp / ApplyVec3Clamp assemblers as the YAML path.
+// reuses the same ApplyClamp / ApplyVectorClamp assemblers as the YAML path.
 static void EmitBinaryClamp(std::ostream& out, const std::string& indent, const std::string& lhs, const SerField& f)
 {
     switch (f.type)
@@ -2080,7 +2030,8 @@ static void EmitBinaryClamp(std::ostream& out, const std::string& indent, const 
                 << ApplyClamp("static_cast<int>(" + lhs + ")", "int", f) << ");\n";
             break;
         case PropType::Vec3:
-            out << indent << lhs << " = " << ApplyVec3Clamp(lhs, f) << ";\n";
+        case PropType::Vec4:
+            out << indent << lhs << " = " << ApplyVectorClamp(lhs, f) << ";\n";
             break;
         default:
             break; // ParseComponentFields never sets hasClamp on other types
@@ -2241,7 +2192,7 @@ static void EmitBinaryReadFields(std::ostream& out, const std::vector<SerField>&
             out << indent << "{\n";
             out << indent << "    u64 " << h << " = 0;\n";
             out << indent << "    if (!SceneBinIO::ReadU64(reader, " << h << ")) return false;\n";
-            out << indent << "    if (" << h << " != 0) " << lhs << " = AssetManager::GetAsset<" << f.refType << ">(" << h << ");\n";
+            out << indent << "    if (!RestoreSceneAssetReference(" << lhs << ", " << h << ")) return false;\n";
             out << indent << "}\n";
             continue;
         }

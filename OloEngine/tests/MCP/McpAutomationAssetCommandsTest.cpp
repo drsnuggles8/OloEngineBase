@@ -108,13 +108,13 @@ namespace OloEngine::Automation::Tests
             std::filesystem::create_directories(m_Project / "Assets" / "Textures", ec);
 
             Write(TexturePath(), "not-really-a-png");
-            Write(ScenePath(), "Scene: Test\nVersion: 1\n"
+            Write(ScenePath(), "Scene: Test\nVersion: 2\n"
                                "Entities:\n"
                                "  - Entity: 900001\n"
                                "    TagComponent:\n"
                                "      Tag: Decal\n"
                                "    DecalComponent:\n"
-                               "      AlbedoTexturePath: Assets/Textures/Checkerboard.png\n");
+                               "      AlbedoMapPath: Assets/Textures/Checkerboard.png\n");
 
             Write(m_Project / "Test.oloproj", "Project:\n"
                                               "  Name: AssetCommandsTest\n"
@@ -179,7 +179,7 @@ namespace OloEngine::Automation::Tests
 
         ASSERT_EQ(result.at("count").get<u32>(), 1u) << result.dump(2);
         const Json& reference = result.at("references").at(0);
-        EXPECT_EQ(reference.at("key").get<std::string>(), "AlbedoTexturePath");
+        EXPECT_EQ(reference.at("key").get<std::string>(), "AlbedoMapPath");
         EXPECT_EQ(reference.at("projectPath").get<std::string>(), "Assets/Scenes/Test.olo");
         EXPECT_EQ(reference.at("line").get<u32>(), 8u);
 
@@ -196,7 +196,7 @@ namespace OloEngine::Automation::Tests
         const Json result = Success("olo_asset_references",
                                     Json{ { "path", "Assets/Scenes/Test.olo" }, { "direction", "dependencies" } });
         ASSERT_EQ(result.at("count").get<u32>(), 1u) << result.dump(2);
-        EXPECT_EQ(result.at("references").at(0).at("key").get<std::string>(), "AlbedoTexturePath");
+        EXPECT_EQ(result.at("references").at(0).at("key").get<std::string>(), "AlbedoMapPath");
     }
 
     // === Acceptance criterion 2 =============================================
@@ -222,7 +222,7 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(std::filesystem::exists(m_Project / "Assets" / "Textures" / "Moved" / "Checkerboard.png"));
 
         const std::string scene = Read(ScenePath());
-        EXPECT_NE(scene.find("AlbedoTexturePath: Assets/Textures/Moved/Checkerboard.png"), std::string::npos)
+        EXPECT_NE(scene.find("AlbedoMapPath: Assets/Textures/Moved/Checkerboard.png"), std::string::npos)
             << "the reference must have been re-spelled; the scene is:\n"
             << scene;
 

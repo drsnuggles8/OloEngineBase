@@ -1584,43 +1584,6 @@ namespace OloEngine::Tests
         EXPECT_NEAR(t.m_LineSpacing, expectedLineSpacing, kFloatEpsilon);
     }
 
-    TEST(ComponentRoundTrip, UITextFontPathStaysPortableWhenTheLoadedFontPathIsAbsolute)
-    {
-        ActiveProjectRestorer restoreProject;
-        const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-        const auto fontPath = std::filesystem::weakly_canonical(
-            repoRoot / "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf");
-        ASSERT_TRUE(std::filesystem::is_regular_file(fontPath));
-
-        ProjectConfig config;
-        config.Name = "PortableFontPathTest";
-        config.AssetDirectory = ".";
-        ASSERT_TRUE(Project::NewInMemory(repoRoot, config));
-
-        auto scene = Scene::Create();
-        Entity entity = scene->CreateEntity(kTestTag);
-        auto& text = entity.AddComponent<UITextComponent>();
-        text.m_FontAsset = Font::Create(fontPath);
-        ASSERT_TRUE(text.m_FontAsset);
-
-        const auto yaml = SceneSerializer(scene).SerializeToYAML();
-
-        EXPECT_EQ(yaml.find(fontPath.generic_string()), std::string::npos)
-            << "Build Game must not rewrite a scene font to the editor host's absolute path.";
-        EXPECT_NE(yaml.find("OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf"), std::string::npos);
-
-        auto reloaded = Scene::Create();
-        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
-
-        Entity restored = FindByTag(*reloaded, kTestTag);
-        ASSERT_TRUE(static_cast<bool>(restored));
-        ASSERT_TRUE(restored.HasComponent<UITextComponent>());
-        const auto& restoredText = restored.GetComponent<UITextComponent>();
-        ASSERT_TRUE(restoredText.m_FontAsset)
-            << "A project-relative serialized font path must load after scene deserialization.";
-        EXPECT_EQ(std::filesystem::weakly_canonical(restoredText.m_FontAsset->GetPath()), fontPath);
-    }
-
     // -------------------------------------------------------------------------
     // UIButtonComponent — 4-state colour palette + Interactable. Auto-generated
     // via the OLO_SERIALIZE(Skip) slice (#451): the runtime-only m_State is marked
@@ -3422,7 +3385,7 @@ namespace OloEngine::Tests
     {
         // Hand-written YAML with the pre-#438 Rigidbody3DComponent key set only.
         const std::string legacyYaml = R"(Scene: Legacy
-Version: 1
+Version: 2
 Entities:
   - Entity: 1234567890123456789
     TagComponent:
@@ -4569,7 +4532,7 @@ Entities:
     {
         auto scene = Scene::Create();
         const std::string yaml =
-            "Scene: Untitled\nVersion: 1\n"
+            "Scene: Untitled\nVersion: 2\n"
             "Entities:\n"
             "  - Entity: 12345\n"
             "    TagComponent:\n"
@@ -4649,7 +4612,7 @@ Entities:
         // corrupt scene a different, plausible, wrong silhouette — the same
         // reasoning behind VehicleComponent::m_DriveMode.
         auto scene = Scene::Create();
-        const std::string yaml = std::string("Scene: Untitled\nVersion: 1\n") +
+        const std::string yaml = std::string("Scene: Untitled\nVersion: 2\n") +
                                  "Entities:\n" +
                                  "  - Entity: 424242\n" +
                                  "    TagComponent:\n" +

@@ -165,7 +165,7 @@ namespace OloEngine::Tests
     TEST(FoliageWindSaveLoad, PriorSceneLoadsLegacyDefaults)
     {
         const std::string yaml = R"(Scene: PriorWind
-Version: 1
+Version: 2
 Entities:
   - Entity: 1236
     TagComponent:

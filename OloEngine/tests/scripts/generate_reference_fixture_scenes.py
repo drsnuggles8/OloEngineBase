@@ -97,7 +97,7 @@ class SceneWriter:
 
         header = (
             f"Scene: {self.name}.olo\n"
-            "Version: 1\n"
+            "Version: 2\n"
             "# ─────────────────────────────────────────────────────────────────────────────\n"
             + comment(self.header_note[0])
         )

@@ -347,6 +347,45 @@ case 2359936345u: // DebrisComponent
     if (!SceneBinIO::Read(reader, comp.m_Age)) return false;
     break;
 }
+case 3815007389u: // DecalComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DecalComponent>();
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_AlbedoTexture, bh0)) return false;
+    }
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_NormalTexture, bh0)) return false;
+    }
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_RMATexture, bh0)) return false;
+    }
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_EmissiveTexture, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
+    comp.m_Color = glm::clamp(comp.m_Color, glm::vec4(0.0f), glm::vec4(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Size)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_FadeDistance)) return false;
+    comp.m_FadeDistance = std::clamp(comp.m_FadeDistance, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_NormalAngleThreshold)) return false;
+    comp.m_NormalAngleThreshold = std::clamp(comp.m_NormalAngleThreshold, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    {
+        decltype(comp.m_Mode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(3))
+            comp.m_Mode = v;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Transparent)) return false;
+    break;
+}
 case 1682330806u: // DestructibleComponent
 {
     auto& comp = deserializedEntity.AddComponent<DestructibleComponent>();
@@ -431,7 +470,7 @@ case 2313188451u: // EnvironmentMapComponent
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (bh0 != 0) comp.m_EnvironmentMap = AssetManager::GetAsset<EnvironmentMap>(bh0);
+        if (!RestoreSceneAssetReference(comp.m_EnvironmentMap, bh0)) return false;
     }
     if (!SceneBinIO::Read(reader, comp.m_IsCubemapFolder)) return false;
     if (!SceneBinIO::Read(reader, comp.m_EnableSkybox)) return false;
@@ -1287,6 +1326,18 @@ case 1568934385u: // SpringBoneComponent
     comp.Weight = std::clamp(comp.Weight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     break;
 }
+case 4233792822u: // SpriteRendererComponent
+{
+    auto& comp = deserializedEntity.AddComponent<SpriteRendererComponent>();
+    if (!SceneBinIO::Read(reader, comp.Color)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.Texture, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.TilingFactor)) return false;
+    break;
+}
 case 2489598917u: // StructuralNodeComponent
 {
     auto& comp = deserializedEntity.AddComponent<StructuralNodeComponent>();
@@ -1300,6 +1351,25 @@ case 2489598917u: // StructuralNodeComponent
     if (!SceneBinIO::Read(reader, comp.m_FallDuration)) return false;
     comp.m_FallDuration = std::clamp(comp.m_FallDuration, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
     if (!SceneBinIO::Read(reader, comp.m_ShatterOnCollapse)) return false;
+    break;
+}
+case 2892956045u: // TextComponent
+{
+    auto& comp = deserializedEntity.AddComponent<TextComponent>();
+    if (!SceneBinIO::Read(reader, comp.TextString)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.FontAsset, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.Color)) return false;
+    if (!SceneBinIO::Read(reader, comp.Kerning)) return false;
+    if (!SceneBinIO::Read(reader, comp.LineSpacing)) return false;
+    if (!SceneBinIO::Read(reader, comp.MaxWidth)) return false;
+    comp.MaxWidth = std::max(comp.MaxWidth, static_cast<f32>(0.0f));
+    if (!SceneBinIO::Read(reader, comp.DropShadow)) return false;
+    if (!SceneBinIO::Read(reader, comp.ShadowDistance)) return false;
+    if (!SceneBinIO::Read(reader, comp.ShadowColor)) return false;
     break;
 }
 case 4161997664u: // TilemapComponent
@@ -1421,6 +1491,35 @@ case 2478631945u: // UICheckboxComponent
     if (!SceneBinIO::Read(reader, comp.m_Interactable)) return false;
     break;
 }
+case 1516665977u: // UIDropdownComponent
+{
+    auto& comp = deserializedEntity.AddComponent<UIDropdownComponent>();
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
+        comp.m_Options.Empty();
+        comp.m_Options.Reserve(bn0);
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            decltype(comp.m_Options)::ElementType btmp0{};
+            if (!SceneBinIO::Read(reader, btmp0.m_Label)) return false;
+            comp.m_Options.Add(std::move(btmp0));
+        }
+    }
+    if (!SceneBinIO::Read(reader, comp.m_SelectedIndex)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_BackgroundColor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_HighlightColor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TextColor)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_FontAsset, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_FontSize)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ItemHeight)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Interactable)) return false;
+    break;
+}
 case 2378242016u: // UIGridLayoutComponent
 {
     auto& comp = deserializedEntity.AddComponent<UIGridLayoutComponent>();
@@ -1430,6 +1529,47 @@ case 2378242016u: // UIGridLayoutComponent
     if (!SceneBinIO::Read(reader, comp.m_StartCorner)) return false;
     if (!SceneBinIO::Read(reader, comp.m_StartAxis)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ConstraintCount)) return false;
+    break;
+}
+case 906139791u: // UIImageComponent
+{
+    auto& comp = deserializedEntity.AddComponent<UIImageComponent>();
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_Texture, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_BorderInsets)) return false;
+    break;
+}
+case 1151303646u: // UIInputFieldComponent
+{
+    auto& comp = deserializedEntity.AddComponent<UIInputFieldComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Text)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Placeholder)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_FontAsset, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_FontSize)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TextColor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PlaceholderColor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_BackgroundColor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_CharacterLimit)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Interactable)) return false;
+    break;
+}
+case 1596836942u: // UIPanelComponent
+{
+    auto& comp = deserializedEntity.AddComponent<UIPanelComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_BackgroundColor)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_BackgroundTexture, bh0)) return false;
+    }
     break;
 }
 case 3741767100u: // UIProgressBarComponent
@@ -1479,6 +1619,22 @@ case 3369933897u: // UISliderComponent
     if (!SceneBinIO::Read(reader, comp.m_FillColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_HandleColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Interactable)) return false;
+    break;
+}
+case 2448574091u: // UITextComponent
+{
+    auto& comp = deserializedEntity.AddComponent<UITextComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Text)) return false;
+    {
+        u64 bh0 = 0;
+        if (!SceneBinIO::ReadU64(reader, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_FontAsset, bh0)) return false;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_FontSize)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Alignment)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Kerning)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_LineSpacing)) return false;
     break;
 }
 case 3138829210u: // UIToggleComponent

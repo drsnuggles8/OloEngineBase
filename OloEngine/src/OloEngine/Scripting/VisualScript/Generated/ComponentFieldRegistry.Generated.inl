@@ -298,11 +298,11 @@ registry.push_back(OLO_VSF_FIELD(DebrisComponent, "TotalLifetime", m_TotalLifeti
 registry.push_back(OLO_VSF_FIELD(DebrisComponent, "Age", m_Age, Float));
 
 // DecalComponent
-registry.push_back(OLO_VSF_FIELD(DecalComponent, "Color", m_Color, Vec4));
+registry.push_back(OLO_VSF_FIELD_RANGE(DecalComponent, "Color", m_Color, Vec4, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
 registry.push_back(OLO_VSF_FIELD(DecalComponent, "Size", m_Size, Vec3));
-registry.push_back(OLO_VSF_FIELD(DecalComponent, "FadeDistance", m_FadeDistance, Float));
-registry.push_back(OLO_VSF_FIELD(DecalComponent, "NormalAngleThreshold", m_NormalAngleThreshold, Float));
-registry.push_back(OLO_VSF_FIELD(DecalComponent, "Mode", m_Mode, Int));
+registry.push_back(OLO_VSF_FIELD_RANGE(DecalComponent, "FadeDistance", m_FadeDistance, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(DecalComponent, "NormalAngleThreshold", m_NormalAngleThreshold, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(DecalComponent, "Mode", m_Mode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(3)));
 registry.push_back(OLO_VSF_FIELD(DecalComponent, "Transparent", m_Transparent, Bool));
 
 // DestructibleComponent
@@ -1227,7 +1227,7 @@ registry.push_back(OLO_VSF_FIELD(TextComponent, "TextString", TextString, String
 registry.push_back(OLO_VSF_FIELD(TextComponent, "Color", Color, Vec4));
 registry.push_back(OLO_VSF_FIELD(TextComponent, "Kerning", Kerning, Float));
 registry.push_back(OLO_VSF_FIELD(TextComponent, "LineSpacing", LineSpacing, Float));
-registry.push_back(OLO_VSF_FIELD(TextComponent, "MaxWidth", MaxWidth, Float));
+registry.push_back(OLO_VSF_FIELD_RANGE(TextComponent, "MaxWidth", MaxWidth, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD(TextComponent, "DropShadow", DropShadow, Bool));
 registry.push_back(OLO_VSF_FIELD(TextComponent, "ShadowDistance", ShadowDistance, Float));
 registry.push_back(OLO_VSF_FIELD(TextComponent, "ShadowColor", ShadowColor, Vec4));
