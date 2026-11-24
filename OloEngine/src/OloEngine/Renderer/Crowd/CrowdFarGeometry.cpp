@@ -7,6 +7,7 @@
 #include <array>
 #include <limits>
 #include <span>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -14,8 +15,8 @@ namespace OloEngine
     {
         // A far actor covers only a handful of pixels. Represent each material
         // with up to eight volumetric splats. Their support vertices belong to
-        // the original surface, so tails and limbs keep their own skinning and
-        // the same texture coordinates in every view, including a shadow view.
+        // the original surface, so tails and limbs keep their own skinning
+        // in every view, including a shadow view.
         constexpr u32 kMaxSplats = 8;
         constexpr std::array<u32, 36> kSplatIndices{
             0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1,
@@ -29,7 +30,79 @@ namespace OloEngine
             u32 Ordinal;
         };
 
-        void EmitSplat(std::span<const TriangleSample> patch, const MeshSource& source, TArray<u32>& indices)
+        struct SplatCorner
+        {
+            u32 Support; // original position and bone weights
+            u32 Surface; // original shading normal and texture coordinates
+        };
+
+        void EmitTexturedFace(std::span<const TriangleSample> patch, const MeshSource& source,
+                              const std::array<u32, 3>& support, TArray<SplatCorner>& corners)
+        {
+            const auto& vertices = source.GetVertices();
+            const glm::dvec3 a(vertices[support[0]].Position), b(vertices[support[1]].Position), c(vertices[support[2]].Position);
+            const glm::dvec3 area = glm::cross(b - a, c - a);
+            const f64 areaLength = glm::length(area);
+            if (!(areaLength > 0.0))
+                return;
+            const glm::dvec3 normal = area / areaLength;
+            const glm::dvec3 center = (a + b + c) / 3.0;
+            const f64 edgeSquared = std::max({ glm::dot(b - a, b - a), glm::dot(c - b, c - b), glm::dot(a - c, a - c) });
+
+            // A splat face can span unrelated UV islands while all three support
+            // vertices have perfectly valid UVs. Transfer one contiguous surface
+            // triangle to the face. Score its outward orientation along with
+            // distance so a thin limb cannot acquire its opposite side's normal.
+            const TriangleSample* donor = nullptr;
+            f64 best = std::numeric_limits<f64>::max();
+            for (const auto& tri : patch)
+            {
+                const glm::dvec3 p(vertices[tri.Corners[0]].Position);
+                const glm::dvec3 q(vertices[tri.Corners[1]].Position);
+                const glm::dvec3 r(vertices[tri.Corners[2]].Position);
+                const glm::dvec3 donorArea = glm::cross(q - p, r - p);
+                const f64 length = glm::length(donorArea);
+                if (!(length > 0.0))
+                    continue;
+                const f64 angleCost = 1.0 - std::clamp(glm::dot(normal, donorArea) / length, -1.0, 1.0);
+                const glm::dvec3 offset = tri.Center - center;
+                const f64 score = glm::dot(offset, offset) + 0.25 * edgeSquared * angleCost * angleCost;
+                if (score < best || (!(score > best) && donor && tri.Ordinal < donor->Ordinal))
+                {
+                    donor = &tri;
+                    best = score;
+                }
+            }
+            if (!donor)
+                return;
+
+            // Place the donor corners in the closest geometric correspondence.
+            // A separate vertex is emitted at a shading seam, just as at import.
+            constexpr std::array<std::array<u32, 3>, 6> permutations{
+                { { 0, 1, 2 }, { 0, 2, 1 }, { 1, 0, 2 }, { 1, 2, 0 }, { 2, 0, 1 }, { 2, 1, 0 } }
+            };
+            best = std::numeric_limits<f64>::max();
+            std::array<u32, 3> surface = donor->Corners;
+            for (const auto& order : permutations)
+            {
+                f64 error = 0.0;
+                for (u32 i = 0; i < 3; ++i)
+                {
+                    const glm::dvec3 delta = glm::dvec3(vertices[support[i]].Position) - glm::dvec3(vertices[donor->Corners[order[i]]].Position);
+                    error += glm::dot(delta, delta);
+                }
+                if (error < best)
+                {
+                    best = error;
+                    for (u32 i = 0; i < 3; ++i)
+                        surface[i] = donor->Corners[order[i]];
+                }
+            }
+            for (u32 i = 0; i < 3; ++i)
+                corners.Add({ support[i], surface[i] });
+        }
+
+        void EmitSplat(std::span<const TriangleSample> patch, const MeshSource& source, TArray<SplatCorner>& indices)
         {
             glm::dvec3 lo(source.GetVertices()[patch.front().Corners[0]].Position), hi = lo;
             for (const auto& triangle : patch)
@@ -67,15 +140,11 @@ namespace OloEngine
             {
                 const u32 a = support[kSplatIndices[i]], b = support[kSplatIndices[i + 1]], c = support[kSplatIndices[i + 2]];
                 if (a != b && b != c && a != c)
-                {
-                    indices.Add(a);
-                    indices.Add(b);
-                    indices.Add(c);
-                }
+                    EmitTexturedFace(patch, source, { a, b, c }, indices);
             }
         }
 
-        void PartitionSplats(std::span<TriangleSample> triangles, u32 count, const MeshSource& source, TArray<u32>& indices)
+        void PartitionSplats(std::span<TriangleSample> triangles, u32 count, const MeshSource& source, TArray<SplatCorner>& indices)
         {
             if (count == 1)
             {
@@ -106,7 +175,7 @@ namespace OloEngine
             PartitionSplats(triangles.subspan(split), count - leftCount, source, indices);
         }
 
-        bool SelectPartIndices(const MeshSource& source, const Submesh& part, TArray<u32>& selected)
+        bool SelectPartIndices(const MeshSource& source, const Submesh& part, TArray<SplatCorner>& selected)
         {
             const auto vertexCount = static_cast<u32>(source.GetVertices().Num());
             const auto indexCount = static_cast<u32>(source.GetIndices().Num());
@@ -140,7 +209,11 @@ namespace OloEngine
             // A small accessory may already be cheaper than one splat; retain
             // its triangles, including their winding and original UV seams.
             if (selected.Num() == before && part.m_IndexCount > 0)
-                selected.Append(source.GetIndices().GetData() + part.m_BaseIndex, part.m_IndexCount);
+                for (u32 i = 0; i < part.m_IndexCount; ++i)
+                {
+                    const u32 index = source.GetIndices()[part.m_BaseIndex + i];
+                    selected.Add({ index, index });
+                }
             return true;
         }
     } // namespace
@@ -157,26 +230,27 @@ namespace OloEngine
         auto parts = source->GetSubmeshes();
         for (Submesh& part : parts)
         {
-            TArray<u32> selected;
+            TArray<SplatCorner> selected;
             if (!SelectPartIndices(*source, part, selected))
                 return source;
 
-            const u32 sourceBase = part.m_BaseVertex;
-            TArray<i32> remap;
-            remap.Init(-1, static_cast<i32>(part.m_VertexCount));
+            std::unordered_map<u64, u32> remap;
             part.m_BaseVertex = static_cast<u32>(vertices.Num());
             part.m_BaseIndex = static_cast<u32>(indices.Num());
-            for (const u32 original : selected)
+            for (const auto& corner : selected)
             {
-                i32& index = remap[original - sourceBase];
-                if (index < 0)
+                const u64 key = (static_cast<u64>(corner.Support) << 32) | corner.Surface;
+                const auto [it, inserted] = remap.try_emplace(key, static_cast<u32>(vertices.Num()));
+                if (inserted)
                 {
-                    index = vertices.Add(source->GetVertices()[original]);
-                    weights.Add(source->GetBoneInfluences()[original]);
+                    Vertex vertex = source->GetVertices()[corner.Surface];
+                    vertex.Position = source->GetVertices()[corner.Support].Position;
+                    vertices.Add(vertex);
+                    weights.Add(source->GetBoneInfluences()[corner.Support]);
                     if (source->GetLightmapUVs().Num() == source->GetVertices().Num())
-                        lightmapUVs.Add(source->GetLightmapUVs()[original]);
+                        lightmapUVs.Add(source->GetLightmapUVs()[corner.Surface]);
                 }
-                indices.Add(static_cast<u32>(index));
+                indices.Add(it->second);
             }
             part.m_VertexCount = static_cast<u32>(vertices.Num()) - part.m_BaseVertex;
             part.m_IndexCount = static_cast<u32>(selected.Num());
