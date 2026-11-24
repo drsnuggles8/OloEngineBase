@@ -483,7 +483,11 @@ namespace OloEngine::MCP
                 // one outcome this schema exists to prevent.
                 for (u32 frame = 0; frame < warmFrames; ++frame)
                 {
-                    const std::optional<u64> baseFrame = applyStep(frame, trajectoryFrame++);
+                    // Installing a pose is a camera cut in the editor. A still
+                    // camera needs it once so temporal effects can warm up.
+                    const std::optional<u32> poseFrame =
+                        (frame == 0u || cameraSpec.Motion) ? std::optional<u32>(frame) : std::nullopt;
+                    const std::optional<u64> baseFrame = applyStep(poseFrame, trajectoryFrame++);
                     if (!baseFrame)
                         return ToolResult::Error("EntityMotion target missing from the active scene");
                     if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))

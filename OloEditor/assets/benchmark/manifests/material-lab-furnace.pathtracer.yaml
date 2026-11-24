@@ -66,7 +66,8 @@ Determinism:
   StartTimeSeconds: 12.0
   FixedDtSeconds: 0.016666666
 
-# 64 frames x 4 samples = 256 samples per pixel at capture.
+# Each traced frame adds 4 samples per pixel. The editor can render more than
+# one frame per warmup step; read the actual count from SampleCount at capture.
 Warmup:
   Frames: 64
   PerFeature:
