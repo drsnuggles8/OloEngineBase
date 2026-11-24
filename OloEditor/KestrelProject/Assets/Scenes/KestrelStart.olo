@@ -1,23 +1,114 @@
 Scene: KestrelStart
-Version: 1
+Version: 2
 Entities:
   - Entity: 173000000000001
     TagComponent:
-      Tag: Start Camera
+      Tag: Strategy Camera
     TransformComponent:
-      Translation: [0, 0, 5]
-      Rotation: [0, 0, 0]
+      Translation: [0, 855, 324]
+      Rotation: [-1, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:
       Camera:
         ProjectionType: 0
         PerspectiveFOV: 0.7853982
-        PerspectiveNear: 0.01
-        PerspectiveFar: 1000
+        PerspectiveNear: 0.5
+        PerspectiveFar: 50000
         OrthographicSize: 10
         OrthographicNear: -1
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
+      RuntimeControl: false
+    ScriptComponent:
+      ClassName: Kestrel.StrategyBuildMode
+  - Entity: 173000000000002
+    TagComponent:
+      Tag: Startup Smoke
     ScriptComponent:
       ClassName: Kestrel.StartupSmoke
+  - Entity: 173000000000003
+    TagComponent:
+      Tag: Prototype Massif
+    TransformComponent:
+      Translation: [-5000, 0, -5000]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      WorldSizeX: 10000
+      WorldSizeZ: 10000
+      HeightScale: 1500
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 1740
+      ProceduralResolution: 512
+      ProceduralOctaves: 5
+      ProceduralFrequency: 2.65
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.38
+      ShapingRidgeBlend: 0.58
+      ShapingWarpStrength: 0.24
+      ShapingHeightExponent: 1.4
+      TessellationEnabled: false
+  - Entity: 173000000000004
+    TagComponent:
+      Tag: Sun
+    DirectionalLightComponent:
+      Direction: [-0.50, -0.77, -0.39]
+      Color: [1, 0.95, 0.86]
+      Intensity: 2.1
+      CastShadows: true
+      MaxShadowDistance: 1800
+  - Entity: 173000000000005
+    TagComponent:
+      Tag: Build HUD
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 173000000000006
+        - 173000000000007
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 1
+      SortOrder: 10
+      ReferenceResolution: [1280, 720]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0, 0]
+  - Entity: 173000000000006
+    TagComponent:
+      Tag: Build Status
+    RelationshipComponent:
+      ParentHandle: 173000000000005
+      Children: []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [24, 24]
+      SizeDelta: [900, 56]
+      Pivot: [0, 0]
+    UITextComponent:
+      Text: Balance 10,000
+      FontSize: 20
+      Color: [1, 1, 1, 1]
+      Alignment: 0
+  - Entity: 173000000000007
+    TagComponent:
+      Tag: Build Controls
+    RelationshipComponent:
+      ParentHandle: 173000000000005
+      Children: []
+    UIRectTransformComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      AnchoredPosition: [24, -24]
+      SizeDelta: [1100, 54]
+      Pivot: [0, 1]
+    UITextComponent:
+      Text: "WASD / edge pan   ·   Middle drag pan   ·   Right drag orbit   ·   Wheel zoom\n1-5 select   ·   Click place   ·   Esc cancel   ·   Ctrl+Z undo   ·   Ctrl+Y redo"
+      FontSize: 17
+      Color: [1, 1, 1, 1]
+      Alignment: 6

@@ -1932,6 +1932,8 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/ProgressionFullLoopTest.cpp
 		Functional/Gameplay/PlayerRigDrivesCharacterViaSceneTickTest.cpp
 		Functional/Gameplay/CameraRigSpringArmViaSceneTickTest.cpp
+		Functional/Gameplay/StrategyCameraRigTest.cpp
+		Functional/Gameplay/BuildPlacementIdentityTest.cpp
 		Functional/Gameplay/KillGrantsExperienceViaDamageTest.cpp
 		Functional/Gameplay/QuestRewardGrantsExperienceTest.cpp
 		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp

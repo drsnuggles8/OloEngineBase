@@ -629,12 +629,15 @@ namespace OloEngine
 
     bool FontSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        asset = Font::Create(metadata.FilePath);
-        asset->m_Handle = metadata.Handle;
+        const auto path = Project::GetActive() ? Project::GetProjectDirectory() / metadata.FilePath : metadata.FilePath;
+        // Registry assets own their handles. An instance from the path cache can
+        // also be the default font or belong to another project.
+        auto font = Font::Create(path, std::span{ &FontCodepointRanges::Latin1, 1 });
+        if (!font || !font->IsLoaded())
+            return false;
 
-        // Note: Font loading validation could be added here if needed
-        // bool result = asset.As<Font>()->Loaded();
-        // if (!result) { ... }
+        font->SetHandle(metadata.Handle);
+        asset = std::move(font);
 
         return true;
     }

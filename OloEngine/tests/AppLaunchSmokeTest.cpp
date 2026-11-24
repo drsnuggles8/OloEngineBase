@@ -146,7 +146,7 @@ TEST(AppLaunchSmoke, OloServerStopsAHeadlessSceneCleanly)
     const auto project = OloEngine::Tests::TempDir("server-headless-scene") / "project with spaces";
     const auto scene = project / "Assets" / "Scenes" / "Empty.olo";
     std::filesystem::create_directories(scene.parent_path());
-    std::ofstream(scene) << "Scene: HeadlessShutdown\nVersion: 1\nEntities: []\n";
+    std::ofstream(scene) << "Scene: HeadlessShutdown\nVersion: 2\nEntities: []\n";
     // Runtime stop releases cursor capture even in an empty scene. A real
     // headless Application exists here but intentionally owns no Window.
     RunLaunchSmoke(OLO_TEST_OLOSERVER_EXE,

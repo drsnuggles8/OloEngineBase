@@ -1,7 +1,7 @@
 # Bound existing Dog coat and Poly Haven fern; opt-in Runtime pack evidence fixture.
 # Exported by RuntimeRepresentationStreamingPackTest.ExportAuthoredBoundDogAndFernForRuntimeEvidence.
 Scene: RuntimeDogAndFernResidency
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 2
   Exposure: 1

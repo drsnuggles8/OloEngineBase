@@ -1,5 +1,5 @@
 Scene: ReflectionProbeCorridor.olo
-Version: 1
+Version: 2
 # ─────────────────────────────────────────────────────────────────────────────
 # Distance-impostor reflection probes (issue #705) — the acceptance-criteria
 # corridor: a mirror floor between a RED (-X) and a GREEN (+X) wall, a BLUE

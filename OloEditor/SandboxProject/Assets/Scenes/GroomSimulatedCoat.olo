@@ -30,7 +30,7 @@ Scene: GroomSimulatedCoat
 # Set DebugView to 3 to draw both the guides and the fitted capsules (the
 # editor's Component Gizmos toggle gates them, so a capture turns them off).
 # ------------------------------------------------------------------------------
-Version: 1
+Version: 2
 PostProcessSettings:
   TonemapOperator: 2
   Exposure: 1

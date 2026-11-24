@@ -1,5 +1,5 @@
 Scene: ContactShadowTest.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Screen-Space Contact Shadows demo scene.

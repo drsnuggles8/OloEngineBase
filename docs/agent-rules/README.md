@@ -269,6 +269,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [force-model-vehicles.md](force-model-vehicles.md): boats and aircraft driven by `AddForce`; every bug here leaves the suite green.
 - [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md): drive a pinned cloth vertex by velocity, never by position.
 - [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md): a `CharacterVirtual` is invisible to UUID-keyed body filters, and a follow camera runs last.
+- [Strategy build tools](../guides/strategy-build-tools.md): share one scene-owned history and keep the confirmed quote and placement identity through redo.
 - [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md): a valid navmesh silently switches every `NavAgentComponent` onto the crowd follower.
 - [parallelizable-mover-systems.md](parallelizable-mover-systems.md): how to move an entity-moving system onto a worker thread, and the two traps in its determinism test.
 - [terrain-collision-streaming-sculpt.md](terrain-collision-streaming-sculpt.md): streamed tile bodies live in a second `JoltScene` map, and tile pose must match the draw transform exactly.

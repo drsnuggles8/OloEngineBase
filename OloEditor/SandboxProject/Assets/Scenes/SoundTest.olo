@@ -1,5 +1,5 @@
 Scene: soundtest.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 3351491715015009777
     TagComponent:
@@ -14,7 +14,6 @@ Entities:
       Color: [1, 1, 1, 1]
       SortingOrder: 0
       TilingFactor: 1
-      TexturePath: ""
     Rigidbody2DComponent:
       BodyType: Static
       FixedRotation: false

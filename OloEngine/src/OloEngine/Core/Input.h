@@ -51,6 +51,9 @@ namespace OloEngine
         // Scripts read it the way they read the keys, by polling, so an orbit
         // camera can zoom in Play without owning the event stream.
         static glm::vec2 GetMouseScrollDelta();
+        // Cumulative across input frames (signed offsets), for fixed-step consumers
+        // that track their own last sample and may skip or repeat an input frame.
+        static double GetMouseScrollYTotal();
 
         // Record wheel motion. Called by the platform window's scroll callback
         // (and the editor's synthetic input); summed until the next Update().

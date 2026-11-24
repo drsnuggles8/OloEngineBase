@@ -1,5 +1,5 @@
 Scene: TilemapDemo.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 6460000000000000001
     TagComponent:

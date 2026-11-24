@@ -1,5 +1,5 @@
 Scene: InstancingDemo.olo
-Version: 1
+Version: 2
 Entities:
   - Entity: 1000000000001
     TagComponent:

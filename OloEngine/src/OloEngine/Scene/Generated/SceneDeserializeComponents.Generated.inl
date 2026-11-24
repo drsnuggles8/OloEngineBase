@@ -261,6 +261,16 @@ if (auto node = entity["CharacterController3DComponent"]; node)
     comp.m_ControlRotationInAir = node["ControlRotationInAir"].as<bool>(comp.m_ControlRotationInAir);
 }
 
+if (auto node = entity["CinematicComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<CinematicComponent>();
+    comp.Sequence = node["Sequence"].as<u64>(static_cast<u64>(comp.Sequence));
+    comp.PlayOnStart = node["PlayOnStart"].as<bool>(comp.PlayOnStart);
+    comp.Loop = node["Loop"].as<bool>(comp.Loop);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PlaybackSpeed"], v))
+        comp.PlaybackSpeed = v;
+}
+
 if (auto node = entity["CircleRendererComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<CircleRendererComponent>();
@@ -358,6 +368,29 @@ if (auto node = entity["DebrisComponent"]; node)
         comp.m_Age = v;
 }
 
+if (auto node = entity["DecalComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DecalComponent>();
+    if (auto h0 = node["AlbedoTextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_AlbedoTexture, h0.as<u64>(0));
+    if (auto h0 = node["NormalTextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_NormalTexture, h0.as<u64>(0));
+    if (auto h0 = node["RMATextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_RMATexture, h0.as<u64>(0));
+    if (auto h0 = node["EmissiveTextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_EmissiveTexture, h0.as<u64>(0));
+    comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
+    comp.m_Color = glm::clamp(comp.m_Color, glm::vec4(0.0f), glm::vec4(1.0f));
+    comp.m_Size = node["Size"].as<glm::vec3>(comp.m_Size);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FadeDistance"], v))
+        comp.m_FadeDistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["NormalAngleThreshold"], v))
+        comp.m_NormalAngleThreshold = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (const int v = node["Mode"].as<int>(static_cast<int>(comp.m_Mode)); v >= static_cast<int>(0) && v <= static_cast<int>(3))
+        comp.m_Mode = static_cast<decltype(comp.m_Mode)>(v);
+    comp.m_Transparent = node["Transparent"].as<bool>(comp.m_Transparent);
+}
+
 if (auto node = entity["DestructibleComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DestructibleComponent>();
@@ -437,7 +470,7 @@ if (auto node = entity["EnvironmentMapComponent"]; node)
     comp.m_EnvironmentMapAsset = node["EnvironmentMapAsset"].as<u64>(static_cast<u64>(comp.m_EnvironmentMapAsset));
     comp.m_FilePath = node["FilePath"].as<std::string>(comp.m_FilePath);
     if (auto h0 = node["EnvironmentMapHandle"]; h0)
-        comp.m_EnvironmentMap = AssetManager::GetAsset<EnvironmentMap>(h0.as<u64>());
+        RestoreSceneAssetReference(comp.m_EnvironmentMap, h0.as<u64>(0));
     comp.m_IsCubemapFolder = node["IsCubemapFolder"].as<bool>(comp.m_IsCubemapFolder);
     comp.m_EnableSkybox = node["EnableSkybox"].as<bool>(comp.m_EnableSkybox);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Rotation"], v))
@@ -1222,6 +1255,16 @@ if (auto node = entity["SpringBoneComponent"]; node)
         comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["SpriteRendererComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<SpriteRendererComponent>();
+    comp.Color = node["Color"].as<glm::vec4>(comp.Color);
+    if (auto h0 = node["TextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.Texture, h0.as<u64>(0));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TilingFactor"], v))
+        comp.TilingFactor = v;
+}
+
 if (auto node = entity["StructuralNodeComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<StructuralNodeComponent>();
@@ -1234,6 +1277,25 @@ if (auto node = entity["StructuralNodeComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FallDuration"], v))
         comp.m_FallDuration = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
     comp.m_ShatterOnCollapse = node["ShatterOnCollapse"].as<bool>(comp.m_ShatterOnCollapse);
+}
+
+if (auto node = entity["TextComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<TextComponent>();
+    comp.TextString = node["TextString"].as<std::string>(comp.TextString);
+    if (auto h0 = node["FontAssetHandle"]; h0)
+        RestoreSceneAssetReference(comp.FontAsset, h0.as<u64>(0));
+    comp.Color = node["Color"].as<glm::vec4>(comp.Color);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Kerning"], v))
+        comp.Kerning = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LineSpacing"], v))
+        comp.LineSpacing = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxWidth"], v))
+        comp.MaxWidth = std::max(v, static_cast<f32>(0.0f));
+    comp.DropShadow = node["DropShadow"].as<bool>(comp.DropShadow);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowDistance"], v))
+        comp.ShadowDistance = v;
+    comp.ShadowColor = node["ShadowColor"].as<glm::vec4>(comp.ShadowColor);
 }
 
 if (auto node = entity["TilemapComponent"]; node)
@@ -1341,6 +1403,32 @@ if (auto node = entity["UICheckboxComponent"]; node)
     comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
 }
 
+if (auto node = entity["UIDropdownComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIDropdownComponent>();
+    if (auto seqNode = node["Options"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_Options.Empty();
+        for (auto const& e : seqNode)
+        {
+            decltype(comp.m_Options)::ElementType tmp0{};
+            tmp0.m_Label = e["Label"].as<std::string>(tmp0.m_Label.ToStdString());
+            comp.m_Options.Add(tmp0);
+        }
+    }
+    comp.m_SelectedIndex = node["SelectedIndex"].as<i32>(comp.m_SelectedIndex);
+    comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
+    comp.m_HighlightColor = node["HighlightColor"].as<glm::vec4>(comp.m_HighlightColor);
+    comp.m_TextColor = node["TextColor"].as<glm::vec4>(comp.m_TextColor);
+    if (auto h0 = node["FontAssetHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_FontAsset, h0.as<u64>(0));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FontSize"], v))
+        comp.m_FontSize = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ItemHeight"], v))
+        comp.m_ItemHeight = v;
+    comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
+}
+
 if (auto node = entity["UIGridLayoutComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<UIGridLayoutComponent>();
@@ -1350,6 +1438,39 @@ if (auto node = entity["UIGridLayoutComponent"]; node)
     comp.m_StartCorner = static_cast<decltype(comp.m_StartCorner)>(node["StartCorner"].as<int>(static_cast<int>(comp.m_StartCorner)));
     comp.m_StartAxis = static_cast<decltype(comp.m_StartAxis)>(node["StartAxis"].as<int>(static_cast<int>(comp.m_StartAxis)));
     comp.m_ConstraintCount = node["ConstraintCount"].as<i32>(comp.m_ConstraintCount);
+}
+
+if (auto node = entity["UIImageComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIImageComponent>();
+    if (auto h0 = node["TextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_Texture, h0.as<u64>(0));
+    comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
+    comp.m_BorderInsets = node["BorderInsets"].as<glm::vec4>(comp.m_BorderInsets);
+}
+
+if (auto node = entity["UIInputFieldComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIInputFieldComponent>();
+    comp.m_Text = node["Text"].as<std::string>(comp.m_Text);
+    comp.m_Placeholder = node["Placeholder"].as<std::string>(comp.m_Placeholder);
+    if (auto h0 = node["FontAssetHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_FontAsset, h0.as<u64>(0));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FontSize"], v))
+        comp.m_FontSize = v;
+    comp.m_TextColor = node["TextColor"].as<glm::vec4>(comp.m_TextColor);
+    comp.m_PlaceholderColor = node["PlaceholderColor"].as<glm::vec4>(comp.m_PlaceholderColor);
+    comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
+    comp.m_CharacterLimit = node["CharacterLimit"].as<i32>(comp.m_CharacterLimit);
+    comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
+}
+
+if (auto node = entity["UIPanelComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UIPanelComponent>();
+    comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
+    if (auto h0 = node["BackgroundTextureHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_BackgroundTexture, h0.as<u64>(0));
 }
 
 if (auto node = entity["UIProgressBarComponent"]; node)
@@ -1407,6 +1528,23 @@ if (auto node = entity["UISliderComponent"]; node)
     comp.m_FillColor = node["FillColor"].as<glm::vec4>(comp.m_FillColor);
     comp.m_HandleColor = node["HandleColor"].as<glm::vec4>(comp.m_HandleColor);
     comp.m_Interactable = node["Interactable"].as<bool>(comp.m_Interactable);
+}
+
+if (auto node = entity["UITextComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<UITextComponent>();
+    comp.m_Text = node["Text"].as<std::string>(comp.m_Text);
+    if (auto h0 = node["FontAssetHandle"]; h0)
+        RestoreSceneAssetReference(comp.m_FontAsset, h0.as<u64>(0));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FontSize"], v))
+        comp.m_FontSize = v;
+    comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
+    if (const int v = node["Alignment"].as<int>(static_cast<int>(comp.m_Alignment)); v >= static_cast<int>(0) && v <= static_cast<int>(8))
+        comp.m_Alignment = static_cast<decltype(comp.m_Alignment)>(v);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Kerning"], v))
+        comp.m_Kerning = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LineSpacing"], v))
+        comp.m_LineSpacing = v;
 }
 
 if (auto node = entity["UIToggleComponent"]; node)

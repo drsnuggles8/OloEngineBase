@@ -31,6 +31,9 @@
 
 #include "MCP/McpInputInject.h"
 #include "MCP/McpServer.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
 #include <limits>
@@ -41,6 +44,7 @@
 
 namespace
 {
+    using OloEngine::Scene;
     using OloEngine::MCP::EditorMcpContext;
     using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpInputEvent;
@@ -213,6 +217,74 @@ TEST_F(McpInputInjectTest, GateOffRejectsAndDoesNotInject)
     ASSERT_TRUE(response.contains("error"));
     EXPECT_EQ(response["error"]["code"], kInvalidParams);
     EXPECT_EQ(m_InjectCount, 0);
+}
+
+TEST(McpInputEntitySnapshot, ReportsLiveSelectionAndHover)
+{
+    auto scene = Scene::Create();
+    const auto selected = scene->CreateEntity("Selected");
+    const auto hovered = scene->CreateEntity("Hovered");
+    McpInputStateSnapshot state;
+
+    Inject::CaptureEntityIdentities(state, scene.get(), selected, hovered);
+
+    EXPECT_EQ(state.SelectedEntityId, static_cast<u64>(selected.GetUUID()));
+    EXPECT_EQ(state.SelectedEntityName, "Selected");
+    EXPECT_EQ(state.HoveredEntityId, static_cast<u64>(hovered.GetUUID()));
+    EXPECT_EQ(state.HoveredEntityName, "Hovered");
+}
+
+TEST(McpInputEntitySnapshot, ClearsDestroyedSelectionAndHover)
+{
+    auto scene = Scene::Create();
+    const auto selected = scene->CreateEntity("Selected");
+    const auto hovered = scene->CreateEntity("Placement preview");
+    McpInputStateSnapshot state;
+    Inject::CaptureEntityIdentities(state, scene.get(), selected, hovered);
+
+    scene->DestroyEntity(selected);
+    scene->DestroyEntity(hovered);
+    ASSERT_TRUE(selected && hovered);
+    Inject::CaptureEntityIdentities(state, scene.get(), selected, hovered);
+
+    EXPECT_EQ(state.SelectedEntityId, 0u);
+    EXPECT_TRUE(state.SelectedEntityName.empty());
+    EXPECT_EQ(state.HoveredEntityId, 0u);
+    EXPECT_TRUE(state.HoveredEntityName.empty());
+}
+
+TEST(McpInputEntitySnapshot, ClearsHandlesFromThePreviousScene)
+{
+    auto previous = Scene::Create();
+    const auto stale = previous->CreateEntity("Previous");
+    auto active = Scene::Create();
+    const auto current = active->CreateEntity("Current");
+    ASSERT_EQ(static_cast<entt::entity>(stale), static_cast<entt::entity>(current));
+    McpInputStateSnapshot state;
+
+    Inject::CaptureEntityIdentities(state, active.get(), stale, stale);
+
+    EXPECT_EQ(state.SelectedEntityId, 0u);
+    EXPECT_TRUE(state.SelectedEntityName.empty());
+    EXPECT_EQ(state.HoveredEntityId, 0u);
+    EXPECT_TRUE(state.HoveredEntityName.empty());
+}
+
+TEST(McpInputEntitySnapshot, RequiresBothIdentityComponents)
+{
+    auto scene = Scene::Create();
+    auto selected = scene->CreateEntity("Selected");
+    auto hovered = scene->CreateEntity("Hovered");
+    selected.RemoveComponent<OloEngine::TagComponent>();
+    hovered.RemoveComponent<OloEngine::IDComponent>();
+    McpInputStateSnapshot state;
+
+    Inject::CaptureEntityIdentities(state, scene.get(), selected, hovered);
+
+    EXPECT_EQ(state.SelectedEntityId, 0u);
+    EXPECT_TRUE(state.SelectedEntityName.empty());
+    EXPECT_EQ(state.HoveredEntityId, 0u);
+    EXPECT_TRUE(state.HoveredEntityName.empty());
 }
 
 TEST_F(McpInputInjectTest, GateOnInjectsAndReportsResolvedPoint)

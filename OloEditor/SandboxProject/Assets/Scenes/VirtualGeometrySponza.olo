@@ -1,5 +1,5 @@
 Scene: VirtualGeometrySponza.olo
-Version: 1
+Version: 2
 RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry on a real production asset (issue #629).

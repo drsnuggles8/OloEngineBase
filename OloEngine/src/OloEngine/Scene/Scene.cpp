@@ -522,6 +522,7 @@ namespace OloEngine
 
         Ref<Scene> newScene = Ref<Scene>::Create();
 
+        newScene->m_Name = other->m_Name;
         newScene->m_ViewportWidth = other->m_ViewportWidth;
         newScene->m_ViewportHeight = other->m_ViewportHeight;
         newScene->m_StreamingSettings = other->m_StreamingSettings;
@@ -1079,6 +1080,33 @@ namespace OloEngine
         return id;
     }
 
+    UUID Scene::ScriptCreateBuildBox(UUID id, std::string_view name, const glm::vec3& position,
+                                     const glm::vec3& size, const glm::vec4& color, bool runtimeOwned)
+    {
+        if (!Math::IsFinite(position) || !Math::IsFinite(size) || !Math::IsFinite(color) ||
+            glm::any(glm::lessThanEqual(size, glm::vec3(0.0f))))
+        {
+            return UUID(0);
+        }
+
+        std::scoped_lock lock(m_EntityCommandMutex);
+        if (!id)
+            id = UUID();
+        if (TryGetEntityWithUUID(id) || !m_PendingSpawnIDs.insert(id).second)
+            return UUID(0);
+
+        PendingEntityCommand cmd;
+        cmd.m_Kind = PendingEntityCommand::Kind::CreateBuildBox;
+        cmd.m_EntityID = id;
+        cmd.m_Name = name.empty() ? std::string_view("Build box") : name;
+        cmd.m_Translation = position;
+        cmd.m_Scale = size;
+        cmd.m_Color = color;
+        cmd.m_RuntimeOwned = runtimeOwned;
+        m_PendingEntityCommands.Add(std::move(cmd));
+        return id;
+    }
+
     void Scene::ScriptDestroyEntity(UUID entityID)
     {
         if (!entityID)
@@ -1190,6 +1218,34 @@ namespace OloEngine
         }
     }
 
+    void Scene::ApplyPendingBuildBox(const PendingEntityCommand& cmd)
+    {
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            m_PendingSpawnIDs.erase(cmd.m_EntityID);
+        }
+        if (TryGetEntityWithUUID(cmd.m_EntityID))
+        {
+            OLO_CORE_ERROR("[Scene] Build box UUID {} was occupied before the placement drained",
+                           static_cast<u64>(cmd.m_EntityID));
+            return;
+        }
+
+        const auto cube = MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Cube);
+        Entity entity = CreateEntityWithUUID(cmd.m_EntityID, cmd.m_Name.ToStdString());
+        auto& transform = entity.GetComponent<TransformComponent>();
+        transform.Translation = cmd.m_Translation;
+        transform.Scale = cmd.m_Scale;
+        auto& mesh = entity.AddComponent<MeshComponent>(cube->GetMeshSource());
+        mesh.m_Primitive = MeshPrimitive::Cube;
+        auto& material = entity.AddComponent<MaterialComponent>().m_Material;
+        material.SetBaseColorFactor(cmd.m_Color);
+        material.SetMetallicFactor(0.0f);
+        material.SetRoughnessFactor(0.9f);
+        if (cmd.m_RuntimeOwned)
+            MarkRuntimeOwned(entity);
+    }
+
     void Scene::ApplyPendingEntityCommand(const PendingEntityCommand& cmd)
     {
         switch (cmd.m_Kind)
@@ -1265,6 +1321,9 @@ namespace OloEngine
                 FireSpawnScriptLifecycleRecursive(root);
                 return;
             }
+            case PendingEntityCommand::Kind::CreateBuildBox:
+                ApplyPendingBuildBox(cmd);
+                return;
             case PendingEntityCommand::Kind::DestroyEntity:
             {
                 auto entityOpt = TryGetEntityWithUUID(cmd.m_EntityID);
@@ -1974,6 +2033,7 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        m_LastRenderedRuntimeView.reset();
         TGuardValue<bool> stopping(m_BlockCheckpointLoad, true);
         OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         m_SessionProfileSection = 0;
@@ -3254,19 +3314,17 @@ namespace OloEngine
         return true;
     }
 
-    bool Scene::ScreenToWorldRay(Entity camera, const glm::vec2& viewportUv, glm::vec3& outOrigin, glm::vec3& outDirection) const
+    static bool UnprojectViewportRay(const glm::mat4& viewProjection, const glm::vec2& viewportUv,
+                                     glm::vec3& outOrigin, glm::vec3& outDirection)
     {
         outOrigin = glm::vec3(0.0f);
         outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
-        if (!camera || !camera.HasComponent<CameraComponent>() || !camera.HasComponent<TransformComponent>() ||
-            !std::isfinite(viewportUv.x) || !std::isfinite(viewportUv.y))
+        if (!Math::IsFinite(viewportUv))
         {
             return false;
         }
 
-        const glm::mat4 view = glm::inverse(GetWorldTransform(static_cast<entt::entity>(camera)));
-        const glm::mat4 projection = camera.GetComponent<CameraComponent>().Camera.GetProjection();
-        const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
+        const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
 
         const f32 ndcX = viewportUv.x * 2.0f - 1.0f;
         const f32 ndcY = viewportUv.y * 2.0f - 1.0f;
@@ -3287,6 +3345,38 @@ namespace OloEngine
         outOrigin = glm::vec3(nearPoint);
         outDirection = direction / length;
         return true;
+    }
+
+    bool Scene::ScreenToWorldRay(Entity camera, const glm::vec2& viewportUv, glm::vec3& outOrigin, glm::vec3& outDirection) const
+    {
+        if (!camera || !camera.HasComponent<CameraComponent>() || !camera.HasComponent<TransformComponent>())
+        {
+            outOrigin = glm::vec3(0.0f);
+            outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+            return false;
+        }
+
+        const glm::mat4 view = glm::inverse(GetWorldTransform(static_cast<entt::entity>(camera)));
+        const glm::mat4 projection = camera.GetComponent<CameraComponent>().Camera.GetProjection();
+        return UnprojectViewportRay(projection * view, viewportUv, outOrigin, outDirection);
+    }
+
+    bool Scene::RenderedCameraScreenToWorldRay(const glm::vec2& viewportUv, glm::vec3& outOrigin, glm::vec3& outDirection) const
+    {
+        if (m_LastRenderedRuntimeView)
+        {
+            const auto& view = *m_LastRenderedRuntimeView;
+            if (!UnprojectViewportRay(view.ViewProjection, viewportUv, outOrigin, outDirection))
+                return false;
+            // The pixel still represents the last displayed frame. Move its
+            // origin into the current frame so it hits the same physical site.
+            outOrigin += view.SceneOrigin - GetWorldOrigin();
+            return true;
+        }
+
+        outOrigin = glm::vec3(0.0f);
+        outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+        return false;
     }
 
     entt::entity Scene::ResolveTransformParent(entt::entity const entity) const
@@ -6943,6 +7033,7 @@ namespace OloEngine
 
         // Update camera VP matrix before resolving UI layout so world-anchor
         // projections use the current frame's camera, not the previous one.
+        const glm::vec3 viewOrigin = GetWorldOrigin();
         if (mainCamera)
         {
             m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
@@ -6989,6 +7080,7 @@ namespace OloEngine
 
         if (mainCamera && m_RenderingEnabled)
         {
+            m_LastRenderedRuntimeView = RuntimeCameraView{ m_CameraViewProjection, viewOrigin };
             if (m_Is3DModeEnabled)
             {
                 // Any additional view asked for this frame (ADR 0026). Ahead of
@@ -7586,6 +7678,7 @@ namespace OloEngine
 
         m_ViewportWidth = width;
         m_ViewportHeight = height;
+        m_LastRenderedRuntimeView.reset();
 
         // Resize our non-FixedAspectRatio cameras
         for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)

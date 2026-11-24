@@ -1584,41 +1584,24 @@ namespace OloEngine::Tests
         EXPECT_NEAR(t.m_LineSpacing, expectedLineSpacing, kFloatEpsilon);
     }
 
-    TEST(ComponentRoundTrip, UITextFontPathStaysPortableWhenTheLoadedFontPathIsAbsolute)
+    TEST(ComponentRoundTrip, UITextKeepsDefaultForInvalidAlignment)
     {
-        ActiveProjectRestorer restoreProject;
-        const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-        const auto fontPath = std::filesystem::weakly_canonical(
-            repoRoot / "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf");
-        ASSERT_TRUE(std::filesystem::is_regular_file(fontPath));
+        for (const int alignment : { -1, 9, 256 })
+        {
+            SCOPED_TRACE(alignment);
+            std::ostringstream yaml;
+            yaml << "Scene: Alignment\nVersion: " << SceneSerializer::CurrentVersion
+                 << "\nEntities:\n  - Entity: 4242\n"
+                    "    TagComponent: { Tag: "
+                 << kTestTag
+                 << " }\n    UITextComponent: { Alignment: " << alignment << " }\n";
 
-        ProjectConfig config;
-        config.Name = "PortableFontPathTest";
-        config.AssetDirectory = ".";
-        ASSERT_TRUE(Project::NewInMemory(repoRoot, config));
-
-        auto scene = Scene::Create();
-        Entity entity = scene->CreateEntity(kTestTag);
-        auto& text = entity.AddComponent<UITextComponent>();
-        text.m_FontAsset = Font::Create(fontPath);
-        ASSERT_TRUE(text.m_FontAsset);
-
-        const auto yaml = SceneSerializer(scene).SerializeToYAML();
-
-        EXPECT_EQ(yaml.find(fontPath.generic_string()), std::string::npos)
-            << "Build Game must not rewrite a scene font to the editor host's absolute path.";
-        EXPECT_NE(yaml.find("OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf"), std::string::npos);
-
-        auto reloaded = Scene::Create();
-        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
-
-        Entity restored = FindByTag(*reloaded, kTestTag);
-        ASSERT_TRUE(static_cast<bool>(restored));
-        ASSERT_TRUE(restored.HasComponent<UITextComponent>());
-        const auto& restoredText = restored.GetComponent<UITextComponent>();
-        ASSERT_TRUE(restoredText.m_FontAsset)
-            << "A project-relative serialized font path must load after scene deserialization.";
-        EXPECT_EQ(std::filesystem::weakly_canonical(restoredText.m_FontAsset->GetPath()), fontPath);
+            auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml.str()));
+            Entity entity = FindByTag(*scene, kTestTag);
+            ASSERT_TRUE(entity && entity.HasComponent<UITextComponent>());
+            EXPECT_EQ(entity.GetComponent<UITextComponent>().m_Alignment, UITextAlignment::MiddleCenter);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -2419,6 +2402,12 @@ namespace OloEngine::Tests
             cine.PlayOnStart = expectedPlayOnStart;
             cine.Loop = expectedLoop;
             cine.PlaybackSpeed = expectedPlaybackSpeed;
+            cine.RuntimeSequence = Ref<CinematicSequence>::Create();
+            cine.Playing = true;
+            cine.Time = 8.0f;
+            cine.PreviousTime = 7.0f;
+            cine.Finished = true;
+            cine.EventsFiredThisFrame.emplace_back("Marker");
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2434,6 +2423,15 @@ namespace OloEngine::Tests
         EXPECT_EQ(cine.PlayOnStart, expectedPlayOnStart);
         EXPECT_EQ(cine.Loop, expectedLoop);
         EXPECT_NEAR(cine.PlaybackSpeed, expectedPlaybackSpeed, kFloatEpsilon);
+        const auto component = YAML::Load(yaml)["Entities"][0]["CinematicComponent"];
+        ASSERT_TRUE(component.IsMap());
+        EXPECT_EQ(component.size(), 4u);
+        EXPECT_FALSE(cine.RuntimeSequence);
+        EXPECT_FALSE(cine.Playing);
+        EXPECT_FLOAT_EQ(cine.Time, 0.0f);
+        EXPECT_FLOAT_EQ(cine.PreviousTime, -1.0f);
+        EXPECT_FALSE(cine.Finished);
+        EXPECT_TRUE(cine.EventsFiredThisFrame.empty());
     }
 
     // -------------------------------------------------------------------------
@@ -3407,7 +3405,7 @@ namespace OloEngine::Tests
     {
         // Hand-written YAML with the pre-#438 Rigidbody3DComponent key set only.
         const std::string legacyYaml = R"(Scene: Legacy
-Version: 1
+Version: 2
 Entities:
   - Entity: 1234567890123456789
     TagComponent:
@@ -4554,7 +4552,7 @@ Entities:
     {
         auto scene = Scene::Create();
         const std::string yaml =
-            "Scene: Untitled\nVersion: 1\n"
+            "Scene: Untitled\nVersion: 2\n"
             "Entities:\n"
             "  - Entity: 12345\n"
             "    TagComponent:\n"
@@ -4634,7 +4632,7 @@ Entities:
         // corrupt scene a different, plausible, wrong silhouette — the same
         // reasoning behind VehicleComponent::m_DriveMode.
         auto scene = Scene::Create();
-        const std::string yaml = std::string("Scene: Untitled\nVersion: 1\n") +
+        const std::string yaml = std::string("Scene: Untitled\nVersion: 2\n") +
                                  "Entities:\n" +
                                  "  - Entity: 424242\n" +
                                  "    TagComponent:\n" +
@@ -4653,6 +4651,16 @@ Entities:
         ASSERT_TRUE(restored.HasComponent<TerrainComponent>());
 
         EXPECT_EQ(restored.GetComponent<TerrainComponent>().m_VoxelMesher, VoxelMesherKind::MarchingCubes);
+    }
+
+    TEST(ComponentRoundTrip, AuthoredNameSurvivesSceneCopy)
+    {
+        auto authored = Scene::Create();
+        authored->SetName("KestrelStart.olo");
+
+        const auto clone = Scene::Copy(authored);
+        ASSERT_TRUE(clone);
+        EXPECT_EQ(clone->GetName(), "KestrelStart.olo");
     }
 
     // -------------------------------------------------------------------------

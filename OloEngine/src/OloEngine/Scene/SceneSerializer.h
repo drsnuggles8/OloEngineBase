@@ -26,7 +26,7 @@ namespace OloEngine
         // is rejected on every deserialize entry point. Bumping it means
         // migrating every scene in the repo in the same PR
         // (docs/agent-rules/binary-format-versioning.md).
-        static constexpr u32 CurrentVersion = 1;
+        static constexpr u32 CurrentVersion = 2;
 
         // Optional residency across a read-only batch of scenes in ONE project
         // and content root. The caller owns this cache, outlives its serializers,

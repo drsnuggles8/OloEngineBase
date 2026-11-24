@@ -2620,8 +2620,8 @@ namespace OloEngine
             if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                    // Sprite art is authored colour, treat as sRGB.
-                    Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
+                    auto manager = Project::GetAssetManager().As<EditorAssetManager>();
+                    const auto texture = manager ? manager->ImportTexture(texturePath, /*srgb=*/true) : nullptr;
                     if (texture && texture->IsLoaded())
                     {
                         component.Texture = texture;
@@ -6033,8 +6033,8 @@ namespace OloEngine
                 if (auto const* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                 {
                     std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                    // UI images are authored colour, treat as sRGB.
-                    Ref<Texture2D> texture = Texture2D::Create(texturePath.string(), /*srgb=*/true);
+                    auto manager = Project::GetAssetManager().As<EditorAssetManager>();
+                    const auto texture = manager ? manager->ImportTexture(texturePath, /*srgb=*/true) : nullptr;
                     if (texture && texture->IsLoaded())
                         component.m_Texture = texture;
                 }
@@ -11003,9 +11003,6 @@ namespace OloEngine
                                       "forward decals are already transparent overlays.");
                 }
 
-                // srgb selects the GPU colour-space conversion: albedo and
-                // emissive are authored colour (true), normal/RMA are linear
-                // data (false).
                 auto drawTextureSlot = [](const char* label, Ref<Texture2D>& slot, bool srgb)
                 {
                     ImGui::PushID(label);
@@ -11015,7 +11012,8 @@ namespace OloEngine
                         if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
                         {
                             std::filesystem::path texturePath = PathFromUtf8Payload(*payload);
-                            Ref<Texture2D> const texture = Texture2D::Create(texturePath.string(), srgb);
+                            auto manager = Project::GetAssetManager().As<EditorAssetManager>();
+                            const auto texture = manager ? manager->ImportTexture(texturePath, srgb) : nullptr;
                             if (texture && texture->IsLoaded())
                             {
                                 slot = texture;
