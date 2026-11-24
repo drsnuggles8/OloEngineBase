@@ -576,6 +576,8 @@ jobs:
         env:
           VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
           VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+          # The scene filter selects CrowdVisualEvidence.*, including its four opt-in cases.
+          OLO_CROWD_MATRIX: '1'
           OLO_SCENE_FILTER_OVERRIDE: ${{ inputs.scene_gtest_filter }}
         run: |
           $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
