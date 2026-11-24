@@ -4984,6 +4984,17 @@ namespace OloEngine
             // re-derive it on load would stale the bake for any list with a gap
             // — and silently, since a stale bake just falls back to probes.
             ar << inst.StableID;
+            ar << inst.EntityID << inst.Custom;
+            ar << inst.Color.r << inst.Color.g << inst.Color.b << inst.Color.a;
+            if (ar.IsLoading())
+            {
+                if (!Math::IsFinite(inst.Transform))
+                    inst.Transform = glm::mat4(1.0f);
+                if (!Math::IsFinite(inst.Color))
+                    inst.Color = glm::vec4(1.0f);
+                if (!std::isfinite(inst.Custom))
+                    inst.Custom = 0.0f;
+            }
         }
     }
 

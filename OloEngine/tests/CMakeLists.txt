@@ -1197,6 +1197,7 @@ add_executable(OloEngine-Tests
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/GroomSceneShadowSaveLoadTest.cpp
 		SaveGame/AnimationClipRequestSaveLoadTest.cpp
+		SaveGame/InstancePlacementSaveLoadTest.cpp
 		SaveGame/BoneAttachmentSaveLoadTest.cpp
 		SaveGame/PlayComponentsSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
