@@ -1632,7 +1632,12 @@ case 2448574091u: // UITextComponent
     }
     if (!SceneBinIO::Read(reader, comp.m_FontSize)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_Alignment)) return false;
+    {
+        decltype(comp.m_Alignment) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(8))
+            comp.m_Alignment = v;
+    }
     if (!SceneBinIO::Read(reader, comp.m_Kerning)) return false;
     if (!SceneBinIO::Read(reader, comp.m_LineSpacing)) return false;
     break;

@@ -1539,7 +1539,8 @@ if (auto node = entity["UITextComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FontSize"], v))
         comp.m_FontSize = v;
     comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
-    comp.m_Alignment = static_cast<decltype(comp.m_Alignment)>(node["Alignment"].as<int>(static_cast<int>(comp.m_Alignment)));
+    if (const int v = node["Alignment"].as<int>(static_cast<int>(comp.m_Alignment)); v >= static_cast<int>(0) && v <= static_cast<int>(8))
+        comp.m_Alignment = static_cast<decltype(comp.m_Alignment)>(v);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Kerning"], v))
         comp.m_Kerning = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LineSpacing"], v))

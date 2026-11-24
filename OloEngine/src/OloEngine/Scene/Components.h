@@ -4264,6 +4264,7 @@ namespace OloEngine
         f32 m_FontSize = 24.0f;
         OLO_PROPERTY()
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_SERIALIZE(Reject, Min = 0, Max = 8)
         UITextAlignment m_Alignment = UITextAlignment::MiddleCenter;
         OLO_PROPERTY()
         f32 m_Kerning = 0.0f;

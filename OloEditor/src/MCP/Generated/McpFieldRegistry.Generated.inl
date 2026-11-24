@@ -1372,7 +1372,7 @@ registry.push_back(OLO_GFW_FIELD(UISliderComponent, "Interactable", m_Interactab
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Text", m_Text));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "FontSize", m_FontSize));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Color", m_Color));
-registry.push_back(OLO_GFW_FIELD(UITextComponent, "Alignment", m_Alignment));
+registry.push_back(OLO_GFW_FIELD_RANGE(UITextComponent, "Alignment", m_Alignment, OLO_GFW_BOUND(0), OLO_GFW_BOUND(8)));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Kerning", m_Kerning));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "LineSpacing", m_LineSpacing));
 

@@ -1584,6 +1584,26 @@ namespace OloEngine::Tests
         EXPECT_NEAR(t.m_LineSpacing, expectedLineSpacing, kFloatEpsilon);
     }
 
+    TEST(ComponentRoundTrip, UITextKeepsDefaultForInvalidAlignment)
+    {
+        for (const int alignment : { -1, 9, 256 })
+        {
+            SCOPED_TRACE(alignment);
+            std::ostringstream yaml;
+            yaml << "Scene: Alignment\nVersion: " << SceneSerializer::CurrentVersion
+                 << "\nEntities:\n  - Entity: 4242\n"
+                    "    TagComponent: { Tag: "
+                 << kTestTag
+                 << " }\n    UITextComponent: { Alignment: " << alignment << " }\n";
+
+            const auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml.str()));
+            Entity entity = FindByTag(*scene, kTestTag);
+            ASSERT_TRUE(entity && entity.HasComponent<UITextComponent>());
+            EXPECT_EQ(entity.GetComponent<UITextComponent>().m_Alignment, UITextAlignment::MiddleCenter);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // UIButtonComponent — 4-state colour palette + Interactable. Auto-generated
     // via the OLO_SERIALIZE(Skip) slice (#451): the runtime-only m_State is marked
