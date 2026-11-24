@@ -1114,7 +1114,7 @@ namespace OloEngine::Tests
 
         const fs::path scenePath = root / "Assets" / "HandleProbe.olo";
         {
-            const auto scene = Scene::Create();
+            auto scene = Scene::Create();
             auto entity = scene->CreateEntity("HandleProbe");
             entity.AddComponent<SpriteRendererComponent>().Texture = spritePreview;
             entity.AddComponent<UIImageComponent>().m_Texture = texture;
@@ -1262,7 +1262,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fs::remove(driftSources / relative.filename())) << relative;
 
         SCOPED_TRACE("Runtime scene and assets from pack without loose sources");
-        const auto runtime = Ref<RuntimeAssetManager>::Create(false);
+        auto runtime = Ref<RuntimeAssetManager>::Create(false);
         ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
         Project::SetAssetManager(runtime);
         ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));

@@ -1596,7 +1596,7 @@ namespace OloEngine::Tests
                  << kTestTag
                  << " }\n    UITextComponent: { Alignment: " << alignment << " }\n";
 
-            const auto scene = Scene::Create();
+            auto scene = Scene::Create();
             ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml.str()));
             Entity entity = FindByTag(*scene, kTestTag);
             ASSERT_TRUE(entity && entity.HasComponent<UITextComponent>());
