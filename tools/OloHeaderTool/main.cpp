@@ -1111,13 +1111,16 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     // available" abort, caught by ComponentSerializerCoverage.NoComponentIsBothHandWrittenAndGenerated.
     "InstancedMeshComponent",
     "LODGroupComponent",
+    // Orders BoundsMin and BoundsMax per axis, and floors the integer probe resolution.
     "LightProbeVolumeComponent",
     "MeshComponent",
     "ModelComponent",
+    // Orders Min and Max per axis and rejects malformed off-mesh links.
     "NavMeshBoundsComponent",
     "NoiseAnimationStateComponent",
     "PerceptionComponent",
     "PhaseComponent",
+    // Preserves JointType and validates sentinel-valued limits and path control points.
     "PhysicsJoint3DComponent",
     "FootIKStateComponent",
     "LocomotionStateComponent",
@@ -1131,6 +1134,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "SphereAreaLightComponent",
     "SpringBoneStateComponent",
     "StarNestSkyComponent",
+    // Enforces UnloadRadius >= LoadRadius + 1 to preserve streaming hysteresis.
     "StreamingVolumeComponent",
     "SubmeshComponent",
     "TagComponent",
