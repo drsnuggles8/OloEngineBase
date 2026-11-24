@@ -226,6 +226,12 @@ namespace OloEngine::MCP
 
     class McpClientConnection;
 
+    enum class CameraPoseTransition : u8
+    {
+        Cut,
+        Continuous
+    };
+
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
     // accepted by RestoreCameraPose. Angles are radians (EditorCamera's units);
     // FOV is vertical degrees. Distance 0 means a collapsed orbit (free pose).
@@ -692,7 +698,7 @@ namespace OloEngine::MCP
         // Pose the camera at an explicit eye position looking along yaw/pitch
         // (radians); fovDegrees <= 0 keeps the current FOV. Collapses the orbit
         // (EditorCamera::SetPose) so the pose renders exactly as requested.
-        std::function<void(const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees)> SetCameraPose;
+        std::function<void(const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees, CameraPoseTransition transition)> SetCameraPose;
         // Orbit-frame the camera around `target` (EditorCamera::Focus).
         std::function<void(const glm::vec3& target, f32 yawRadians, f32 pitchRadians, f32 distance)> OrbitCamera;
         // Restore a previously captured pose (focal point / distance / angles /

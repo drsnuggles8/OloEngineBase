@@ -60,6 +60,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneCameraFraming.h"
@@ -406,18 +407,22 @@ namespace OloEngine::Tests
                 pose.ViewportHeight = m_Hooks.RenderHeight;
                 return pose;
             };
-            ctx.SetCameraPose = [this](const glm::vec3& eye, f32 yaw, f32 pitch, f32 fovDegrees)
+            ctx.SetCameraPose = [this](const glm::vec3& eye, f32 yaw, f32 pitch, f32 fovDegrees, MCP::CameraPoseTransition transition)
             {
                 if (!m_Hooks.Camera)
                     return;
                 if (fovDegrees > 0.0f)
                     m_Hooks.Camera->SetFOV(fovDegrees);
                 m_Hooks.Camera->SetPose(eye, yaw, pitch);
+                if (transition == MCP::CameraPoseTransition::Cut)
+                    Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             ctx.OrbitCamera = [this](const glm::vec3& target, f32 yaw, f32 pitch, f32 distance)
             {
-                if (m_Hooks.Camera)
-                    m_Hooks.Camera->Focus(target, distance, yaw, pitch);
+                if (!m_Hooks.Camera)
+                    return;
+                m_Hooks.Camera->Focus(target, distance, yaw, pitch);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             ctx.RestoreCameraPose = [this](const MCP::McpCameraPose& pose)
             {
@@ -425,6 +430,7 @@ namespace OloEngine::Tests
                     return;
                 m_Hooks.Camera->SetFOV(pose.FovDegrees);
                 m_Hooks.Camera->Focus(pose.FocalPoint, pose.Distance, pose.YawRadians, pose.PitchRadians);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
 
             ctx.GetFrameIndex = [this]() -> u64
