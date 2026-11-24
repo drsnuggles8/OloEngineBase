@@ -425,10 +425,8 @@ namespace OloEngine
             auto placeholderAsset = AssetManager::GetPlaceholderAsset(type);
             if (placeholderAsset)
             {
-                // Set the placeholder's handle to match the original asset handle
-                placeholderAsset->SetHandle(assetHandle);
-
-                // Cache the placeholder asset so callers get a valid asset reference
+                // The manager shares one placeholder per type. Keep the requested
+                // handle in the cache key and leave the shared object unchanged.
                 {
                     TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
                     m_LoadedAssets[assetHandle] = placeholderAsset;
