@@ -11,6 +11,59 @@
 
 namespace OloEngine::Tests
 {
+    TEST(CrowdFarGeometry, VertexFramesPackSubmeshLocalLanesWithoutNormalisingPoseSamples)
+    {
+        TArray<Vertex> vertices;
+        for (u32 v = 0; v < 8; ++v)
+            vertices.Emplace(glm::vec3(v, 2, 3), glm::vec3(1, 0, 0), glm::vec2(0));
+        auto geometry = Ref<MeshSource>::Create(MoveTemp(vertices), TArray<u32>{ 0, 1, 2, 3, 4, 5, 5, 6, 7 });
+        Submesh prefix;
+        prefix.m_VertexCount = prefix.m_IndexCount = 3;
+        Submesh part;
+        part.m_BaseVertex = part.m_BaseIndex = 3;
+        part.m_VertexCount = 5;
+        part.m_IndexCount = 6;
+        geometry->SetSubmeshes({ prefix, part });
+        auto& weights = geometry->GetBoneInfluences();
+        weights[3].SetBoneData(0, 0, 0.25f);
+        weights[3].SetBoneData(1, 1, 0.25f);
+        weights[4].SetBoneData(0, 1, 0.25f);
+        weights[4].SetBoneData(1, 99, 0.75f); // outside the two-bone palette
+
+        CrowdClip clip;
+        clip.BoneCount = 2;
+        clip.FrameCount = 2;
+        clip.Atlas.SetNum(2);
+        clip.Atlas[1].Transform[0].x = 2.0f;
+        clip.Atlas[1].Transform[3].x = 8.0f;
+        clip.Atlas[1].Normal[0].x = 4.0f;
+        clip.Atlas[1].Normal[3].x = -4.0f;
+        const auto baked = BakeCrowdVertexFrames(*geometry, 1, clip, 6);
+        ASSERT_EQ(baked.RecordsPerFrame, 3u);
+        ASSERT_EQ(baked.Records.Num(), 6);
+        for (u32 frame = 0; frame < 2; ++frame)
+        {
+            const u32 offset = frame * baked.RecordsPerFrame;
+            EXPECT_EQ(baked.Records[offset].CrowdPose.x, part.m_BaseVertex);
+            EXPECT_EQ(baked.Records[offset].CrowdPose.y, baked.RecordsPerFrame);
+            const auto& first = baked.Records[offset + 1];
+            EXPECT_FLOAT_EQ(first.Transform[0].x, frame == 0 ? 1.5f : 5.5f);
+            EXPECT_FLOAT_EQ(first.Transform[0].w, 0.5f);
+            EXPECT_FLOAT_EQ(first.Normal[0].x, frame == 0 ? 0.5f : 1.5f);
+            EXPECT_FLOAT_EQ(first.Normal[0].w, 0.0f);
+            EXPECT_FLOAT_EQ(first.Transform[1].w, 0.25f);
+            // The fifth vertex spills to a second payload record. Its zero
+            // weights retain its rest position and normal at both times.
+            const auto& second = baked.Records[offset + 2];
+            EXPECT_FLOAT_EQ(second.Transform[0].x, 7.0f);
+            EXPECT_FLOAT_EQ(second.Transform[0].w, 1.0f);
+            EXPECT_FLOAT_EQ(second.Normal[0].x, 1.0f);
+        }
+        EXPECT_TRUE(BakeCrowdVertexFrames(*geometry, 1, clip, 5).Records.IsEmpty());
+        geometry->GetIndices()[part.m_BaseIndex] = 0; // a valid vertex in the wrong submesh
+        EXPECT_TRUE(BakeCrowdVertexFrames(*geometry, 1, clip, 6).Records.IsEmpty());
+    }
+
     TEST(CrowdFarGeometry, MultiMaterialSplatsKeepAbsoluteIndicesSurfaceUvsAndBoneMotion)
     {
         // Two disjoint textured patches. Each patch spans two bones so an

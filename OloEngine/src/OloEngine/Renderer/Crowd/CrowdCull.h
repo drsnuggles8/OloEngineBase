@@ -11,6 +11,7 @@
 
 namespace OloEngine
 {
+    struct CrowdVertexFrames;
     inline constexpr u32 CrowdCoarseIntervals = 8;
 
     // Shared samples for the compacted draw's atlas and the posed shadow
@@ -36,7 +37,7 @@ namespace OloEngine
         [[nodiscard]] bool Dispatch(std::span<const InstanceData> instances, const CrowdClip& clip,
                                     f32 now, f32 previous, bool loop, bool resetHistory,
                                     const CrowdAnimationComponent& settings, glm::vec4 localSphere, glm::vec4 cullSphere,
-                                    const std::array<CrowdDrawRange, 3>& ranges);
+                                    const std::array<CrowdDrawRange, 3>& ranges, std::span<const CrowdVertexFrames> vertexFrames = {});
         [[nodiscard]] RHI::ResourceHandle Instances(u32 tier) const
         {
             return m_Output[tier]->GetRHIHandle();
@@ -47,7 +48,7 @@ namespace OloEngine
         }
 
       private:
-        bool PrepareBuffers(u32 count, const CrowdClip& clip);
+        bool PrepareBuffers(u32 count, const CrowdClip& clip, std::span<const CrowdVertexFrames> vertexFrames);
         Ref<ComputeShader> m_Shader;
         Ref<StorageBuffer> m_Input, m_PreviousHistory, m_NextHistory;
         std::array<Ref<StorageBuffer>, 3> m_Output;
@@ -56,6 +57,8 @@ namespace OloEngine
         u32 m_Capacity = 0;
         TArray<u64> m_PreviousIDs;
         const InstanceData* m_AtlasData = nullptr;
+        const CrowdVertexFrames* m_VertexFrames = nullptr;
+        glm::uvec4 m_VertexFrameStrides{};
         u64 m_Frame = 0;
         bool m_PreviousLoop = false;
     };

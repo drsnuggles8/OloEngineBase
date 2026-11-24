@@ -89,6 +89,26 @@ layout(std140, binding = 31) uniform OloPrevBoneMatrices
 #endif
 
 #ifdef INSTANCE_BLOCK_VERTEX_GLSL
+#define OLO_CROWD_VERTEX_FRAMES
+const uint OLO_CROWD_VERTEX_ADDRESS = 0x80000000u;
+
+// Vertex-space samples are packed four per record. The header locates this
+// submesh's first vertex and next frame. Both raster passes use this lookup
+// for positions, including the non-unit homogeneous w of an unnormalized skin.
+vec4 OloCrowdVertexSample(uint address, uint weight, bool normal)
+{
+    uint frame = (address & ~OLO_CROWD_VERTEX_ADDRESS) - 1u;
+    uvec2 layoutInfo = instances[frame].CrowdPose.xy;
+    uint index = uint(gl_VertexIndex) - layoutInfo.x;
+    uint record = frame + 1u + index / 4u;
+    uint lane = index % 4u;
+    vec4 a = normal ? instances[record].Normal[lane] : instances[record].Transform[lane];
+    if (weight == 0u) return a;
+    record += layoutInfo.y;
+    vec4 b = normal ? instances[record].Normal[lane] : instances[record].Transform[lane];
+    return a + (b - a) * (float(weight) / 65535.0);
+}
+
 // The crowd cull writes frame addresses into each surviving instance and
 // leaves the clip's shared samples in the tail of that same SSBO. Each
 // frame contains ceil(boneCount / 3) consecutive records.
@@ -231,6 +251,11 @@ mat4 OloSkinMatrixPrev(ivec4 boneIDs, vec4 boneWeights)
 // would mean inventing one.
 vec4 OloDeformSkinnedPosition(vec3 restPosition, ivec4 boneIDs, vec4 boneWeights)
 {
+#ifdef OLO_CROWD_VERTEX_FRAMES
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if ((pose.x & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+        return OloCrowdVertexSample(pose.x, pose.z & 0xffffu, false);
+#endif
 	return OloSkinMatrix(boneIDs, boneWeights) * vec4(restPosition, 1.0);
 }
 
@@ -238,6 +263,23 @@ vec4 OloDeformSkinnedPosition(vec3 restPosition, ivec4 boneIDs, vec4 boneWeights
 // members dead-code away, including the entire previous-pose palette read.
 OloDeformedSurface OloDeformSkinnedVertex(vec3 restPosition, vec3 restNormal, ivec4 boneIDs, vec4 boneWeights)
 {
+#ifdef OLO_CROWD_VERTEX_FRAMES
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if ((pose.x & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+    {
+        OloDeformedSurface sampled;
+        sampled.Position = OloCrowdVertexSample(pose.x, pose.z & 0xffffu, false);
+        sampled.Normal = OloCrowdVertexSample(pose.x, pose.z & 0xffffu, true).xyz;
+        sampled.PrevPosition = sampled.Position;
+#ifdef OLO_DEFORM_WANT_PREV
+        if ((pose.y & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+            sampled.PrevPosition = OloCrowdVertexSample(pose.y, pose.z >> 16u, false);
+        else if (pose.y != 0u)
+            sampled.PrevPosition = OloSkinMatrixPrev(boneIDs, boneWeights) * vec4(restPosition, 1.0);
+#endif
+        return sampled;
+    }
+#endif
 	mat4 skinMatrix = OloSkinMatrix(boneIDs, boneWeights);
 
 	OloDeformedSurface surface;

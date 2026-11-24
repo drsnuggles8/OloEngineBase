@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Crowd/CrowdCull.h"
+#include "OloEngine/Renderer/Crowd/CrowdGeometry.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -40,9 +41,11 @@ namespace OloEngine
             u32 CoarseIntervals = CrowdCoarseIntervals;
             u32 Remapped;
             u32 Pad{};
+            glm::uvec4 VertexFrameStrides;
         };
         static_assert(offsetof(CullParams, Layout) == 192);
-        static_assert(sizeof(CullParams) == 224);
+        static_assert(offsetof(CullParams, VertexFrameStrides) == 224);
+        static_assert(sizeof(CullParams) == 240);
 
         Ref<StorageBuffer> MakeStorage(u32 bytes)
         {
@@ -89,9 +92,9 @@ namespace OloEngine
         return coarse;
     }
 
-    bool CrowdCull::PrepareBuffers(u32 count, const CrowdClip& clip)
+    bool CrowdCull::PrepareBuffers(u32 count, const CrowdClip& clip, std::span<const CrowdVertexFrames> vertexFrames)
     {
-        if (m_AtlasData == clip.Atlas.GetData() && count <= m_Capacity)
+        if (m_AtlasData == clip.Atlas.GetData() && m_VertexFrames == vertexFrames.data() && count <= m_Capacity)
             return true;
 
         const RendererMemoryOwnerScope allocationOwner("Crowd cull buffers", MemoryLifetime::Pooled);
@@ -109,9 +112,29 @@ namespace OloEngine
         if (!input || !previousHistory || !nextHistory)
             return false;
         std::array<Ref<StorageBuffer>, 3> outputs;
-        for (auto& out : outputs)
+        glm::uvec4 strides(0u);
+        const u32 paletteEnd = inputBytes + atlasBytes + coarseBytes;
+        for (u32 tier = 0; tier < outputs.size(); ++tier)
         {
-            out = MakeStorage(inputBytes + atlasBytes + coarseBytes);
+            auto& out = outputs[tier];
+            if (tier < vertexFrames.size())
+            {
+                const auto& frames = vertexFrames[tier];
+                const u32 records = static_cast<u32>(frames.Records.Num());
+                const u32 frameCount = tier == 0 ? clip.FrameCount : CrowdCoarseIntervals + 1u;
+                if (frames.RecordsPerFrame > 1u && static_cast<u64>(frames.RecordsPerFrame) * frameCount == records &&
+                    records <= kMaxRecords - capacity - atlasRecords - coarseRecords)
+                {
+                    const u32 bytes = records * static_cast<u32>(sizeof(InstanceData));
+                    out = MakeStorage(paletteEnd + bytes);
+                    if (out && RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), paletteEnd, bytes, frames.Records.GetData()))
+                        strides[tier] = frames.RecordsPerFrame;
+                    else
+                        out = nullptr;
+                }
+            }
+            if (!out)
+                out = MakeStorage(paletteEnd);
             if (!out || !RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), inputBytes, atlasBytes, clip.Atlas.GetData()) ||
                 !RenderCommand::TryUploadBufferSubData(out->GetRHIHandle(), inputBytes + atlasBytes, coarseBytes, coarse.Atlas.GetData()))
                 return false;
@@ -132,6 +155,8 @@ namespace OloEngine
         else
             m_PreviousIDs.Reset();
         m_AtlasData = clip.Atlas.GetData();
+        m_VertexFrames = vertexFrames.data();
+        m_VertexFrameStrides = strides;
         m_Capacity = capacity;
         m_Input = std::move(input);
         m_PreviousHistory = std::move(previousHistory);
@@ -143,7 +168,7 @@ namespace OloEngine
     bool CrowdCull::Dispatch(std::span<const InstanceData> instances, const CrowdClip& clip,
                              f32 now, f32 previous, bool loop, bool resetHistory,
                              const CrowdAnimationComponent& settings, glm::vec4 localSphere, glm::vec4 cullSphere,
-                             const std::array<CrowdDrawRange, 3>& ranges)
+                             const std::array<CrowdDrawRange, 3>& ranges, std::span<const CrowdVertexFrames> vertexFrames)
     {
         const u64 atlasRecords = static_cast<u64>(clip.Atlas.Num());
         if (instances.empty() || clip.FrameCount < 2u || clip.BoneCount == 0u || clip.BoneCount > UBOStructures::AnimationConstants::MAX_BONES ||
@@ -161,7 +186,7 @@ namespace OloEngine
         if (!m_Parameters)
             m_Parameters = UniformBuffer::Create(sizeof(CullParams), ShaderBindingLayout::UBO_INSTANCE_CULL, "CrowdCullParams");
         const u32 count = static_cast<u32>(instances.size());
-        if (!m_Parameters || !PrepareBuffers(count, clip))
+        if (!m_Parameters || !PrepareBuffers(count, clip, vertexFrames))
             return false;
 
         const u64 frame = Renderer3D::GetPhysicalFrameSerial();
@@ -220,6 +245,7 @@ namespace OloEngine
         params.Layout = { count, m_Capacity, clip.FrameCount, clip.BoneCount };
         params.PreviousCount = previousCount;
         params.Remapped = remap ? 1u : 0u;
+        params.VertexFrameStrides = m_VertexFrameStrides;
         m_Parameters->SetData(&params, sizeof(params));
         m_Parameters->Bind();
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT, m_Input->GetRHIHandle());

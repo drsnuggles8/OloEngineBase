@@ -3,6 +3,7 @@
 #include "RendererAttachedTest.h"
 
 #include "OloEngine/Renderer/Crowd/CrowdCull.h"
+#include "OloEngine/Renderer/Crowd/CrowdGeometry.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -144,6 +145,51 @@ namespace OloEngine::Tests
             EXPECT_EQ(member.CrowdPose.z, 0u);
             EXPECT_FLOAT_EQ(ReadMember(culler, tier, terminal - 1u).Transform[3].x, 16.0f);
         }
+    }
+
+    TEST_F(CrowdCullTest, BakedVerticesUseThePriorSamplingRateAcrossTierChanges)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        CrowdCull culler;
+        CrowdClip clip;
+        clip.BoneCount = 1;
+        clip.FrameCount = 17;
+        clip.Atlas.SetNum(17);
+        std::array<CrowdVertexFrames, 3> surfaces;
+        for (u32 tier = 0; tier < surfaces.size(); ++tier)
+        {
+            auto& surface = surfaces[tier];
+            surface.RecordsPerFrame = 2;
+            surface.Records.SetNum(2 * (tier == 0 ? 17 : 9));
+            for (i32 row = 0; row < surface.Records.Num(); row += 2)
+                surface.Records[row].CrowdPose = { 40u + tier, 2u, 0u, 0u };
+        }
+        const std::array<CrowdDrawRange, 3> ranges{ { { 3, 0 }, { 3, 0 }, { 3, 0 } } };
+        const glm::vec4 sphere{ 0.0f, 0.0f, 0.0f, 1.0f };
+        std::array members{ Placed(10, 3.0f, 45.0f, 0.0f) };
+        auto dispatch = [&](bool reset)
+        {
+            RunFrames(1);
+            bool ran = false;
+            RunInFrame([&]
+                       { ran = culler.Dispatch(members, clip, 0.25f, 0.25f, true, reset, {}, sphere, sphere, ranges, surfaces); });
+            return ran;
+        };
+        ASSERT_TRUE(dispatch(true));
+        constexpr u32 tag = 0x80000000u;
+        const auto near = ReadMember(culler, 0);
+        ASSERT_NE(near.CrowdPose.x & tag, 0u);
+        EXPECT_EQ(ReadMember(culler, 0, (near.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(40, 2, 0, 0));
+        members[0] = Placed(10, 0.4f, 45.0f, 0.0f);
+        ASSERT_TRUE(dispatch(false));
+        const auto far = ReadMember(culler, 2);
+        ASSERT_NE(far.CrowdPose.x & tag, 0u);
+        EXPECT_EQ(ReadMember(culler, 2, (far.CrowdPose.x & ~tag) - 1u).CrowdPose, glm::uvec4(42, 2, 0, 0));
+        // The previous pose came from the full-rate near palette: four
+        // frames after the single input record, plus the address sentinel.
+        EXPECT_EQ(far.CrowdPose.y, 6u);
+        ASSERT_TRUE(dispatch(false));
+        EXPECT_EQ(ReadMember(culler, 2).CrowdPose.y, far.CrowdPose.x);
     }
 
     TEST_F(CrowdCullTest, RetainedMemberKeepsHistoryWhenClipGroupRowsChange)

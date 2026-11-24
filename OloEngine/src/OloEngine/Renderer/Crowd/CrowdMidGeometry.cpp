@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace OloEngine
 {
@@ -90,30 +91,58 @@ namespace OloEngine
             return true;
         }
 
+        bool HasPaletteFrames(const CrowdClip& clip)
+        {
+            return clip.FrameCount > 0 && clip.BoneCount > 0 && clip.BoneCount <= UBOStructures::AnimationConstants::MAX_BONES &&
+                   static_cast<u64>(clip.FrameCount) * clip.RecordsPerFrame() <= static_cast<u64>(clip.Atlas.Num());
+        }
+
+        struct DeformedVertex
+        {
+            glm::vec4 Position;
+            glm::vec3 Normal;
+            bool Skinned;
+        };
+
+        // Mirrors OloDeformSkinnedVertex. Keep the homogeneous weight sum
+        // and the full transformed normal through frame interpolation.
+        bool DeformCrowdVertex(const Vertex& vertex, const BoneInfluence& influence, const CrowdClip& clip, u32 frame,
+                               DeformedVertex& sample)
+        {
+            const auto& weights = influence.m_Weights;
+            const f32 totalWeight = weights[0] + weights[1] + weights[2] + weights[3];
+            if (!std::isfinite(totalWeight))
+                return false;
+            sample = { glm::vec4(vertex.Position, 1.0f), vertex.Normal, totalWeight > 0.001f };
+            if (sample.Skinned)
+            {
+                glm::mat4 skin(0.0f);
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    const u32 bone = influence.m_BoneIDs[i];
+                    if (bone < clip.BoneCount)
+                        skin += clip.Bone(frame, bone) * weights[i];
+                }
+                sample.Position = skin * sample.Position;
+                sample.Normal = glm::mat3(skin) * sample.Normal;
+            }
+            return Math::IsFinite(sample.Position) && Math::IsFinite(sample.Normal);
+        }
+
         bool SkinProxyVertex(Vertex& vertex, const BoneInfluence& influence, const CrowdClip& clip, u32 frame)
         {
-            // Same zero-weight rest-pose fallback and weighted matrix sum as
-            // SkeletalDeformation.glsl. A rigid proxy stores Euclidean xyz:
-            // divide by homogeneous w so an unnormalised influence sum casts
-            // the same silhouette as the raster vertex's perspective divide.
-            const auto& weights = influence.m_Weights;
-            if (weights[0] + weights[1] + weights[2] + weights[3] <= 0.001f)
-                return Math::IsFinite(vertex.Position) && Math::IsFinite(vertex.Normal);
-            glm::mat4 skin(0.0f);
-            for (u32 i = 0; i < 4; ++i)
-            {
-                const u32 bone = influence.m_BoneIDs[i];
-                if (bone < clip.BoneCount)
-                    skin += clip.Bone(frame, bone) * weights[i];
-            }
-            const glm::vec4 position = skin * glm::vec4(vertex.Position, 1.0f);
-            const glm::vec3 normal = glm::mat3(skin) * vertex.Normal;
-            if (!Math::IsFinite(position) || !Math::IsFinite(normal) || std::abs(position.w) < 1e-8f)
+            DeformedVertex sample;
+            if (!DeformCrowdVertex(vertex, influence, clip, frame, sample))
                 return false;
-            vertex.Position = glm::vec3(position) / position.w;
-            const f32 lengthSquared = glm::dot(normal, normal);
+            if (!sample.Skinned)
+                return true;
+            if (std::abs(sample.Position.w) < 1e-8f)
+                return false;
+            // The rigid mesh stores Euclidean xyz for its later model transform.
+            vertex.Position = glm::vec3(sample.Position) / sample.Position.w;
+            const f32 lengthSquared = glm::dot(sample.Normal, sample.Normal);
             if (lengthSquared > 1e-12f)
-                vertex.Normal = normal * glm::inversesqrt(lengthSquared);
+                vertex.Normal = sample.Normal * glm::inversesqrt(lengthSquared);
             return true;
         }
     } // namespace
@@ -153,8 +182,7 @@ namespace OloEngine
 
     Ref<MeshSource> BakeCrowdProxy(const Ref<MeshSource>& geometry, const CrowdClip& clip, u32 frame)
     {
-        if (!geometry || frame >= clip.FrameCount || clip.BoneCount == 0 || clip.BoneCount > UBOStructures::AnimationConstants::MAX_BONES ||
-            static_cast<u64>(clip.FrameCount) * clip.RecordsPerFrame() > static_cast<u64>(clip.Atlas.Num()))
+        if (!geometry || frame >= clip.FrameCount || !HasPaletteFrames(clip))
             return nullptr;
         TArray<Vertex> vertices(geometry->GetVertices());
         const auto& influences = geometry->GetBoneInfluences();
@@ -176,5 +204,55 @@ namespace OloEngine
         proxy->SetPreOptimized(true);
         proxy->Build();
         return proxy;
+    }
+
+    CrowdVertexFrames BakeCrowdVertexFrames(const MeshSource& geometry, u32 submeshIndex, const CrowdClip& clip, u32 maxRecords)
+    {
+        const auto& parts = geometry.GetSubmeshes();
+        const auto& vertices = geometry.GetVertices();
+        const auto& influences = geometry.GetBoneInfluences();
+        if (!HasPaletteFrames(clip) || submeshIndex >= static_cast<u32>(parts.Num()) || influences.Num() != vertices.Num())
+            return {};
+
+        const Submesh& part = parts[submeshIndex];
+        const u32 vertexCount = static_cast<u32>(vertices.Num());
+        const auto& indices = geometry.GetIndices();
+        const u32 indexCount = static_cast<u32>(indices.Num());
+        if (part.m_VertexCount == 0 || part.m_BaseVertex > vertexCount || part.m_VertexCount > vertexCount - part.m_BaseVertex ||
+            part.m_IndexCount == 0 || part.m_BaseIndex > indexCount || part.m_IndexCount > indexCount - part.m_BaseIndex || part.m_IndexCount % 3u != 0)
+            return {};
+        // The shader derives the record directly from the absolute draw
+        // vertex. An index outside this part would read another sample.
+        for (u32 i = 0; i < part.m_IndexCount; ++i)
+        {
+            const u32 index = indices[part.m_BaseIndex + i];
+            if (index < part.m_BaseVertex || index - part.m_BaseVertex >= part.m_VertexCount)
+                return {};
+        }
+
+        const u32 stride = 1u + (part.m_VertexCount + 3u) / 4u;
+        const u64 count = static_cast<u64>(clip.FrameCount) * stride;
+        if (count > maxRecords || count > static_cast<u64>(std::numeric_limits<i32>::max()))
+            return {};
+        CrowdVertexFrames baked;
+        baked.RecordsPerFrame = stride;
+        baked.Records.SetNum(static_cast<i32>(count));
+        for (u32 frame = 0; frame < clip.FrameCount; ++frame)
+        {
+            const u32 first = frame * stride;
+            baked.Records[first].CrowdPose = { part.m_BaseVertex, stride, 0u, 0u };
+            for (u32 local = 0; local < part.m_VertexCount; ++local)
+            {
+                const u32 vertex = part.m_BaseVertex + local;
+                auto& record = baked.Records[first + 1u + local / 4u];
+                const u32 lane = local % 4u;
+                DeformedVertex sample;
+                if (!DeformCrowdVertex(vertices[vertex], influences[vertex], clip, frame, sample))
+                    return {};
+                record.Transform[lane] = sample.Position;
+                record.Normal[lane] = glm::vec4(sample.Normal, 0.0f);
+            }
+        }
+        return baked;
     }
 } // namespace OloEngine
