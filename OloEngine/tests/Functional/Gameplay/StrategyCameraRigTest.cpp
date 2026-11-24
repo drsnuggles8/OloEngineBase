@@ -2,6 +2,7 @@
 
 // OLO_TEST_LAYER: Functional
 #include "Functional/FunctionalTest.h"
+#include "Rendering/PropertyTests/RendererAttachedTest.h"
 #include "OloEngine/Gameplay/Strategy/StrategyCameraRig.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
@@ -162,5 +163,40 @@ namespace OloEngine::Functional
         const auto contact = QueryStrategyGround(*physics, glm::vec2(0.0f), radius, 0.0f, 10.0f);
         ASSERT_TRUE(contact.has_value());
         EXPECT_NEAR(*contact, floorTop + radius, 0.02f);
+    }
+
+    class StrategyCameraRenderedRayTest : public Tests::RendererAttachedTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            auto camera = GetScene().CreateEntity("Primary camera");
+            camera.GetComponent<TransformComponent>().Translation = { 80.0f, 20.0f, 60.0f };
+            auto& component = camera.AddComponent<CameraComponent>();
+            component.Primary = true;
+            component.Camera.SetPerspective(glm::radians(45.0f), 0.5f, 1000.0f);
+            EnableRendering(320, 180);
+        }
+    };
+
+    TEST_F(StrategyCameraRenderedRayTest, KeepsTheLastDisplayedRayAcrossARebase)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        RunFrames(1);
+        constexpr glm::vec2 uv{ 0.33f, 0.66f };
+        glm::vec3 beforeOrigin, beforeDirection;
+        ASSERT_TRUE(GetScene().RenderedCameraScreenToWorldRay(uv, beforeOrigin, beforeDirection));
+        constexpr glm::vec3 shift{ -1024.0f, 32.0f, 512.0f };
+        GetScene().RebaseOrigin(shift);
+        glm::vec3 afterOrigin, afterDirection;
+        // Query between the rebase and the next rendered frame, as a script does.
+        ASSERT_TRUE(GetScene().RenderedCameraScreenToWorldRay(uv, afterOrigin, afterDirection));
+        EXPECT_LT(glm::length(afterOrigin - (beforeOrigin + shift)), 0.001f);
+        EXPECT_LT(glm::length(afterDirection - beforeDirection), 0.0001f);
     }
 } // namespace OloEngine::Functional

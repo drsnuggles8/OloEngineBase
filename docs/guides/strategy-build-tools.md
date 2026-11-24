@@ -45,8 +45,28 @@ input. For scripted motion use `Step`, where pan is a rate and drag, orbit and z
 displacements. The rig follows the terrain with a downwards Jolt ray and keeps the whole near plane
 clear with a sphere sweep around the camera.
 
+Supply focus and ground limits in the scene frame at the first step. When floating-origin rebasing
+shifts the scene, the controller moves the focus and those limits by the same amount.
+KestrelStart keeps a fixed origin. Tools in a rebasing scene should store placement positions in
+absolute coordinates and resolve them into the current scene frame when applying or reverting.
+
 The KESTREL controller queries `Camera.RenderedScreenToWorldRay` against the displayed primary
 camera, including its interpolated pose. It converts the top-left viewport input Y to the ray API's bottom-left
-coordinate and accepts placement ray hits only from the prototype terrain. The preview rejects
+coordinate. The ray origin follows a rebase between render and click, and the controller accepts
+placement ray hits only from the prototype terrain. The preview rejects
 occupied footprints and slopes over 18°. The engine's async GPU editor picker remains available
 for authoring tools.
+
+## Verify the ten-placement replay
+
+1. Enter Play and record the initial entity IDs and balance. With MCP, list the entities using
+   `olo_scene_list_entities`. Read each building's `TransformComponent` with
+   `olo_scene_get_entity`. Exclude the transient entity named `Placement preview`.
+2. Select tools 1 through 5 twice. Confirm each at a separate green preview on flat terrain.
+   Pan or zoom out to find another site when a preview turns red. Record the ten buildings'
+   UUIDs, translations, rotations, and scales. The balance should be 2,600 after spending 7,400.
+3. Cancel the preview and press Ctrl+Z ten times, releasing the keys between steps. The entity IDs
+   should match the initial list and the balance should return to 10,000.
+4. Press Ctrl+Y ten times. Compare the ten UUIDs and all transform values to the placed snapshot.
+   The balance should return to 2,600. Clicking an overlapping site or a steep site should leave
+   the entity list, history counts, and balance unchanged.

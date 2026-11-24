@@ -1285,6 +1285,7 @@ namespace OloEngine
                               glm::vec3& outDirection) const;
 
         // Use the primary camera's last rendered pose, including interpolation.
+        // The ray origin is in the scene's current, possibly rebased frame.
         // False until the runtime has rendered a camera.
         bool RenderedCameraScreenToWorldRay(const glm::vec2& viewportUv, glm::vec3& outOrigin,
                                             glm::vec3& outDirection) const;
@@ -1631,7 +1632,12 @@ namespace OloEngine
         u32 m_ViewportHeight = 0;
         glm::vec2 m_ViewportOffset{ 0.0f, 0.0f };
         glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
-        std::optional<glm::mat4> m_LastRenderedRuntimeViewProjection;
+        struct RuntimeCameraView
+        {
+            glm::mat4 ViewProjection;
+            glm::vec3 SceneOrigin;
+        };
+        std::optional<RuntimeCameraView> m_LastRenderedRuntimeView;
         bool m_IsRunning = false;
         StartupScriptCall* m_ActiveStartupScript = nullptr;
         bool m_BlockCheckpointLoad = false;

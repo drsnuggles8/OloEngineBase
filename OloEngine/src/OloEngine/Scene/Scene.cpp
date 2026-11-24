@@ -2032,7 +2032,7 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
-        m_LastRenderedRuntimeViewProjection.reset();
+        m_LastRenderedRuntimeView.reset();
         TGuardValue<bool> stopping(m_BlockCheckpointLoad, true);
         OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         m_SessionProfileSection = 0;
@@ -3362,8 +3362,16 @@ namespace OloEngine
 
     bool Scene::RenderedCameraScreenToWorldRay(const glm::vec2& viewportUv, glm::vec3& outOrigin, glm::vec3& outDirection) const
     {
-        if (m_LastRenderedRuntimeViewProjection)
-            return UnprojectViewportRay(*m_LastRenderedRuntimeViewProjection, viewportUv, outOrigin, outDirection);
+        if (m_LastRenderedRuntimeView)
+        {
+            const auto& view = *m_LastRenderedRuntimeView;
+            if (!UnprojectViewportRay(view.ViewProjection, viewportUv, outOrigin, outDirection))
+                return false;
+            // The pixel still represents the last displayed frame. Move its
+            // origin into the current frame so it hits the same physical site.
+            outOrigin += view.SceneOrigin - GetWorldOrigin();
+            return true;
+        }
 
         outOrigin = glm::vec3(0.0f);
         outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -7024,6 +7032,7 @@ namespace OloEngine
 
         // Update camera VP matrix before resolving UI layout so world-anchor
         // projections use the current frame's camera, not the previous one.
+        const glm::vec3 viewOrigin = GetWorldOrigin();
         if (mainCamera)
         {
             m_CameraViewProjection = mainCamera->GetProjection() * glm::inverse(cameraTransform);
@@ -7070,7 +7079,7 @@ namespace OloEngine
 
         if (mainCamera && m_RenderingEnabled)
         {
-            m_LastRenderedRuntimeViewProjection = m_CameraViewProjection;
+            m_LastRenderedRuntimeView = RuntimeCameraView{ m_CameraViewProjection, viewOrigin };
             if (m_Is3DModeEnabled)
             {
                 // Any additional view asked for this frame (ADR 0026). Ahead of
@@ -7668,7 +7677,7 @@ namespace OloEngine
 
         m_ViewportWidth = width;
         m_ViewportHeight = height;
-        m_LastRenderedRuntimeViewProjection.reset();
+        m_LastRenderedRuntimeView.reset();
 
         // Resize our non-FixedAspectRatio cameras
         for (const auto view = m_Registry.view<CameraComponent>(); auto const entity : view)
