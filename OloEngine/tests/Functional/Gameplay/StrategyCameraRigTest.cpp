@@ -98,4 +98,29 @@ namespace OloEngine::Functional
         RecordProperty("near_plane_points_over_terrain", std::to_string(onMountain));
         RecordProperty("minimum_near_plane_clearance_m", std::to_string(minClearance));
     }
+
+    class StrategyCameraGroundProbeTest : public FunctionalTest
+    {
+      protected:
+        void BuildScene() override
+        {
+            auto floor = GetScene().CreateEntity("Floor near the ground search ceiling");
+            floor.GetComponent<TransformComponent>().Translation.y = 9.0f;
+            auto& collider = floor.AddComponent<BoxCollider3DComponent>();
+            collider.m_HalfExtents = { 30.0f, 0.5f, 30.0f };
+            floor.AddComponent<Rigidbody3DComponent>().m_Type = BodyType3D::Static;
+            EnablePhysics3D();
+        }
+    };
+
+    TEST_F(StrategyCameraGroundProbeTest, WideNearPlaneDoesNotStartIntersectingGround)
+    {
+        auto* physics = GetScene().GetPhysicsScene();
+        ASSERT_NE(physics, nullptr);
+        constexpr f32 floorTop = 9.5f;
+        constexpr f32 radius = 6.55f;
+        const auto contact = QueryStrategyGround(*physics, glm::vec2(0.0f), radius, 0.0f, 10.0f);
+        ASSERT_TRUE(contact.has_value());
+        EXPECT_NEAR(*contact, floorTop + radius, 0.02f);
+    }
 } // namespace OloEngine::Functional

@@ -13,14 +13,18 @@ namespace OloEngine
 {
     std::optional<f32> QueryStrategyGround(JoltScene& physics, glm::vec2 xz, f32 radius, f32 bottom, f32 top)
     {
-        const glm::vec3 origin{ xz.x, top, xz.y };
+        // Start with the entire near-plane sphere above the search ceiling.
+        // A sphere already intersecting the ground reports zero travel.
+        const f32 startY = top + std::max(radius, 0.0f);
+        const f32 travel = startY - bottom;
+        const glm::vec3 origin{ xz.x, startY, xz.y };
         constexpr glm::vec3 down{ 0.0f, -1.0f, 0.0f };
         SceneQueryHit hit;
         const bool found = radius > 0.0f
-                               ? physics.CastShape(SphereCastInfo(origin, down, radius, top - bottom), hit)
-                               : physics.CastRay(RayCastInfo(origin, down, top - bottom), hit);
+                               ? physics.CastShape(SphereCastInfo(origin, down, radius, travel), hit)
+                               : physics.CastRay(RayCastInfo(origin, down, travel), hit);
         if (found)
-            return top - hit.m_Distance;
+            return startY - hit.m_Distance;
         return std::nullopt;
     }
 
