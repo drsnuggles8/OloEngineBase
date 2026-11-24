@@ -2481,8 +2481,12 @@ namespace OloEngine
             *outSize = { static_cast<f32>(scene->GetViewportWidth()), static_cast<f32>(scene->GetViewportHeight()) };
             return;
         }
-        const auto& window = Application::Get().GetWindow();
-        *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
+        *outSize = glm::vec2(0.0f);
+        if (auto* app = Application::TryGet(); app && !app->IsHeadless())
+        {
+            const auto& window = app->GetWindow();
+            *outSize = { static_cast<f32>(window.GetWidth()), static_cast<f32>(window.GetHeight()) };
+        }
     }
 
     static bool Input_IsMouseButtonDown(i32 button)
