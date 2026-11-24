@@ -39,6 +39,7 @@ using AllComponents = ComponentGroup<
     ClothComponent,
     CloudscapeComponent,
     ConvexMeshCollider3DComponent,
+    CrowdAnimationComponent,
     DebrisComponent,
     DecalComponent,
     DestructibleComponent,

@@ -29,6 +29,7 @@ struct InstanceData {
     // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
     // by hand: an index without its generation is a stale-slot read.
     uvec4 GPUSceneRef;
+    uvec4 CrowdPose;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

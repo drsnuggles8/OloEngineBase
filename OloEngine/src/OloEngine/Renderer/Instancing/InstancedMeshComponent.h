@@ -166,5 +166,17 @@ namespace OloEngine
         {
             _MergedCache.InlineSize = static_cast<sizet>(-1); // sentinel — never matches a real size
         }
+
+        // A negative clip index inherits the batch animation. Changing clips
+        // keeps the placement's transform, picking ID and temporal identity.
+        bool SetInstanceAnimation(i32 index, i32 clipIndex, f32 phase)
+        {
+            if (index < 0 || index >= Instances.Num() || clipIndex < -1 || !std::isfinite(phase))
+                return false;
+            Instances[index].SetCrowdClipIndex(clipIndex);
+            Instances[index].Custom = phase;
+            InvalidateMergedCache();
+            return true;
+        }
     };
 } // namespace OloEngine

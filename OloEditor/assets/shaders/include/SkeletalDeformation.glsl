@@ -77,12 +77,6 @@ layout(std140, binding = 4) uniform OloBoneMatrices
 	mat4 u_BoneTransforms[OLO_MAX_BONES];
 };
 
-// The default palette access: the per-draw UBO above, bounded by its declared
-// length. Both are macros so that a consumer with a different STORAGE can
-// redirect them without the skinning itself being written a second time.
-#define OLO_DEFORM_BONE(i) u_BoneTransforms[i]
-#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES
-
 #ifdef OLO_DEFORM_WANT_PREV
 // Previous-frame bone palette. CommandDispatch::UploadBoneMatrices always
 // populates this UBO: when the draw carries no previous pose it aliases the
@@ -92,8 +86,78 @@ layout(std140, binding = 31) uniform OloPrevBoneMatrices
 {
 	mat4 u_PrevBoneTransforms[OLO_MAX_BONES];
 };
+#endif
+
+#ifdef INSTANCE_BLOCK_VERTEX_GLSL
+#define OLO_CROWD_VERTEX_FRAMES
+const uint OLO_CROWD_VERTEX_ADDRESS = 0x80000000u;
+
+// Vertex-space samples are packed four per record. The header locates this
+// submesh's first vertex and next frame. Both raster passes use this lookup
+// for positions, including the non-unit homogeneous w of an unnormalized skin.
+vec4 OloCrowdVertexSample(uint address, uint weight, bool normal)
+{
+    uint frame = (address & ~OLO_CROWD_VERTEX_ADDRESS) - 1u;
+    uvec2 layoutInfo = instances[frame].CrowdPose.xy;
+    uint index = uint(gl_VertexIndex) - layoutInfo.x;
+    uint record = frame + 1u + index / 4u;
+    uint lane = index % 4u;
+    vec4 a = normal ? instances[record].Normal[lane] : instances[record].Transform[lane];
+    if (weight == 0u) return a;
+    record += layoutInfo.y;
+    vec4 b = normal ? instances[record].Normal[lane] : instances[record].Transform[lane];
+    return a + (b - a) * (float(weight) / 65535.0);
+}
+
+// The crowd cull writes frame addresses into each surviving instance and
+// leaves the clip's shared samples in the tail of that same SSBO. Each
+// frame contains ceil(boneCount / 3) consecutive records.
+mat4 OloCrowdMatrix(uint record, uint lane)
+{
+    if (lane == 0u) return instances[record].Transform;
+    if (lane == 1u) return instances[record].Normal;
+    return instances[record].PrevTransform;
+}
+
+mat4 OloCrowdBone(uint addressPlusOne, uint weight, uint boneCount, uint bone)
+{
+    uint record = addressPlusOne - 1u + bone / 3u;
+    uint lane = bone % 3u;
+    mat4 current = OloCrowdMatrix(record, lane);
+    if (weight == 0u)
+        return current;
+    mat4 next = OloCrowdMatrix(record + (boneCount + 2u) / 3u, lane);
+    return current + (next - current) * (float(weight) / 65535.0);
+}
+
+mat4 OloDrawBone(int bone)
+{
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if (pose.x == 0u) return u_BoneTransforms[bone];
+    return OloCrowdBone(pose.x, pose.z & 0xffffu, pose.w, uint(bone));
+}
+#define OLO_DEFORM_BONE(i) OloDrawBone(i)
+#define OLO_DEFORM_BONE_COUNT (instances[gl_InstanceIndex].CrowdPose.x == 0u ? uint(OLO_MAX_BONES) : instances[gl_InstanceIndex].CrowdPose.w)
+
+#ifdef OLO_DEFORM_WANT_PREV
+mat4 OloDrawPrevBone(int bone)
+{
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if (pose.x == 0u) return u_PrevBoneTransforms[bone];
+    if (pose.y == 0u) return OloCrowdBone(pose.x, pose.z & 0xffffu, pose.w, uint(bone));
+    return OloCrowdBone(pose.y, pose.z >> 16u, pose.w, uint(bone));
+}
+#define OLO_DEFORM_PREV_BONE(i) OloDrawPrevBone(i)
+#endif
+#else
+// Consumers without the instance stream (such as the VSM depth passes)
+// read only the palettes bound for this draw.
+#define OLO_DEFORM_BONE(i) u_BoneTransforms[i]
+#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES
+#ifdef OLO_DEFORM_WANT_PREV
 #define OLO_DEFORM_PREV_BONE(i) u_PrevBoneTransforms[i]
 #endif
+#endif // INSTANCE_BLOCK_VERTEX_GLSL
 #endif // !OLO_DEFORM_EXTERNAL_PALETTE
 
 #if !defined(OLO_DEFORM_BONE) || !defined(OLO_DEFORM_BONE_COUNT)
@@ -187,6 +251,11 @@ mat4 OloSkinMatrixPrev(ivec4 boneIDs, vec4 boneWeights)
 // would mean inventing one.
 vec4 OloDeformSkinnedPosition(vec3 restPosition, ivec4 boneIDs, vec4 boneWeights)
 {
+#ifdef OLO_CROWD_VERTEX_FRAMES
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if ((pose.x & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+        return OloCrowdVertexSample(pose.x, pose.z & 0xffffu, false);
+#endif
 	return OloSkinMatrix(boneIDs, boneWeights) * vec4(restPosition, 1.0);
 }
 
@@ -194,6 +263,23 @@ vec4 OloDeformSkinnedPosition(vec3 restPosition, ivec4 boneIDs, vec4 boneWeights
 // members dead-code away, including the entire previous-pose palette read.
 OloDeformedSurface OloDeformSkinnedVertex(vec3 restPosition, vec3 restNormal, ivec4 boneIDs, vec4 boneWeights)
 {
+#ifdef OLO_CROWD_VERTEX_FRAMES
+    uvec4 pose = instances[gl_InstanceIndex].CrowdPose;
+    if ((pose.x & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+    {
+        OloDeformedSurface sampled;
+        sampled.Position = OloCrowdVertexSample(pose.x, pose.z & 0xffffu, false);
+        sampled.Normal = OloCrowdVertexSample(pose.x, pose.z & 0xffffu, true).xyz;
+        sampled.PrevPosition = sampled.Position;
+#ifdef OLO_DEFORM_WANT_PREV
+        if ((pose.y & OLO_CROWD_VERTEX_ADDRESS) != 0u)
+            sampled.PrevPosition = OloCrowdVertexSample(pose.y, pose.z >> 16u, false);
+        else if (pose.y != 0u)
+            sampled.PrevPosition = OloSkinMatrixPrev(boneIDs, boneWeights) * vec4(restPosition, 1.0);
+#endif
+        return sampled;
+    }
+#endif
 	mat4 skinMatrix = OloSkinMatrix(boneIDs, boneWeights);
 
 	OloDeformedSurface surface;

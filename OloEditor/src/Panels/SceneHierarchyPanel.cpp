@@ -2207,6 +2207,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
             DisplayAddComponentEntry<GroomLodComponent>("Groom LOD");
             DisplayAddComponentEntry<AnimalBudgetComponent>("Animal Budget");
+            DisplayAddComponentEntry<CrowdAnimationComponent>("Crowd Animation");
             DisplayAddComponentEntry<AnimalPathComponent>("Animal Path");
             DisplayAddComponentEntry<GroomSceneShadowComponent>("Groom Scene Shadow");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
@@ -2944,7 +2945,7 @@ namespace OloEngine
                 }
             } });
 
-        DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [](auto& component)
+        DrawComponent<InstancedMeshComponent>("Instanced Mesh", entity, [entity](auto& component)
                                               {
             // Inspector: read-only summary of the component's resource
             // bindings + flag editors + a basic scatter-brush MVP for inline
@@ -3170,6 +3171,19 @@ namespace OloEngine
             if (ImGui::Button("Clear Inline"))
             {
                 component.Instances.Reset();
+            }
+            if (entity.HasComponent<CrowdAnimationComponent>() && !component.Instances.IsEmpty())
+            {
+                static int selectedMember = 0;
+                selectedMember = std::clamp(selectedMember, 0, static_cast<int>(component.Instances.Num() - 1));
+                ImGui::SliderInt("Crowd member", &selectedMember, 0, component.Instances.Num() - 1);
+                const auto& member = component.Instances[selectedMember];
+                i32 clip = member.GetCrowdClipIndex();
+                f32 phase = member.Custom;
+                const bool clipChanged = ImGui::InputInt("Clip index (-1 inherits)", &clip);
+                const bool phaseChanged = ImGui::DragFloat("Phase offset (cycles)", &phase, 0.01f);
+                if (clipChanged || phaseChanged)
+                    component.SetInstanceAnimation(selectedMember, clip, phase);
             } });
 
         DrawComponent<ModelComponent>("Model", entity, [](auto& component)
@@ -10042,6 +10056,13 @@ namespace OloEngine
             {
                 ImGui::TextDisabled("The groom pass has not run yet.");
             } });
+
+        DrawComponent<CrowdAnimationComponent>("Crowd Animation", entity, [](auto& component)
+                                               {
+            ImGui::TextWrapped("Uses the actor's clip and Instanced Mesh placements. Each placement's Custom value offsets its animation in cycles.");
+            ImGui::DragFloat("Near diameter (px)", &component.m_NearPixels, 0.25f, 1.0f, 4096.0f, "%.1f");
+            ImGui::DragFloat("Far diameter (px)", &component.m_FarPixels, 0.25f, 1.0f, component.m_NearPixels, "%.1f");
+            ImGui::SliderFloat("LOD hysteresis", &component.m_Hysteresis, 0.0f, 0.45f); });
 
         DrawComponent<AnimalBudgetComponent>("Animal Budget", entity, [entity](auto& component)
                                              {

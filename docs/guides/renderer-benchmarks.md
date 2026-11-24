@@ -39,6 +39,49 @@ always reproducible by running the scene's `*.hero.yaml` manifest:
 [courtyard-hero.jpg](../images/benchmarks/courtyard-hero.jpg) ·
 [ocean-coast-hero.jpg](../images/benchmarks/ocean-coast-hero.jpg)
 
+## KESTREL crowd performance
+
+Open `KestrelProject/Assets/Scenes/KestrelCrowd.olo` to see the 5,000-member workload.
+Each batch combines a rigged model, an animation state, instanced mesh placements, and
+a Crowd Animation component. Each placement's `Custom` offsets its phase in cycles.
+`ClipIndex` selects an individual clip from the owner's model. An absent index inherits
+the owner clip. C# `SetInstanceAnimation(index, clipIndex, phase)` and Lua
+`set_instance_animation` update an inline member while retaining its stable ID.
+
+Depth and color draws share the same animation samples. For meshes that fit the
+32 MiB vertex-sample budget per crowd batch, the renderer bakes each submesh's
+skinned positions and normals once per clip and interpolates them per member.
+Near geometry uses the full-rate clip. Mid and far geometry use eight intervals.
+A draw can read its shared bone palette when a vertex table does not fit or when
+the previous frame used a different sampling rate at an LOD transition. Morph-bearing
+meshes use individual skeletal draws against the owner’s current deformed vertex
+surface, including its active animated mesh LOD. Placements share the owner’s morph expression.
+
+Generate the matched SandboxProject capture inputs from the repo root:
+
+```powershell
+python OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_reference --counts 0,200,1000,5000
+python OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_shared_trial --count 5000
+python OloEngine/tests/scripts/generate_perf_scenes.py --scene crowd_lod --counts 200,1000,5000
+```
+
+Use the generated `Scenes/PerfStress/*.capture.yaml` manifests with the capture entry point
+below. Run fresh Release processes on an idle host under the exclusive build lock. Keep
+the zero-actor control, native 1920 × 1080 dimensions, seed, and 65 m camera fixed across
+runs. `python scripts/perf/report-crowd.py <capture-dir> [<capture-dir> ...]` reports the
+median GPU and CPU submission times, geometry packets and collapsed packets. The LOD
+capture also reads each tier's indirect instance count after the timed interval. For a
+target-class result, repeat the same captures on a GTX 1660 or RX 5600 and compare the
+5,000-actor GPU median with the empty control from the same run pair.
+
+The manual GPU Conformance (AMD, self-hosted) workflow can run the comparison on its RX
+5600 XT. When the AMD GPU is idle, dispatch the reviewed branch with
+`gh workflow run gpu-conformance-amd.yml --ref <branch> -f crowd_benchmark=true`.
+The `crowd-benchmark-amd` artifact contains the raw samples, per-tier counts, crowd
+images and render-node client traces. Each arm must observe its own PID as the sole
+render-node client. The job summary gives the three alternating empty/5,000 pairs, the 200- and
+1,000-member scaling runs, and the independent 5,000-actor control.
+
 ## Directory layout
 
 ```

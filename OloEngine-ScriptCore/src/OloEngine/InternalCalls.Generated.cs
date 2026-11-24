@@ -640,6 +640,21 @@ namespace OloEngine
 		internal static extern void CloudscapeComponent_SetVolumetricSelfShadow(ulong entityID, bool value);
 		#endregion
 
+		#region CrowdAnimationComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CrowdAnimationComponent_GetNearPixels(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CrowdAnimationComponent_SetNearPixels(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CrowdAnimationComponent_GetFarPixels(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CrowdAnimationComponent_SetFarPixels(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CrowdAnimationComponent_GetHysteresis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CrowdAnimationComponent_SetHysteresis(ulong entityID, float value);
+		#endregion
+
 		#region DestructibleComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float DestructibleComponent_GetHealth(ulong entityID);

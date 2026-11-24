@@ -49,6 +49,7 @@ namespace OloEngine
             REGISTER_COMPONENT(TextComponent),
             REGISTER_COMPONENT(MeshComponent),
             REGISTER_COMPONENT(InstancedMeshComponent),
+            REGISTER_COMPONENT(CrowdAnimationComponent),
             REGISTER_COMPONENT(MaterialComponent),
             REGISTER_COMPONENT(BoxCollider2DComponent),
             REGISTER_COMPONENT(CircleCollider2DComponent),

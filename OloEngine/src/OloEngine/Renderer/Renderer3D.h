@@ -85,6 +85,7 @@ namespace OloEngine
     class VertexArray;
     class Framebuffer;
     class GPUDrivenOcclusionPass;
+    class CrowdCull;
     class DeferredGPUOcclusionPass;
     class DDGIProbeUpdatePass;
     class RayTracedShadowPass;
@@ -494,6 +495,8 @@ namespace OloEngine
         [[nodiscard]] static bool IsFrameOpen();
         // Counts physical frames since Init; 0 before the first one.
         [[nodiscard]] static u64 GetPhysicalFrameSerial();
+        // Physical frame in which the primary view last discarded object motion history.
+        [[nodiscard]] static u64 GetLastPoseHistoryResetFrame();
         // Between BeginScene and EndScene: whether the view being rendered is
         // its physical frame's primary view. A pass or a scene traversal asks
         // this before it advances anything the world owns.
@@ -587,7 +590,7 @@ namespace OloEngine
             const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
             GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link,
             const GPUSceneAnimatedSurface& animatedSurface = {},
-            const glm::vec3& tint = glm::vec3(1.0f));
+            const glm::vec3& tint = glm::vec3(1.0f), u32 visibilityMask = std::numeric_limits<u32>::max());
         // Stages a virtual-geometry RAY-TRACING PROXY as a GPU Scene instance
         // (issue #1144): an ordinary rigid geometry + instance pair built from
         // the coarsest DAG cut, so a virtualized entity is present in the TLAS
@@ -852,6 +855,7 @@ namespace OloEngine
         // keyed on the entity alone and therefore gave every submesh after the
         // first a zero velocity.
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, std::span<const glm::mat4> boneMatrices, std::span<const glm::mat4> prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink, const InstanceData* member);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
         // `ownerKey` lets callers produce stable per-instance motion vectors
         // when multiple submission sources (entities / emitters / foliage
@@ -870,6 +874,8 @@ namespace OloEngine
         // for explicit InstancedMeshComponent placements are a future
         // extension).
         static CommandPacket* DrawMeshInstanced(const Ref<Mesh>& mesh, std::span<const InstanceData> instances, const Material& material, bool isStatic = true, u64 ownerKey = 0);
+        static bool SubmitCrowdTiers(const std::array<Ref<Mesh>, 3>& meshes, const Material& material,
+                                     u32 memberCount, const CrowdCull& cull);
         static CommandPacket* DrawLightCube(const glm::mat4& modelMatrix);
         static CommandPacket* DrawCube(const glm::mat4& modelMatrix, const Material& material, bool isStatic = true);
         static CommandPacket* DrawSkybox(const Ref<TextureCubemap>& skyboxTexture);
@@ -2686,7 +2692,7 @@ namespace OloEngine
             Ref<Shader> ShaderToUse;
             bool OverlayRoute = false;
         };
-        static InstancedShaderRouting SelectInstancedShaderRouting(const Material& material);
+        static InstancedShaderRouting SelectInstancedShaderRouting(const Material& material, bool skinned = false);
 
         // Builds the DrawMeshInstancedCommand packet for DrawMeshInstanced's
         // CPU-cull path (frustum cull, FrameDataBuffer transform allocation,
@@ -2976,6 +2982,7 @@ namespace OloEngine
             // for a fresh renderer and after ResetSceneState; the camera half is
             // RendererViewState::MotionHistoryResetPending.
             bool PoseHistoryResetPending = true;
+            u64 LastPoseHistoryResetFrame = 0;
             // Direction of the scene's primary (first) directional light. Used
             // by the fog/atmosphere sun-direction derivation; defaults to
             // straight-down when the scene has no directional light.

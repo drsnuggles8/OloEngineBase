@@ -242,6 +242,17 @@ namespace OloEngine
                                                                                         { if (std::isfinite(v)) l.m_CascadeSplitLambda = std::clamp(v, 0.0f, 1.0f); }),
                                                     "cascadeDebugVisualization", &DirectionalLightComponent::m_CascadeDebugVisualization);
 
+        lua.new_usertype<CrowdAnimationComponent>("CrowdAnimationComponent", sol::no_constructor,
+                                                  "nearPixels", sol::property([](const CrowdAnimationComponent& c)
+                                                                              { return c.m_NearPixels; }, [](CrowdAnimationComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.m_NearPixels = std::clamp(v, 1.0f, 4096.0f); }),
+                                                  "farPixels", sol::property([](const CrowdAnimationComponent& c)
+                                                                             { return c.m_FarPixels; }, [](CrowdAnimationComponent& c, f32 v)
+                                                                             { if (std::isfinite(v)) c.m_FarPixels = std::clamp(v, 1.0f, 4096.0f); }),
+                                                  "hysteresis", sol::property([](const CrowdAnimationComponent& c)
+                                                                              { return c.m_Hysteresis; }, [](CrowdAnimationComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.m_Hysteresis = std::clamp(v, 0.0f, 0.45f); }));
+
         // --- PointLightComponent ---
         lua.new_usertype<PointLightComponent>("PointLightComponent",
                                               "color", sol::property([](const PointLightComponent& l)

@@ -119,6 +119,7 @@ namespace OloEngine::Tests
                 base / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
                 base / "AI" / "AIComponents.h",
                 base / "Networking" / "NetworkIdentityComponent.h",
+                base / "Renderer" / "Crowd" / "CrowdAnimationComponent.h",
                 base / "Renderer" / "Instancing" / "InstancedMeshComponent.h",
                 base / "Localization" / "LocalizedTextComponent.h",
                 base / "Cinematic" / "CinematicComponent.h",

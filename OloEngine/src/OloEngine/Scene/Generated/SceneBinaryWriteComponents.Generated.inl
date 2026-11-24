@@ -246,6 +246,15 @@ if (entity.HasComponent<CloudscapeComponent>())
     SceneBinIO::Write(out, comp.m_AffectIBL);
 }
 
+if (entity.HasComponent<CrowdAnimationComponent>())
+{
+    SceneBinIO::WriteU32(out, 3669621371u); // CrowdAnimationComponent
+    auto const& comp = entity.GetComponent<CrowdAnimationComponent>();
+    SceneBinIO::Write(out, comp.m_NearPixels);
+    SceneBinIO::Write(out, comp.m_FarPixels);
+    SceneBinIO::Write(out, comp.m_Hysteresis);
+}
+
 if (entity.HasComponent<DebrisComponent>())
 {
     SceneBinIO::WriteU32(out, 2359936345u); // DebrisComponent

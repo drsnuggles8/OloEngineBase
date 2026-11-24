@@ -145,14 +145,16 @@ namespace OloEngine
         [[nodiscard]] u32 GetPublishedTransformCount() const;
         [[nodiscard]] u32 GetPublishedBoneMatrixCount() const;
 
-        /**
-         * @brief Allocate space for bone matrices
-         * @param count Number of bone matrices to allocate
-         * @return Offset into the bone matrix buffer (in matrix units, not bytes)
-         *
-         * Returns UINT32_MAX if allocation fails (out of capacity).
-         */
-        u32 AllocateBoneMatrices(u32 count);
+        enum class BoneAllocation
+        {
+            FixedCapacity,
+            // Only while gathering draw packets. They hold offsets until
+            // replay, so moving the storage here preserves earlier draws.
+            GrowDuringGather
+        };
+
+        /// Reserve count matrices. Returns an element offset or UINT32_MAX on exhaustion.
+        u32 AllocateBoneMatrices(u32 count, BoneAllocation mode = BoneAllocation::FixedCapacity);
 
         /**
          * @brief Allocate space for instance transforms

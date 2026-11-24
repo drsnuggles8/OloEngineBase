@@ -23,6 +23,8 @@
 #   lights_shadowed    same, all lights cast shadows
 #   anim_crowd         N skinned Fox characters, playing (per-bone string-map
 #                      lookups + pose copies in AnimationSystem)
+#   crowd_reference    Independent, continuously phased actors at 1080p, with
+#                      shadows. Reference for the KESTREL crowd benchmark.
 #   scripts_swarm      N entities with a trivial per-frame Lua script
 #                      (interop crossing cost)
 #   scripts_swarm_cs   C# variant (Mono interop crossing cost)
@@ -56,6 +58,7 @@
 # =============================================================================
 
 import argparse
+import hashlib
 import json
 import math
 import pathlib
@@ -462,6 +465,8 @@ def build_lights(w, n, rng, shadowed):
         z = rorigin + (i // rside) * rspacing
         w.entity(f"r{i}", (x, 0.5, z), (0, 0, 0), (1, 1, 1),
                  mesh(1) + material([0.8, 0.8, 0.8], 0.2, 0.3))
+    if n == 0:
+        return
     lside = math.ceil(math.sqrt(n))
     lspacing = (rside * rspacing) / lside
     lorigin = -(lside - 1) * lspacing / 2
@@ -485,6 +490,115 @@ def build_anim_crowd(w, n, rng):
         z = origin + (i // side) * spacing
         w.entity(f"fox{i}", (x, 0, z), (0, rng.uniform(0, 6.28), 0), (0.05, 0.05, 0.05),
                  anim_fox(clip_index=i % 3, time_offset=(i % 100) / 33.0))
+
+
+def build_crowd_reference(w, n, rng, phase_bins=None, instanced=False):
+    # Spread the population across the camera footprint so the row distance
+    # covers several LODs and the reference actually draws the requested count.
+    height = 65.0
+    depression = math.radians(32)
+    half_fov = math.radians(22.5)
+    add_camera(w, (0, height, 0), (-depression, 0, 0))
+    add_dir_light(w, cast_shadows=True)
+    add_ground_visual(w, 480)
+    model = json.loads((REPO_ROOT / "OloEditor/assets/models/Fox/Fox.gltf").read_text())
+    durations = [max(model["accessors"][s["input"]]["max"][0] for s in clip["samplers"])
+                 for clip in model["animations"]]
+    batches = [[] for _ in durations]
+    if not n:
+        return
+    # Fill the trapezoid on the ground at uniform world density. Equal spacing
+    # on the screen would put most of the nearest characters inside each other.
+    slope = 0.90 * math.tan(half_fov)
+    near, far = [height / math.tan(depression + angle) for angle in
+                 (math.atan(slope), -math.atan(slope))]
+
+    def width(distance):
+        depth = height * math.sin(depression) + distance * math.cos(depression)
+        return 2 * depth * slope * (16 / 9)
+
+    mean_width = (width(near) + width(far)) / 2
+    spacing = math.sqrt((far - near) * mean_width / n)
+    rows = max(1, round((far - near) / spacing))
+    first = 0
+    for row in range(rows):
+        distance = near + (far - near) * (row + 0.5) / rows
+        fraction = (row + 1) / rows
+        end_width = width(near + fraction * (far - near))
+        end = round(n * fraction * (width(near) + end_width) / (2 * mean_width))
+        for actor in range(first, end):
+            x = ((actor - first + 0.5) / (end - first) - 0.5) * width(distance)
+            clip = actor % len(durations)
+            phase = (actor + 0.5) / n
+            if phase_bins:
+                phase = math.floor(phase * phase_bins) / phase_bins
+            yaw = rng.uniform(0, math.tau)
+            if instanced:
+                c, s = 0.02 * math.cos(yaw), 0.02 * math.sin(yaw)
+                transform = [c, 0, -s, 0, 0, 0.02, 0, 0, s, 0, c, 0, x, 0, -distance, 1]
+                batches[clip].append(f"        - {{Transform: {vec(transform)}, "
+                                     f"StableID: {actor + 1}, Custom: {phase:.8f}}}\n")
+            else:
+                w.entity(f"crowd{actor}", (x, 0, -distance), (0, yaw, 0),
+                         (0.02, 0.02, 0.02), anim_fox(clip, phase * durations[clip]))
+        first = end
+    for clip, placements in enumerate(batches):
+        if placements:
+            components = (anim_fox(clip, 0) + "    CrowdAnimationComponent: {}\n"
+                          "    InstancedMeshComponent:\n      CastShadows: true\n      Instances:\n")
+            w.entity(f"CrowdClip{clip}", components=components + "".join(placements))
+
+
+def write_crowd_capture(scene_path, scene, scene_id, count, seed):
+    """Write a v2 capture manifest accepted by --olo-capture-manifest and #1757."""
+    editor = REPO_ROOT / "OloEditor"
+    project_assets = editor / "SandboxProject/Assets"
+    # A custom --out-dir may be used to inspect generator output outside the
+    # project. The capture driver can only open files below its asset mount.
+    if not scene_path.resolve().is_relative_to(project_assets):
+        return
+    local_scene = scene_path.resolve().relative_to(project_assets).as_posix()
+    assets = []
+    for file in ("Fox.gltf", "Fox.bin", "Texture.png"):
+        path = editor / "assets/models/Fox" / file
+        assets.append({
+            "Path": path.relative_to(editor).as_posix(), "Origin": "Khronos glTF Sample Assets, Fox",
+            "License": "CC0-1.0 AND CC-BY-4.0", "Redistribution": "committed",
+            "LicenseVerified": "upstream-declared", "Version": "in-repo copy",
+            "Sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "Units": "unitless" if file.endswith(".png") else "centimetres",
+            "UpAxis": "n/a" if file.endswith(".png") else "+Y",
+            "ColorSpace": "srgb" if file.endswith(".png") else "n/a",
+            "Acquisition": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+        })
+    assets.append({
+        "Path": "SandboxProject/Assets/" + local_scene,
+        "Origin": "OloEngine performance scene generator", "License": "repository license",
+        "Redistribution": "local-only", "LicenseVerified": "unverified", "Version": "generated",
+        "Sha256": hashlib.sha256(scene_path.read_bytes()).hexdigest(), "Units": "metres",
+        "UpAxis": "+Y", "ColorSpace": "n/a",
+        "Acquisition": f"generate_perf_scenes.py --scene {scene_id} --counts {count} --seed {seed}",
+    })
+    manifest = {
+        "ManifestVersion": 2, "Id": scene_path.stem.replace("_", "-"), "Product": "diagnostic",
+        "Scene": local_scene, "Backends": {"Supported": ["opengl", "vulkan"]},
+        "Presets": {"opengl": "gl-deferred-native", "vulkan": "vk-deferred-native"},
+        "Camera": {"Id": "strategy", "Position": list(scene.camera_pos), "YawDegrees": 0,
+                   "PitchDegrees": -math.degrees(scene.camera_rot[0]), "FovDegrees": 45,
+                   "Near": 0.01, "Far": 2000},
+        "Output": {"Resolution": [1920, 1080], "RenderScale": 1.0},
+        "RendererSettings": {"Path": "Deferred", "RayTracedShadowsEnabled": False,
+                             "EnableDDGI": False, "TAAEnabled": False, "MSAASampleCount": 1,
+                             "Upscale": "Off", "UpscaleTechnique": "Spatial"},
+        "Exposure": {"Mode": "Manual", "Exposure": 1.0},
+        "Determinism": {"Seed": seed, "StartTimeSeconds": 12.0, "FixedDtSeconds": 1 / 60},
+        "Warmup": {"Frames": 32}, "Measurement": {"Frames": 240, "DeadlineMs": 16.6},
+        "Attachments": [{"Name": "Beauty", "Source": "UIComposite", "Format": "png"}],
+        "Tolerance": {"RepeatRmse": 0.0}, "Assets": assets,
+    }
+    # JSON is a YAML subset and avoids an extra generator dependency.
+    scene_path.with_suffix(".capture.yaml").write_text(json.dumps(manifest, indent=2) + "\n",
+                                                      encoding="utf-8", newline="\n")
 
 
 def build_scripts_swarm(w, n, rng, lang):
@@ -620,6 +734,12 @@ SCENES = {
                          "N shadow-casting point lights over a receiver field"),
     "anim_crowd":       (build_anim_crowd,       200,   True, None,
                          "N skinned Fox characters, all playing (AnimationSystem)"),
+    "crowd_reference":  (build_crowd_reference, 5000,   True, "crowd0",
+                         "Independent skeletal animation with shadows at strategy-camera distance"),
+    "crowd_shared_trial": (build_crowd_reference, 5000, True, "crowd0",
+                           "Same placement and clips with eight phase cohorts per clip"),
+    "crowd_lod":        (build_crowd_reference, 5000, True, "CrowdClip0",
+                         "Instanced clip-atlas crowd with GPU LOD selection and shadows"),
     "scripts_swarm":    (build_scripts_swarm,    5000,  True, "s0",
                          "N entities each with a trivial per-frame Lua script"),
     "scripts_swarm_cs": (build_scripts_swarm,    2000,  True, "s0",
@@ -656,6 +776,10 @@ def build_scene(scene, count, seed):
     builder = SCENES[scene][0]
     if scene in ("lights_many", "lights_shadowed"):
         builder(w, count, rng, shadowed=(scene == "lights_shadowed"))
+    elif scene == "crowd_shared_trial":
+        builder(w, count, rng, phase_bins=8)
+    elif scene == "crowd_lod":
+        builder(w, count, rng, instanced=True)
     elif scene in ("scripts_swarm", "scripts_swarm_cs"):
         builder(w, count, rng, lang=("lua" if scene == "scripts_swarm" else "cs"))
     else:
@@ -667,7 +791,7 @@ def main():
     ap = argparse.ArgumentParser(description="Generate OloEditor performance stress scenes (.olo)")
     ap.add_argument("--scene", required=False, default="all",
                     help="scene id or 'all' (see --list)")
-    ap.add_argument("--count", type=int, default=0,
+    ap.add_argument("--count", type=int,
                     help="override the scene's default primary count (single-scene mode only)")
     ap.add_argument("--counts", type=str, default="",
                     help="comma-separated list of counts (single-scene mode; e.g. 1000,10000,50000)")
@@ -676,11 +800,21 @@ def main():
     ap.add_argument("--list", action="store_true", help="list scene ids and defaults")
     ap.add_argument("--smoke", action="store_true",
                     help="(re)generate the tiny committed PerfStressSmoke.olo and exit")
+    ap.add_argument("--kestrel-crowd", action="store_true",
+                    help="regenerate KestrelCrowd.olo with 5,000 animated stand-ins")
     args = ap.parse_args()
 
     if args.list:
         for k, (_, dflt, play, _probe, desc) in SCENES.items():
             print(f"{k:18s} default={dflt:<7d} play_mode={'yes' if play else 'no ':3s} {desc}")
+        return 0
+
+    if args.kestrel_crowd:
+        path = REPO_ROOT / "OloEditor/KestrelProject/Assets/Scenes/KestrelCrowd.olo"
+        scene = SceneWriter(path.name)
+        build_crowd_reference(scene, 5000, random.Random(args.seed), instanced=True)
+        path.write_text(scene.text(), encoding="utf-8", newline="\n")
+        print(f"crowd scene -> {path}")
         return 0
 
     if args.smoke:
@@ -693,7 +827,7 @@ def main():
     if args.scene != "all" and args.scene not in SCENES:
         print(f"Unknown scene '{args.scene}'. Use --list.", file=sys.stderr)
         return 1
-    if args.scene == "all" and (args.count or args.counts):
+    if args.scene == "all" and (args.count is not None or args.counts):
         print("--count/--counts only apply to a single --scene.", file=sys.stderr)
         return 1
 
@@ -703,7 +837,10 @@ def main():
     elif args.counts:
         jobs = [(args.scene, int(c)) for c in args.counts.split(",")]
     else:
-        jobs = [(args.scene, args.count or SCENES[args.scene][1])]
+        jobs = [(args.scene, SCENES[args.scene][1] if args.count is None else args.count)]
+
+    if any(count < 0 for _, count in jobs):
+        ap.error("scene counts must be non-negative")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = args.out_dir / "manifest.json"
@@ -720,6 +857,8 @@ def main():
         text = w.text()
         out = args.out_dir / f"{name}.olo"
         out.write_text(text, encoding="utf-8", newline="\n")
+        if scene in ("crowd_reference", "crowd_shared_trial", "crowd_lod"):
+            write_crowd_capture(out, w, scene, count, args.seed)
         dt = time.perf_counter() - t0
         size_mb = out.stat().st_size / (1024 * 1024)
         manifest[name] = {

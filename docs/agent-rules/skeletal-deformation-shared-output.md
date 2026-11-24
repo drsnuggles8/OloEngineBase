@@ -13,6 +13,14 @@ Two rules, from issue #1226.
 
 Both rules exist because the code broke them, and in both cases every test stayed green.
 
+When importing several actors from one model, share its mesh and clips and instantiate
+the mutable skeleton for each actor. A clip clock lives on the entity, but skinning reads
+the current and previous matrices from its skeleton. Two independent clocks writing
+one skeleton therefore draw whichever pose ran last. Verify this by advancing one
+actor and reading both palettes. `AnimatedModelDedup.SharedSourcePathReusesModelButKeepsPlaybackStateIndependent`
+exercises that case. The crowd renderer shares immutable clip samples in the instance
+buffer and stores each member's current and previous sample addresses separately.
+
 ## What stayed green
 
 Before #1226: the full suite passed, `ShaderCompilation.AllProductionShadersCompileUnderVulkanTarget`

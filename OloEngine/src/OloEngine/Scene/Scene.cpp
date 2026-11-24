@@ -122,6 +122,8 @@
 #include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Crowd/CrowdRenderer.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -845,6 +847,8 @@ namespace OloEngine
         // destroy this entity, invalidating the handle. Capture the name too, for
         // the diagnostics timeline recorded once the destroy actually completes.
         UUID entityUUID = entity.GetUUID();
+        if (m_CrowdRenderer)
+            m_CrowdRenderer->Remove(static_cast<u64>(entityUUID));
         std::string entityName = entity.HasComponent<TagComponent>() ? entity.GetComponent<TagComponent>().Tag : std::string{};
 
         // Dispatch Lua OnDestroy before the entity is removed from the registry
@@ -17126,6 +17130,7 @@ namespace OloEngine
             }
         }
 
+        std::unordered_set<entt::entity> crowdOwners;
         // Draw entity-owned dense instance batches (InstancedMeshComponent).
         // Each entity holds its own world-space InstanceData[] and renders in
         // a single DrawMeshInstanced packet per submesh (chunked at the
@@ -17137,7 +17142,8 @@ namespace OloEngine
             for (auto entity : view)
             {
                 auto& imc = view.get<InstancedMeshComponent>(entity);
-                if (!imc.MeshSource)
+                const auto* crowd = m_Registry.try_get<CrowdAnimationComponent>(entity);
+                if (!crowd && !imc.MeshSource)
                     continue;
 
                 // Combine inline + asset-backed placements into one contiguous
@@ -17183,7 +17189,11 @@ namespace OloEngine
                     continue;
                 }
                 if (inlineCount + assetCount == 0)
+                {
+                    if (crowd && m_Registry.all_of<MeshComponent, SkeletonComponent, AnimationStateComponent>(entity))
+                        crowdOwners.insert(entity);
                     continue;
+                }
 
                 const InstanceData* instData = nullptr;
                 sizet totalCount = 0;
@@ -17354,6 +17364,37 @@ namespace OloEngine
 
                 const u64 ownerKey = static_cast<u64>(std::to_underlying(entity));
                 const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
+                if (crowd)
+                {
+                    const auto* model = m_Registry.try_get<MeshComponent>(entity);
+                    const auto* rig = m_Registry.try_get<SkeletonComponent>(entity);
+                    const auto* animation = m_Registry.try_get<AnimationStateComponent>(entity);
+                    if (model && rig && animation)
+                    {
+                        if (!m_CrowdRenderer)
+                            m_CrowdRenderer = std::make_unique<CrowdRenderer>();
+                        const auto submitStart = std::chrono::steady_clock::now();
+                        const auto* morph = m_Registry.try_get<MorphTargetComponent>(entity);
+                        // Select the same vertex buffer updated by EvaluateEntityMorphTargets.
+                        const auto surface = morph ? AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(entity), *model) : model->m_MeshSource;
+                        const auto* patches = surface ? PrepareMaterialOverrides(entity, surface->GetImportedMaterials()) : nullptr;
+                        const bool handled = m_CrowdRenderer->Submit(stableEntityId, static_cast<i32>(std::to_underlying(entity)),
+                                                                     surface, rig->m_Skeleton, *animation, *crowd, { instData, totalCount }, inlineCount,
+                                                                     { overrideMaterial, patches, GetDefaultMaterial(), overrideLane, imc.CastShadows,
+                                                                       morph ? std::optional{ HashMorphState(morph) } : std::nullopt,
+                                                                       morph ? SkinExpressionDetailWeight(morph->AppliedWeights) : 0.0f },
+                                                                     imc.CastShadows && meshHasActiveShadows);
+                        const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - submitStart;
+                        RendererProfiler::GetInstance().RecordAnimatedSubmission(0u, elapsed.count());
+                        if (handled)
+                        {
+                            crowdOwners.insert(entity);
+                            continue;
+                        }
+                    }
+                    if (!imc.MeshSource)
+                        continue;
+                }
                 const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
                     overrideMaterial, stableEntityId, nullptr, 0, overrideLane);
                 Renderer3D::ExtractGPUSceneMaterial(materialKey, material);
@@ -17651,11 +17692,17 @@ namespace OloEngine
         }
 
         // Draw animated mesh entities (entities with MeshComponent + SkeletonComponent)
+        if (m_CrowdRenderer)
+            m_CrowdRenderer->FinishView();
         {
+            const auto submitStart = std::chrono::steady_clock::now();
+            u32 animatedPackets = 0;
             auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
             for (auto entity : view)
             {
                 const auto [mesh, skeleton] = view.get<MeshComponent, SkeletonComponent>(entity);
+                if (crowdOwners.contains(entity))
+                    continue; // this mesh is the crowd's source, not an extra actor at the origin
 
                 if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
                 {
@@ -17834,6 +17881,7 @@ namespace OloEngine
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);
+                            ++animatedPackets;
 
                             // Shadow caster reuses bone data from the scene packet
                             if (castsShadow && submesh)
@@ -17874,6 +17922,8 @@ namespace OloEngine
                         m_SkeletonVisualization.BoneThickness);
                 }
             }
+            const std::chrono::duration<f64, std::milli> elapsed = std::chrono::steady_clock::now() - submitStart;
+            RendererProfiler::GetInstance().RecordAnimatedSubmission(animatedPackets, elapsed.count());
         }
 
         // Draw tile renderer entities (grid of instanced mesh tiles)
@@ -18010,6 +18060,11 @@ namespace OloEngine
                 OLO_CORE_ASSERT(false, "Unknown FogVolumeShape");
                 break;
         }
+    }
+
+    CrowdVisibilityCounts Scene::ReadCrowdVisibilityCounts() const
+    {
+        return m_CrowdRenderer ? m_CrowdRenderer->ReadVisibilityCounts() : CrowdVisibilityCounts{};
     }
 
     void Scene::RenderScene3D(EditorCamera const& camera)

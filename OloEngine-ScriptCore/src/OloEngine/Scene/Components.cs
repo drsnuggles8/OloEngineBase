@@ -447,6 +447,10 @@ namespace OloEngine
 
 		public void ClearInstances() => InternalCalls.InstancedMeshComponent_ClearInstances(Entity.ID);
 
+		/// <summary>Set an inline crowd member's clip and phase offset in cycles. Clip -1 inherits the owner's clip.</summary>
+		public bool SetInstanceAnimation(int index, int clipIndex, float phase) =>
+			InternalCalls.InstancedMeshComponent_SetInstanceAnimation(Entity.ID, index, clipIndex, phase);
+
 		public bool CastShadows
 		{
 			get => InternalCalls.InstancedMeshComponent_GetCastShadows(Entity.ID);

@@ -63,6 +63,22 @@ namespace OloEngine
         // fall back to the per-draw UBO it read before; unsupported geometry
         // must never disappear because its link is absent.
         glm::uvec4 GPUSceneRef = glm::uvec4(GPUSceneDrawRefUnlinked);
+        // Current and previous frame addresses (+1) in this SSBO's clip atlas,
+        // packed UNORM16 interpolation weights (current low), and bone count.
+        // Zero addresses select the conventional animation UBOs.
+        glm::uvec4 CrowdPose{ 0u };
+
+        // Before classification both addresses are zero. The fourth lane then
+        // carries the authored clip index + 1 (zero inherits the owner's clip).
+        // Classification replaces the input metadata in its private output.
+        [[nodiscard]] i32 GetCrowdClipIndex() const
+        {
+            return CrowdPose.w ? static_cast<i32>(CrowdPose.w - 1u) : -1;
+        }
+        void SetCrowdClipIndex(i32 index)
+        {
+            CrowdPose = glm::uvec4(0, 0, 0, index < 0 ? 0u : static_cast<u32>(index) + 1u);
+        }
     };
 
     // What InstanceData::Color means (issue #1691): its rgb multiplies the
@@ -129,7 +145,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(InstanceData::Custom)>::Value &&
                                       TIsTriviallyRelocatable<decltype(InstanceData::StableID)>::Value &&
                                       TIsTriviallyRelocatable<decltype(InstanceData::LightmapScaleOffset)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(InstanceData::GPUSceneRef)>::Value;
+                                      TIsTriviallyRelocatable<decltype(InstanceData::GPUSceneRef)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(InstanceData::CrowdPose)>::Value;
     };
 
     // std430 size assertion. Layout (offset, size):
@@ -142,10 +159,12 @@ namespace OloEngine
     //   StableID           (216,  8)
     //   LightmapScaleOffset (224, 16)
     //   GPUSceneRef         (240, 16)
-    // Total: 256 bytes, divisible by 16 (mat4 alignment) so array stride is 256 with no end padding.
+    //   CrowdPose           (256, 16)
+    // Total: 272 bytes, divisible by 16 (mat4 alignment) so array stride is 272 with no end padding.
     // A drift here means the C++ struct and GLSL block disagree and the shader will read garbage.
-    static_assert(sizeof(InstanceData) == 256, "InstanceData std430 size drifted from GLSL expectation (256 B)");
+    static_assert(sizeof(InstanceData) == 272, "InstanceData std430 size drifted from GLSL expectation (272 B)");
     static_assert(offsetof(InstanceData, LightmapScaleOffset) == 224);
     static_assert(offsetof(InstanceData, GPUSceneRef) == 240);
+    static_assert(offsetof(InstanceData, CrowdPose) == 256);
     static_assert(sizeof(InstanceData) % 16 == 0, "InstanceData size must be 16-byte aligned for std430 array stride");
 } // namespace OloEngine

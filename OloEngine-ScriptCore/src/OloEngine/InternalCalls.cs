@@ -382,6 +382,8 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void InstancedMeshComponent_ClearInstances(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool InstancedMeshComponent_SetInstanceAnimation(ulong entityID, int index, int clipIndex, float phase);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool InstancedMeshComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void InstancedMeshComponent_SetCastShadows(ulong entityID, bool value);

@@ -38,11 +38,11 @@ namespace OloEngine::Tests
 {
     TEST(InstanceDataLayout, StructSizeMatchesStd430)
     {
-        // 256 = 16 * 16, so a std430 array of InstanceData has stride 256.
+        // 272 = 17 * 16, so a std430 array of InstanceData has stride 272.
         // A drift here means the shader's `instances[i]` reads from the wrong
         // memory offset — usually expressed as instances after the first
         // having garbage transforms.
-        EXPECT_EQ(sizeof(InstanceData), 256u);
+        EXPECT_EQ(sizeof(InstanceData), 272u);
         EXPECT_EQ(sizeof(InstanceData) % 16u, 0u);
     }
 
@@ -59,6 +59,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(offsetof(InstanceData, StableID), 216u);
         EXPECT_EQ(offsetof(InstanceData, LightmapScaleOffset), 224u);
         EXPECT_EQ(offsetof(InstanceData, GPUSceneRef), 240u);
+        EXPECT_EQ(offsetof(InstanceData, CrowdPose), 256u);
     }
 
     TEST(InstanceDataLayout, DefaultsAreIdentityAndNeutral)
