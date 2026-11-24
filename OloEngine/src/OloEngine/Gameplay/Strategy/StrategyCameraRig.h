@@ -22,6 +22,8 @@ namespace OloEngine
         f32 TargetPitch = 0.0f;
         f32 LogDistance = 0.0f;
         f32 TargetLogDistance = 0.0f;
+        glm::vec3 SceneOrigin{};
+        u32 SceneOriginSampled = 0;
     };
 
     struct StrategyCameraSettings
@@ -55,6 +57,12 @@ namespace OloEngine
 
     [[nodiscard]] std::optional<f32> QueryStrategyGround(JoltScene& physics, glm::vec2 xz,
                                                          f32 radius, f32 bottom, f32 top);
+
+    // Keep the controller's focus and limits local when the scene shifts its
+    // transforms and physics bodies. The supplied positions initially use the
+    // scene frame of the controller's first step.
+    void SyncStrategyCameraOrigin(StrategyCameraState& state, StrategyCameraSettings& settings,
+                                  const glm::vec3& sceneOrigin);
 
     // nearRadius encloses the camera origin and the entire perspective near plane.
     [[nodiscard]] StrategyCameraPose StepStrategyCamera(

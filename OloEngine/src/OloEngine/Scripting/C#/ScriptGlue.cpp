@@ -2517,9 +2517,9 @@ namespace OloEngine
     }
 
     static bool StrategyCamera_Step(UUID cameraID, StrategyCameraState* state,
-                                    const StrategyCameraSettings* settings, f32 dt, const StrategyCameraIntent* intent)
+                                    StrategyCameraSettings* settings, f32 dt, const StrategyCameraIntent* intent)
     {
-        static_assert(sizeof(StrategyCameraState) == 11 * sizeof(f32));
+        static_assert(sizeof(StrategyCameraState) == 14 * sizeof(f32) + sizeof(u32));
         static_assert(sizeof(StrategyCameraSettings) == 8 * sizeof(f32));
         static_assert(sizeof(StrategyCameraIntent) == 7 * sizeof(f32));
 
@@ -2551,6 +2551,7 @@ namespace OloEngine
                                glm::length(glm::vec3(tangent * aspect, tangent, 1.0f));
         if (!std::isfinite(nearRadius) || nearRadius <= 0.0f)
             return false;
+        SyncStrategyCameraOrigin(*state, *settings, scene->GetWorldOrigin());
         const auto ground = [&](glm::vec2 xz, f32 radius)
         {
             return QueryStrategyGround(*scene->GetPhysicsScene(), xz, radius, settings->GroundBottom, settings->GroundTop);

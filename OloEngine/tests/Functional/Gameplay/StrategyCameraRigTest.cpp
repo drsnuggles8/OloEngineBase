@@ -99,6 +99,46 @@ namespace OloEngine::Functional
         RecordProperty("minimum_near_plane_clearance_m", std::to_string(minClearance));
     }
 
+    TEST_F(StrategyCameraRigTest, FocusAndClearanceFollowARebase)
+    {
+        auto* physics = GetScene().GetPhysicsScene();
+        ASSERT_NE(physics, nullptr);
+        StrategyCameraSettings settings{ { -4990.0f, -4990.0f }, { 4990.0f, 4990.0f } };
+        StrategyCameraState state;
+        state.Focus = { 12.0f, 32.0f };
+        state.TargetFocus = { 18.0f, 42.0f };
+        state.Yaw = state.TargetYaw = 0.3f;
+        state.Pitch = state.TargetPitch = glm::radians(55.0f);
+        state.LogDistance = state.TargetLogDistance = std::log(20.0f);
+        SyncStrategyCameraOrigin(state, settings, GetScene().GetWorldOrigin());
+
+        const auto ground = [&](glm::vec2 xz, f32 radius)
+        {
+            return QueryStrategyGround(*physics, xz, radius, settings.GroundBottom, settings.GroundTop);
+        };
+        const auto initialHeight = ground(state.Focus, 0.0f);
+        ASSERT_TRUE(initialHeight.has_value());
+        state.Height = *initialHeight - 80.0f;
+        constexpr f32 dt = 1.0f / 60.0f;
+        constexpr f32 radius = 0.66f;
+        auto unshiftedState = state;
+        const auto withoutRebase = StepStrategyCamera(unshiftedState, settings, dt, {}, radius, ground);
+
+        constexpr glm::vec3 shift{ -3072.0f, 128.0f, 1024.0f };
+        GetScene().RebaseOrigin(shift);
+        SyncStrategyCameraOrigin(state, settings, GetScene().GetWorldOrigin());
+        // Sampling the same origin on another tick must not apply a second shift.
+        SyncStrategyCameraOrigin(state, settings, GetScene().GetWorldOrigin());
+        const auto withRebase = StepStrategyCamera(state, settings, dt, {}, radius, ground);
+
+        EXPECT_LT(glm::length(withRebase.Position - (withoutRebase.Position + shift)), 0.01f);
+        EXPECT_LT(glm::length(withRebase.Rotation - withoutRebase.Rotation), 0.001f);
+        EXPECT_FLOAT_EQ(settings.MinFocus.x, -4990.0f + shift.x);
+        EXPECT_FLOAT_EQ(settings.MaxFocus.y, 4990.0f + shift.z);
+        EXPECT_FLOAT_EQ(settings.GroundBottom, -100.0f + shift.y);
+        EXPECT_FLOAT_EQ(settings.GroundTop, 2000.0f + shift.y);
+    }
+
     class StrategyCameraGroundProbeTest : public FunctionalTest
     {
       protected:

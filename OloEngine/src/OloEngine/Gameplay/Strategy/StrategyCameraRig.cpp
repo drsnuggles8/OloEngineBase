@@ -28,6 +28,25 @@ namespace OloEngine
         return std::nullopt;
     }
 
+    void SyncStrategyCameraOrigin(StrategyCameraState& state, StrategyCameraSettings& settings,
+                                  const glm::vec3& sceneOrigin)
+    {
+        if (state.SceneOriginSampled)
+        {
+            const glm::vec3 shift = state.SceneOrigin - sceneOrigin;
+            const glm::vec2 xz{ shift.x, shift.z };
+            state.Focus += xz;
+            state.TargetFocus += xz;
+            state.Height += shift.y;
+            settings.MinFocus += xz;
+            settings.MaxFocus += xz;
+            settings.GroundBottom += shift.y;
+            settings.GroundTop += shift.y;
+        }
+        state.SceneOrigin = sceneOrigin;
+        state.SceneOriginSampled = 1;
+    }
+
     StrategyCameraPose StepStrategyCamera(
         StrategyCameraState& state, const StrategyCameraSettings& settings, f32 dt,
         const StrategyCameraIntent& intent, f32 nearRadius, const StrategyGroundQuery& ground)

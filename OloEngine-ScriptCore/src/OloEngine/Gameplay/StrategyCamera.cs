@@ -8,6 +8,8 @@ namespace OloEngine
     {
         internal Vector2 Focus, TargetFocus;
         internal float Height, Yaw, TargetYaw, Pitch, TargetPitch, LogDistance, TargetLogDistance;
+        internal Vector3 SceneOrigin;
+        internal uint SceneOriginSampled;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -17,7 +19,8 @@ namespace OloEngine
         internal float LogZoom;
     }
 
-    /// <summary>World XZ focus limits, eye-to-focus distances, and the vertical ground search range, in metres.</summary>
+    /// <summary>World XZ focus limits, eye-to-focus distances, and the vertical ground
+    /// search range in metres. Positions use the scene frame at the controller's first step.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct StrategyCameraSettings
     {
@@ -53,7 +56,9 @@ namespace OloEngine
                 Pitch = pitchRadians,
                 TargetPitch = pitchRadians,
                 LogDistance = logDistance,
-                TargetLogDistance = logDistance
+                TargetLogDistance = logDistance,
+                SceneOrigin = Vector3.Zero,
+                SceneOriginSampled = 0
             };
         }
 
