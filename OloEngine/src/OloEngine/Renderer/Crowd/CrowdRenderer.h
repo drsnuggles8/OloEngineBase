@@ -43,6 +43,7 @@ namespace OloEngine
         struct Owner;
         std::unordered_map<u64, std::unique_ptr<Owner>> m_Owners;
         CrowdIndividual m_Individual;
+        u64 m_LastPoseHistoryResetFrame = 0;
         std::map<std::pair<u64, i32>, std::unique_ptr<Batch>> m_Batches;
         bool SubmitGroup(u64 owner, i32 clipIndex, i32 pickingID, const Ref<MeshSource>& source, const Ref<Skeleton>& rig,
                          const AnimationStateComponent& animation, const CrowdAnimationComponent& settings,

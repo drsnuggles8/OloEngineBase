@@ -495,6 +495,8 @@ namespace OloEngine
         [[nodiscard]] static bool IsFrameOpen();
         // Counts physical frames since Init; 0 before the first one.
         [[nodiscard]] static u64 GetPhysicalFrameSerial();
+        // Physical frame in which the primary view last discarded object motion history.
+        [[nodiscard]] static u64 GetLastPoseHistoryResetFrame();
         // Between BeginScene and EndScene: whether the view being rendered is
         // its physical frame's primary view. A pass or a scene traversal asks
         // this before it advances anything the world owns.
@@ -2980,6 +2982,7 @@ namespace OloEngine
             // for a fresh renderer and after ResetSceneState; the camera half is
             // RendererViewState::MotionHistoryResetPending.
             bool PoseHistoryResetPending = true;
+            u64 LastPoseHistoryResetFrame = 0;
             // Direction of the scene's primary (first) directional light. Used
             // by the fog/atmosphere sun-direction derivation; defaults to
             // straight-down when the scene has no directional light.

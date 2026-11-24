@@ -340,6 +340,42 @@ namespace OloEngine::Tests
         std::cout << "[ CROWD ] Kestrel5000 near/mid/far=" << counts.Visible[0] << ',' << counts.Visible[1] << ',' << counts.Visible[2] << '\n';
     }
 
+    TEST_F(CrowdVisualEvidence, ResetFrameSequencesDropsCrowdMotionForOneFrame)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::GetPostProcessSettings().TAAEnabled = true;
+        Renderer3D::ApplyRendererSettings();
+        Owner.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        auto& instances = Owner.GetComponent<InstancedMeshComponent>();
+        instances.Instances = Placements;
+        instances.InvalidateMergedCache();
+        EditorCamera camera(45.0f, 640.0f / 360.0f, 0.05f, 1400.0f);
+        camera.SetViewportSize(640.0f, 360.0f);
+        camera.SetPose({ 0, 4, 12 }, 0, std::atan2(4.0f, 20.0f));
+        RunEditorFrames(camera, 3);
+        auto* pass = static_cast<SceneRenderPass*>(Renderer3D::GetRenderStreamNode(Renderer3D::RenderStreamType::Geometry));
+        ASSERT_TRUE(pass && pass->GetGBuffer());
+        const auto& buffer = pass->GetGBuffer();
+        auto moveAndMeasure = [&]()
+        {
+            for (auto& member : instances.Instances)
+                member.Transform[3].x += 0.4f;
+            instances.InvalidateMergedCache();
+            RunEditorFrames(camera, 1);
+            std::vector<f32> velocity;
+            ReadbackRgbaFloat(buffer->GetColorAttachmentHandle(GBuffer::Velocity), buffer->GetWidth(), buffer->GetHeight(), velocity);
+            f32 peak = 0.0f;
+            for (sizet i = 0; i < velocity.size(); i += 4)
+                peak = std::max(peak, std::max(std::abs(velocity[i]), std::abs(velocity[i + 1])));
+            return peak;
+        };
+        ASSERT_GT(moveAndMeasure(), 1.0e-3f);
+        Renderer3D::ResetFrameSequences();
+        EXPECT_LT(moveAndMeasure(), 1.0e-5f);
+        EXPECT_GT(moveAndMeasure(), 1.0e-3f);
+    }
+
     TEST_F(CrowdVisualEvidence, SettingsAndShadows)
     {
         OLO_ENSURE_GPU_OR_SKIP();

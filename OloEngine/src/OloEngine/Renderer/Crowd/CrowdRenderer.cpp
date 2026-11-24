@@ -338,6 +338,18 @@ namespace OloEngine
             return false;
         if (placements.empty())
             return true;
+        const u64 resetFrame = Renderer3D::GetLastPoseHistoryResetFrame();
+        if (m_LastPoseHistoryResetFrame != resetFrame)
+        {
+            m_LastPoseHistoryResetFrame = resetFrame;
+            m_Owners.clear();
+            m_Individual = CrowdIndividual{};
+            // A reset invalidates previous poses and per-view LOD history. The
+            // baked palettes, meshes and allocated culling buffers are still valid.
+            for (auto& entry : m_Batches)
+                if (entry.second)
+                    entry.second->Serial = std::numeric_limits<u64>::max();
+        }
         auto& motion = m_Owners[owner];
         if (!motion)
             motion = std::make_unique<Owner>();
