@@ -490,7 +490,7 @@ def build_anim_crowd(w, n, rng):
                  anim_fox(clip_index=i % 3, time_offset=(i % 100) / 33.0))
 
 
-def build_crowd_reference(w, n, rng):
+def build_crowd_reference(w, n, rng, phase_bins=None):
     # Spread the population across the camera footprint so the row distance
     # covers several LODs and the reference actually draws the requested count.
     height = 65.0
@@ -502,23 +502,39 @@ def build_crowd_reference(w, n, rng):
     model = json.loads((REPO_ROOT / "OloEditor/assets/models/Fox/Fox.gltf").read_text())
     durations = [max(model["accessors"][s["input"]]["max"][0] for s in clip["samplers"])
                  for clip in model["animations"]]
-    columns = max(1, math.ceil(math.sqrt(n * 16 / 9)))
-    rows = max(1, math.ceil(n / columns))
-    for actor in range(n):
-        row, col = divmod(actor, columns)
-        screen_y = 1 - 2 * (row + 0.5) / rows
-        screen_x = 2 * (col + 0.5) / columns - 1
-        vertical = 0.90 * screen_y * math.tan(half_fov)
-        depth = height / (math.sin(depression) - vertical * math.cos(depression))
-        x = depth * 0.90 * screen_x * (16 / 9) * math.tan(half_fov)
-        z = -depth * (math.cos(depression) + vertical * math.sin(depression))
-        clip = actor % len(durations)
-        phase = (actor + 0.5) / n
-        w.entity(f"crowd{actor}", (x, 0, z), (0, rng.uniform(0, math.tau), 0),
-                 (0.02, 0.02, 0.02), anim_fox(clip, phase * durations[clip]))
+    if not n:
+        return
+    # Fill the trapezoid on the ground at uniform world density. Equal spacing
+    # on the screen would put most of the nearest characters inside each other.
+    slope = 0.90 * math.tan(half_fov)
+    near, far = [height / math.tan(depression + angle) for angle in
+                 (math.atan(slope), -math.atan(slope))]
+
+    def width(distance):
+        depth = height * math.sin(depression) + distance * math.cos(depression)
+        return 2 * depth * slope * (16 / 9)
+
+    mean_width = (width(near) + width(far)) / 2
+    spacing = math.sqrt((far - near) * mean_width / n)
+    rows = max(1, round((far - near) / spacing))
+    first = 0
+    for row in range(rows):
+        distance = near + (far - near) * (row + 0.5) / rows
+        fraction = (row + 1) / rows
+        end_width = width(near + fraction * (far - near))
+        end = round(n * fraction * (width(near) + end_width) / (2 * mean_width))
+        for actor in range(first, end):
+            x = ((actor - first + 0.5) / (end - first) - 0.5) * width(distance)
+            clip = actor % len(durations)
+            phase = (actor + 0.5) / n
+            if phase_bins:
+                phase = math.floor(phase * phase_bins) / phase_bins
+            w.entity(f"crowd{actor}", (x, 0, -distance), (0, rng.uniform(0, math.tau), 0),
+                     (0.02, 0.02, 0.02), anim_fox(clip, phase * durations[clip]))
+        first = end
 
 
-def write_crowd_capture(scene_path, scene, seed):
+def write_crowd_capture(scene_path, scene, scene_id, count, seed):
     """Write a v2 capture manifest accepted by --olo-capture-manifest and #1757."""
     editor = REPO_ROOT / "OloEditor"
     project_assets = editor / "SandboxProject/Assets"
@@ -546,7 +562,7 @@ def write_crowd_capture(scene_path, scene, seed):
         "Redistribution": "local-only", "LicenseVerified": "unverified", "Version": "generated",
         "Sha256": hashlib.sha256(scene_path.read_bytes()).hexdigest(), "Units": "metres",
         "UpAxis": "+Y", "ColorSpace": "n/a",
-        "Acquisition": f"generate_perf_scenes.py --scene crowd_reference --counts {scene.count - 3} --seed {seed}",
+        "Acquisition": f"generate_perf_scenes.py --scene {scene_id} --counts {count} --seed {seed}",
     })
     manifest = {
         "ManifestVersion": 2, "Id": scene_path.stem.replace("_", "-"), "Product": "diagnostic",
@@ -561,7 +577,7 @@ def write_crowd_capture(scene_path, scene, seed):
                              "Upscale": "Off", "UpscaleTechnique": "Spatial"},
         "Exposure": {"Mode": "Manual", "Exposure": 1.0},
         "Determinism": {"Seed": seed, "StartTimeSeconds": 12.0, "FixedDtSeconds": 1 / 60},
-        "Warmup": {"Frames": 32}, "Measurement": {"Frames": 120, "DeadlineMs": 16.6},
+        "Warmup": {"Frames": 32}, "Measurement": {"Frames": 240, "DeadlineMs": 16.6},
         "Attachments": [{"Name": "Beauty", "Source": "UIComposite", "Format": "png"}],
         "Tolerance": {"RepeatRmse": 0.0}, "Assets": assets,
     }
@@ -705,6 +721,8 @@ SCENES = {
                          "N skinned Fox characters, all playing (AnimationSystem)"),
     "crowd_reference":  (build_crowd_reference, 5000,   True, "crowd0",
                          "Independent skeletal animation with shadows at strategy-camera distance"),
+    "crowd_shared_trial": (build_crowd_reference, 5000, True, "crowd0",
+                           "Same placement and clips with eight phase cohorts per clip"),
     "scripts_swarm":    (build_scripts_swarm,    5000,  True, "s0",
                          "N entities each with a trivial per-frame Lua script"),
     "scripts_swarm_cs": (build_scripts_swarm,    2000,  True, "s0",
@@ -741,6 +759,8 @@ def build_scene(scene, count, seed):
     builder = SCENES[scene][0]
     if scene in ("lights_many", "lights_shadowed"):
         builder(w, count, rng, shadowed=(scene == "lights_shadowed"))
+    elif scene == "crowd_shared_trial":
+        builder(w, count, rng, phase_bins=8)
     elif scene in ("scripts_swarm", "scripts_swarm_cs"):
         builder(w, count, rng, lang=("lua" if scene == "scripts_swarm" else "cs"))
     else:
@@ -805,8 +825,8 @@ def main():
         text = w.text()
         out = args.out_dir / f"{name}.olo"
         out.write_text(text, encoding="utf-8", newline="\n")
-        if scene == "crowd_reference":
-            write_crowd_capture(out, w, args.seed)
+        if scene in ("crowd_reference", "crowd_shared_trial"):
+            write_crowd_capture(out, w, scene, count, args.seed)
         dt = time.perf_counter() - t0
         size_mb = out.stat().st_size / (1024 * 1024)
         manifest[name] = {
