@@ -53,10 +53,25 @@ On OpenGL with FSR2 Quality, the raster renderer produced an 853 × 480 input an
 
 ## Reproducing the comparison
 
-* The source baseline was `2df5d5f751f28ba511a67dc54b2fad879584ce2a`, with the probe and the late-TLAS accounting fix described above. The full/cut arms used the same executable, driver 621.14 and scene inputs.
-* Run `ReferencePaths/GpuPathTracerFrameGraphTest.*` in the Release test binary with `--olo-rhi=vulkan --olo-require-vulkan --gtest_output=xml:cornell.xml`. The production test records pass timings, GPU frame identity, transient demand and persistent pass-target bytes under `frameCosts`. It writes front and raking composites to `OloEditor/assets/tests/visual/`.
-* For the experimental arm, omit the upstream candidate read in the enabled tracer's `Setup` and use `Renderer3D::GetWhiteTexture()->GetRHIHandle()` where that input is missing in `Execute`. Keep the real TLAS, prefilter and history reads and bindings. This temporary diagnostic is deliberately absent from the production API. Compare the six decoded float attachments at the same seed and actual sample count. Check the composite again on the injected late-withheld frame.
-* For the furnace, run `olo_benchmark_capture` on `material-lab-furnace.pathtracer.yaml` in a Release Vulkan editor, with the manifest camera held stationary. The timing variant used 120 camera steps per run and retained each completed frame. Export graph topology, transient demand, pass timings and all six attachments. Check `olo_pathtracer_stats` for active tracing and nonzero samples. Inspect the entity-ID attachment and select visible spheres in the viewport. Use the float readbacks for the Cornell comparisons and the exported attachment bytes for the furnace.
+**Production regression.** Run `--gtest_filter=ReferencePaths/GpuPathTracerFrameGraphTest.*` with `--olo-rhi=vulkan --olo-require-vulkan --gtest_output=xml:cornell.xml`. The production test records pass timings, GPU frame identity, transient demand and persistent pass-target bytes under `frameCosts`. Its front and raking images are in `OloEditor/assets/tests/visual/`.
+
+**Historical experiment.** Apply the [source overlay for the measurement](../../scripts/perf/fixtures/path-tracer-raster-cut-1346.patch) in a separate checkout at `2df5d5f751f28ba511a67dc54b2fad879584ce2a`. Use `git apply --check <patch-path>` followed by `git apply <patch-path>`. This restores the measured renderer and test fixture, including the late-TLAS accounting correction. Build the Release editor and test executable once using the repository build lock. The measured editor hash appears above. The same executable served both arms within each host.
+
+Launch a **fresh process for each arm** with these PowerShell settings:
+
+| Arm | Before launching the same executable |
+|---|---|
+| Full | `Remove-Item Env:OLO_PT_RASTER_CUT_PROBE -ErrorAction SilentlyContinue` |
+| Cut | `$env:OLO_PT_RASTER_CUT_PROBE = '1'` |
+
+The diagnostic tests for presence, so **unset** the variable for full mode. The cut omits the enabled tracer's upstream colour read during graph setup. At execution it binds the white texture if the input handle is missing. The shipping renderer contains no such selector.
+
+* **Cornell.** For each arm, set `OLO_PT_AOV_DIRECTORY` to a separate output directory. Run the same Vulkan test filter given above. The historical fixture prints per-pass CPU/GPU rows and writes all six decoded float attachments. Compare like-named files at the same actual sample count. Inspect the full/cut fallback PNGs from the injected late-withheld frame.
+* **Furnace.** Run `olo_benchmark_capture` on `material-lab-furnace.pathtracer.yaml` in a Release Vulkan editor launched in each arm. For paired timings add `Measurement: {Frames: 120, DeadlineMs: 16.667}` and keep the manifest's stationary camera, scene, warmup and four samples per frame. Retain completed frame IDs, graph topology, transient demand, pass timings and all six exported attachments. Check `olo_pathtracer_stats` for active tracing. Read the entity-ID attachment and select visible spheres in the viewport.
+
+The paired experiment predates the benchmark camera fixes. Match the observed sample count when comparing it with a new run. To cap a live capture, put `GpuPathTracerMaxSamples` in the **scene's** `PostProcessSettings`. Opening the manifest's scene applies its settings after any earlier live override. At a scene-authored cap of 64 and 64 warmup steps, the old stationary camera produced 16 spp and the corrected host produced 64 everywhere. Both captured all six attachments. Leave the cap open when measuring the cost of active tracing and check `samplesTracedThisFrame` during measurement.
+
+For moving shots the first pose is a cut and later samples are continuous. On a +0.6-unit/s dolly, 32 warmup steps followed by 160 measurement steps reached X = 1.91 in both runs. The old TAA history aged at most four frames. All 47 valid in-shot observations on the corrected host held generation 5, reaching age 378. The descriptor change after restoring the viewport is outside that shot.
 
 ## Decision
 
