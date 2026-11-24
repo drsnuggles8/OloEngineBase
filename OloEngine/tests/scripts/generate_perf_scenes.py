@@ -789,7 +789,7 @@ def main():
     ap = argparse.ArgumentParser(description="Generate OloEditor performance stress scenes (.olo)")
     ap.add_argument("--scene", required=False, default="all",
                     help="scene id or 'all' (see --list)")
-    ap.add_argument("--count", type=int, default=0,
+    ap.add_argument("--count", type=int,
                     help="override the scene's default primary count (single-scene mode only)")
     ap.add_argument("--counts", type=str, default="",
                     help="comma-separated list of counts (single-scene mode; e.g. 1000,10000,50000)")
@@ -835,7 +835,7 @@ def main():
     elif args.counts:
         jobs = [(args.scene, int(c)) for c in args.counts.split(",")]
     else:
-        jobs = [(args.scene, args.count or SCENES[args.scene][1])]
+        jobs = [(args.scene, SCENES[args.scene][1] if args.count is None else args.count)]
 
     if any(count < 0 for _, count in jobs):
         ap.error("scene counts must be non-negative")
