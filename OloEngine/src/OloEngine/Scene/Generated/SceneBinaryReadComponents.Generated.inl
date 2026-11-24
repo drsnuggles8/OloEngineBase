@@ -232,10 +232,10 @@ case 2905464687u: // CameraRigComponent
     if (!SceneBinIO::Read(reader, comp.m_FallbackPitchDeg)) return false;
     comp.m_FallbackPitchDeg = std::clamp(comp.m_FallbackPitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
     {
-        decltype(comp.m_TargetForward) v{};
+        i32 v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(2))
-            comp.m_TargetForward = v;
+        if (v >= static_cast<i32>(0) && v <= static_cast<i32>(2))
+            comp.m_TargetForward = static_cast<decltype(comp.m_TargetForward)>(v);
     }
     break;
 }
@@ -378,10 +378,10 @@ case 3815007389u: // DecalComponent
     if (!SceneBinIO::Read(reader, comp.m_NormalAngleThreshold)) return false;
     comp.m_NormalAngleThreshold = std::clamp(comp.m_NormalAngleThreshold, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     {
-        decltype(comp.m_Mode) v{};
+        i32 v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(3))
-            comp.m_Mode = v;
+        if (v >= static_cast<i32>(0) && v <= static_cast<i32>(3))
+            comp.m_Mode = static_cast<decltype(comp.m_Mode)>(v);
     }
     if (!SceneBinIO::Read(reader, comp.m_Transparent)) return false;
     break;
@@ -956,10 +956,10 @@ case 1378335508u: // MaterialOverridesComponent
             decltype(comp.m_Overrides)::ElementType btmp0{};
             if (!SceneBinIO::Read(reader, btmp0.MaterialName)) return false;
             {
-                decltype(btmp0.Kind) v{};
+                i32 v{};
                 if (!SceneBinIO::Read(reader, v)) return false;
-                if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(3))
-                    btmp0.Kind = v;
+                if (v >= static_cast<i32>(0) && v <= static_cast<i32>(3))
+                    btmp0.Kind = static_cast<decltype(btmp0.Kind)>(v);
             }
             if (!SceneBinIO::Read(reader, btmp0.SkinProfile)) return false;
             if (!SceneBinIO::Read(reader, btmp0.ThicknessFactor)) return false;
@@ -1633,10 +1633,10 @@ case 2448574091u: // UITextComponent
     if (!SceneBinIO::Read(reader, comp.m_FontSize)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
     {
-        decltype(comp.m_Alignment) v{};
+        i32 v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(8))
-            comp.m_Alignment = v;
+        if (v >= static_cast<i32>(0) && v <= static_cast<i32>(8))
+            comp.m_Alignment = static_cast<decltype(comp.m_Alignment)>(v);
     }
     if (!SceneBinIO::Read(reader, comp.m_Kerning)) return false;
     if (!SceneBinIO::Read(reader, comp.m_LineSpacing)) return false;
@@ -1689,10 +1689,10 @@ case 371155434u: // VehicleComponent
     if (!SceneBinIO::Read(reader, comp.m_MaxBrakeTorque)) return false;
     comp.m_MaxBrakeTorque = std::clamp(comp.m_MaxBrakeTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
     {
-        decltype(comp.m_DriveMode) v{};
+        i32 v{};
         if (!SceneBinIO::Read(reader, v)) return false;
-        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(2))
-            comp.m_DriveMode = v;
+        if (v >= static_cast<i32>(0) && v <= static_cast<i32>(2))
+            comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(v);
     }
     if (!SceneBinIO::Read(reader, comp.m_FrontTorqueSplit)) return false;
     comp.m_FrontTorqueSplit = std::clamp(comp.m_FrontTorqueSplit, static_cast<f32>(0.0f), static_cast<f32>(1.0f));

@@ -2053,13 +2053,14 @@ static void EmitBinaryClamp(std::ostream& out, const std::string& indent, const 
 static void EmitBinaryReject(std::ostream& out, const std::string& indent, const std::string& lhs, const SerField& f)
 {
     const bool isEnum = f.type == PropType::Enum;
-    const std::string vExpr = isEnum ? "static_cast<int>(v)" : "v";
-    const std::string castT = isEnum ? "int" : "decltype(" + lhs + ")";
+    const std::string fieldType = "decltype(" + lhs + ")";
+    const std::string wireType = isEnum ? "i32" : fieldType;
+    const std::string assignedValue = isEnum ? "static_cast<" + fieldType + ">(v)" : "v";
     out << indent << "{\n";
-    out << indent << "    decltype(" << lhs << ") v{};\n";
+    out << indent << "    " << wireType << " v{};\n";
     out << indent << "    if (!SceneBinIO::Read(reader, v)) return false;\n";
-    out << indent << "    if (" << RejectRangeCondition(vExpr, castT, f) << ")\n";
-    out << indent << "        " << lhs << " = v;\n";
+    out << indent << "    if (" << RejectRangeCondition("v", wireType, f) << ")\n";
+    out << indent << "        " << lhs << " = " << assignedValue << ";\n";
     out << indent << "}\n";
 }
 
