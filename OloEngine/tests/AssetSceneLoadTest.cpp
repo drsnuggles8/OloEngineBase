@@ -84,6 +84,7 @@
 #include "OloEngine/Asset/AssetRegistry.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -1137,7 +1138,55 @@ namespace OloEngine::Tests
         }
         const auto sceneHandle = editor->ImportAsset(scenePath);
         ASSERT_NE(sceneHandle, AssetHandle(0));
+
+        // Stage the migrated scene itself with its real asset handles. Only its
+        // four referenced texture/font sources need to travel with this probe.
+        const auto sandbox = editorRoot / "SandboxProject";
+        const auto driftSources = root / "Assets" / "DriftMenu";
+        fs::create_directories(driftSources);
+        const std::array<fs::path, 4> driftAssets = {
+            "Assets/Textures/DriftMenuBackground-v2.png",
+            "../assets/fonts/opensans/OpenSans-Light.ttf",
+            "../assets/fonts/opensans/OpenSans-Regular.ttf",
+            "../assets/fonts/opensans/OpenSans-SemiBold.ttf",
+        };
+        AssetRegistry authoredRegistry;
+        ASSERT_TRUE(authoredRegistry.Deserialize(sandbox / "AssetRegistry.oar"));
+        for (const auto& relative : driftAssets)
+        {
+            const auto handle = authoredRegistry.GetHandleFromPath(relative);
+            auto metadata = authoredRegistry.GetMetadata(handle);
+            ASSERT_TRUE(metadata.IsValid()) << relative;
+            const auto staged = driftSources / relative.filename();
+            ASSERT_TRUE(fs::copy_file(sandbox / relative, staged)) << relative;
+            metadata.FilePath = staged.lexically_relative(root);
+            ASSERT_TRUE(editor->SetMetadata(handle, metadata)) << relative;
+        }
+        const auto driftFile = driftSources / "DriftMenu.olo";
+        ASSERT_TRUE(fs::copy_file(sandbox / "Assets/Scenes/DriftMenu.olo", driftFile));
+        const auto driftHandle = editor->ImportAsset(driftFile);
+        ASSERT_NE(driftHandle, AssetHandle(0));
         ASSERT_TRUE(editor->SerializeAssetRegistry());
+
+        const auto assertDriftAssets = [&](const Ref<Scene>& scene)
+        {
+            ASSERT_TRUE(scene);
+            auto backdrop = scene->FindEntityByName("Menu Backdrop");
+            ASSERT_TRUE(backdrop && backdrop.HasComponent<UIImageComponent>());
+            const auto& image = backdrop.GetComponent<UIImageComponent>().m_Texture;
+            ASSERT_TRUE(image && image->IsLoaded());
+            EXPECT_EQ(image->GetHandle(), authoredRegistry.GetHandleFromPath(driftAssets[0]));
+            constexpr std::array names{ "Drift Title", "Menu Help", "Drift Subtitle" };
+            for (sizet i = 0; i < names.size(); ++i)
+            {
+                SCOPED_TRACE(names[i]);
+                auto text = scene->FindEntityByName(names[i]);
+                ASSERT_TRUE(text && text.HasComponent<UITextComponent>());
+                const auto& textFont = text.GetComponent<UITextComponent>().m_FontAsset;
+                ASSERT_TRUE(textFont && textFont->IsLoaded());
+                EXPECT_EQ(textFont->GetHandle(), authoredRegistry.GetHandleFromPath(driftAssets[i + 1]));
+            }
+        };
 
         const auto assertHandles = [&](const Ref<Scene>& scene)
         {
@@ -1186,6 +1235,7 @@ namespace OloEngine::Tests
         {
             SCOPED_TRACE("Loose scene YAML");
             ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
+            ASSERT_NO_FATAL_FAILURE(assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle)));
         }
         {
             SCOPED_TRACE("Binary scene sidecar");
@@ -1207,12 +1257,16 @@ namespace OloEngine::Tests
         ASSERT_TRUE(fs::remove(normalPath));
         ASSERT_TRUE(fs::remove(fontPath));
         ASSERT_TRUE(fs::remove(scenePath));
+        ASSERT_TRUE(fs::remove(driftFile));
+        for (const auto& relative : driftAssets)
+            ASSERT_TRUE(fs::remove(driftSources / relative.filename())) << relative;
 
         SCOPED_TRACE("Runtime scene and assets from pack without loose sources");
         const auto runtime = Ref<RuntimeAssetManager>::Create(false);
         ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
         Project::SetAssetManager(runtime);
-        assertHandles(AssetManager::GetAsset<Scene>(sceneHandle));
+        ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
+        assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle));
     }
 
     // Caching a failed texture resolution would lose the authored handle.
