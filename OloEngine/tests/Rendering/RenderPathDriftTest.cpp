@@ -486,9 +486,10 @@ namespace OloEngine::Tests
         const std::regex instancedGBufferAliasRe(
             R"(const auto& gbuffer\s*=\s*skinned\s*\?\s*s_Data\.PBRGBufferSkinnedShader\s*:\s*s_Data\.PBRGBufferShader\s*;)");
         EXPECT_TRUE(std::regex_search(source, instancedGBufferAliasRe));
-        const std::regex rerouteRe(R"(ShouldRerouteToForwardOverlay\s*\()");
-        // A member-function definition: a line at namespace-body indentation naming Renderer3D::.
-        const std::regex functionStartRe(R"(\n    [A-Za-z][^\n;]*Renderer3D::[A-Za-z]+\s*\()");
+        // Anchor at the assignment. A call elsewhere in the function cannot
+        // guard it, and writing the G-buffer shader in the true arm is wrong.
+        const std::regex guardedElse(
+            R"(\bif\s*\(\s*(?:debugOverlay\s*\|\|\s*)?ShouldRerouteToForwardOverlay\s*\([^()]*\)\s*\)\s*\{[^{}]*\}\s*else\s*(?:if\s*\([^()]*\)\s*)?\{?\s*$)");
 
         u32 selections = 0;
         std::vector<std::string> unguarded;
@@ -498,15 +499,7 @@ namespace OloEngine::Tests
             const sizet at = static_cast<sizet>(it->position());
             const std::string before = source.substr(0, at);
 
-            // The nearest reroute call and the nearest function start before this selection.
-            sizet lastReroute = std::string::npos;
-            for (auto r = std::sregex_iterator(before.begin(), before.end(), rerouteRe); r != std::sregex_iterator(); ++r)
-                lastReroute = static_cast<sizet>(r->position());
-            sizet lastFunction = 0;
-            for (auto f = std::sregex_iterator(before.begin(), before.end(), functionStartRe); f != std::sregex_iterator(); ++f)
-                lastFunction = static_cast<sizet>(f->position());
-
-            if (lastReroute == std::string::npos || lastReroute < lastFunction)
+            if (!std::regex_search(before, guardedElse))
             {
                 const auto line = static_cast<sizet>(std::count(before.begin(), before.end(), '\n')) + 1;
                 unguarded.push_back("line " + std::to_string(line) + ": " + it->str());
@@ -522,8 +515,7 @@ namespace OloEngine::Tests
         for (const std::string& entry : unguarded)
             report += "\n  * " + entry;
         EXPECT_TRUE(unguarded.empty())
-            << "these G-Buffer PBR shader selections are not preceded by ShouldRerouteToForwardOverlay in the "
-               "same function:"
+            << "these G-Buffer PBR shader selections are outside the else branch of the forward-overlay reroute:"
             << report
             << "\n\nA blended or transmissive material reaching them is written into the G-Buffer and shades black "
                "or opaque on the Deferred path (issues #1404, #970). Ask the reroute first and use the forward "
