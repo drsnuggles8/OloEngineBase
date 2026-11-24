@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/Crowd/CrowdLod.h"
+
 #include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 
 // =============================================================================
@@ -254,6 +256,7 @@ namespace OloEngine::Benchmark
         u64 CpuTrackedBytes = 0;            // CPU-side bookings, never added to the GPU figure
         u32 DrawCalls = 0;
         u32 AnimatedSubmeshPackets = 0;
+        u32 CrowdMembersSubmitted = 0;
         u32 SkinnedBatchedCommands = 0;
         f64 AnimatedSubmissionMs = 0.0;
         FRepresentationStreamingStats Streaming;
@@ -317,6 +320,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::CpuTrackedBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::DrawCalls)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::AnimatedSubmeshPackets)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::CrowdMembersSubmitted)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::SkinnedBatchedCommands)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::AnimatedSubmissionMs)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::Streaming)> &&
@@ -415,6 +419,7 @@ namespace OloEngine::Benchmark
         TimingValidity Timing;
         ResolutionRecord Resolution;
         RendererCounters Counters;
+        CrowdVisibilityCounts Crowd; // final untimed indirect counts
         MeasurementRecord Measurement;
         // Physical GPU bytes still resident once the scene is released (asset and renderer
         // caches, pools and histories remain). nullopt when the host did not measure it.

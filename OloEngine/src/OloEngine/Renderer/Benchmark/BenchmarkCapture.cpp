@@ -617,6 +617,7 @@ namespace OloEngine::Benchmark
         sample.RecordingJoinWaitMs = frame.m_ParallelRecording.JoinWaitMs;
         sample.DrawCalls = frame.m_DrawCalls;
         sample.AnimatedSubmeshPackets = frame.m_AnimatedSubmeshPackets;
+        sample.CrowdMembersSubmitted = frame.m_CrowdMembersSubmitted;
         sample.AnimatedSubmissionMs = frame.m_AnimatedSubmissionMs;
         sample.SkinnedBatchedCommands = frame.m_SkinnedBatchedCommands;
         const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
@@ -875,6 +876,29 @@ namespace OloEngine::Benchmark
         {
             outError = "cannot create result directory " + outDir.string() + ": " + ec.message();
             return false;
+        }
+
+        const auto crowdFile = outDir / "crowd-visibility.json";
+        if (runInfo.Crowd.Members > 0u)
+        {
+            std::ofstream counts(crowdFile);
+            counts << nlohmann::json{ { "members", runInfo.Crowd.Members }, { "near", runInfo.Crowd.Visible[0] }, { "mid", runInfo.Crowd.Visible[1] }, { "far", runInfo.Crowd.Visible[2] } } << '\n';
+            counts.close();
+            if (!counts)
+            {
+                outError = "cannot write " + crowdFile.string();
+                return false;
+            }
+        }
+        else
+        {
+            // A caller can reuse an output directory for an empty control.
+            std::filesystem::remove(crowdFile, ec);
+            if (ec)
+            {
+                outError = "cannot retire old crowd counts: " + ec.message();
+                return false;
+            }
         }
 
         // Verbatim manifest echo — the result directory names its own recipe.
@@ -1256,7 +1280,7 @@ namespace OloEngine::Benchmark
             std::ofstream raw(outDir / "measurement.csv", std::ios::binary | std::ios::trunc);
             std::ofstream passes(outDir / "measurement-passes.jsonl", std::ios::binary | std::ios::trunc);
             std::ofstream streaming(outDir / "measurement-streaming.jsonl", std::ios::binary | std::ios::trunc);
-            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId,animatedSubmeshPackets,animatedSubmissionMs,skinnedBatchedCommands\n";
+            raw << "camera,index,renderCallMs,cpuMs,fenceWaitMs,presentWaitMs,gpuFrameId,gpuMs,gpuStatus,gpuResidentBytes,cpuTrackedBytes,drawCalls,recordingWallMs,recordingJoinWaitMs,cpuFrameId,animatedSubmeshPackets,animatedSubmissionMs,skinnedBatchedCommands,crowdMembersSubmitted\n";
             std::vector<f64> wall;
             wall.reserve(runInfo.Measurement.Frames.Num());
             std::map<std::string, std::vector<f64>> byCamera;
@@ -1284,7 +1308,7 @@ namespace OloEngine::Benchmark
                 raw << ',' << (frame.Gpu.IsValid() && !uniqueGpu ? "duplicate" : ToString(frame.Gpu.Status))
                     << ',' << frame.GpuResidentBytes << ',' << frame.CpuTrackedBytes << ',' << frame.DrawCalls
                     << ',' << frame.RecordingWallMs << ',' << frame.RecordingJoinWaitMs << ',' << frame.CpuFrameId
-                    << ',' << frame.AnimatedSubmeshPackets << ',' << frame.AnimatedSubmissionMs << ',' << frame.SkinnedBatchedCommands << '\n';
+                    << ',' << frame.AnimatedSubmeshPackets << ',' << frame.AnimatedSubmissionMs << ',' << frame.SkinnedBatchedCommands << ',' << frame.CrowdMembersSubmitted << '\n';
                 nlohmann::json passFrame{ { "camera", frame.CameraId.ToStdString() }, { "index", frame.Index }, { "gpuFrameId", frame.GpuFrameId }, { "passes", nlohmann::json::array() } };
                 for (const auto& timing : frame.GpuPasses)
                 {

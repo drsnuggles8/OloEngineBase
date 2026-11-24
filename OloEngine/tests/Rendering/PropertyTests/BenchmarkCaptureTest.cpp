@@ -412,6 +412,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     runInfo.Measurement = std::move(runInfoMeasurement);
     // Keep the renderer and asset manager alive: this isolates the cost of
     // releasing the scene while exposing caches and pools that remain live.
+    runInfo.Crowd = scene->ReadCrowdVisibilityCounts();
     scene = nullptr;
     runInfo.GpuResidentBytesAfterSceneRelease = RendererMemoryTracker::GetInstance().GetGpuResidentBytes();
 
@@ -421,15 +422,6 @@ TEST(BenchmarkCapture, RunWhenRequested)
     std::string writeError;
     ASSERT_TRUE(Benchmark::WriteResultDirectory(*manifest, manifestPath, outDir, std::span{ cameraSets.GetData(), static_cast<sizet>(cameraSets.Num()) }, runInfo, writeError))
         << writeError;
-    const auto crowd = scene->ReadCrowdVisibilityCounts();
-    if (crowd.Members > 0u)
-    {
-        std::ofstream counts(outDir / "crowd-visibility.json");
-        counts << "{\"members\":" << crowd.Members << ",\"near\":" << crowd.Visible[0]
-               << ",\"mid\":" << crowd.Visible[1] << ",\"far\":" << crowd.Visible[2] << "}\n";
-        counts.close();
-        ASSERT_TRUE(counts);
-    }
     {
         std::ofstream calibration(outDir / "calibration.json");
         calibration << "{\"injectedWallDelayMs\":" << injectedDelayMs
