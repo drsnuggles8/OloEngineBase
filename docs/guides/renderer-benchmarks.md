@@ -48,6 +48,13 @@ a Crowd Animation component. Each placement's `Custom` offsets its phase in cycl
 the owner clip. C# `SetInstanceAnimation(index, clipIndex, phase)` and Lua
 `set_instance_animation` update an inline member while retaining its stable ID.
 
+Depth and color draws share the same animation samples. For meshes that fit the
+32 MiB vertex-sample budget per crowd batch, the renderer bakes each submesh's
+skinned positions and normals once per clip and interpolates them per member.
+Near geometry uses the full-rate clip. Mid and far geometry use eight intervals.
+A draw can read its shared bone palette when a vertex table does not fit or when
+the previous frame used a different sampling rate at an LOD transition.
+
 Generate the matched SandboxProject capture inputs from the repo root:
 
 ```powershell
