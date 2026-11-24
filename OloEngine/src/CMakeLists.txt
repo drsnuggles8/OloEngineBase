@@ -1938,6 +1938,8 @@
 		"OloEngine/Gameplay/PlayerRig/PlayerRigPresets.h"
 		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
 		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.cpp"
+		"OloEngine/Gameplay/Strategy/StrategyCameraRig.h"
+		"OloEngine/Gameplay/Strategy/StrategyCameraRig.cpp"
 
 		"OloEngine/Gameplay/Combat/WeaponState.h"
 		"OloEngine/Gameplay/Combat/WeaponState.cpp"

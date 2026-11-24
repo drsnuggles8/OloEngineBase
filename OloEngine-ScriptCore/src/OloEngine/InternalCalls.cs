@@ -44,6 +44,10 @@ namespace OloEngine
         [MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern ulong Scene_CreateEntity(string name, ref Vector3 translation);
 
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern ulong Scene_CreateBuildBox(ulong id, string name, ref Vector3 position,
+            ref Vector3 size, ref Vector4 color, bool runtimeOwned);
+
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern ulong Scene_InstantiatePrefab(ulong prefabHandle, ref Vector3 translation, ref Vector3 rotation, ref Vector3 scale);
 
@@ -76,6 +80,13 @@ namespace OloEngine
         internal static extern bool Input_IsMouseButtonDown(int button);
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern void Input_GetMouseScrollDelta(out Vector2 delta);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern double Input_GetMouseScrollYTotal();
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool StrategyCamera_Step(ulong cameraID, ref StrategyCameraState state,
+            ref StrategyCameraSettings settings, float dt, ref StrategyCameraIntent intent);
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern void Input_SetCursorMode(int mode);
         [MethodImpl(MethodImplOptions.InternalCall)]
@@ -767,6 +778,9 @@ namespace OloEngine
 		#region Camera
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool Camera_ScreenToWorldRay(ulong cameraEntityID, ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
+
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Camera_RenderedScreenToWorldRay(ref Vector2 screenPos, out Vector3 origin, out Vector3 direction);
 		#endregion
 
 		#region Application

@@ -60,6 +60,10 @@ namespace OloEngine
 			return delta;
 		}
 
+		/// <summary>Read the signed cumulative wheel position. Fixed-step consumers can subtract
+		/// their previous reading to use each scroll event once even across skipped input frames.</summary>
+		public static double GetMouseScrollYTotal() => InternalCalls.Input_GetMouseScrollYTotal();
+
 		public static void SetCursorMode(CursorMode mode)
 		{
 			InternalCalls.Input_SetCursorMode((int)mode);

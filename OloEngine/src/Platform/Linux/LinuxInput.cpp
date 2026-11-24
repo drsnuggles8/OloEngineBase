@@ -24,6 +24,7 @@ namespace OloEngine
     // Wheel motion, the same pending/frame rotation as the typed characters.
     static glm::vec2 s_ScrollPending{ 0.0f };
     static glm::vec2 s_ScrollFrame{ 0.0f };
+    static double s_ScrollYTotal = 0.0;
 
     namespace
     {
@@ -67,6 +68,11 @@ namespace OloEngine
         return s_ScrollFrame;
     }
 
+    double Input::GetMouseScrollYTotal()
+    {
+        return s_ScrollYTotal;
+    }
+
     void Input::OnMouseScrolled(const f32 xOffset, const f32 yOffset)
     {
         if (std::isfinite(xOffset) && std::isfinite(yOffset))
@@ -84,6 +90,7 @@ namespace OloEngine
         s_TypedCharsFrame.swap(s_TypedCharsPending);
         s_TypedCharsPending.clear();
         s_ScrollFrame = s_ScrollPending;
+        s_ScrollYTotal += static_cast<double>(s_ScrollFrame.y);
         s_ScrollPending = glm::vec2(0.0f);
 
         auto* const window = TryGetGlfwWindow();
