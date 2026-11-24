@@ -40,6 +40,17 @@ namespace OloEngine
 			return id == 0 ? null : new Entity(id);
 		}
 
+		/// <summary>Queue a tinted box with a world-space centre and full dimensions.
+		/// Pass the ID of an undone placement to restore it after the destroy drains.
+		/// Use runtimeOwned for temporary preview geometry that should be excluded from saves.
+		/// Returns null if the request cannot be queued.</summary>
+		public static Entity CreateBuildBox(string name, Vector3 center, Vector3 size, Vector4 color,
+			ulong restoredId = 0, bool runtimeOwned = false)
+		{
+			ulong id = InternalCalls.Scene_CreateBuildBox(restoredId, name, ref center, ref size, ref color, runtimeOwned);
+			return id == 0 ? null : new Entity(id);
+		}
+
 		/// <summary>Spawn a prefab at the origin, unrotated, unscaled.</summary>
 		public static Entity Instantiate(ulong prefabHandle)
 		{

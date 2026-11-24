@@ -48,6 +48,7 @@
 #include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
 #include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
+#include "OloEngine/Gameplay/Strategy/StrategyCameraRig.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/Physics3DScriptApi.h"
@@ -293,6 +294,17 @@ namespace OloEngine
                                               translation ? *translation : glm::vec3(0.0f),
                                               rotation ? *rotation : glm::vec3(0.0f),
                                               scale ? *scale : glm::vec3(1.0f));
+    }
+
+    static u64 Scene_CreateBuildBox(u64 id, MonoString* name, const glm::vec3* position,
+                                    const glm::vec3* size, const glm::vec4* color, bool runtimeOwned)
+    {
+        if (auto* scene = ScriptEngine::GetSceneContext())
+        {
+            const auto label = name ? Utils::MonoStringToString(name) : std::string{};
+            return scene->ScriptCreateBuildBox(UUID(id), label, *position, *size, *color, runtimeOwned);
+        }
+        return 0;
     }
 
     // A lookup miss is a script-authoring mistake, and the natural way to write
@@ -2499,6 +2511,57 @@ namespace OloEngine
         *outDelta = Input::GetMouseScrollDelta();
     }
 
+    static double Input_GetMouseScrollYTotal()
+    {
+        return Input::GetMouseScrollYTotal();
+    }
+
+    static bool StrategyCamera_Step(UUID cameraID, StrategyCameraState* state,
+                                    const StrategyCameraSettings* settings, f32 dt, const StrategyCameraIntent* intent)
+    {
+        static_assert(sizeof(StrategyCameraState) == 11 * sizeof(f32));
+        static_assert(sizeof(StrategyCameraSettings) == 8 * sizeof(f32));
+        static_assert(sizeof(StrategyCameraIntent) == 7 * sizeof(f32));
+
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene || !scene->GetPhysicsScene() || !std::isfinite(dt) || dt <= 0.0f ||
+            !Math::IsFinite(intent->Pan) || !Math::IsFinite(intent->Drag) ||
+            !Math::IsFinite(intent->Orbit) || !std::isfinite(intent->LogZoom) ||
+            !Math::IsFinite(settings->MinFocus) || !Math::IsFinite(settings->MaxFocus) ||
+            glm::any(glm::greaterThan(settings->MinFocus, settings->MaxFocus)) ||
+            !std::isfinite(settings->MinDistance) || !std::isfinite(settings->MaxDistance) ||
+            settings->MinDistance <= 0.0f || settings->MaxDistance < settings->MinDistance ||
+            !std::isfinite(settings->GroundTop) || !std::isfinite(settings->GroundBottom) ||
+            settings->GroundTop <= settings->GroundBottom)
+        {
+            return false;
+        }
+
+        auto entity = scene->TryGetEntityWithUUID(cameraID);
+        if (!entity || !entity->HasComponent<CameraComponent>() || entity->GetParent())
+            return false;
+
+        const SceneCamera& camera = entity->GetComponent<CameraComponent>().Camera;
+        if (camera.GetProjectionType() != SceneCamera::ProjectionType::Perspective)
+            return false;
+
+        const f32 tangent = std::tan(camera.GetPerspectiveVerticalFOV() * 0.5f);
+        const f32 aspect = camera.GetAspectRatio();
+        const f32 nearRadius = camera.GetPerspectiveNearClip() *
+                               glm::length(glm::vec3(tangent * aspect, tangent, 1.0f));
+        if (!std::isfinite(nearRadius) || nearRadius <= 0.0f)
+            return false;
+        const auto ground = [&](glm::vec2 xz, f32 radius)
+        {
+            return QueryStrategyGround(*scene->GetPhysicsScene(), xz, radius, settings->GroundBottom, settings->GroundTop);
+        };
+        const auto pose = StepStrategyCamera(*state, *settings, dt, *intent, nearRadius, ground);
+        auto& transform = entity->GetComponent<TransformComponent>();
+        transform.Translation = pose.Position;
+        transform.SetRotationEuler(pose.Rotation);
+        return true;
+    }
+
     static void Input_SetCursorMode(i32 mode)
     {
         if (mode < static_cast<i32>(CursorMode::Normal) || mode > static_cast<i32>(CursorMode::Locked))
@@ -3659,6 +3722,14 @@ namespace OloEngine
         return scene->ScreenToWorldRay(*cameraOpt, *screenPos, *outOrigin, *outDirection);
     }
 
+    static bool Camera_RenderedScreenToWorldRay(const glm::vec2* screenPos, glm::vec3* outOrigin, glm::vec3* outDirection)
+    {
+        const auto* scene = ScriptEngine::GetSceneContext();
+        *outOrigin = glm::vec3(0.0f);
+        *outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+        return scene && scene->RenderedCameraScreenToWorldRay(*screenPos, *outOrigin, *outDirection);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Rigidbody 3D, contacts, carry (issue #1559) ////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4233,6 +4304,7 @@ namespace OloEngine
 
         // Runtime spawning (issue #643)
         OLO_ADD_INTERNAL_CALL(Scene_CreateEntity);
+        OLO_ADD_INTERNAL_CALL(Scene_CreateBuildBox);
         OLO_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
         OLO_ADD_INTERNAL_CALL(Prefab_FindByPath);
         OLO_ADD_INTERNAL_CALL(Entity_Destroy);
@@ -4631,6 +4703,7 @@ namespace OloEngine
         // Camera /////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Camera_ScreenToWorldRay);
+        OLO_ADD_INTERNAL_CALL(Camera_RenderedScreenToWorldRay);
 
         ///////////////////////////////////////////////////////////////
         // Mouse Input ////////////////////////////////////////////////
@@ -4639,6 +4712,8 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_GetWindowSize);
         OLO_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
         OLO_ADD_INTERNAL_CALL(Input_GetMouseScrollDelta);
+        OLO_ADD_INTERNAL_CALL(Input_GetMouseScrollYTotal);
+        OLO_ADD_INTERNAL_CALL(StrategyCamera_Step);
         OLO_ADD_INTERNAL_CALL(Input_SetCursorMode);
         OLO_ADD_INTERNAL_CALL(Input_GetCursorMode);
 

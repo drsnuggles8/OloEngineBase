@@ -113,6 +113,7 @@ namespace OloEngine
         {
             CreateEntity,
             InstantiatePrefab,
+            CreateBuildBox,
             DestroyEntity
         };
 
@@ -125,6 +126,8 @@ namespace OloEngine
         glm::vec3 m_Translation{ 0.0f };
         glm::vec3 m_RotationEuler{ 0.0f };
         glm::vec3 m_Scale{ 1.0f };
+        glm::vec4 m_Color{ 1.0f };
+        bool m_RuntimeOwned = false;
     };
 
     // Commands own only independent string storage and scalar transform/ID fields.
@@ -137,7 +140,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Name)> &&
                                       TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Translation)> &&
                                       TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_RotationEuler)> &&
-                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Scale)>;
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Scale)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_Color)> &&
+                                      TIsTriviallyRelocatable_V<decltype(ScenePendingEntityCommand::m_RuntimeOwned)>;
     };
 
     // Marks an entity that a runtime system builds and rebuilds by itself: the
@@ -195,8 +200,8 @@ namespace OloEngine
         [[nodiscard("Store this!")]] Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
 
         // ── Script-driven runtime spawning (issue #643) ──────────────────────
-        // The three structural operations gameplay scripts (C# + Lua) may ask
-        // for. All three are DEFERRED: the request is appended to a command
+        // Structural operations gameplay scripts may ask for. These are
+        // DEFERRED: the request is appended to a command
         // queue and applied by FlushPendingEntityCommands at a drain point that
         // is guaranteed to sit outside every EnTT view/group iteration.
         //
@@ -217,7 +222,7 @@ namespace OloEngine
         // transform is part of the request rather than something the caller
         // pokes in afterwards.
         //
-        // Thread-safety: the REQUEST side (these three calls) is mutex-guarded,
+        // Thread-safety: the REQUEST side is mutex-guarded,
         // so concurrent callers cannot corrupt the queue. That alone does NOT
         // make the surface worker-safe: the APPLY side performs EnTT structural
         // changes and is game-thread-only, and IsEntityLiveForScripts falls
@@ -229,6 +234,10 @@ namespace OloEngine
         [[nodiscard("The spawned entity's UUID is the only handle to it")]] UUID
         ScriptInstantiatePrefab(AssetHandle prefabHandle, const glm::vec3& translation,
                                 const glm::vec3& rotationEuler, const glm::vec3& scale);
+        // Game-thread request for an ordinary tinted unit cube. A nonzero ID
+        // restores a previously destroyed placement after the destroy drains.
+        [[nodiscard]] UUID ScriptCreateBuildBox(UUID id, std::string_view name, const glm::vec3& position,
+                                                const glm::vec3& size, const glm::vec4& color, bool runtimeOwned = false);
         void ScriptDestroyEntity(UUID entityID);
 
         // Apply every queued command, in request order. Safe to call with an
@@ -1275,6 +1284,11 @@ namespace OloEngine
         bool ScreenToWorldRay(Entity camera, const glm::vec2& viewportUv, glm::vec3& outOrigin,
                               glm::vec3& outDirection) const;
 
+        // Use the primary camera's last rendered pose, including interpolation.
+        // False until the runtime has rendered a camera.
+        bool RenderedCameraScreenToWorldRay(const glm::vec2& viewportUv, glm::vec3& outOrigin,
+                                            glm::vec3& outDirection) const;
+
         // Where a ray first meets a pickable character's SKIN (issue #1559): over
         // every entity with an enabled PickVolumesComponent. A capsule per bone,
         // fitted to its skin at rest and carried by its CURRENT palette, is the
@@ -1617,6 +1631,7 @@ namespace OloEngine
         u32 m_ViewportHeight = 0;
         glm::vec2 m_ViewportOffset{ 0.0f, 0.0f };
         glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
+        std::optional<glm::mat4> m_LastRenderedRuntimeViewProjection;
         bool m_IsRunning = false;
         StartupScriptCall* m_ActiveStartupScript = nullptr;
         bool m_BlockCheckpointLoad = false;
@@ -2492,6 +2507,7 @@ namespace OloEngine
         // Apply one queued command. Game-thread only, and only ever called from
         // inside FlushPendingEntityCommands' drain loop.
         void ApplyPendingEntityCommand(const PendingEntityCommand& cmd);
+        void ApplyPendingBuildBox(const PendingEntityCommand& cmd);
         // Fire C# OnCreate / Lua OnCreate for a freshly spawned entity. The
         // OnRuntimeStart sweep only covers entities that existed when the
         // session started, so without this a script-spawned scripted entity

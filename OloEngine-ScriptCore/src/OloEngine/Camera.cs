@@ -13,5 +13,12 @@ namespace OloEngine
 		{
 			return InternalCalls.Camera_ScreenToWorldRay(cameraEntityID, ref screenPos, out origin, out direction);
 		}
+
+		/// <summary>Cast through the primary camera's last rendered frame, including its
+		/// interpolated pose. Uses bottom-left normalized coordinates and returns false before a frame renders.</summary>
+		public static bool RenderedScreenToWorldRay(Vector2 screenPos, out Vector3 origin, out Vector3 direction)
+		{
+			return InternalCalls.Camera_RenderedScreenToWorldRay(ref screenPos, out origin, out direction);
+		}
 	}
 }
