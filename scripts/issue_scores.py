@@ -122,7 +122,7 @@ CLOSE_LABEL = "close-recommended"
 # sweep files renderer issues); the north star is the counterweight.
 NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
 NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
-LIST_ITEM_RE = re.compile(r"^(([ \t]*)[-*+][ \t]+)(.*)$")
+LIST_ITEM_RE = re.compile(r"^([ \t]*(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)(.*)$")
 CHECKLIST_RE = re.compile(r"^\[( |x|X)\][ \t]+(.*)$")
 MARKDOWN_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
@@ -187,8 +187,8 @@ def scalar_value(val):
 def parse_north_star(text):
     """{"milestone": str, "items": [(done, text, issue numbers)]} from north-star.md.
 
-    A top-level checklist item can be filed through its descendants. Nested items
-    still need issue references on their own lines.
+    A top-level checklist item can be filed through any descendant list item.
+    Nested checklist items still need issue references on their own lines.
     """
     out = {"milestone": "", "items": []}
     m = NORTH_STAR_RE.search(text or "")
@@ -198,34 +198,46 @@ def parse_north_star(text):
             if key.strip() == "milestone":
                 out["milestone"] = scalar_value(val)
     items = out["items"]
-    root_numbers, content_column, fence = None, 0, None
+    root_numbers, content_column = None, 0
+    fence, fence_column = None, 0
     for line in (text or "").splitlines():
+        indent = line[:len(line) - len(line.lstrip(" \t"))]
+        column = len(indent.expandtabs(4))
+        nonblank = bool(line.strip())
         marker = MARKDOWN_FENCE_RE.match(line)
         if fence:
-            if marker and marker[1].startswith(fence) and not marker[2].strip():
+            if nonblank and column < fence_column:
+                # A fence inside a list ends when the list item ends.
                 fence = None
-            continue
+            else:
+                if marker and marker[1].startswith(fence) and not marker[2].strip():
+                    fence = None
+                continue
         bullet = LIST_ITEM_RE.match(line)
         if not bullet:
-            indent = line[:len(line) - len(line.lstrip())]
-            if line.strip() and len(indent.expandtabs(4)) < content_column:
+            if nonblank and column < content_column:
                 root_numbers, content_column = None, 0
             if marker:
-                fence = marker[1]
+                fence, fence_column = marker[1], content_column
             continue
-        top_level = len(bullet[2].expandtabs(4)) < content_column or content_column == 0
+        prefix, content = bullet.groups()
+        item_column = len(prefix.expandtabs(4))
+        top_level = not content_column or column < content_column
         if top_level:
-            root_numbers, content_column = None, len(bullet[1].expandtabs(4))
-        task = CHECKLIST_RE.match(bullet[3])
-        if not task:
+            root_numbers, content_column = None, item_column
+        marker = MARKDOWN_FENCE_RE.match(content)
+        if marker:
+            fence, fence_column = marker[1], item_column
             continue
-        done, item = task.groups()
-        numbers = [int(n) for n in TITLE_NUM_RE.findall(item)]
-        if top_level:
-            root_numbers = numbers
-        elif root_numbers is not None:
+        numbers = [int(n) for n in TITLE_NUM_RE.findall(content)]
+        if not top_level and root_numbers is not None:
             root_numbers.extend(n for n in numbers if n not in root_numbers)
-        items.append((done.lower() == "x", item.strip(), numbers))
+        task = CHECKLIST_RE.match(content)
+        if task:
+            if top_level:
+                root_numbers = numbers
+            done, item = task.groups()
+            items.append((done.lower() == "x", item.strip(), numbers))
     return out
 
 
@@ -1961,6 +1973,13 @@ NORTH_STAR_CASES = (
     ("a heading ends the list and fenced examples are ignored",
      "- [ ] Unfiled\n\n## Example\n\n```md\n  - [ ] Example (#23)\n```",
      "", [(False, [])]),
+    ("a fence can open in list content, with the next real item still visible",
+     "- ```md\n  - [ ] Example\n  ```\n- [ ] Real (#23)", "", [(False, [23])]),
+    ("dedenting out of a list ends an unclosed list fence",
+     "- ```md\n  - [ ] Example\n- [ ] Real (#23)", "", [(False, [23])]),
+    ("plain descendant bullets can file the parent but are not checklist rows",
+     "- [ ] Parent\n  - Child (#23)\n  1. Another child (#24)\n  - [ ] Unfiled",
+     "", [(False, [23, 24]), (False, [])]),
     ("a quoted milestone keeps its '#', the comment after the quote goes",
      '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
     ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
