@@ -327,6 +327,20 @@ TEST_F(GltfPhysicalMaterialImportTest, AuthoredBaseAlphaSurvivesTheRealGltfReade
     EXPECT_FLOAT_EQ(material.GetBaseColorFactor().r, 1.0f) << "keep the Model path's authored RGB override";
 }
 
+TEST_F(GltfPhysicalMaterialImportTest, GenericAssimpColorKeysKeepNonGltfMaterialsUnchanged)
+{
+    aiMaterial source;
+    const aiColor4D baseColor(0.5f, 0.5f, 0.5f, 0.4f);
+    const aiColor3D emissive(0.5f, 0.25f, 0.125f);
+    source.AddProperty(&baseColor, 1, AI_MATKEY_BASE_COLOR);
+    source.AddProperty(&emissive, 1, AI_MATKEY_COLOR_EMISSIVE);
+
+    Material material;
+    ImportGltfPhysicalMaterial(&source, material);
+    EXPECT_FLOAT_EQ(material.GetBaseColorFactor().a, 1.0f);
+    EXPECT_FLOAT_EQ(material.GetEmissiveFactor().r, 0.0f);
+}
+
 TEST_F(GltfPhysicalMaterialImportTest, NonFiniteNormalTextureScaleCannotReachTheMaterial)
 {
     for (const f32 scale : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity() })
