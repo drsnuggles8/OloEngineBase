@@ -88,7 +88,7 @@ namespace OloEngine
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedVelocity, RGReadUsage::ShaderSample);
         }
 
-        // The four reservoir framebuffers, each written then sampled inside this
+        // The declared reservoir framebuffers, each written then sampled inside this
         // one Execute — the same intra-pass idiom SSGISignal and
         // RayTracedShadowSignal use.
         const auto declareReservoirTarget = [&builder](RGFramebufferHandle handle)
@@ -344,8 +344,11 @@ namespace OloEngine
         const RHI::ResourceHandle surfaceHistoryID = resolveTexture(m_SelectedSurfaceHistory);
         const RHI::ResourceHandle momentsHistoryID = resolveTexture(m_SelectedMomentsHistory);
 
+        const u32 spatialPasses = SpatialPassCount();
+        const bool spatialTargetsResolved = (spatialPasses == 0u || spatialFramebuffers[0]) &&
+                                            (spatialPasses < 2u || spatialFramebuffers[1]);
         const bool graphResourcesResolved = radianceFramebuffer && initialFramebuffer && temporalFramebuffer &&
-                                            spatialFramebuffers[0] && spatialFramebuffers[1] &&
+                                            spatialTargetsResolved &&
                                             sceneDepthID.IsValid() && albedoID.IsValid() && normalID.IsValid() &&
                                             emissiveID.IsValid();
 
@@ -554,7 +557,6 @@ namespace OloEngine
         params.ResamplingCounts = glm::uvec4(m_Settings.InitialCandidates, m_Settings.SpatialNeighbours, 0u,
                                              static_cast<u32>(std::to_underlying(m_Settings.BiasMode)));
 
-        const u32 spatialPasses = m_Settings.SpatialReuse ? std::max(m_Settings.SpatialPasses, 1u) : 0u;
         m_Stats.InitialCandidatesPerPixel = m_Settings.InitialCandidates;
         m_Stats.SpatialNeighboursPerPixel = m_Settings.SpatialReuse ? m_Settings.SpatialNeighbours : 0u;
         m_Stats.SpatialPasses = spatialPasses;
