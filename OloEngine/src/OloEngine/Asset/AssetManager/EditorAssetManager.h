@@ -14,6 +14,7 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <filesystem>
+#include <array>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -71,6 +72,7 @@ namespace OloEngine
 
         void AddMemoryOnlyAsset(Ref<Asset> asset) override;
         [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;
+        [[nodiscard]] bool ReloadData(AssetHandle assetHandle, bool& retainedPreviousImage);
         void ReloadDataAsync(AssetHandle assetHandle) override;
         [[nodiscard]] bool EnsureCurrent(AssetHandle assetHandle) override;
         [[nodiscard]] bool EnsureAllLoadedCurrent() override;
@@ -372,6 +374,7 @@ namespace OloEngine
          */
         AssetHandle ImportAsset(const std::filesystem::path& filepath);
         [[nodiscard]] Ref<Texture2D> ImportTexture(const std::filesystem::path& filepath, bool srgb);
+        Ref<Asset> GetSceneTexture(AssetHandle assetHandle, bool srgb) override;
 
         /**
          * @brief Serialize the asset registry to disk
@@ -486,6 +489,10 @@ namespace OloEngine
 
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
+        std::unordered_map<AssetHandle, std::array<Ref<Asset>, 2>> m_SceneTextures;
+        // Settings changes retire the cache entries. A live scene may still
+        // hold one of those views and should continue receiving pixel reloads.
+        std::unordered_map<AssetHandle, TArray<WeakRef<Texture2D>>> m_LiveSceneTextures;
 
         // Memory-only assets (no backing file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;

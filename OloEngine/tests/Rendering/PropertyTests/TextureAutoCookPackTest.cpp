@@ -23,6 +23,7 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Project/Project.h"
@@ -36,6 +37,7 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
@@ -206,6 +208,37 @@ class TextureAutoCookPackTest : public ::testing::Test
     fs::path m_SourcePath;
     Ref<EditorAssetManager> m_AssetManager;
 };
+
+TEST_F(TextureAutoCookPackTest, AProjectRelativePrecookedTextureShipsWithoutItsSourceFile)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    const auto source = m_TempDir / "Assets" / "Precooked.olotex";
+    constexpr u32 extent = 8;
+    const auto pixels = MakeGradientRGBA(extent, extent);
+    const auto image = TextureCompression::EncodeBC7(pixels.data(), extent, extent, 4, true, true);
+    ASSERT_TRUE(TextureCompression::WriteFile(source.string(), image));
+
+    const auto handle = m_AssetManager->ImportAsset(source);
+    const auto texture = AssetManager::GetAsset<Texture2D>(handle);
+    ASSERT_TRUE(texture && texture->IsLoaded() && texture->GetHandle() == handle);
+    EXPECT_EQ(fs::path(texture->GetPath()).generic_string(), "Assets/Precooked.olotex");
+    ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
+    AssetPackBuilder::BuildSettings settings;
+    settings.m_OutputPath = m_TempDir / "precooked.olopack";
+    settings.m_IncludeScriptModule = false;
+    std::atomic<f32> progress = 0.0f;
+    const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+    ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+    ASSERT_EQ(built.m_FailedAssetCount, 0u);
+    ASSERT_TRUE(fs::remove(source));
+
+    auto runtime = Ref<RuntimeAssetManager>::Create(false);
+    ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
+    const auto restored = runtime->GetAsset(handle).As<Texture2D>();
+    ASSERT_TRUE(restored && restored->IsLoaded());
+    EXPECT_TRUE(restored->GetSpecification().SRGB);
+    EXPECT_EQ(restored->GetMipLevelCount(), texture->GetMipLevelCount());
+}
 
 TEST_F(TextureAutoCookPackTest, CompressionOnCooksSourcePngToBC7)
 {

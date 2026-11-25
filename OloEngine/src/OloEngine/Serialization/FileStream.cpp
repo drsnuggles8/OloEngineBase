@@ -46,6 +46,19 @@ namespace OloEngine
         }
     }
 
+    std::optional<u64> FileStreamReader::GetStreamSize()
+    {
+        const auto position = m_Stream.tellg();
+        if (position == std::streampos(-1))
+            return std::nullopt;
+        m_Stream.seekg(0, std::ios::end);
+        const auto size = m_Stream.tellg();
+        m_Stream.seekg(position);
+        if (size == std::streampos(-1) || !m_Stream)
+            return std::nullopt;
+        return static_cast<u64>(size);
+    }
+
     bool FileStreamReader::ReadData(char* destination, sizet size)
     {
         m_Stream.read(destination, size);

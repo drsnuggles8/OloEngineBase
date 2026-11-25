@@ -465,6 +465,7 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        OLO_SERIALIZE(TextureSRGB)
         Ref<Texture2D> Texture = nullptr;
         OLO_PROPERTY()
         f32 TilingFactor = 1.0f;
@@ -4232,6 +4233,7 @@ namespace OloEngine
 
     struct UIImageComponent
     {
+        OLO_SERIALIZE(TextureSRGB)
         Ref<Texture2D> m_Texture = nullptr;
         OLO_PROPERTY()
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -4248,6 +4250,7 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         glm::vec4 m_BackgroundColor = { 0.2f, 0.2f, 0.2f, 1.0f };
+        OLO_SERIALIZE(TextureSRGB)
         Ref<Texture2D> m_BackgroundTexture = nullptr;
 
         UIPanelComponent() = default;
@@ -7787,9 +7790,13 @@ namespace OloEngine
 
     struct DecalComponent
     {
+        OLO_SERIALIZE(TextureSRGB)
         Ref<Texture2D> m_AlbedoTexture = nullptr;
-        Ref<Texture2D> m_NormalTexture = nullptr;   // Tangent-space normal map (Normal mode)
-        Ref<Texture2D> m_RMATexture = nullptr;      // R=Roughness, G=Metallic, B=AO (RMA mode)
+        OLO_SERIALIZE(TextureLinear)
+        Ref<Texture2D> m_NormalTexture = nullptr; // Tangent-space normal map (Normal mode)
+        OLO_SERIALIZE(TextureLinear)
+        Ref<Texture2D> m_RMATexture = nullptr; // R=Roughness, G=Metallic, B=AO (RMA mode)
+        OLO_SERIALIZE(TextureSRGB)
         Ref<Texture2D> m_EmissiveTexture = nullptr; // RGB=emissive, A=mask (Emissive mode)
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         glm::vec4 m_Color = { 1.0f, 1.0f, 1.0f, 1.0f };

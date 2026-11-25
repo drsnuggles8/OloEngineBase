@@ -12,6 +12,8 @@ namespace OloEngine
       public:
         explicit OpenGLTexture2D(const TextureSpecification& specification);
         explicit OpenGLTexture2D(const std::string& path, bool srgb = false, const std::string& identityPath = "");
+        OpenGLTexture2D(const DecodedImage& image, bool srgb, bool generateMips, std::string_view identityPath,
+                        bool preserveAlphaCoverage);
         // Upload an offline block-compressed (BC7/BC5) mip chain (#440). Falls back to
         // CPU-decompressed RGBA8 when the driver lacks BPTC/RGTC support.
         explicit OpenGLTexture2D(const CompressedTextureImage& compressedImage);

@@ -278,15 +278,17 @@ namespace OloEngine
                        static_cast<u64>(Pixels.Num()) == static_cast<u64>(Width) * Height * Channels;
             }
         };
-        [[nodiscard]] bool DecodeReloadSource(DecodedImage& out) const;
+        [[nodiscard]] bool DecodeReloadSource(DecodedImage& out, const std::filesystem::path& sourcePath = {}) const;
         bool ApplyReload(const DecodedImage& image);
 
         // A hot reload of `texture` in place, through the gate the renderer installed (its
         // memory admission defers an upload that does not fit the budget, #1764), or
         // straight through Reload() when none is. True when the reload was applied or
         // accepted for a later frame; false where Reload() would refuse.
-        using ReloadGate = bool (*)(Ref<Texture2D> texture);
-        static bool ReloadInPlace(Ref<Texture2D> texture);
+        // An empty decoded image tells the gate to discard an older pending
+        // reload for this texture after the newest source failed to decode.
+        using ReloadGate = bool (*)(Ref<Texture2D> texture, DecodedImage image);
+        static bool ReloadInPlace(Ref<Texture2D> texture, const std::filesystem::path& sourcePath = {});
         static void SetReloadGate(ReloadGate gate);
 
         // Resolve a stored source path (what GetPath() reports) to a path the
@@ -318,6 +320,9 @@ namespace OloEngine
         // BPTC/RGTC support the blocks are decompressed on the CPU and uploaded as an
         // uncompressed RGBA8 texture so nothing breaks (#440).
         static Ref<Texture2D> Create(const CompressedTextureImage& compressedImage);
+        // A scene texture can upload the same encoded source from disk or a pack.
+        static Ref<Texture2D> CreateFromEncodedImage(std::span<const u8> bytes, bool srgb, bool generateMips,
+                                                     std::string_view identityPath, bool preserveAlphaCoverage = false);
         // Load a texture from disk. Pass srgb=true for color textures (albedo,
         // emissive, UI) so the GPU converts samples from sRGB to linear on
         // read. Leave srgb=false (default) for data textures (normal map,
@@ -339,5 +344,8 @@ namespace OloEngine
         {
             return GetStaticType();
         }
+
+      protected:
+        bool m_DecodeSceneColor = false;
     };
 } // namespace OloEngine

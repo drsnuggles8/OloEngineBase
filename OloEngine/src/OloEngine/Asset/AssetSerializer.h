@@ -33,6 +33,7 @@ namespace OloEngine
     class PhysicsMaterial;
     class Prefab;
     class Scene;
+    class Texture2D;
     class ScriptFileAsset;
     class SoundConfigAsset;
     class AnimationAsset;
@@ -215,6 +216,15 @@ namespace OloEngine
         // bytes encode colour (albedo / emissive) or linear data (normal /
         // metallic / roughness / AO / height). Returns true for colour.
         [[nodiscard]] static bool IsLikelyColorTextureByName(std::string_view filename);
+        [[nodiscard]] static bool IsCookedSource(const std::filesystem::path& path);
+        [[nodiscard]] static Ref<Texture2D> LoadSceneTexture(const std::filesystem::path& source,
+                                                             const AssetMetadata& metadata, bool srgb);
+        [[nodiscard]] static bool SerializeSceneTextureSource(AssetHandle handle, FileStreamWriter& stream,
+                                                              AssetSerializationInfo& outInfo,
+                                                              const AssetMetadata& metadata);
+        [[nodiscard]] static Ref<Texture2D> DeserializeSceneTexture(FileStreamReader& stream,
+                                                                    const AssetPackFile::AssetInfo& assetInfo,
+                                                                    bool srgb);
 
         // Asset-pack cook policy (#440). When enabled, SerializeToAssetPack BC-compresses
         // an uncompressed source texture (BC7 for colour/linear, BC6H for HDR) into an
@@ -238,6 +248,8 @@ namespace OloEngine
         [[nodiscard]] static std::optional<bool> GetAssetPackColorSpaceIntent(AssetHandle handle);
 
       private:
+        [[nodiscard]] static bool SerializeTexture(AssetHandle handle, FileStreamWriter& stream,
+                                                   AssetSerializationInfo& outInfo, const AssetMetadata* sceneSource);
         static std::atomic<bool> s_AssetPackCompressionEnabled;
     };
 
@@ -352,6 +364,7 @@ namespace OloEngine
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        [[nodiscard]] bool SerializeToAssetPack(const Ref<Prefab>& prefab, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
         // NOTE: not off-thread-safe — prefab deserialization resolves referenced assets
         // (AssetManager::GetAsset<...>) which may create GPU resources.
@@ -374,6 +387,7 @@ namespace OloEngine
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        [[nodiscard]] bool SerializeToAssetPack(const Ref<Scene>& scene, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
         Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const override;
         // NOTE: not off-thread-safe — scene deserialization resolves referenced assets

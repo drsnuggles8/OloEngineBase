@@ -2,6 +2,7 @@
 #include "EditorAssetManager.h"
 
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Localization/LocalizationManager.h"
@@ -14,6 +15,7 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -27,6 +29,7 @@
 #include <cctype>
 #include <future>
 #include <filesystem>
+#include <string_view>
 
 #if OLO_ASYNC_ASSETS
 #ifdef _MSC_VER
@@ -252,6 +255,8 @@ namespace OloEngine
         {
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             m_LoadedAssets.clear();
+            m_SceneTextures.clear();
+            m_LiveSceneTextures.clear();
             m_MemoryAssets.clear();
         }
 
@@ -357,7 +362,14 @@ namespace OloEngine
 
     bool EditorAssetManager::ReloadData(AssetHandle assetHandle)
     {
+        bool retainedPreviousImage = false;
+        return ReloadData(assetHandle, retainedPreviousImage);
+    }
+
+    bool EditorAssetManager::ReloadData(AssetHandle assetHandle, bool& retainedPreviousImage)
+    {
         OLO_PROFILER_SCOPE("EditorAssetManager::ReloadData");
+        retainedPreviousImage = false;
 
         // Capture metadata values under registry lock for thread safety
         AssetMetadata metadata;
@@ -386,22 +398,54 @@ namespace OloEngine
         // next bind (issue #544).
         Ref<Asset> asset;
         bool reloadedInPlace = false; // LoadAssetFromFile sets the status itself; this path does not
-        if (type == AssetType::Texture2D)
+        bool failedInPlace = false;
+        if (type == AssetType::Texture2D && !TextureSerializer::IsCookedSource(path))
         {
             Ref<Asset> existing;
+            TArray<Ref<Texture2D>> sceneTextures;
             {
                 TSharedLock<FSharedMutex> lock(m_AssetsMutex);
                 if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
                     existing = it->second;
+                if (auto it = m_LiveSceneTextures.find(assetHandle); it != m_LiveSceneTextures.end())
+                {
+                    for (const auto& live : it->second)
+                        if (auto variant = live.Lock())
+                            sceneTextures.Add(MoveTemp(variant));
+                }
             }
 
-            // Through the renderer's reload gate: under memory pressure the upload waits
-            // for room (#1764), and the old pixels stay on screen until then.
-            if (auto texture = existing.As<Texture2D>(); texture && Texture2D::ReloadInPlace(texture))
+            // The registry is authoritative even for async-loaded textures
+            // whose GPU object does not store a source path.
+            const auto source = GetFileSystemPath(metadata);
+            const auto reloadTexture = [&](const Ref<Texture2D>& texture)
             {
-                OLO_CORE_TRACE("Reloaded texture in place: {} (handle {})", path.string(), (u64)assetHandle);
-                asset = existing; // same cached object, refreshed contents — Refs stay valid
-                reloadedInPlace = true;
+                const bool accepted = Texture2D::ReloadInPlace(texture, source);
+                if (!accepted)
+                {
+                    failedInPlace = true;
+                    retainedPreviousImage |= texture->IsLoaded();
+                }
+                return accepted;
+            };
+            for (const auto& variant : sceneTextures)
+                (void)reloadTexture(variant);
+
+            if (auto texture = existing.As<Texture2D>();
+                texture && texture->GetHandle() == assetHandle &&
+                !IsCompressedFormat(texture->GetSpecification().Format))
+            {
+                // Keep this object in the cache even when the edit is invalid.
+                // The next valid edit must update the same material bindings.
+                asset = existing;
+                reloadedInPlace = reloadTexture(texture);
+            }
+            else if (!sceneTextures.IsEmpty() && (!existing || PlaceholderAssetManager::IsPlaceholderAsset(existing)))
+            {
+                // A slot-only source can reload its live views without
+                // eagerly allocating a second, canonical GPU texture.
+                asset = sceneTextures[0];
+                reloadedInPlace = !failedInPlace;
             }
         }
 
@@ -470,13 +514,25 @@ namespace OloEngine
                 {
                     OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", current.FilePath.string(), ec.message());
                 }
-                if (reloadedInPlace)
+                if (failedInPlace)
+                {
+                    current.Status = AssetStatus::Failed;
+                }
+                else if (reloadedInPlace)
                 {
                     current.Status = AssetStatus::Loaded;
                 }
                 m_AssetRegistry.UpdateMetadata(assetHandle, current);
             }
         }
+
+        if (failedInPlace)
+        {
+            OLO_CORE_WARN("Texture reload failed for '{}' (last usable image retained: {})", path.string(), retainedPreviousImage);
+            return false;
+        }
+        if (type == AssetType::Texture2D && PlaceholderAssetManager::IsPlaceholderAsset(asset))
+            return false;
 
         // Track reload generation for stale-handle detection
         IncrementAssetGeneration(assetHandle);
@@ -672,6 +728,8 @@ namespace OloEngine
         {
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             m_LoadedAssets.erase(handle);
+            m_SceneTextures.erase(handle);
+            m_LiveSceneTextures.erase(handle);
             m_MemoryAssets.erase(handle);
         }
 
@@ -687,9 +745,11 @@ namespace OloEngine
     void EditorAssetManager::UnloadLoadedAssets()
     {
         std::unordered_map<AssetHandle, Ref<Asset>> released;
+        decltype(m_SceneTextures) releasedSceneTextures;
         {
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             released.swap(m_LoadedAssets);
+            releasedSceneTextures.swap(m_SceneTextures);
         }
         // Destroyed outside the lock: an asset destructor may reach back into the
         // manager (dependency deregistration, GPU resource release).
@@ -919,20 +979,37 @@ namespace OloEngine
         if (!SerializeAssetRegistry())
             return nullptr;
 
-        const auto texture = GetAsset(handle).As<Texture2D>();
-        if (!texture || !texture->IsLoaded() || texture->GetSpecification().SRGB == srgb)
-            return texture;
+        return GetSceneTexture(handle, srgb).As<Texture2D>();
+    }
 
-        // Keep the dropped slot's preview color space without changing the shared
-        // asset. Saving still writes the registered source handle.
+    Ref<Asset> EditorAssetManager::GetSceneTexture(AssetHandle handle, bool srgb)
+    {
         const auto metadata = GetMetadata(handle);
-        auto preview = Texture2D::Create(GetFileSystemPath(metadata).string(), srgb, metadata.FilePath.string());
-        if (preview && preview->IsLoaded())
+        if (!metadata.IsValid() || TextureSerializer::IsCookedSource(metadata.FilePath))
+            return GetAsset(handle); // A cooked container already fixes the format and mip chain.
+        if (metadata.Type != AssetType::Texture2D)
+            return nullptr;
+
         {
-            preview->SetHandle(handle);
-            return preview;
+            TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+            if (const auto it = m_SceneTextures.find(handle); it != m_SceneTextures.end() && it->second[srgb])
+                return it->second[srgb];
         }
-        return texture;
+
+        auto texture = TextureSerializer::LoadSceneTexture(GetFileSystemPath(metadata), metadata, srgb);
+        if (!texture)
+            return nullptr;
+        TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+        auto& cached = m_SceneTextures[handle][srgb];
+        if (!cached)
+        {
+            cached = texture;
+            auto& live = m_LiveSceneTextures[handle];
+            live.RemoveAll([](const auto& entry)
+                           { return !entry.IsValid(); });
+            live.Add(WeakRef<Texture2D>(texture));
+        }
+        return cached;
     }
 
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
@@ -1090,6 +1167,23 @@ namespace OloEngine
         {
             for (auto& pending : rawAssets)
             {
+                if (pending.Metadata.Type == AssetType::Texture2D)
+                {
+                    const auto current = GetMetadata(pending.Metadata.Handle);
+                    if (!current.IsValid() || current.Type != pending.Metadata.Type ||
+                        current.FilePath != pending.Metadata.FilePath ||
+                        current.LastWriteTime != pending.Metadata.LastWriteTime)
+                        continue;
+                    TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+                    if (const auto it = m_LoadedAssets.find(pending.Metadata.Handle);
+                        it != m_LoadedAssets.end() && it->second && it->second->GetHandle() == pending.Metadata.Handle)
+                    {
+                        // A late raw decode must not replace a texture that
+                        // has already been integrated or loaded synchronously.
+                        continue;
+                    }
+                }
+
                 Ref<Asset> asset;
                 if (AssetImporter::FinalizeFromRawData(pending.Metadata, pending.RawData, asset))
                 {
@@ -1470,6 +1564,26 @@ namespace OloEngine
     {
         // Convert to filesystem path for easier manipulation
         std::filesystem::path filePath(file);
+        const auto pathsEqual = [](std::string_view lhs, std::string_view rhs)
+        {
+#ifdef _WIN32
+            return std::ranges::equal(lhs, rhs, [](unsigned char a, unsigned char b)
+                                      { return std::tolower(a) == std::tolower(b); });
+#else
+            return lhs == rhs;
+#endif
+        };
+        const auto watchedHandle = [this, pathsEqual](const std::filesystem::path& path) -> AssetHandle
+        {
+            if (const auto exact = GetAssetHandleFromFilePath(path); exact != 0)
+                return exact;
+            const auto key = path.generic_string();
+            TSharedLock<FSharedMutex> lock(m_RegistryMutex);
+            for (const auto& metadata : m_AssetRegistry.GetAllAssets())
+                if (metadata.IsValid() && pathsEqual(key, metadata.FilePath.generic_string()))
+                    return metadata.Handle;
+            return 0;
+        };
 
         // Accept events that mean "this file now exists / changed at this path":
         // added (new file), modified (edited), and renamed_new (the common
@@ -1495,6 +1609,20 @@ namespace OloEngine
             else
             {
                 ItemDatabase::Clear();
+            }
+            return;
+        }
+        if (pathsEqual(filePath.extension().string(), TextureImport::kSidecarExtension))
+        {
+            auto sourcePath = filePath;
+            sourcePath.replace_extension();
+            // Filewatch dispatches this callback on the game thread. Retire
+            // cached settings also on removal and rename-away.
+            const auto handle = watchedHandle(sourcePath);
+            decltype(m_SceneTextures)::node_type retired;
+            {
+                TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+                retired = m_SceneTextures.extract(handle);
             }
             return;
         }
@@ -1532,40 +1660,8 @@ namespace OloEngine
 
         try
         {
-            // The file watcher gives us paths relative to the project root
-            // So we can use the path directly for asset registry lookup
-            std::filesystem::path assetPath = filePath;
-
-            // Normalize the path separators to match asset registry format
-            std::string pathStr = assetPath.generic_string();
-
-            // Find the asset handle for this file
-            AssetHandle assetHandle = 0;
-            {
-                TSharedLock<FSharedMutex> registryLock(m_RegistryMutex);
-                auto allAssets = m_AssetRegistry.GetAllAssets();
-                for (const auto& metadata : allAssets)
-                {
-                    if (!metadata.IsValid())
-                        continue;
-
-                    // Compare normalized paths as strings (case insensitive for Windows)
-                    std::string registryPath = metadata.FilePath.generic_string();
-
-                    // Windows is case-insensitive, so compare lowercase
-                    constexpr auto toLowerChar = [](unsigned char c)
-                    { return static_cast<char>(std::tolower(c)); };
-                    std::ranges::transform(pathStr, pathStr.begin(), toLowerChar);
-                    std::ranges::transform(registryPath, registryPath.begin(), toLowerChar);
-
-                    if (pathStr == registryPath)
-                    {
-                        assetHandle = metadata.Handle;
-                        break;
-                    }
-                }
-            }
-
+            const auto pathStr = filePath.generic_string();
+            const auto assetHandle = watchedHandle(filePath);
             const bool alreadyTracked = (assetHandle != 0);
 
             // Resolve the absolute path once for the existence check and import.
@@ -1579,6 +1675,13 @@ namespace OloEngine
             decision.Type = assetType;
             decision.AlreadyTracked = alreadyTracked;
             decision.CurrentlyLoaded = alreadyTracked && IsAssetLoaded(assetHandle);
+            if (alreadyTracked && !decision.CurrentlyLoaded && assetType == AssetType::Texture2D)
+            {
+                TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+                if (const auto it = m_LiveSceneTextures.find(assetHandle); it != m_LiveSceneTextures.end())
+                    decision.CurrentlyLoaded = std::ranges::any_of(it->second, [](const auto& entry)
+                                                                   { return entry.IsValid(); });
+            }
             {
                 std::error_code statEc;
                 decision.ExistsAsRegularFile = std::filesystem::is_regular_file(absolutePath, statEc) && !statEc;

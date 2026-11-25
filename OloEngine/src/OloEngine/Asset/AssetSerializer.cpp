@@ -10,6 +10,7 @@
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCompression.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
@@ -69,6 +70,110 @@
 
 namespace OloEngine
 {
+    // Registry paths are project-relative. Absolute paths and callers without
+    // an active project retain their existing filesystem path.
+    static std::filesystem::path ResolveProjectAssetPath(const AssetMetadata& metadata)
+    {
+        if (Project::GetActive())
+            return Project::GetProjectDirectory() / metadata.FilePath;
+        return metadata.FilePath;
+    }
+
+    namespace
+    {
+        // A v9 scene-source prefix carries the byte count, import settings, source
+        // identity and encoded image. The ordinary texture payload follows it.
+        constexpr u8 kSceneGenerateMips = 1u << 0;
+        constexpr u8 kSceneColorOverride = 1u << 1;
+        constexpr u8 kSceneColorSRGB = 1u << 2;
+        constexpr u8 kSceneAlphaCoverage = 1u << 3;
+        constexpr u8 kSceneTextureSettingsMask = kSceneGenerateMips | kSceneColorOverride | kSceneColorSRGB | kSceneAlphaCoverage;
+        constexpr u64 kSceneSourceHeaderSize = sizeof(u32) + sizeof(u8) + sizeof(u16);
+        constexpr u64 kMinTexturePayloadSize = 3 * sizeof(u32) + 4 * sizeof(bool) + sizeof(u64) + sizeof(i64);
+        constexpr u32 kMaxSceneSourceSize = static_cast<u32>(std::numeric_limits<int>::max());
+
+        u8 SceneTextureSettings(const std::filesystem::path& source)
+        {
+            TextureImportSettings settings;
+            if (!TextureImport::LoadForImage(source.string(), settings))
+                return kSceneGenerateMips;
+            u8 bits = settings.GenerateMips.value_or(true) ? kSceneGenerateMips : 0;
+            if (settings.ColorSpace != TextureImportSettings::ColorSpaceChoice::Auto)
+                bits |= kSceneColorOverride;
+            if (settings.ColorSpace == TextureImportSettings::ColorSpaceChoice::SRGB)
+                bits |= kSceneColorSRGB;
+            if (settings.AlphaMipChain == TextureImportSettings::AlphaMipChainChoice::Coverage)
+                bits |= kSceneAlphaCoverage;
+            return bits;
+        }
+
+        bool SceneTextureSRGB(u8 settings, bool slotSRGB)
+        {
+            return (settings & kSceneColorOverride) ? (settings & kSceneColorSRGB) != 0 : slotSRGB;
+        }
+
+        TArray<u8> ReadSceneTextureSource(const std::filesystem::path& source)
+        {
+            std::ifstream file(source, std::ios::binary | std::ios::ate);
+            const auto size = file.tellg();
+            if (size <= 0 || size > static_cast<std::streamoff>(kMaxSceneSourceSize))
+                return {};
+            TArray<u8> bytes;
+            bytes.SetNumUninitialized(static_cast<i32>(size));
+            file.seekg(0);
+            if (!file.read(reinterpret_cast<char*>(bytes.GetData()), static_cast<std::streamsize>(size)))
+                return {};
+            return bytes;
+        }
+
+        struct PackedSceneSource
+        {
+            u64 Offset = 0;
+            u32 Size = 0;
+            u8 Settings = 0;
+            std::string Identity;
+        };
+
+        std::optional<PackedSceneSource> ReadPackedSceneSource(FileStreamReader& stream, const AssetPackFile::AssetInfo& info)
+        {
+            PackedSceneSource source;
+            constexpr u64 fixedSize = kSceneSourceHeaderSize + kMinTexturePayloadSize;
+            const auto streamSize = stream.GetStreamSize();
+            if (!streamSize || info.PackedOffset > *streamSize ||
+                info.PackedSize <= fixedSize || info.PackedSize > *streamSize - info.PackedOffset)
+                return std::nullopt;
+            stream.SetStreamPosition(info.PackedOffset);
+            u16 pathSize = 0;
+            if (!stream.ReadData(reinterpret_cast<char*>(&source.Size), sizeof(source.Size)) ||
+                !stream.ReadData(reinterpret_cast<char*>(&source.Settings), sizeof(source.Settings)) ||
+                !stream.ReadData(reinterpret_cast<char*>(&pathSize), sizeof(pathSize)) ||
+                source.Size == 0 || source.Size > kMaxSceneSourceSize ||
+                static_cast<u64>(source.Size) + pathSize > info.PackedSize - fixedSize ||
+                (source.Settings & ~kSceneTextureSettingsMask) != 0)
+                return std::nullopt;
+            source.Identity.resize(pathSize);
+            if (!stream.ReadData(source.Identity.data(), source.Identity.size()))
+                return std::nullopt;
+            source.Offset = stream.GetStreamPosition();
+            return source;
+        }
+
+        Ref<Texture2D> UploadPackedSceneSource(FileStreamReader& stream, const PackedSceneSource& source,
+                                               bool srgb, bool generateMips, bool preserveAlphaCoverage = false)
+        {
+            TArray<u8> bytes;
+            bytes.SetNumUninitialized(static_cast<i32>(source.Size));
+            stream.SetStreamPosition(source.Offset);
+            if (!stream.ReadData(reinterpret_cast<char*>(bytes.GetData()), bytes.Num()))
+                return nullptr;
+            auto texture = Texture2D::CreateFromEncodedImage({ bytes.GetData(), static_cast<sizet>(bytes.Num()) },
+                                                             srgb, generateMips, source.Identity, preserveAlphaCoverage);
+            if (!texture || !texture->IsLoaded())
+                return nullptr;
+            return texture;
+        }
+    } // namespace
+
     Ref<Scene> AssetSerializer::DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
     {
         return nullptr;
@@ -361,7 +466,59 @@ namespace OloEngine
         return true;
     }
 
+    bool TextureSerializer::IsCookedSource(const std::filesystem::path& path)
+    {
+        return IsOloTexPath(path);
+    }
+
+    Ref<Texture2D> TextureSerializer::LoadSceneTexture(const std::filesystem::path& source,
+                                                       const AssetMetadata& metadata, bool srgb)
+    {
+        const auto bytes = ReadSceneTextureSource(source);
+        if (bytes.IsEmpty())
+        {
+            OLO_CORE_ERROR("TextureSerializer: could not read scene texture '{}'", source.string());
+            return nullptr;
+        }
+        const u8 settings = SceneTextureSettings(source);
+        auto texture = Texture2D::CreateFromEncodedImage({ bytes.GetData(), static_cast<sizet>(bytes.Num()) },
+                                                         SceneTextureSRGB(settings, srgb), (settings & kSceneGenerateMips) != 0,
+                                                         metadata.FilePath.string(), (settings & kSceneAlphaCoverage) != 0);
+        if (!texture || !texture->IsLoaded())
+            return nullptr;
+        texture->SetHandle(metadata.Handle);
+        return texture;
+    }
+
     bool TextureSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
+        return SerializeTexture(handle, stream, outInfo, nullptr);
+    }
+
+    bool TextureSerializer::SerializeSceneTextureSource(AssetHandle handle, FileStreamWriter& stream,
+                                                        AssetSerializationInfo& outInfo, const AssetMetadata& metadata)
+    {
+        return SerializeTexture(handle, stream, outInfo, &metadata);
+    }
+
+    Ref<Texture2D> TextureSerializer::DeserializeSceneTexture(FileStreamReader& stream,
+                                                              const AssetPackFile::AssetInfo& assetInfo, bool srgb)
+    {
+        if (const auto source = ReadPackedSceneSource(stream, assetInfo))
+        {
+            auto texture = UploadPackedSceneSource(stream, *source, SceneTextureSRGB(source->Settings, srgb),
+                                                   (source->Settings & kSceneGenerateMips) != 0,
+                                                   (source->Settings & kSceneAlphaCoverage) != 0);
+            if (texture)
+                texture->SetHandle(assetInfo.Handle);
+            return texture;
+        }
+        OLO_CORE_ERROR("TextureSerializer: invalid packed scene texture source for {}; rebuild the pack", assetInfo.Handle);
+        return nullptr;
+    }
+
+    bool TextureSerializer::SerializeTexture(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo,
+                                             const AssetMetadata* sceneSource)
     {
         auto texture = AssetManager::GetAsset<Texture2D>(handle);
         if (!texture)
@@ -373,7 +530,28 @@ namespace OloEngine
         outInfo.Offset = stream.GetStreamPosition();
 
         const auto& spec = texture->GetSpecification();
-        const auto path = texture->GetPath();
+        const auto path = sceneSource ? sceneSource->FilePath.string() : std::string(texture->GetPath());
+        const std::filesystem::path cookSource = sceneSource ? ResolveProjectAssetPath(*sceneSource)
+                                                             : Texture2D::ResolveStoredSourcePath(path);
+
+        if (sceneSource)
+        {
+            // Both interpretations share the original encoded pixels. The same backend
+            // generates each view's mips in loose and packed mode, independently of the
+            // optional BC material payload and its #1462 colour-space policy.
+            const auto bytes = ReadSceneTextureSource(cookSource);
+            if (bytes.IsEmpty() || path.size() > std::numeric_limits<u16>::max())
+            {
+                OLO_CORE_ERROR("TextureSerializer: could not embed scene texture source '{}'", cookSource.string());
+                return false;
+            }
+            stream.WriteRaw(static_cast<u32>(bytes.Num()));
+            stream.WriteRaw(SceneTextureSettings(cookSource));
+            stream.WriteRaw(static_cast<u16>(path.size()));
+            if (!stream.WriteData(path.data(), path.size()) ||
+                !stream.WriteData(reinterpret_cast<const char*>(bytes.GetData()), bytes.Num()))
+                return false;
+        }
 
         // The colour space the material slots that reference this texture want (#1462),
         // when the pack build knows one. The live texture's spec.SRGB is the asset
@@ -397,7 +575,6 @@ namespace OloEngine
         // check is non-throwing, which this path requires — a filesystem error (permissions,
         // bad path) must fall through to the uncompressed raw record, never propagate up to
         // BuildImpl and abort the whole pack build over one texture.
-        const std::filesystem::path cookSource = Texture2D::ResolveStoredSourcePath(path);
         if (IsAssetPackCompressionEnabled() && !IsCompressedFormat(spec.Format) &&
             !path.empty() && !IsOloTexPath(path) && !cookSource.empty())
         {
@@ -479,7 +656,7 @@ namespace OloEngine
             }
             else if (!path.empty())
             {
-                std::ifstream file(std::string(path), std::ios::binary | std::ios::ate);
+                std::ifstream file(cookSource, std::ios::binary | std::ios::ate);
                 if (file)
                 {
                     const std::streamsize sz = file.tellg();
@@ -509,6 +686,14 @@ namespace OloEngine
     Ref<Asset> TextureSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
     {
         stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::optional<PackedSceneSource> sceneSource;
+        if (assetInfo.Flags & AssetPackFile::TextureWithSceneSource)
+        {
+            sceneSource = ReadPackedSceneSource(stream, assetInfo);
+            if (!sceneSource)
+                return nullptr;
+            stream.SetStreamPosition(sceneSource->Offset + sceneSource->Size);
+        }
 
         // Read texture metadata
         u32 width;
@@ -553,6 +738,14 @@ namespace OloEngine
         }
         bool srgb = false;
         stream.ReadRaw(srgb);
+
+        if (sceneSource && !IsCompressedFormat(format))
+        {
+            auto texture = UploadPackedSceneSource(stream, *sceneSource, srgb, generateMips);
+            if (texture)
+                texture->SetHandle(assetInfo.Handle);
+            return texture;
+        }
 
         // Block-compressed textures (#440) embed the whole .olotex container blob after
         // the srgb byte (see SerializeToAssetPack). Reconstruct the GPU texture straight
@@ -1800,17 +1993,6 @@ namespace OloEngine
     // PrefabSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    // Registry paths are project-relative. Absolute paths and callers without
-    // an active project retain their existing filesystem path.
-    static std::filesystem::path ResolveProjectAssetPath(const AssetMetadata& metadata)
-    {
-        if (Project::GetActive())
-        {
-            return Project::GetProjectDirectory() / metadata.FilePath;
-        }
-        return metadata.FilePath;
-    }
-
     bool PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<Prefab> prefab = asset.As<Prefab>();
@@ -1854,7 +2036,11 @@ namespace OloEngine
 
     bool PrefabSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+        return SerializeToAssetPack(AssetManager::GetAsset<Prefab>(handle), stream, outInfo);
+    }
+
+    bool PrefabSerializer::SerializeToAssetPack(const Ref<Prefab>& prefab, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
         if (!prefab)
         {
             OLO_CORE_ERROR("PrefabSerializer::SerializeToAssetPack - Failed to get prefab asset");
@@ -2000,7 +2186,11 @@ namespace OloEngine
 
     bool SceneAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
     {
-        auto scene = AssetManager::GetAsset<Scene>(handle);
+        return SerializeToAssetPack(AssetManager::GetAsset<Scene>(handle), stream, outInfo);
+    }
+
+    bool SceneAssetSerializer::SerializeToAssetPack(const Ref<Scene>& scene, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
         if (!scene)
         {
             OLO_CORE_ERROR("SceneAssetSerializer::SerializeToAssetPack - Invalid scene asset");

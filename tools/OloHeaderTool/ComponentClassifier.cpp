@@ -698,11 +698,14 @@ namespace OloHeaderTool
             // already stripped above, so OLO_SERIALIZE is the statement prefix here.
             bool fieldHasClamp = false;
             bool fieldHasReject = false;
+            std::optional<bool> textureSRGB;
             std::optional<std::string> fieldClampMin, fieldClampMax;
             if (std::string serArgs, serRest; PeelSerializeMarker(s, serArgs, serRest))
             {
                 if (SerializeArgsHaveSkip(serArgs))
                     continue; // runtime-only field — not serialized, not non-trivial
+                if (const auto mode = Trim(serArgs); mode == "TextureSRGB" || mode == "TextureLinear")
+                    textureSRGB = mode == "TextureSRGB";
                 fieldHasClamp = SerializeArgsClampBounds(serArgs, fieldClampMin, fieldClampMax, fieldHasReject);
                 s = serRest; // peel the annotation; the field then serializes normally
                 if (s.empty())
@@ -887,7 +890,8 @@ namespace OloHeaderTool
                 }
                 std::string leaf = LeafTypeName(inner);
                 if (inner.find('<') != std::string::npos || !assetTypes.contains(leaf) ||
-                    !IsIdentifier(rest) || !publicSection || fieldHasClamp || fieldHasReject)
+                    !IsIdentifier(rest) || !publicSection || fieldHasClamp || fieldHasReject ||
+                    (textureSRGB && leaf != "Texture2D"))
                 {
                     // Ref<non-asset-type> / Ref<Ref<T>> / bad name, a non-public member the
                     // serializer can't reach as comp.member, or a Clamp annotation on a Ref
@@ -900,7 +904,14 @@ namespace OloHeaderTool
                 f.key = StripPrefix(rest, "m_");
                 f.type = PropType::Ref;
                 f.refType = inner;
+                f.textureSRGB = textureSRGB;
                 info.fields.push_back(f);
+                continue;
+            }
+
+            if (textureSRGB)
+            {
+                ambiguous = true; // Scene texture intent requires a Ref<Texture2D>.
                 continue;
             }
 

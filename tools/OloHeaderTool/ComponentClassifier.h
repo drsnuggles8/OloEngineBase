@@ -154,6 +154,8 @@ namespace OloHeaderTool
         // unsupported type / with neither bound, marks the whole component
         // non-trivial rather than silently dropping the annotation.
         bool hasReject{ false };
+        // Scene texture slots interpret the stored source handle in this colour space.
+        std::optional<bool> textureSRGB;
 
         // Populated only when type == PropType::Ref: the spelling of T in `Ref<T>`
         // (elaborated-type keyword already peeled), used for the generated

@@ -343,7 +343,14 @@ namespace OloEngine
     bool Renderer3D::ReplaceTextureContents(Ref<Texture2D> texture, Texture2D::DecodedImage image)
     {
         auto& state = s_Data.MemoryAdmission;
-        if (!texture || !image.IsValid())
+        if (!texture)
+            return false;
+
+        // Even a failed edit supersedes an older pending upload. Keep the
+        // last image that actually made it to the GPU until a later valid edit.
+        std::erase_if(state.PendingReloads, [&texture](const PendingTextureReload& pending)
+                      { return pending.Texture == texture; });
+        if (!image.IsValid())
             return false;
 
         // Priced like the storage Invalidate makes: four bytes a texel (the widest of the
@@ -355,14 +362,11 @@ namespace OloEngine
         const std::array<u64, 1> handle{ RHI::HashKey(texture->GetRHIHandle()) };
         const u64 releasedBytes = RendererMemoryTracker::GetInstance().GetLiveBackingGpuBytes(handle).value_or(0u);
 
-        // A newer reload of a texture already waiting replaces the waiting one.
-        std::erase_if(state.PendingReloads, [&texture](const PendingTextureReload& pending)
-                      { return pending.Texture == texture; });
-
         const u64 uploadBytes = static_cast<u64>(image.Width) * image.Height * 4u;
         if (Levers::RendererMemoryAdmissionOff() || ReplacementFits(newBytes, releasedBytes, uploadBytes))
         {
-            texture->ApplyReload(image);
+            if (!texture->ApplyReload(image))
+                return false;
             state.LandedReplacementBytes += newBytes > releasedBytes ? newBytes - releasedBytes : 0u;
             ++state.ReloadStats.AppliedImmediately;
             return true;
@@ -370,17 +374,6 @@ namespace OloEngine
         OLO_CORE_WARN("[MemoryAdmission] reload of '{}' ({}x{}, {} MiB) deferred until it fits the budget", texture->GetPath(),
                       image.Width, image.Height, newBytes / (1024ull * 1024ull));
         state.PendingReloads.push_back(PendingTextureReload{ texture, std::move(image), newBytes, releasedBytes, uploadBytes });
-        return false;
-    }
-
-    bool Renderer3D::ReloadTextureInPlace(Ref<Texture2D> texture)
-    {
-        if (!texture)
-            return false;
-        Texture2D::DecodedImage image;
-        if (!texture->DecodeReloadSource(image))
-            return false;
-        (void)ReplaceTextureContents(texture, std::move(image));
         return true;
     }
 
@@ -401,8 +394,12 @@ namespace OloEngine
                 ++it;
                 continue;
             }
-            if (it->Texture)
-                it->Texture->ApplyReload(it->Image);
+            if (!it->Texture || !it->Texture->ApplyReload(it->Image))
+            {
+                OLO_CORE_WARN("[MemoryAdmission] deferred texture reload failed during upload");
+                it = state.PendingReloads.erase(it);
+                continue;
+            }
             state.LandedReplacementBytes += it->NewBytes > it->ReleasedBytes ? it->NewBytes - it->ReleasedBytes : 0u;
             ++(fits ? state.ReloadStats.AppliedDeferred : state.ReloadStats.AppliedAtFloor);
             if (!fits)

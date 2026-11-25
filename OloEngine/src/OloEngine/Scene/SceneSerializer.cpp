@@ -39,6 +39,7 @@
 #include <fstream>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <yaml-cpp/yaml.h>
@@ -135,7 +136,7 @@ namespace OloEngine
     static thread_local u32 t_SceneAssetLoadFailures = 0;
 
     template<class T>
-    static bool RestoreSceneAssetReference(Ref<T>& target, AssetHandle handle)
+    static bool RestoreSceneAssetReference(Ref<T>& target, AssetHandle handle, std::optional<bool> sceneSRGB = std::nullopt)
     {
         if (handle == 0)
             return true;
@@ -146,12 +147,15 @@ namespace OloEngine
             // must never start a second scene load from inside this one.
             if (AssetManager::GetAssetType(handle) == T::GetStaticType())
             {
-                auto asset = AssetManager::GetAsset<T>(handle);
+                auto asset = sceneSRGB ? Project::GetAssetManager()->GetSceneTexture(handle, *sceneSRGB).template As<T>()
+                                       : AssetManager::GetAsset<T>(handle);
                 const bool resolved = asset && asset->GetHandle() == handle;
                 if (resolved || !target)
                     target = std::move(asset);
                 if (resolved)
                     return true;
+                if (!target)
+                    target = AssetManager::GetPlaceholderAsset(T::GetStaticType()).template As<T>();
             }
             else
             {

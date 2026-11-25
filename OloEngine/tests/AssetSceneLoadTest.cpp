@@ -66,13 +66,19 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/ColorTransfer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RendererTypes.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
+#include "OloEngine/SaveGame/SaveGameSerializer.h"
+#include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Prefab.h"
@@ -80,12 +86,15 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
+#include "Rendering/PropertyTests/RendererAttachedTest.h"
 
 #include "OloEngine/Asset/AssetRegistry.h"
 
+#include <stb_image/stb_image_write.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -95,6 +104,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -1056,10 +1066,126 @@ namespace OloEngine::Tests
         EXPECT_EQ(yaml.find("Assets\\"), std::string::npos) << "a texture path was written with backslashes";
     }
 
-    TEST(AssetSceneLoad, SceneTextureAndFontHandlesResolveLooseAndPacked)
+    class SceneTextureGPUContract : public RendererAttachedTest
+    {
+      protected:
+        bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+        }
+    };
+
+    TEST_F(SceneTextureGPUContract, BoundLinearTexturesRecoverAfterMalformedReimport)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        EnsureProcessRendererInitialized();
+        GLStateGuard glGuard("AssetSceneLoad.ReimportRecovery", GLStateGuard::Policy::Restore);
+        struct UnloadProject
+        {
+            ~UnloadProject()
+            {
+                Project::Unload();
+            }
+        } unloadProject;
+
+        const fs::path root = TempDir("reimport-recovery");
+        fs::create_directories(root / "Assets");
+        ProjectConfig config;
+        config.Name = "ReimportRecovery";
+        config.AssetDirectory = "Assets";
+        ASSERT_TRUE(Project::NewInMemory(root, config));
+        auto editor = Ref<EditorAssetManager>::Create();
+        editor->Initialize(false);
+        Project::SetAssetManager(editor);
+
+        const fs::path source = root / "Assets" / "MetallicRoughness.png";
+        const auto write = [&](int width, int height, u8 roughness, u8 metallic)
+        {
+            TArray<u8> pixels;
+            pixels.SetNumUninitialized(width * height * 4);
+            const i32 size = pixels.Num();
+            for (i32 i = 0; i < size; i += 4)
+            {
+                pixels[i] = 0;
+                pixels[i + 1] = roughness;
+                pixels[i + 2] = metallic;
+                pixels[i + 3] = 255;
+            }
+            return stbi_write_png(source.string().c_str(), width, height, 4, pixels.GetData(), width * 4) != 0;
+        };
+        ASSERT_TRUE(write(128, 128, 51, 0));
+        const AssetHandle handle = editor->ImportAsset(source);
+        ASSERT_NE(handle, AssetHandle(0));
+        const auto linearSlot = editor->GetSceneTexture(handle, false).As<Texture2D>();
+        ASSERT_TRUE(linearSlot && linearSlot->IsLoaded());
+        ASSERT_TRUE(editor->ReloadData(handle));
+        EXPECT_FALSE(editor->IsAssetLoaded(handle)) << "reloading a live slot allocated a canonical texture";
+        auto material = Ref<Material>::Create();
+        auto loaded = editor->GetAssetAsync(handle);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!loaded.IsReady && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            editor->SyncWithAssetThread();
+            loaded = editor->GetAssetAsync(handle);
+        }
+        ASSERT_TRUE(loaded.IsReady);
+        const auto canonical = loaded.Ptr.As<Texture2D>();
+        ASSERT_TRUE(canonical && canonical->IsLoaded());
+        material->SetMetallicRoughnessMap(canonical);
+
+        const auto expectBound = [&](u32 width, u32 height, u8 roughness, u8 metallic)
+        {
+            const auto bound = material->GetMetallicRoughnessMap();
+            EXPECT_EQ(bound, canonical);
+            for (const auto& texture : { bound, linearSlot })
+            {
+                ASSERT_TRUE(texture && texture->IsLoaded());
+                EXPECT_EQ(texture->GetHandle(), handle);
+                EXPECT_EQ(texture->GetWidth(), width);
+                EXPECT_EQ(texture->GetHeight(), height);
+                RHI::TextureFormatInfo format;
+                ASSERT_TRUE(RenderCommand::QueryTextureFormat(texture->GetRHIHandle(), 0, format));
+                EXPECT_EQ(format.Neutral, RHI::Format::RGBA8UNorm);
+                std::array<f32, 4> pixel{};
+                ASSERT_TRUE(RenderCommand::ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, 1, 1, 1,
+                                                               RHI::Format::RGBA32Float, sizeof(pixel), pixel.data()));
+                EXPECT_NEAR(pixel[1], static_cast<f32>(roughness) / 255.0f, 1e-6f);
+                EXPECT_NEAR(pixel[2], static_cast<f32>(metallic) / 255.0f, 1e-6f);
+            }
+        };
+        ASSERT_NO_FATAL_FAILURE(expectBound(128, 128, 51, 0));
+
+        bool retained = false;
+        ASSERT_TRUE(write(96, 64, 204, 255));
+        ASSERT_TRUE(editor->ReloadData(handle, retained));
+        EXPECT_FALSE(retained);
+        const u32 validGeneration = editor->GetAssetGeneration(handle);
+        ASSERT_NO_FATAL_FAILURE(expectBound(96, 64, 204, 255));
+
+        std::ofstream(source, std::ios::binary | std::ios::trunc) << "invalid PNG";
+        EXPECT_FALSE(editor->ReloadData(handle, retained));
+        EXPECT_TRUE(retained);
+        EXPECT_EQ(editor->GetMetadata(handle).Status, AssetStatus::Failed);
+        EXPECT_EQ(editor->GetAssetGeneration(handle), validGeneration);
+        EXPECT_EQ(editor->GetAsset(handle).As<Texture2D>(), canonical);
+        ASSERT_NO_FATAL_FAILURE(expectBound(96, 64, 204, 255));
+
+        ASSERT_TRUE(write(128, 128, 51, 0));
+        ASSERT_TRUE(editor->ReloadData(handle, retained));
+        EXPECT_FALSE(retained);
+        EXPECT_EQ(editor->GetMetadata(handle).Status, AssetStatus::Loaded);
+        EXPECT_EQ(editor->GetAssetGeneration(handle), validGeneration + 1u);
+        EXPECT_EQ(editor->GetAsset(handle).As<Texture2D>(), canonical);
+        ASSERT_NO_FATAL_FAILURE(expectBound(128, 128, 51, 0));
+    }
+
+    TEST_F(SceneTextureGPUContract, SceneTextureAndFontHandlesResolveLooseAndPacked)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
         GLStateGuard glGuard("AssetSceneLoad.HandleRoundTrip", GLStateGuard::Policy::Restore);
         struct UnloadProject
         {
@@ -1083,8 +1209,22 @@ namespace OloEngine::Tests
         const fs::path texturePath = root / "Assets" / "Checkerboard.png";
         const fs::path normalPath = root / "Assets" / "Checkerboard_Normal.png";
         const fs::path fontPath = root / "Assets" / "OpenSans-Light.ttf";
-        ASSERT_TRUE(fs::copy_file(editorRoot / "SandboxProject/Assets/Textures/Checkerboard.png", texturePath));
+        // Alternating midtones exercise the actual mip filter. A constant or
+        // black/white-only source can't distinguish all decode/filter failures.
+        constexpr int extent = 8;
+        std::array<u8, extent * extent * 4> pixels{};
+        for (sizet i = 0; i < pixels.size(); i += 4)
+        {
+            pixels[i] = pixels[i + 1] = pixels[i + 2] = ((i / 4) & 1u) ? 192 : 64;
+            pixels[i + 3] = 255;
+        }
+        ASSERT_NE(stbi_write_png(texturePath.string().c_str(), extent, extent, 4, pixels.data(), extent * 4), 0);
         ASSERT_TRUE(fs::copy_file(texturePath, normalPath));
+        TextureImportSettings importOverride;
+        importOverride.ColorSpace = TextureImportSettings::ColorSpaceChoice::Linear;
+        importOverride.GenerateMips = false;
+        importOverride.Format = TextureImportSettings::FormatChoice::BC7;
+        ASSERT_TRUE(TextureImport::SaveForImage(normalPath.string(), importOverride));
         ASSERT_TRUE(fs::copy_file(editorRoot / "assets/fonts/opensans/OpenSans-Light.ttf", fontPath));
         const auto spritePreview = editor->ImportTexture(texturePath, true);
         const auto dataPreview = editor->ImportTexture(texturePath, false);
@@ -1092,10 +1232,15 @@ namespace OloEngine::Tests
         ASSERT_TRUE(dataPreview && dataPreview->IsLoaded());
         EXPECT_TRUE(spritePreview->GetSpecification().SRGB);
         EXPECT_FALSE(dataPreview->GetSpecification().SRGB);
+        EXPECT_NE(spritePreview, dataPreview);
+        EXPECT_EQ(editor->ImportTexture(texturePath, true), spritePreview);
+        EXPECT_EQ(editor->ImportTexture(texturePath, false), dataPreview);
         const auto textureHandle = spritePreview->GetHandle();
         EXPECT_EQ(dataPreview->GetHandle(), textureHandle);
-        const auto normal = editor->ImportTexture(normalPath, false);
+        const auto normal = editor->ImportTexture(normalPath, true);
         ASSERT_TRUE(normal && normal->IsLoaded());
+        EXPECT_FALSE(normal->GetSpecification().SRGB);
+        EXPECT_EQ(normal->GetMipLevelCount(), 1u);
         const auto normalHandle = normal->GetHandle();
         ASSERT_NE(normalHandle, textureHandle);
         {
@@ -1110,6 +1255,7 @@ namespace OloEngine::Tests
         const auto texture = AssetManager::GetAsset<Texture2D>(textureHandle);
         const auto font = AssetManager::GetAsset<Font>(fontHandle);
         ASSERT_TRUE(texture && texture->IsLoaded());
+        EXPECT_FALSE(texture->GetSpecification().SRGB); // The old scene resolver used this canonical texture.
         ASSERT_TRUE(font && font->IsLoaded());
 
         const fs::path scenePath = root / "Assets" / "HandleProbe.olo";
@@ -1117,13 +1263,13 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             auto entity = scene->CreateEntity("HandleProbe");
             entity.AddComponent<SpriteRendererComponent>().Texture = spritePreview;
-            entity.AddComponent<UIImageComponent>().m_Texture = texture;
-            entity.AddComponent<UIPanelComponent>().m_BackgroundTexture = texture;
+            entity.AddComponent<UIImageComponent>().m_Texture = spritePreview;
+            entity.AddComponent<UIPanelComponent>().m_BackgroundTexture = spritePreview;
             auto& decal = entity.AddComponent<DecalComponent>();
-            decal.m_AlbedoTexture = texture;
-            decal.m_NormalTexture = normal;
-            decal.m_RMATexture = texture;
-            decal.m_EmissiveTexture = texture;
+            decal.m_AlbedoTexture = spritePreview;
+            decal.m_NormalTexture = dataPreview;
+            decal.m_RMATexture = dataPreview;
+            decal.m_EmissiveTexture = spritePreview;
             decal.m_Mode = DecalMode::Emissive;
             decal.m_Color = { -0.5f, 1.25f, 1.5f, -0.75f };
             entity.AddComponent<TextComponent>().FontAsset = font;
@@ -1134,6 +1280,7 @@ namespace OloEngine::Tests
             dropdown.m_Options.Add(UIDropdownOption{ "First" });
             dropdown.m_Options.Add(UIDropdownOption{ "Second" });
             dropdown.m_SelectedIndex = 1;
+            scene->CreateEntity("ExplicitOverride").AddComponent<SpriteRendererComponent>().Texture = normal;
             ASSERT_TRUE(SceneSerializer(scene).Serialize(scenePath));
         }
         const auto sceneHandle = editor->ImportAsset(scenePath);
@@ -1168,6 +1315,42 @@ namespace OloEngine::Tests
         ASSERT_NE(driftHandle, AssetHandle(0));
         ASSERT_TRUE(editor->SerializeAssetRegistry());
 
+        const auto readMip = [](const Ref<Texture2D>& texture, u32 mip, TArray64<u8>& bytes)
+        {
+            ASSERT_TRUE(texture && texture->GetMipLevelCount() > mip);
+            ASSERT_TRUE(texture->GetData(bytes, mip));
+            ASSERT_GE(bytes.Num(), 4);
+        };
+        std::array<TArray64<u8>, 2> previewMips;
+        ASSERT_NO_FATAL_FAILURE(readMip(dataPreview, 2, previewMips[0]));
+        ASSERT_NO_FATAL_FAILURE(readMip(spritePreview, 2, previewMips[1]));
+        EXPECT_NEAR(previewMips[0][0], 128, 1);
+        EXPECT_NEAR(previewMips[1][0], 146, 2);
+        auto edited = pixels;
+        for (sizet i = 0; i < edited.size(); i += 4)
+            edited[i] = 96;
+        ASSERT_NE(stbi_write_png(texturePath.string().c_str(), extent, extent, 4, edited.data(), extent * 4), 0);
+        ASSERT_TRUE(editor->ReloadData(textureHandle));
+        for (const auto& variant : { dataPreview, spritePreview })
+        {
+            TArray64<u8> bytes;
+            ASSERT_NO_FATAL_FAILURE(readMip(variant, 2, bytes));
+            EXPECT_NEAR(bytes[0], 96, 1);
+        }
+        ASSERT_NE(stbi_write_png(texturePath.string().c_str(), extent, extent, 4, pixels.data(), extent * 4), 0);
+        ASSERT_TRUE(editor->ReloadData(textureHandle));
+
+        // Close the producing manager. A new manager's first request is
+        // linear, the reverse of the actual inspector drop order above.
+        editor->Shutdown();
+        editor.Reset();
+        editor = Ref<EditorAssetManager>::Create();
+        editor->Initialize(false);
+        Project::SetAssetManager(editor);
+        const auto reopenedData = editor->GetSceneTexture(textureHandle, false).As<Texture2D>();
+        ASSERT_TRUE(reopenedData && !reopenedData->GetSpecification().SRGB);
+        EXPECT_NE(reopenedData, dataPreview);
+
         const auto assertDriftAssets = [&](const Ref<Scene>& scene)
         {
             ASSERT_TRUE(scene);
@@ -1197,25 +1380,49 @@ namespace OloEngine::Tests
                          entity.HasComponent<UIPanelComponent>() && entity.HasComponent<DecalComponent>() &&
                          entity.HasComponent<TextComponent>() && entity.HasComponent<UITextComponent>() &&
                          entity.HasComponent<UIInputFieldComponent>() && entity.HasComponent<UIDropdownComponent>()));
-            const auto checkTexture = [](const Ref<Texture2D>& actual, const Ref<Texture2D>& expected)
+            const auto checkTexture = [&](const Ref<Texture2D>& actual, bool srgb)
             {
                 ASSERT_TRUE(actual && actual->IsLoaded());
-                EXPECT_EQ(actual->GetHandle(), expected->GetHandle());
-                EXPECT_EQ(actual->GetSpecification().SRGB, expected->GetSpecification().SRGB);
+                EXPECT_EQ(actual->GetHandle(), textureHandle);
+                EXPECT_EQ(actual->GetSpecification().SRGB, srgb);
+                RHI::TextureFormatInfo format;
+                ASSERT_TRUE(RenderCommand::QueryTextureFormat(actual->GetRHIHandle(), 2, format));
+                EXPECT_EQ(format.Neutral, srgb ? RHI::Format::RGBA8SRGB : RHI::Format::RGBA8UNorm);
+                TArray64<u8> base;
+                ASSERT_NO_FATAL_FAILURE(readMip(actual, 0, base));
+                ASSERT_GE(base.Num(), 8);
+                EXPECT_EQ(base[0], 64);
+                EXPECT_EQ(base[4], 192);
+                const f32 midtone = static_cast<f32>(base[0]) / 255.0f;
+                EXPECT_NEAR(srgb ? ColorTransfer::SrgbToLinear(midtone) : midtone, srgb ? 0.05127f : 0.25098f, 0.00001f);
+                TArray64<u8> bytes;
+                ASSERT_NO_FATAL_FAILURE(readMip(actual, 2, bytes));
+                ASSERT_EQ(bytes.Num(), previewMips[srgb].Num());
+                EXPECT_EQ(std::memcmp(bytes.GetData(), previewMips[srgb].GetData(), bytes.Num()), 0);
             };
             const auto checkFont = [&](const Ref<Font>& actual)
             {
                 ASSERT_TRUE(actual && actual->IsLoaded());
                 EXPECT_EQ(actual->GetHandle(), fontHandle);
             };
-            checkTexture(entity.GetComponent<SpriteRendererComponent>().Texture, texture);
-            checkTexture(entity.GetComponent<UIImageComponent>().m_Texture, texture);
-            checkTexture(entity.GetComponent<UIPanelComponent>().m_BackgroundTexture, texture);
+            const auto sprite = entity.GetComponent<SpriteRendererComponent>().Texture;
+            checkTexture(sprite, true);
+            EXPECT_EQ(entity.GetComponent<UIImageComponent>().m_Texture, sprite);
+            EXPECT_EQ(entity.GetComponent<UIPanelComponent>().m_BackgroundTexture, sprite);
             const auto& decal = entity.GetComponent<DecalComponent>();
-            checkTexture(decal.m_AlbedoTexture, texture);
-            checkTexture(decal.m_NormalTexture, normal);
-            checkTexture(decal.m_RMATexture, texture);
-            checkTexture(decal.m_EmissiveTexture, texture);
+            checkTexture(decal.m_AlbedoTexture, true);
+            checkTexture(decal.m_NormalTexture, false);
+            checkTexture(decal.m_RMATexture, false);
+            checkTexture(decal.m_EmissiveTexture, true);
+            EXPECT_EQ(decal.m_NormalTexture, decal.m_RMATexture);
+            EXPECT_EQ(decal.m_AlbedoTexture, decal.m_EmissiveTexture);
+            auto explicitOverride = scene->FindEntityByName("ExplicitOverride");
+            ASSERT_TRUE(explicitOverride && explicitOverride.HasComponent<SpriteRendererComponent>());
+            const auto& overridden = explicitOverride.GetComponent<SpriteRendererComponent>().Texture;
+            ASSERT_TRUE(overridden && overridden->IsLoaded());
+            EXPECT_EQ(overridden->GetHandle(), normalHandle);
+            EXPECT_FALSE(overridden->GetSpecification().SRGB);
+            EXPECT_EQ(overridden->GetMipLevelCount(), 1u);
             EXPECT_EQ(decal.m_Mode, DecalMode::Emissive);
             EXPECT_FLOAT_EQ(decal.m_Color.r, 0.0f);
             EXPECT_FLOAT_EQ(decal.m_Color.g, 1.0f);
@@ -1234,7 +1441,17 @@ namespace OloEngine::Tests
 
         {
             SCOPED_TRACE("Loose scene YAML");
-            ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
+            auto scene = AssetManager::GetAsset<Scene>(sceneHandle);
+            ASSERT_NO_FATAL_FAILURE(assertHandles(scene));
+            scene->FindEntityByName("HandleProbe").GetComponent<SpriteRendererComponent>().TilingFactor = 2.0f;
+            SaveGameComponentSerializer::RegisterAll();
+            const auto save = SaveGameSerializer::CaptureSceneState(*scene);
+            ASSERT_FALSE(save.empty());
+            auto restored = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(restored).Deserialize(scenePath));
+            ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, save));
+            ASSERT_NO_FATAL_FAILURE(assertHandles(restored));
+            EXPECT_FLOAT_EQ(restored->FindEntityByName("HandleProbe").GetComponent<SpriteRendererComponent>().TilingFactor, 2.0f);
             ASSERT_NO_FATAL_FAILURE(assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle)));
         }
         {
@@ -1245,28 +1462,103 @@ namespace OloEngine::Tests
             ASSERT_NO_FATAL_FAILURE(assertHandles(scene));
         }
 
+        // The saved scene is the pack snapshot. The active editor cache can
+        // still hold a different reference which must not drive pack contents.
+        const auto cachedScene = AssetManager::GetAsset<Scene>(sceneHandle);
+        ASSERT_TRUE(cachedScene);
+        cachedScene->FindEntityByName("HandleProbe").GetComponent<SpriteRendererComponent>().Texture = normal;
+
         AssetPackBuilder::BuildSettings settings;
         settings.m_OutputPath = root / "SceneHandles.olopack";
         settings.m_CompressAssets = true;
         settings.m_IncludeScriptModule = false;
         std::atomic<f32> progress{ 0.0f };
+        {
+            AssetRegistry sceneOnly;
+            ASSERT_TRUE(sceneOnly.AddAsset(editor->GetAssetMetadata(sceneHandle)));
+            auto incomplete = settings;
+            incomplete.m_OutputPath = root / "IncompleteScene.olopack";
+            const auto rejected = AssetPackBuilder::BuildFromRegistry(sceneOnly, incomplete, progress);
+            EXPECT_FALSE(rejected.m_Success);
+            EXPECT_NE(rejected.m_ErrorMessage.find("missing from the pack input registry"), std::string::npos);
+            EXPECT_FALSE(fs::exists(incomplete.m_OutputPath));
+        }
         const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
         ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
         EXPECT_EQ(built.m_FailedAssetCount, 0u);
+        {
+            const auto record = std::ranges::find(built.m_Records, normalHandle, &AssetPackBuilder::AssetRecord::Handle);
+            ASSERT_NE(record, built.m_Records.end());
+            ASSERT_TRUE(record->TextureFormat);
+            EXPECT_EQ(*record->TextureFormat, static_cast<u32>(ImageFormat::BC7));
+            EXPECT_FALSE(record->TextureSRGB);
+        }
+        const auto rawPack = root / "UncompressedSceneHandles.olopack";
+        settings.m_OutputPath = rawPack;
+        settings.m_CompressAssets = false;
+        const auto rawBuilt = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+        ASSERT_TRUE(rawBuilt.m_Success) << rawBuilt.m_ErrorMessage;
+        EXPECT_EQ(rawBuilt.m_FailedAssetCount, 0u);
+        const auto textureOnlyPack = root / "TextureOnly.olopack";
+        {
+            AssetRegistry textureOnly;
+            ASSERT_TRUE(textureOnly.AddAsset(editor->GetAssetMetadata(textureHandle)));
+            settings.m_OutputPath = textureOnlyPack;
+            settings.m_CompressAssets = true;
+            const auto textureOnlyBuilt = AssetPackBuilder::BuildFromRegistry(textureOnly, settings, progress);
+            ASSERT_TRUE(textureOnlyBuilt.m_Success) << textureOnlyBuilt.m_ErrorMessage;
+        }
+        editor->Shutdown();
+        editor.Reset();
         ASSERT_TRUE(fs::remove(texturePath));
         ASSERT_TRUE(fs::remove(normalPath));
+        ASSERT_TRUE(fs::remove(TextureImport::SidecarPathFor(normalPath.string())));
         ASSERT_TRUE(fs::remove(fontPath));
         ASSERT_TRUE(fs::remove(scenePath));
         ASSERT_TRUE(fs::remove(driftFile));
         for (const auto& relative : driftAssets)
             ASSERT_TRUE(fs::remove(driftSources / relative.filename())) << relative;
 
-        SCOPED_TRACE("Runtime scene and assets from pack without loose sources");
+        for (const auto& pack : { built.m_OutputPath, rawPack })
+        {
+            SCOPED_TRACE(pack.string());
+            auto runtime = Ref<RuntimeAssetManager>::Create(false);
+            Project::SetAssetManager(runtime);
+            ASSERT_TRUE(runtime->LoadAssetPack(textureOnlyPack));
+            const auto unflagged = runtime->GetSceneTexture(textureHandle, true).As<Texture2D>();
+            ASSERT_TRUE(unflagged && unflagged->IsLoaded());
+            EXPECT_FALSE(unflagged->GetSpecification().SRGB);
+            ASSERT_TRUE(runtime->LoadAssetPack(pack));
+            const auto variant = runtime->GetSceneTexture(textureHandle, pack == built.m_OutputPath).As<Texture2D>();
+            ASSERT_TRUE(variant && variant->IsLoaded());
+            EXPECT_NE(variant, unflagged);
+            const auto estimated = runtime->GetAssetByteSize(textureHandle).GetBytes();
+            ASSERT_TRUE(estimated);
+            EXPECT_EQ(runtime->GetStreamingReport().Resident.EstimateBytes, *estimated);
+            ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
+            ASSERT_NO_FATAL_FAILURE(assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle)));
+            runtime->UnloadAssetPack(pack);
+            const auto afterUnmount = runtime->GetSceneTexture(textureHandle, true).As<Texture2D>();
+            ASSERT_TRUE(afterUnmount && afterUnmount->IsLoaded());
+            EXPECT_FALSE(afterUnmount->GetSpecification().SRGB);
+        }
+
+        // An unavailable flagged pack still owns its slot source in the mounted
+        // index. A canonical record in another pack must not hide the error.
         auto runtime = Ref<RuntimeAssetManager>::Create(false);
-        ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
         Project::SetAssetManager(runtime);
-        ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
-        assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle));
+        ASSERT_TRUE(runtime->LoadAssetPack(textureOnlyPack));
+        ASSERT_TRUE(runtime->LoadAssetPack(built.m_OutputPath));
+        const auto offline = root / "OfflineSceneHandles.olopack";
+        fs::rename(built.m_OutputPath, offline);
+        EXPECT_FALSE(runtime->GetSceneTexture(textureHandle, true));
+        fs::rename(offline, built.m_OutputPath);
+        EXPECT_FALSE(runtime->GetSceneTexture(textureHandle, true)); // Negative cache.
+        runtime->UnloadAssetPack(built.m_OutputPath);
+        ASSERT_TRUE(runtime->LoadAssetPack(built.m_OutputPath));
+        const auto repaired = runtime->GetSceneTexture(textureHandle, true).As<Texture2D>();
+        ASSERT_TRUE(repaired && repaired->IsLoaded());
+        EXPECT_TRUE(repaired->GetSpecification().SRGB);
     }
 
     // Caching a failed texture resolution would lose the authored handle.

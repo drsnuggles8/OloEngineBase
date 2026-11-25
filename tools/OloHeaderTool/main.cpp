@@ -1681,7 +1681,10 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
         {
             const std::string handleKey = node + "[\"" + f.key + "Handle\"]";
             out << indent << "if (auto h" << depth << " = " << handleKey << "; h" << depth << ")\n";
-            out << indent << "    RestoreSceneAssetReference(" << lhs << ", h" << depth << ".as<u64>(0));\n";
+            out << indent << "    RestoreSceneAssetReference(" << lhs << ", h" << depth << ".as<u64>(0)";
+            if (f.textureSRGB)
+                out << (*f.textureSRGB ? ", true" : ", false");
+            out << ");\n";
             continue;
         }
         // std::unordered_set<E> (issue #451 unordered_map/set slice) — rebuild the
@@ -2197,7 +2200,10 @@ static void EmitBinaryReadFields(std::ostream& out, const std::vector<SerField>&
             out << indent << "{\n";
             out << indent << "    u64 " << h << " = 0;\n";
             out << indent << "    if (!SceneBinIO::ReadU64(reader, " << h << ")) return false;\n";
-            out << indent << "    if (!RestoreSceneAssetReference(" << lhs << ", " << h << ")) return false;\n";
+            out << indent << "    if (!RestoreSceneAssetReference(" << lhs << ", " << h;
+            if (f.textureSRGB)
+                out << (*f.textureSRGB ? ", true" : ", false");
+            out << ")) return false;\n";
             out << indent << "}\n";
             continue;
         }
