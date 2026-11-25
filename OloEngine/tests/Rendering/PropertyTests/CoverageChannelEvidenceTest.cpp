@@ -37,6 +37,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "RenderPropertyTest.h"
 #include "TestTempDir.h"
 
@@ -51,7 +52,11 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Passes/TAARenderPass.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -61,6 +66,8 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -358,5 +365,185 @@ namespace OloEngine::Tests
         EXPECT_EQ(otherProfile, 0u) << "RT3's profile lane holds a value that is neither 0 nor the stochastic mark.";
         EXPECT_EQ(markedUntouched, 0u) << "the stochastic mark where nothing drew: a writer left .a undefined.";
         EXPECT_GT(marked, 0u) << "the StochasticAlpha strands did not mark their pixels.";
+    }
+
+    class TAACoverageMotionRampTest : public RendererAttachedTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            // The graph below supplies deterministic surface and history textures.
+        }
+    };
+
+    TEST_F(TAACoverageMotionRampTest, OnlyStochasticCoverageKeepsItsFeedbackInMotion)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct Band
+        {
+            f32 Coverage;
+            f32 Profile;
+            f32 MotionPixels;
+            f32 Feedback;
+        };
+        // A stationary foliage control and an opaque moving control surround
+        // the two branches of the exemption. Both fractional writers put 0.5
+        // in RT3.b; only the stochastic writer puts its mark in RT3.a.
+        constexpr std::array bands{
+            Band{ 0.5f, 0.0f, 0.0f, 0.9f },
+            Band{ 0.5f, 0.0f, 3.0f, 0.7f },
+            Band{ 0.5f, 0.0f, 8.0f, 0.5f },
+            Band{ 0.5f, -1.0f, 8.0f, 0.9f },
+            Band{ 1.0f, 0.0f, 8.0f, 0.5f },
+        };
+        constexpr u32 bandWidth = 40u;
+        constexpr u32 width = bandWidth * static_cast<u32>(bands.size());
+        constexpr u32 height = 64u;
+        std::vector<glm::vec4> current(width * height);
+        std::vector<glm::vec4> velocity(width * height);
+        std::vector<glm::vec4> history(width * height, glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
+        std::vector<f32> depth(width * height, 0.5f);
+        for (u32 y = 0u; y < height; ++y)
+        {
+            for (u32 x = 0u; x < width; ++x)
+            {
+                const f32 gray = y % 2u == 0u ? 0.25f : 0.75f;
+                current[y * width + x] = glm::vec4(gray, gray, gray, 1.0f);
+                const Band& band = bands[x / bandWidth];
+                velocity[y * width + x] =
+                    glm::vec4(band.MotionPixels / static_cast<f32>(width), 0.0f, band.Coverage, band.Profile);
+            }
+        }
+
+        struct Inputs
+        {
+            Ref<Framebuffer> Current;
+            Ref<Texture2D> Velocity;
+            Ref<Texture2D> PreviousSurface;
+            Ref<Texture2D> History;
+            Ref<Texture2D> Depth;
+            Ref<Framebuffer> Output;
+        } inputs;
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto taa = Ref<TAARenderPass>::Create();
+        RunInFrame([&]()
+                   {
+            const auto makeTexture = [&](ImageFormat format, void* data, u32 bytes)
+            {
+                auto texture = Texture2D::Create({ .Width = width, .Height = height, .Format = format, .GenerateMips = false });
+                if (texture)
+                    texture->SetData(data, bytes);
+                return texture;
+            };
+            constexpr u32 rgbaBytes = width * height * sizeof(glm::vec4);
+            FramebufferSpecification currentSpec;
+            currentSpec.Width = width;
+            currentSpec.Height = height;
+            currentSpec.Attachments = { FramebufferTextureFormat::RGBA32F };
+            inputs.Current = Framebuffer::Create(currentSpec);
+            ASSERT_TRUE(inputs.Current);
+            RenderCommand::UploadTextureSubImage2D(inputs.Current->GetColorAttachmentHandle(0), width, height,
+                                                   RHI::Format::RGBA32Float, current.data());
+            inputs.Velocity = makeTexture(ImageFormat::RGBA32F, velocity.data(), rgbaBytes);
+            inputs.PreviousSurface = makeTexture(ImageFormat::RGBA32F, velocity.data(), rgbaBytes);
+            inputs.History = makeTexture(ImageFormat::RGBA32F, history.data(), rgbaBytes);
+            inputs.Depth = makeTexture(ImageFormat::R32F, depth.data(), width * height * sizeof(f32));
+            ASSERT_TRUE(inputs.Velocity && inputs.PreviousSurface && inputs.History && inputs.Depth);
+
+            RGResourceDesc colorDesc;
+            colorDesc.Kind = RGResourceHandle::Kind::Texture2D;
+            colorDesc.Width = width;
+            colorDesc.Height = height;
+            colorDesc.Format = RGResourceFormat::RGBA32Float;
+            auto depthDesc = colorDesc;
+            depthDesc.Format = RGResourceFormat::R32Float;
+            auto& board = graph.GetBlackboard();
+            auto currentDesc = colorDesc;
+            currentDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            currentDesc.Attachments = { RGResourceFormat::RGBA32Float };
+            const auto color = graph.ImportFramebuffer(ResourceNames::PostProcessColor, inputs.Current, currentDesc);
+            ASSERT_TRUE(graph.CreateFramebufferAttachmentView(ResourceNames::PostProcessColorTexture, color, 0u).IsValid());
+            board.Scene.SceneDepth = graph.ImportTextureHandle(ResourceNames::SceneDepth, inputs.Depth->GetRHIHandle(), depthDesc);
+            board.Scene.SceneVelocity = graph.ImportTextureHandle(ResourceNames::SceneVelocity, inputs.Velocity->GetRHIHandle(), colorDesc);
+            board.Temporal.TAASurfaceHistory = graph.ImportHistoryHandle(ResourceNames::TAASurfaceHistory, inputs.PreviousSurface->GetRHIHandle());
+            board.Temporal.TAAHistory = graph.ImportHistoryHandle(ResourceNames::TAAHistory, inputs.History->GetRHIHandle());
+
+            auto targetDesc = colorDesc;
+            targetDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+            targetDesc.Format = RGResourceFormat::RGBA16Float;
+            targetDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float };
+            FramebufferSpecification spec;
+            spec.Width = width;
+            spec.Height = height;
+            spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RGBA16F };
+            inputs.Output = Framebuffer::Create(spec);
+            ASSERT_TRUE(inputs.Output);
+            board.Post.TAAColor = graph.DeclareTransientFramebuffer(ResourceNames::TAAColor, targetDesc, inputs.Output);
+            taa->Init(spec);
+            taa->SetEnabled(true);
+            PostProcessSettings settings;
+            settings.TAAFeedback = 0.9f;
+            settings.TAASharpness = 0.0f;
+            taa->SetSettings(settings);
+            graph.AddNode(taa);
+            graph.SetFinalPass("TAAPass");
+            graph.BuildFrameGraph();
+            ASSERT_TRUE(taa->GetPrimaryInputTextureHandle().IsValid()) << "TAA did not select its current color";
+            ASSERT_TRUE(taa->GetPrimaryOutputFramebufferHandle().IsValid()) << "TAA did not declare its output";
+            graph.Execute();
+            for (const auto& failure : graph.GetResolveFailures())
+                ADD_FAILURE() << failure.PassName.ToView() << ": " << failure.Reason.ToView(); });
+        ASSERT_FALSE(HasFatalFailure());
+        const auto output = taa->GetTarget();
+        ASSERT_TRUE(output);
+        std::vector<f32> resolved;
+        ReadbackRgbaFloat(output->GetColorAttachmentHandle(TAARenderPass::kHistoryAttachment), width, height, resolved);
+        ASSERT_EQ(resolved.size(), width * height * 4u);
+        std::vector<u8> feedback(width * height);
+        for (sizet i = 0; i < feedback.size(); ++i)
+        {
+            const f32 weight = 1.0f - 4.0f * std::abs(resolved[4u * i] - 0.5f);
+            feedback[i] = std::isfinite(weight) ? static_cast<u8>(std::clamp(weight, 0.0f, 1.0f) * 255.0f) : 0u;
+        }
+        const fs::path evidenceDir = fs::path("assets") / "tests" / "visual";
+        std::error_code error;
+        fs::create_directories(evidenceDir, error);
+        ASSERT_FALSE(error) << error.message();
+        const auto evidence = evidenceDir / (TestRenderBackend::EvidenceName("TaaMotionRamp") + "Resolve.png");
+        ASSERT_NE(::stbi_write_png(evidence.string().c_str(), width, height, 1, feedback.data(), width), 0);
+
+        // The constant gray history lies inside the clip box of both stripe
+        // phases for both kernels. The class masks reach beyond dilation,
+        // reprojection and the 8x8 coverage comparison. The confidence stays
+        // one there, so the resolved distance to gray is (1 - feedback) / 4.
+        constexpr u32 margin = 14u;
+        for (u32 band = 0u; band < bands.size(); ++band)
+        {
+            u32 qualified = 0u;
+            u32 mismatches = 0u;
+            f32 weightSum = 0.0f;
+            for (u32 y = margin; y < height - margin; ++y)
+            {
+                for (u32 x = band * bandWidth + margin; x < (band + 1u) * bandWidth - margin; ++x)
+                {
+                    const f32 channel = resolved[4u * (y * width + x)];
+                    const f32 weight = 1.0f - 4.0f * std::abs(channel - 0.5f);
+                    mismatches += (!std::isfinite(weight) || std::abs(weight - bands[band].Feedback) > 0.01f) ? 1u : 0u;
+                    weightSum += weight;
+                    ++qualified;
+                }
+            }
+            ASSERT_GE(qualified, 400u);
+            std::cout << "[taa-motion-ramp] band=" << band << " samples=" << qualified
+                      << " feedback=" << weightSum / static_cast<f32>(qualified) << '\n';
+            EXPECT_EQ(mismatches, 0u) << "band " << band << " expected feedback " << bands[band].Feedback;
+        }
     }
 } // namespace OloEngine::Tests
