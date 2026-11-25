@@ -48,3 +48,14 @@ Each settings row used a fresh editor. The table counts the same separated HDR d
 | Odd native extent | 959 × 539 | 959 × 539 | 21,892 | 22,543 |
 
 The upstream indirect specular term and weight were byte-identical across toggles in each row. Vulkan Forward and Forward+ lacked the RT pass and targets, with byte-identical scene HDR and beauty on both poses. This held with hardware ray queries available and with ray queries disabled at device startup. Deferred with ray queries disabled also lacked the pass and matched the upstream scene HDR, indirect specular and weight exactly. Its downstream SSR variation was within the scale measured on repeated captures of each arm.
+
+## Motion and mip control
+
+Two fresh editor sessions captured the same 24-step 960 × 540 trajectory. The control uses the textured shader with only the solid-hit lookup changed from `textureGrad` to explicit mip 0. The tile uses high-frequency albedo with uniform roughness and metallic factors to control for moving glints. The projected tile traveled 7.216 pixels. A reflected-plane projection samples the same 2,268 UVs on every frame. The analysis divides the separated term by its weight before measuring temporal variation.
+
+| Hit sampling | Temporal RMS | RMS relative to signal | Adjacent-step p95 |
+| --- | ---: | ---: | ---: |
+| Forced mip 0 | 0.022913 | 36.06% | 0.038194 |
+| Projected ray footprint | 0.002176 | 3.70% | 0.003322 |
+
+The projected footprint reduces temporal RMS by 10.53× in this fixture. The result covers the measured transformed tile and trajectory. Sharper close-up detail and curved receivers have different footprints.
