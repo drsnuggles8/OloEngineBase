@@ -120,7 +120,7 @@ CLOSE_LABEL = "close-recommended"
 # sweep files renderer issues); the north star is the counterweight.
 NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
 NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
-CHECKLIST_RE = re.compile(r"^\s*[-*]\s+\[( |x|X)\]\s+(.*)$", re.MULTILINE)
+CHECKLIST_RE = re.compile(r"^([ \t]*)[-*][ \t]+\[( |x|X)\][ \t]+(.*)$", re.MULTILINE)
 GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
 
 # Fields `render_section` writes in this order; anything else in a block is kept,
@@ -185,8 +185,8 @@ def scalar_value(val):
 def parse_north_star(text):
     """{"milestone": str, "items": [(done, text, issue numbers)]} from north-star.md.
 
-    `items` is the "Critical path" checklist: every `- [ ]` line in the file. A line
-    with no `#N` is a capability nobody has filed yet, which `lint` reports.
+    A top-level checklist item can be filed through its descendants. Nested items
+    still need issue references on their own lines.
     """
     out = {"milestone": "", "items": []}
     m = NORTH_STAR_RE.search(text or "")
@@ -195,9 +195,16 @@ def parse_north_star(text):
             key, _, val = line.partition(":")
             if key.strip() == "milestone":
                 out["milestone"] = scalar_value(val)
-    for done, item in CHECKLIST_RE.findall(text or ""):
-        out["items"].append((done.lower() == "x", item.strip(),
-                             [int(n) for n in TITLE_NUM_RE.findall(item)]))
+    items = out["items"]
+    root_index, root_indent = 0, 0
+    for indent, done, item in CHECKLIST_RE.findall(text or ""):
+        column = len(indent.expandtabs(4))
+        numbers = [int(n) for n in TITLE_NUM_RE.findall(item)]
+        if not items or column <= root_indent:
+            root_index, root_indent = len(items), column
+        else:
+            items[root_index][2].extend(n for n in numbers if n not in items[root_index][2])
+        items.append((done.lower() == "x", item.strip(), numbers))
     return out
 
 
@@ -1875,6 +1882,12 @@ milestone: "Game: vertical slice"   # comment
 NORTH_STAR_CASES = (
     ("a set milestone, with comment and quotes stripped, and its checklist", _STAR,
      "Game: vertical slice", [(True, [12]), (False, []), (False, [13, 14])]),
+    ("descendant issues file the top-level item, without reaching its sibling",
+     "- [ ] Skiers on screen\n  - [ ] Skier model (#1748)\n  - [x] Crowd (#1749)\n- [ ] Sound",
+     "", [(False, [1748, 1749]), (False, [1748]), (True, [1749]), (False, [])]),
+    ("a nested item with no issue remains unfiled even when its own child has one",
+     "- [ ] Skiers on screen\n  - [ ] Skier model\n    - [ ] Animation (#1748)",
+     "", [(False, [1748]), (False, []), (False, [1748])]),
     ("a quoted milestone keeps its '#', the comment after the quote goes",
      '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
     ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
