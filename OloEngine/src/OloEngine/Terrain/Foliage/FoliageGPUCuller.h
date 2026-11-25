@@ -260,6 +260,7 @@ namespace OloEngine
             u32 MeshCapacity = 0;        // the mesh region (#1533) right after it; 0 = none
             u32 GroupCapacity = 0;       // groups the state tail holds
             u32 PartCount = 0;           // parts the last cull wrote args for
+            bool Dispatched = false;   // false when the layer bound rejected the whole cull
 
             [[nodiscard]] bool IsValid() const
             {
@@ -636,6 +637,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::ListCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::MeshCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::GroupCapacity)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::Dispatched)>::Value;
     };
 } // namespace OloEngine

@@ -444,6 +444,7 @@ namespace OloEngine
         }
         view.DrawArgs->SetData(args.data(), partCount * kDrawArgsStride, 0);
 
+        view.Dispatched = layerVisible;
         if (!layerVisible)
         {
             view.PartCount = partCount;
@@ -578,8 +579,10 @@ namespace OloEngine
             }
         } releaseStaging{ m_Readback };
 
+        // A whole-layer rejection writes new indirect counts and leaves the
+        // header from the previous dispatch. Read the commands in both cases.
         FoliageCullStateHeader header{};
-        if (!ReadStaged(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header))
+        if (view.Dispatched && !ReadStaged(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header))
             return false;
 
         // The all-survivor list's count is on any part that does NOT draw the
@@ -602,6 +605,8 @@ namespace OloEngine
         out.Visible = header.VisibleCount;
         out.Reserved = header.ReserveCursor;
         out.Submitted = args.InstanceCount;
+        if (!view.Dispatched)
+            return true;
 
         if (out.Submitted > view.Capacity)
         {
