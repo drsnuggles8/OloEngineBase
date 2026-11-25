@@ -935,6 +935,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageCostBaselineTest.cpp
 		Rendering/PropertyTests/FoliageVsmCardCutoverEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
+        Rendering/PropertyTests/FoliageStableCompactionTest.cpp
         Rendering/PropertyTests/ShadowAtlasFoliageCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageVsmCacheVisualEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp

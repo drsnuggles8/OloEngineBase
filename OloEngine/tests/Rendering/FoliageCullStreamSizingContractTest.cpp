@@ -35,6 +35,16 @@
 
 namespace OloEngine::Tests
 {
+    TEST(FoliageCullStreamSizing, ScratchHoldsEveryRankAndBothOffsetsAtTileBoundaries)
+    {
+        EXPECT_EQ(FoliageGPUCuller::ScratchBytesFor(0u), 0u);
+        EXPECT_EQ(FoliageGPUCuller::ScratchBytesFor(255u), (255u + 2u) * 4u);
+        EXPECT_EQ(FoliageGPUCuller::ScratchBytesFor(256u), (256u + 2u) * 4u);
+        EXPECT_EQ(FoliageGPUCuller::ScratchBytesFor(257u), (257u + 4u) * 4u);
+        EXPECT_EQ(FoliageGPUCuller::ScratchBytesFor(65537u), (65537u + 514u) * 4u);
+        EXPECT_GT(FoliageGPUCuller::ScratchBytesFor(~0u), ~0u);
+    }
+
     TEST(FoliageCullStreamSizing, CapacityIsTheSurvivorsWithHalfAgainOfHeadroom)
     {
         // The rule: survivors + survivors / 2.

@@ -503,6 +503,7 @@ namespace OloEngine
         // One entry per cull view slot (FoliageGPUCuller::ViewSlot): the
         // compacted stream, its state header and its indirect args.
         std::array<u64, FoliageGPUCuller::kViewSlotCount> CullStreamBytes{};
+        u64 CullScratchBytes = 0; // included in CullStreamBytes
         // Optional: the authored near-field plant, while it is resident.
         u64 MeshGeometryBytes = 0;    // the layer's private vertex/index copy
         u64 MeshPartTextureBytes = 0; // the textures its submeshes draw with

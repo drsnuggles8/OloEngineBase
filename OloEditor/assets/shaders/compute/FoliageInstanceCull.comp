@@ -1,118 +1,19 @@
 #version 450 core
 
-// Foliage INSTANCE cull + compaction + indirect submission (issue #1235).
-//
-// One thread per row of a layer's instance stream. Skips every row whose patch
-// FoliageGroupCull.comp rejected, tests the survivors against the view frustum
-// and the layer's draw distance using the SAME conservative deformation bound
-// the registry computed on the CPU, and atomic-appends the survivors into a
-// compacted stream that IS the indirect draw's VAO stream 1 — no copy, no CPU
-// round trip.
-//
-// ── Identity, and why the compaction cannot steal another plant's history ────
-//
-// The named failure of this issue is a plant that leaves the frustum, comes
-// back, and inherits a different instance's history. Two things prevent it, and
-// both are structural rather than defended by a check:
-//
-//   1. A row is copied WHOLE. `b_DstInstances[outIdx] = b_SrcInstances[idx]` is
-//      the only write, so the compacted record is bit-identical to the source
-//      record — same position, scale, rotation, height, fade and tint. Nothing
-//      is recomputed from the output index.
-//   2. Every per-instance history downstream is keyed on the instance's own
-//      POSITION, not on its slot: the wind phase is hashed from instanceXZ
-//      (FoliageInstanceGeometry.glsl), the previous-frame position is the same
-//      deformation evaluated at prevTime, and the LOD hand-over is a function
-//      of distance. So a plant that reappears at compacted slot 0 having been
-//      at slot 4 812 evaluates exactly the same history it would have evaluated
-//      uncompacted. The one thing that WOULD break this — a shader indexing a
-//      per-instance history array by gl_InstanceIndex — does not exist in the
-//      foliage stages, and the parity test asserts the survivor ROWS are
-//      bit-equal to the source rows so it cannot appear unnoticed.
-//
-// `s_Tail[s_SourceRowOffset + outIdx]` records which source row landed in each
-// compacted slot. Nothing in the draw reads it; it exists so that the claim
-// above is CHECKABLE — FoliageInstanceRegistry::GetIdForBufferRow turns a
-// source row into the canonical FoliageInstanceId, so a test (and the MCP
-// inspector) can assert that the same plant is the same plant across a
-// leave-and-return.
-
 layout(local_size_x = 256) in;
-
+#define OLO_PREFIX_SUM_GROUP_SIZE 256
+#include "../include/PrefixSum.glsl"
 #include "../include/FoliageCullCommon.glsl"
+#include "../include/FoliageCullCompaction.glsl"
 #include "../include/FoliageLodTransition.glsl"
 #include "../include/GPUReadbackStats.glsl"
 
-// One row of FoliageRenderer's 48-byte instance stream. Layout mirrors
-// OloEngine::FoliageInstanceData (Terrain/Foliage/FoliageLayer.h) and the
-// attribute / pull layout FoliageInstanceVertexStage.glsl reads.
-struct FoliageInstanceRow
+uint oloFoliageMark(uint idx)
 {
-    vec4 PositionScale;  // xyz = terrain-local position, w = uniform scale
-    vec4 RotationHeight; // x = Y rotation (rad), y = height, z = fade, w = unused
-    vec4 ColorAlpha;     // rgb = tint, a = alpha cutoff
-};
-
-// binding 16: the layer's full instance stream — a VertexBuffer read as an SSBO
-// (VulkanRendererAPI::BindStorageBuffer's VertexBuffer arm; on GL a buffer is a
-// buffer).
-layout(std430, binding = 16) readonly buffer FoliageCullInput
-{
-    FoliageInstanceRow b_SrcInstances[];
-};
-
-// binding 15: the compacted survivors, ALSO a VertexBuffer, so it becomes VAO
-// stream 1 for the indirect draw with no copy (GL attributes / Vulkan's
-// binding-63 pull).
-layout(std430, binding = 15) writeonly buffer FoliageCullOutput
-{
-    FoliageInstanceRow b_DstInstances[];
-};
-
-// binding 17: one DrawElementsIndirectCommand per drawable part of the layer.
-// The CPU writes count / firstIndex / baseVertex / baseInstance and zeros
-// instanceCount; this kernel atomic-adds each landed survivor into EVERY part's
-// instanceCount, because a layer's parts (the authored mesh's submeshes and the
-// card) draw the SAME instance set through different index ranges and
-// materials. 8 uints per record so the stride is 32 and each part's draw offset
-// stays 4-byte aligned on both backends.
-struct FoliageDrawArgs
-{
-    uint Count;
-    uint InstanceCount;
-    uint FirstIndex;
-    uint BaseVertex;
-    uint BaseInstance;
-    uint MeshRegion; // 1 = this part draws the mesh region (#1533); past the command
-    uint Pad1;
-    uint Pad2;
-};
-
-layout(std430, binding = 17) buffer FoliageCullIndirect
-{
-    FoliageDrawArgs b_DrawArgs[];
-};
-
-void main()
-{
-    uint idx = gl_GlobalInvocationID.x;
-    if (idx >= s_InstanceCount)
-        return;
-
-    // Counted in the SHADER, for the same reason InstanceFrustumCull.comp counts
-    // its input here: a number the CPU wrote would agree with the CPU by
-    // construction and prove nothing about whether the dispatch ran at all.
-    // MAIN view only -- see s_EmitStats.
-    if (s_EmitStats != 0u)
-        oloStatAdd(OLO_STAT_FoliageCullGenerated, 1u);
-
     // ── Level 1: did this plant's patch survive? ──
     uint group = l_Tail[l_RowGroupOffset + idx];
     if (group >= s_GroupCount || s_Tail[group] == 0u)
-        return;
-
-    if (s_EmitStats != 0u)
-        oloStatAdd(OLO_STAT_FoliageCullTested, 1u);
+        return 0u;
 
     // ── Level 2: the plant itself ──
     FoliageInstanceRow row = b_SrcInstances[idx];
@@ -121,9 +22,9 @@ void main()
     oloFoliageInstanceBounds(row.PositionScale.xyz, row.PositionScale.w, row.RotationHeight.y, lo, hi);
 
     if (!oloFoliageBoxVisible(lo, hi))
-        return;
+        return kFoliageOneTested;
     if (oloFoliageBoxDistance(lo, hi) > s_DistanceOrigin.w)
-        return;
+        return kFoliageOneTested;
 
     // ── Level 3: coverage-preserving density (issue #1237) ──
     //
@@ -155,76 +56,38 @@ void main()
         float lodDist = distance(row.PositionScale.xyz, s_DistanceOrigin.xyz);
         float lodHash = foliageLodInstanceHash(row.PositionScale.xyz);
         if (foliageDensityAlphaAt(s_LodTransition0, s_LodTransition1, lodHash, lodDist) <= 0.0)
-            return;
+            return kFoliageOneTested;
     }
 
-    atomicAdd(s_VisibleCount, 1u);
-    if (s_EmitStats != 0u)
-        oloStatAdd(OLO_STAT_FoliageCullVisible, 1u);
 
-    // ── Append ──
-    //
-    // TWO counters, and the split is what makes the bound check safe — the same
-    // argument InstanceFrustumCull.comp spells out. `s_ReserveCursor` is
-    // MONOTONIC, so every invocation owns a distinct slot; the parts'
-    // instanceCount is bumped only after a write lands, so it stays an exact
-    // count of what the draw may read. Decrementing a single counter on
-    // overflow would, under concurrency, hand two invocations the same slot and
-    // turn a truncation into a duplicated-and-lost plant.
-    uint outIdx = atomicAdd(s_ReserveCursor, 1u);
-    // The all-survivor list's own bound; the mesh region after it has its own
-    // (s_MeshCapacity). Since #1581 a list is sized from what its VIEW can
-    // survive, not from the layer, so this is a path a camera move can take.
-    if (outIdx >= s_OutputCapacity)
+    bool mesh = s_MeshRegionBase != 0u &&
+                distance(row.PositionScale.xyz, s_DistanceOrigin.xyz) <= s_MeshReach;
+    return kFoliageOneTested + 1u + (mesh ? kFoliageOneMesh : 0u);
+}
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    uint mark = idx < s_InstanceCount ? oloFoliageMark(idx) : 0u;
+    uint total;
+    uint rank = OloPrefixSumExclusive(mark, total);
+
+    if (idx < s_InstanceCount)
     {
-        // Bounded and LOUD, never a quiet short draw: the flag names the
-        // condition and the counter says by how much. And the slot GROWS: the
-        // demand pair records what the list would have needed, and the CPU
-        // reads it back without stalling and resizes the slot for the next
-        // frame (FoliageCullDemandReadback). Only the overflowing invocations
-        // pay for the atomic.
-        oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
-        atomicMax(s_ListDemand, outIdx + 1u);
-        return;
+        uint flags = (mark & 1u) != 0u ? kFoliageKeepCard : 0u;
+        if ((mark & kFoliageOneMesh) != 0u)
+            flags |= kFoliageKeepMesh;
+        s_Tail[s_ScratchOffset + idx] = rank | flags;
     }
 
-    b_DstInstances[outIdx] = row;
-    s_Tail[s_SourceRowOffset + outIdx] = idx;
-
-    // THE MESH REGION (#1533). A plant whose pivot is within the mesh band's
-    // reach is ALSO appended past s_MeshRegionBase, and a mesh part draws only
-    // that region (its BaseInstance is the base; FoliageGPUCuller seeded it).
-    // The card part still draws every survivor above, four vertices each. The
-    // reach is FoliageLod::MeshRegionReach, the farthest any plant can still
-    // have mesh coverage, so a plant left out is one the mesh draw would have
-    // placed and collapsed: ~1,400 vertices each, for nine plants in ten.
-    bool meshAppended = false;
-    if (s_MeshRegionBase != 0u && distance(row.PositionScale.xyz, s_DistanceOrigin.xyz) <= s_MeshReach)
+    if (gl_LocalInvocationIndex == 0u)
     {
-        uint meshIdx = atomicAdd(s_MeshCursor, 1u);
-        uint meshSlot = s_MeshRegionBase + meshIdx;
-        // The region holds s_MeshCapacity rows, sized from the plants within
-        // the mesh band's reach of the main eye (#1581); a row past it is
-        // counted, its demand recorded for the slot to grow to, and not
-        // written.
-        if (meshIdx < s_MeshCapacity)
+        s_Tail[oloFoliageTileOffset(gl_WorkGroupID.x)] = total;
+        if (s_EmitStats != 0u)
         {
-            b_DstInstances[meshSlot] = row;
-            s_Tail[s_SourceRowOffset + meshSlot] = idx;
-            meshAppended = true;
-        }
-        else
-        {
-            oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
-            atomicMax(s_MeshDemand, meshIdx + 1u);
+            oloStatAdd(OLO_STAT_FoliageCullGenerated, min(s_InstanceCount - idx, gl_WorkGroupSize.x));
+            oloStatAdd(OLO_STAT_FoliageCullTested, (total >> 18u) & kFoliageCountMask);
+            oloStatAdd(OLO_STAT_FoliageCullVisible, total & kFoliageCountMask);
         }
     }
-    for (uint part = 0u; part < s_PartCount; ++part)
-    {
-        if (b_DrawArgs[part].MeshRegion == 0u || meshAppended)
-            atomicAdd(b_DrawArgs[part].InstanceCount, 1u);
-    }
-
-    if (s_EmitStats != 0u)
-        oloStatAdd(OLO_STAT_FoliageCullSubmitted, 1u);
 }

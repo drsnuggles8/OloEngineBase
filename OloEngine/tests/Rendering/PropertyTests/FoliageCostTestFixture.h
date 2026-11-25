@@ -295,6 +295,8 @@ namespace OloEngine::Tests
             Entity Terrain;
         };
 
+        void MeasureBaselineWorkload();
+
         void BuildScene() override
         {
             if (!RenderPropertyFixture::IsGpuAvailable())

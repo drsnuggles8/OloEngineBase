@@ -1,0 +1,77 @@
+#version 450 core
+
+layout(local_size_x = 256) in;
+#include "../include/FoliageCullCommon.glsl"
+#include "../include/FoliageCullCompaction.glsl"
+#include "../include/GPUReadbackStats.glsl"
+
+layout(std430, binding = 15) writeonly buffer FoliageCullOutput
+{
+    FoliageInstanceRow b_DstInstances[];
+};
+
+struct FoliageDrawArgs
+{
+    uint Count;
+    uint InstanceCount;
+    uint FirstIndex;
+    uint BaseVertex;
+    uint BaseInstance;
+    uint MeshRegion;
+    uint Pad1;
+    uint Pad2;
+};
+
+layout(std430, binding = 17) buffer FoliageCullIndirect
+{
+    FoliageDrawArgs b_DrawArgs[];
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= s_InstanceCount)
+        return;
+
+    uint rank = s_Tail[s_ScratchOffset + idx];
+    if ((rank & kFoliageKeepCard) == 0u)
+        return;
+
+    uint tileOffset = oloFoliageTileOffset(gl_WorkGroupID.x);
+    uint card = s_Tail[tileOffset] + (rank & kFoliageCountMask);
+    if (card >= s_OutputCapacity)
+        return;
+
+    FoliageInstanceRow row = b_SrcInstances[idx];
+    b_DstInstances[card] = row;
+    s_Tail[s_SourceRowOffset + card] = idx;
+
+    bool keepMesh = (rank & kFoliageKeepMesh) != 0u;
+    uint mesh = s_Tail[tileOffset + 1u] + ((rank >> 9u) & kFoliageCountMask);
+    if (keepMesh && mesh < s_MeshCapacity)
+    {
+        uint slot = s_MeshRegionBase + mesh;
+        b_DstInstances[slot] = row;
+        s_Tail[s_SourceRowOffset + slot] = idx;
+    }
+
+    // The last admitted card is the only writer of the indirect counts. Its
+    // inclusive mesh rank is the count after the card-capacity cut. Rows
+    // rejected by that cut never contribute to mesh demand.
+    uint cardsDrawn = min(s_OutputCapacity, s_VisibleCount);
+    if (card + 1u == cardsDrawn)
+    {
+        uint meshDemand = mesh + uint(keepMesh);
+        uint meshesDrawn = min(s_MeshCapacity, meshDemand);
+        if (meshDemand > s_MeshCapacity)
+        {
+            oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped,
+                            meshDemand - s_MeshCapacity);
+            atomicMax(s_MeshDemand, meshDemand);
+        }
+        for (uint part = 0u; part < s_PartCount; ++part)
+            b_DrawArgs[part].InstanceCount = b_DrawArgs[part].MeshRegion == 0u ? cardsDrawn : meshesDrawn;
+        if (s_EmitStats != 0u)
+            oloStatAdd(OLO_STAT_FoliageCullSubmitted, cardsDrawn);
+    }
+}

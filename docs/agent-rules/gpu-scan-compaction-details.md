@@ -91,6 +91,13 @@ silently rounds its count up.
 
 ---
 
+Foliage compaction (#1695) scans card and mesh eligibility together. The card capacity
+selects a canonical prefix. At its last admitted card, the mesh prefix plus that row's
+mesh mark gives the mesh demand within that prefix. Clamp this demand to the mesh capacity
+for the indirect count. Rows beyond the card limit belong to neither stream. Check the
+compacted order and indirect counts in main and shadow views, and compare a clipped stream
+against the same prefix of an uncapped run.
+
 ## 3. Converting a pass is a trade, and the contention half of the trade is a myth
 
 **Measure before you justify a conversion with "contention".** The intuitive argument — one

@@ -68,11 +68,9 @@ namespace OloEngine::FoliageLod
     // @brief Deterministic per-instance draw in [0, 1) from a plant's
     // terrain-local position.
     //
-    // Keyed on POSITION rather than on a row index, for the reason
-    // FoliageInstanceCull.comp spells out at length: compaction reorders rows
-    // every frame, so anything keyed on a slot hands one plant another's
-    // history the first time the frustum moves. The position is the plant's
-    // identity everywhere else in the foliage stack (the wind phase, the
+    // Keyed on POSITION because a plant's compacted slot can change as other
+    // plants enter or leave the frustum, even with stable order. Its position
+    // is the plant's identity everywhere else in the foliage stack (wind phase,
     // previous-frame deformation), and it is what makes this hash stable
     // across a cull, a leave-and-return and a backend switch.
     //
