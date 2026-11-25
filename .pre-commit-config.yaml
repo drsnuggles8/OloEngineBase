@@ -175,3 +175,14 @@ repos:
       pass_filenames: false
       always_run: true
       verbose: true
+
+    - id: sync-umbrella-checklists-tests
+      name: umbrella checklist sync ticks only a done child's box
+      description: >-
+        Runs the offline unit tests of .claude/scripts/sync_umbrella_checklists.py, which
+        /cleanup-worktree and /start-work run with --apply against live issue bodies: a
+        regression there rewrites other people's issue text.
+      entry: python -m unittest discover -s .claude/scripts -p test_sync_umbrella_checklists.py
+      language: system
+      pass_filenames: false
+      files: '^\.claude/scripts/(test_)?sync_umbrella_checklists\.py$'

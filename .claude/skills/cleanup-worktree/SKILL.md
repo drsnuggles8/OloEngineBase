@@ -88,6 +88,16 @@ the issue's current state: `CLOSED` is the healthy case. Two sources, two levels
 Close only after the user confirms, with a trailing `# OLO_USER_APPROVED` on the `gh issue close`
 line (`olo-command-guards` refuses it otherwise).
 
+Then tick the umbrella checklists, without asking:
+
+    python "$BASE/.claude/scripts/sync_umbrella_checklists.py" --apply
+
+It scans every open issue for a `- [ ] #N` line whose `#N` is an issue closed as completed or a
+merged PR and ticks only that box. A PR usually mentions its umbrella without closing it, so no step
+above reaches the box, and closures from outside a cleanup leave stale boxes too: #1359 had five.
+It lists items closed as not planned, duplicate or unmerged under "left unticked"; put those in the
+report for the user.
+
 This session runs on `master`: do not edit or commit project files. Report stale `docs/` checkboxes
 and resolved `// TODO`s for a follow-up PR instead.
 
@@ -113,4 +123,4 @@ Echo each constructed path before deleting it.
 `git -C $BASE worktree list`, then: what was removed, what was skipped and why (with the script's
 reasons, especially `incomplete-dirty`), how many worktrees remain and their disk use, the evidence
 comments posted, the issues recommended for closure (ask before closing), umbrella issues commented
-but kept open, and stale docs/TODOs for a follow-up.
+but kept open, the checklist boxes ticked and any left unticked, and stale docs/TODOs for a follow-up.
