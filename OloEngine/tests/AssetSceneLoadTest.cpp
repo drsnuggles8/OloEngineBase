@@ -1366,6 +1366,16 @@ namespace OloEngine::Tests
         settings.m_CompressAssets = true;
         settings.m_IncludeScriptModule = false;
         std::atomic<f32> progress{ 0.0f };
+        {
+            AssetRegistry sceneOnly;
+            ASSERT_TRUE(sceneOnly.AddAsset(editor->GetAssetMetadata(sceneHandle)));
+            auto incomplete = settings;
+            incomplete.m_OutputPath = root / "IncompleteScene.olopack";
+            const auto rejected = AssetPackBuilder::BuildFromRegistry(sceneOnly, incomplete, progress);
+            EXPECT_FALSE(rejected.m_Success);
+            EXPECT_NE(rejected.m_ErrorMessage.find("missing from the pack input registry"), std::string::npos);
+            EXPECT_FALSE(fs::exists(incomplete.m_OutputPath));
+        }
         const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
         ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
         EXPECT_EQ(built.m_FailedAssetCount, 0u);
@@ -1415,6 +1425,9 @@ namespace OloEngine::Tests
             const auto variant = runtime->GetSceneTexture(textureHandle, pack == built.m_OutputPath).As<Texture2D>();
             ASSERT_TRUE(variant && variant->IsLoaded());
             EXPECT_NE(variant, unflagged);
+            const auto estimated = runtime->GetAssetByteSize(textureHandle).GetBytes();
+            ASSERT_TRUE(estimated);
+            EXPECT_EQ(runtime->GetStreamingReport().Resident.EstimateBytes, *estimated);
             ASSERT_NO_FATAL_FAILURE(assertHandles(AssetManager::GetAsset<Scene>(sceneHandle)));
             ASSERT_NO_FATAL_FAILURE(assertDriftAssets(AssetManager::GetAsset<Scene>(driftHandle)));
             runtime->UnloadAssetPack(pack);
@@ -1422,6 +1435,23 @@ namespace OloEngine::Tests
             ASSERT_TRUE(afterUnmount && afterUnmount->IsLoaded());
             EXPECT_FALSE(afterUnmount->GetSpecification().SRGB);
         }
+
+        // An unavailable flagged pack still owns its slot source in the mounted
+        // index. A canonical record in another pack must not hide the error.
+        auto runtime = Ref<RuntimeAssetManager>::Create(false);
+        Project::SetAssetManager(runtime);
+        ASSERT_TRUE(runtime->LoadAssetPack(textureOnlyPack));
+        ASSERT_TRUE(runtime->LoadAssetPack(built.m_OutputPath));
+        const auto offline = root / "OfflineSceneHandles.olopack";
+        fs::rename(built.m_OutputPath, offline);
+        EXPECT_FALSE(runtime->GetSceneTexture(textureHandle, true));
+        fs::rename(offline, built.m_OutputPath);
+        EXPECT_FALSE(runtime->GetSceneTexture(textureHandle, true)); // Negative cache.
+        runtime->UnloadAssetPack(built.m_OutputPath);
+        ASSERT_TRUE(runtime->LoadAssetPack(built.m_OutputPath));
+        const auto repaired = runtime->GetSceneTexture(textureHandle, true).As<Texture2D>();
+        ASSERT_TRUE(repaired && repaired->IsLoaded());
+        EXPECT_TRUE(repaired->GetSpecification().SRGB);
     }
 
     // Caching a failed texture resolution would lose the authored handle.

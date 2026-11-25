@@ -205,7 +205,9 @@ namespace OloEngine
       private:
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
-        std::unordered_map<AssetHandle, std::array<Ref<Asset>, 2>> m_SceneTextures;
+        // Unset means no attempt. A set null reference caches a failed decode
+        // until the corresponding pack changes.
+        std::unordered_map<AssetHandle, std::array<std::optional<Ref<Asset>>, 2>> m_SceneTextures;
         u64 m_SceneTexturePackRevision = 0; // Guarded by m_AssetsMutex.
 
         // Memory-only assets (no backing pack file)

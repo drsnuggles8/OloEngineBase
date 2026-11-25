@@ -867,7 +867,7 @@ namespace OloEngine
         std::unordered_set<AssetHandle> sources;
         const auto note = [&sources](const Ref<Texture2D>& texture)
         {
-            if (texture && texture->GetHandle() != 0)
+            if (texture && texture->GetHandle() != 0 && !PlaceholderAssetManager::IsPlaceholderAsset(texture))
                 sources.insert(texture->GetHandle());
         };
         for (const auto& [handle, asset] : assets)
@@ -904,6 +904,17 @@ namespace OloEngine
         // Get all loaded assets from the asset manager
         auto loadedAssets = assetManager->GetLoadedAssets();
         const auto sceneTextureSources = CollectSceneTextureSources(loadedAssets);
+        for (const auto handle : sceneTextureSources)
+        {
+            const auto asset = loadedAssets.find(handle);
+            if (asset == loadedAssets.end() || asset->second->GetAssetType() != AssetType::Texture2D)
+            {
+                result.m_ErrorMessage = std::format("Scene texture {} is missing from the pack input registry; include it with the scene",
+                                                    static_cast<u64>(handle));
+                OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                return false;
+            }
+        }
 
         assetPackFile.Index.AssetCount = static_cast<u32>(loadedAssets.size());
         assetPackFile.Index.SceneCount = 0; // Will be calculated as we process

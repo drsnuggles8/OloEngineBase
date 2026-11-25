@@ -17,8 +17,8 @@
 #include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Threading/SharedLock.h"
 
-#include <algorithm>
 #include <filesystem>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -234,7 +234,7 @@ namespace OloEngine
             {
                 TSharedLock<FSharedMutex> lock(m_AssetsMutex);
                 if (const auto it = m_SceneTextures.find(handle); it != m_SceneTextures.end() && it->second[srgb])
-                    return it->second[srgb];
+                    return *it->second[srgb];
                 revision = m_SceneTexturePackRevision;
             }
 
@@ -244,12 +244,10 @@ namespace OloEngine
             // pack set before publishing a variant chosen from an old one.
             if (revision != m_SceneTexturePackRevision)
                 continue;
-            if (!asset)
-                return nullptr;
             auto& cached = m_SceneTextures[handle][srgb];
             if (!cached)
-                cached = asset;
-            return cached;
+                cached = MoveTemp(asset);
+            return *cached;
         }
     }
 
@@ -615,8 +613,18 @@ namespace OloEngine
 #endif
 
         TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+        std::unordered_set<const Asset*> reported;
+        const auto addResident = [&](AssetHandle handle, const Ref<Asset>& asset)
+        {
+            if (asset && reported.insert(asset.get()).second)
+                report.Resident.Add(ResidentByteSizeOf(handle, asset));
+        };
         for (const auto& [handle, asset] : m_LoadedAssets)
-            report.Resident.Add(ResidentByteSizeOf(handle, asset));
+            addResident(handle, asset);
+        for (const auto& [handle, variants] : m_SceneTextures)
+            for (const auto& variant : variants)
+                if (variant)
+                    addResident(handle, *variant);
         return report;
     }
 
@@ -797,6 +805,7 @@ namespace OloEngine
         // only Ref handles (which are trivially relocatable) move in the array.
         TArray<Ref<PackedRead>> reads;
         bool isScene = false;
+        bool haveSceneSource = false;
         {
             TSharedLock<FSharedMutex> lock(m_PacksMutex);
             const auto metaIt = m_AssetMetadata.find(handle);
@@ -825,6 +834,8 @@ namespace OloEngine
                     if (!info)
                         continue;
                     read->AssetInfo = *info;
+                    if (sceneSRGB && (info->Flags & AssetPackFile::TextureWithSceneSource))
+                        haveSceneSource = true;
                 }
                 read->Stream = assetPack->GetAssetStreamReader();
                 if (read->Stream)
@@ -832,8 +843,9 @@ namespace OloEngine
             }
         }
 
-        const bool haveSceneSource = sceneSRGB.has_value() && std::ranges::any_of(reads, [](const auto& read)
-                                                                                  { return (read->AssetInfo.Flags & AssetPackFile::TextureWithSceneSource) != 0; });
+        // A flagged record supplies the slot's source and mip settings. If all
+        // such records fail, report the broken slot. A canonical payload can
+        // carry a different interpretation or try to reopen a loose image.
         for (auto& read : reads)
         {
             Ref<Asset> asset;

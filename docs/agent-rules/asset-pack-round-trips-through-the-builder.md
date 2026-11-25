@@ -24,6 +24,8 @@ creates its sRGB and linear views with the same upload and mip generation as the
 `.oloimport` color-space and mip overrides apply to those views. The compressed canonical record
 still uses the material cook policy, including its format override. A pre-cooked `.olotex` already
 defines its color space and mip chain.
+Include each resolved scene texture when packing a selected registry. The builder rejects a resolved
+slot dependency omitted from the selection, so those bindings have their scene source in the pack.
 
 **Why.** The showcase dog (#1533) shipped bald. Its packed-path test went through the two groom
 serializers directly and set the stream position itself, so it passed through four bugs on the
