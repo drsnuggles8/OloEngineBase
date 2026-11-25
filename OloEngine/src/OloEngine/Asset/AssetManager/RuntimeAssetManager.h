@@ -9,6 +9,8 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <atomic>
+#include <array>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -69,6 +71,7 @@ namespace OloEngine
 
         AssetType GetAssetType(AssetHandle assetHandle) const noexcept override;
         Ref<Asset> GetAsset(AssetHandle assetHandle) override;
+        Ref<Asset> GetSceneTexture(AssetHandle assetHandle, bool srgb) override;
         AsyncAssetResult<Asset> GetAssetAsync(AssetHandle assetHandle) override;
         AssetMetadata GetAssetMetadata(AssetHandle handle) const noexcept override;
 
@@ -167,7 +170,7 @@ namespace OloEngine
          * @param handle Asset handle to load
          * @return Loaded asset or nullptr if failed
          */
-        Ref<Asset> LoadAssetFromPack(AssetHandle handle);
+        Ref<Asset> LoadAssetFromPack(AssetHandle handle, std::optional<bool> sceneSRGB = std::nullopt);
 
         /**
          * @brief Check if an asset exists in any loaded pack
@@ -202,6 +205,8 @@ namespace OloEngine
       private:
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
+        std::unordered_map<AssetHandle, std::array<Ref<Asset>, 2>> m_SceneTextures;
+        u64 m_SceneTexturePackRevision = 0; // Guarded by m_AssetsMutex.
 
         // Memory-only assets (no backing pack file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;

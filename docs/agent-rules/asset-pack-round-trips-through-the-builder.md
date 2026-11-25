@@ -18,6 +18,13 @@ How to write one (`AssetPackBuilderTest.EveryAssetLoadsBackFromTheOffsetTheBuild
 3. Read at least one record first on a fresh stream, and check each loaded asset is its own (a
    name, a key), not merely "not a placeholder".
 
+For slot-aware scene textures, collect source handles from the scene and prefab objects the
+builder actually serializes. The v9 pack embeds each referenced raster source once. The runtime
+creates its sRGB and linear views with the same upload and mip generation as the loose editor.
+`.oloimport` color-space and mip overrides apply to those views. The compressed canonical record
+still uses the material cook policy, including its format override. A pre-cooked `.olotex` already
+defines its color space and mip chain.
+
 **Why.** The showcase dog (#1533) shipped bald. Its packed-path test went through the two groom
 serializers directly and set the stream position itself, so it passed through four bugs on the
 real path:

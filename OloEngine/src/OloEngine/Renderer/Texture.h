@@ -318,6 +318,9 @@ namespace OloEngine
         // BPTC/RGTC support the blocks are decompressed on the CPU and uploaded as an
         // uncompressed RGBA8 texture so nothing breaks (#440).
         static Ref<Texture2D> Create(const CompressedTextureImage& compressedImage);
+        // A scene texture can upload the same encoded source from disk or a pack.
+        static Ref<Texture2D> CreateFromEncodedImage(std::span<const u8> bytes, bool srgb, bool generateMips,
+                                                     std::string_view identityPath, bool preserveAlphaCoverage = false);
         // Load a texture from disk. Pass srgb=true for color textures (albedo,
         // emissive, UI) so the GPU converts samples from sRGB to linear on
         // read. Leave srgb=false (default) for data textures (normal map,
@@ -339,5 +342,8 @@ namespace OloEngine
         {
             return GetStaticType();
         }
+
+      protected:
+        bool m_DecodeSceneColor = false;
     };
 } // namespace OloEngine

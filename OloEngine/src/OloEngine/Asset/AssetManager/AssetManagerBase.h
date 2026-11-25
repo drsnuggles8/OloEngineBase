@@ -98,6 +98,12 @@ namespace OloEngine
          */
         virtual Ref<Asset> GetAsset(AssetHandle assetHandle) = 0;
 
+        // Authored scene slots keep the source handle and choose its interpretation.
+        virtual Ref<Asset> GetSceneTexture(AssetHandle assetHandle, [[maybe_unused]] bool srgb)
+        {
+            return GetAsset(assetHandle);
+        }
+
         /**
          * @brief Get an asset asynchronously by handle
          * @param assetHandle Handle of the asset to retrieve

@@ -14,6 +14,7 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <filesystem>
+#include <array>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -372,6 +373,7 @@ namespace OloEngine
          */
         AssetHandle ImportAsset(const std::filesystem::path& filepath);
         [[nodiscard]] Ref<Texture2D> ImportTexture(const std::filesystem::path& filepath, bool srgb);
+        Ref<Asset> GetSceneTexture(AssetHandle assetHandle, bool srgb) override;
 
         /**
          * @brief Serialize the asset registry to disk
@@ -486,6 +488,7 @@ namespace OloEngine
 
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
+        std::unordered_map<AssetHandle, std::array<Ref<Asset>, 2>> m_SceneTextures;
 
         // Memory-only assets (no backing file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;

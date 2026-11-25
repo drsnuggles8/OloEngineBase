@@ -383,13 +383,13 @@ if (auto node = entity["DecalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DecalComponent>();
     if (auto h0 = node["AlbedoTextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_AlbedoTexture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_AlbedoTexture, h0.as<u64>(0), true);
     if (auto h0 = node["NormalTextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_NormalTexture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_NormalTexture, h0.as<u64>(0), false);
     if (auto h0 = node["RMATextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_RMATexture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_RMATexture, h0.as<u64>(0), false);
     if (auto h0 = node["EmissiveTextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_EmissiveTexture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_EmissiveTexture, h0.as<u64>(0), true);
     comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
     comp.m_Color = glm::clamp(comp.m_Color, glm::vec4(0.0f), glm::vec4(1.0f));
     comp.m_Size = node["Size"].as<glm::vec3>(comp.m_Size);
@@ -1271,7 +1271,7 @@ if (auto node = entity["SpriteRendererComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<SpriteRendererComponent>();
     comp.Color = node["Color"].as<glm::vec4>(comp.Color);
     if (auto h0 = node["TextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.Texture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.Texture, h0.as<u64>(0), true);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TilingFactor"], v))
         comp.TilingFactor = v;
 }
@@ -1455,7 +1455,7 @@ if (auto node = entity["UIImageComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<UIImageComponent>();
     if (auto h0 = node["TextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_Texture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_Texture, h0.as<u64>(0), true);
     comp.m_Color = node["Color"].as<glm::vec4>(comp.m_Color);
     comp.m_BorderInsets = node["BorderInsets"].as<glm::vec4>(comp.m_BorderInsets);
 }
@@ -1481,7 +1481,7 @@ if (auto node = entity["UIPanelComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<UIPanelComponent>();
     comp.m_BackgroundColor = node["BackgroundColor"].as<glm::vec4>(comp.m_BackgroundColor);
     if (auto h0 = node["BackgroundTextureHandle"]; h0)
-        RestoreSceneAssetReference(comp.m_BackgroundTexture, h0.as<u64>(0));
+        RestoreSceneAssetReference(comp.m_BackgroundTexture, h0.as<u64>(0), true);
 }
 
 if (auto node = entity["UIProgressBarComponent"]; node)

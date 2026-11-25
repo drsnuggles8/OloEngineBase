@@ -2,6 +2,7 @@
 #include "RuntimeAssetManager.h"
 
 #include "OloEngine/Asset/AssetImporter.h"
+#include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
@@ -16,6 +17,7 @@
 #include "OloEngine/Threading/UniqueLock.h"
 #include "OloEngine/Threading/SharedLock.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <vector>
 
@@ -82,6 +84,8 @@ namespace OloEngine
         TUniqueLock<FSharedMutex> packsLock(m_PacksMutex);
         TUniqueLock<FSharedMutex> depsLock(m_DependenciesMutex);
         m_LoadedAssets.clear();
+        m_SceneTextures.clear();
+        ++m_SceneTexturePackRevision;
         m_MemoryAssets.clear();
         m_LoadedPacks.clear();
         m_AssetMetadata.clear();
@@ -216,6 +220,37 @@ namespace OloEngine
         }
 
         return nullptr;
+    }
+
+    Ref<Asset> RuntimeAssetManager::GetSceneTexture(AssetHandle handle, bool srgb)
+    {
+        if (GetAssetType(handle) != AssetType::Texture2D)
+            return nullptr;
+        if (IsMemoryAsset(handle))
+            return GetAsset(handle);
+        for (;;)
+        {
+            u64 revision;
+            {
+                TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+                if (const auto it = m_SceneTextures.find(handle); it != m_SceneTextures.end() && it->second[srgb])
+                    return it->second[srgb];
+                revision = m_SceneTexturePackRevision;
+            }
+
+            auto asset = LoadAssetFromPack(handle, srgb);
+            TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+            // An open stream can outlive its mount. Resolve against the new
+            // pack set before publishing a variant chosen from an old one.
+            if (revision != m_SceneTexturePackRevision)
+                continue;
+            if (!asset)
+                return nullptr;
+            auto& cached = m_SceneTextures[handle][srgb];
+            if (!cached)
+                cached = asset;
+            return cached;
+        }
     }
 
     AsyncAssetResult<Asset> RuntimeAssetManager::GetAssetAsync(AssetHandle assetHandle)
@@ -360,6 +395,7 @@ namespace OloEngine
 
         // Remove from loaded assets
         m_LoadedAssets.erase(handle);
+        m_SceneTextures.erase(handle);
 
         // Remove from memory assets
         m_MemoryAssets.erase(handle);
@@ -673,7 +709,14 @@ namespace OloEngine
         // (GetAsset, IsAssetValid, GetAssetType, GetAllAssetsWithType, ...); without
         // this step the loaded pack stays invisible and every asset lookup fails.
         {
+            TUniqueLock<FSharedMutex> assetsLock(m_AssetsMutex);
             TUniqueLock<FSharedMutex> lock(m_PacksMutex);
+            if (const auto previous = m_LoadedPacks.find(packPath); previous != m_LoadedPacks.end())
+                for (const auto& info : previous->second->GetAllAssetInfos())
+                    m_SceneTextures.erase(info.Handle);
+            for (const auto& info : assetPack->GetAllAssetInfos())
+                m_SceneTextures.erase(info.Handle);
+            ++m_SceneTexturePackRevision;
             m_LoadedPacks[packPath] = assetPack;
             IndexAssetPackMetadata(*assetPack);
         }
@@ -694,6 +737,9 @@ namespace OloEngine
         if (it == m_LoadedPacks.end())
             return;
 
+        for (const auto& info : it->second->GetAllAssetInfos())
+            m_SceneTextures.erase(info.Handle);
+        ++m_SceneTexturePackRevision;
         it->second->Unload();
         m_LoadedPacks.erase(it);
 
@@ -734,7 +780,7 @@ namespace OloEngine
         }
     }
 
-    Ref<Asset> RuntimeAssetManager::LoadAssetFromPack(AssetHandle handle)
+    Ref<Asset> RuntimeAssetManager::LoadAssetFromPack(AssetHandle handle, std::optional<bool> sceneSRGB)
     {
         // Snapshot record metadata and independently owned streams under the pack
         // lock, then release it before decoding. A scene/mesh decoder resolves other
@@ -786,12 +832,20 @@ namespace OloEngine
             }
         }
 
+        const bool haveSceneSource = sceneSRGB.has_value() && std::ranges::any_of(reads, [](const auto& read)
+                                                                                  { return (read->AssetInfo.Flags & AssetPackFile::TextureWithSceneSource) != 0; });
         for (auto& read : reads)
         {
             Ref<Asset> asset;
             if (isScene)
             {
                 asset = AssetImporter::DeserializeSceneFromAssetPack(*read->Stream, read->SceneInfo);
+            }
+            else if (haveSceneSource)
+            {
+                if (!(read->AssetInfo.Flags & AssetPackFile::TextureWithSceneSource))
+                    continue;
+                asset = TextureSerializer::DeserializeSceneTexture(*read->Stream, read->AssetInfo, *sceneSRGB);
             }
             else
             {

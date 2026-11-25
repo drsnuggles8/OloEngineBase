@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 namespace OloEngine
 {
@@ -66,6 +67,7 @@ namespace OloEngine
             m_Stream.seekg(static_cast<std::streampos>(position));
         }
         bool ReadData(char* destination, sizet size) override;
+        [[nodiscard]] std::optional<u64> GetStreamSize();
 
       private:
         std::filesystem::path m_Path;

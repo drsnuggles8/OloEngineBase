@@ -14,6 +14,9 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Prefab.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
@@ -859,12 +862,48 @@ namespace OloEngine
         }
     }
 
+    static std::unordered_set<AssetHandle> CollectSceneTextureSources(const std::unordered_map<AssetHandle, Ref<Asset>>& assets)
+    {
+        std::unordered_set<AssetHandle> sources;
+        const auto note = [&sources](const Ref<Texture2D>& texture)
+        {
+            if (texture && texture->GetHandle() != 0)
+                sources.insert(texture->GetHandle());
+        };
+        for (const auto& [handle, asset] : assets)
+        {
+            Ref<Scene> scene;
+            if (asset->GetAssetType() == AssetType::Scene)
+                scene = asset.As<Scene>();
+            else if (asset->GetAssetType() == AssetType::Prefab)
+                scene = asset.As<Prefab>()->GetScene();
+            if (!scene)
+                continue;
+
+            for (const auto& [entity, sprite] : scene->GetAllEntitiesWith<SpriteRendererComponent>().each())
+                note(sprite.Texture);
+            for (const auto& [entity, image] : scene->GetAllEntitiesWith<UIImageComponent>().each())
+                note(image.m_Texture);
+            for (const auto& [entity, panel] : scene->GetAllEntitiesWith<UIPanelComponent>().each())
+                note(panel.m_BackgroundTexture);
+            for (const auto& [entity, decal] : scene->GetAllEntitiesWith<DecalComponent>().each())
+            {
+                note(decal.m_AlbedoTexture);
+                note(decal.m_NormalTexture);
+                note(decal.m_RMATexture);
+                note(decal.m_EmissiveTexture);
+            }
+        }
+        return sources;
+    }
+
     [[nodiscard]] bool AssetPackBuilder::SerializeAllAssets(Ref<AssetManagerBase> assetManager, AssetPackFile& assetPackFile, const std::filesystem::path& scratchDirectory, u64 scriptModuleSize, BuildResult& result, ProgressRange progress, const std::atomic<bool>* cancelToken)
     {
         OLO_PROFILE_FUNCTION();
 
         // Get all loaded assets from the asset manager
         auto loadedAssets = assetManager->GetLoadedAssets();
+        const auto sceneTextureSources = CollectSceneTextureSources(loadedAssets);
 
         assetPackFile.Index.AssetCount = static_cast<u32>(loadedAssets.size());
         assetPackFile.Index.SceneCount = 0; // Will be calculated as we process
@@ -988,10 +1027,23 @@ namespace OloEngine
             assetInfo.PackedOffset = currentOffset;
 
             // Serialize the asset
-            if (AssetSerializationInfo serializationInfo; AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo))
+            const auto metadata = assetManager->GetAssetMetadata(assetInfo.Handle);
+            const bool embedSceneSource = assetInfo.Type == AssetType::Texture2D && !metadata.FilePath.empty() &&
+                                          sceneTextureSources.contains(assetInfo.Handle) &&
+                                          !TextureSerializer::IsCookedSource(metadata.FilePath);
+            AssetSerializationInfo serializationInfo;
+            bool serialized;
+            if (embedSceneSource)
+                serialized = TextureSerializer::SerializeSceneTextureSource(assetInfo.Handle, tempWriter, serializationInfo, metadata);
+            else if (assetInfo.Type == AssetType::Prefab)
+                serialized = PrefabSerializer().SerializeToAssetPack(loadedAssets.at(assetInfo.Handle).As<Prefab>(), tempWriter, serializationInfo);
+            else
+                serialized = AssetImporter::SerializeToAssetPack(assetInfo.Handle, tempWriter, serializationInfo);
+            if (serialized)
             {
+                if (embedSceneSource)
+                    assetInfo.Flags |= AssetPackFile::TextureWithSceneSource;
                 assetInfo.PackedSize = serializationInfo.Size;
-                const auto metadata = assetManager->GetAssetMetadata(assetInfo.Handle);
                 result.m_Records.Add(AssetRecord{ assetInfo.Handle, assetInfo.Type, FString(metadata.FilePath.generic_string()),
                                                   assetInfo.PackedOffset, assetInfo.PackedSize, serializationInfo.TextureFormat,
                                                   serializationInfo.TextureSRGB, serializationInfo.TextureWidth, serializationInfo.TextureHeight });
@@ -1003,7 +1055,6 @@ namespace OloEngine
                 // The asset loaded but its record could not be written. Packing on
                 // would ship an index entry with no bytes behind it, which the
                 // runtime fails to read, so the build fails here and says which.
-                const auto metadata = assetManager->GetAssetMetadata(assetInfo.Handle);
                 result.m_ErrorMessage = std::format("Failed to write asset {} ({}, {}) into the pack", static_cast<u64>(assetInfo.Handle),
                                                     metadata.FilePath.generic_string(),
                                                     AssetUtils::AssetTypeToString(assetInfo.Type));
@@ -1040,7 +1091,9 @@ namespace OloEngine
 
             // Serialize the scene asset
             AssetSerializationInfo serializationInfo;
-            if (AssetImporter::SerializeToAssetPack(sceneInfo.Handle, tempWriter, serializationInfo))
+            // Dependency collection used this loaded snapshot. A cached scene in
+            // the active editor can still contain a different set of handles.
+            if (SceneAssetSerializer().SerializeToAssetPack(loadedAssets.at(sceneInfo.Handle).As<Scene>(), tempWriter, serializationInfo))
             {
                 sceneInfo.PackedSize = serializationInfo.Size;
                 const auto metadata = assetManager->GetAssetMetadata(sceneInfo.Handle);

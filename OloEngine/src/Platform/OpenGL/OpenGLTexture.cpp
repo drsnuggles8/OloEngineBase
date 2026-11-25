@@ -338,9 +338,25 @@ namespace OloEngine
         ::stbi_image_free(data);
     }
 
+    OpenGLTexture2D::OpenGLTexture2D(const DecodedImage& image, bool srgb, bool generateMips, std::string_view identityPath,
+                                     bool preserveAlphaCoverage)
+    {
+        m_DecodeSceneColor = srgb;
+        m_Specification.SRGB = srgb;
+        m_Specification.GenerateMips = generateMips;
+        m_AlphaCoverageCutoff = preserveAlphaCoverage ? 0.5f : 0.0f;
+        InvalidateImpl(identityPath, image.Width, image.Height, image.Pixels.GetData(), image.Channels);
+    }
+
     bool OpenGLTexture2D::Reload()
     {
         OLO_PROFILE_FUNCTION();
+
+        if (m_DecodeSceneColor)
+        {
+            DecodedImage image;
+            return DecodeReloadSource(image) && ApplyReload(image);
+        }
 
         // Cooked block-compressed containers (.olotex) are build artifacts, not
         // hand-edited live assets, and InvalidateImpl only knows the uncompressed

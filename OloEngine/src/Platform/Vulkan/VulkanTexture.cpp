@@ -271,6 +271,17 @@ namespace OloEngine
         ::stbi_image_free(data);
     }
 
+    VulkanTexture2D::VulkanTexture2D(const DecodedImage& image, bool srgb, bool generateMips, std::string_view identityPath,
+                                     bool preserveAlphaCoverage)
+    {
+        VulkanUpload::TrackLive(this, "VulkanTexture2D(decoded)");
+        m_DecodeSceneColor = srgb;
+        m_Specification.SRGB = srgb;
+        m_Specification.GenerateMips = generateMips;
+        m_AlphaCoverageCutoff = preserveAlphaCoverage ? 0.5f : 0.0f;
+        Invalidate(identityPath, image.Width, image.Height, image.Pixels.GetData(), image.Channels);
+    }
+
     VulkanTexture2D::VulkanTexture2D(const CompressedTextureImage& image)
     {
         VulkanUpload::TrackLive(this, "VulkanTexture2D(compressed)");
@@ -621,6 +632,12 @@ namespace OloEngine
     bool VulkanTexture2D::Reload()
     {
         OLO_PROFILE_FUNCTION();
+
+        if (m_DecodeSceneColor)
+        {
+            DecodedImage image;
+            return DecodeReloadSource(image) && ApplyReload(image);
+        }
 
         // Cooked block-compressed containers (.olotex) are build artifacts, not
         // hand-edited live assets, and Invalidate only knows the uncompressed

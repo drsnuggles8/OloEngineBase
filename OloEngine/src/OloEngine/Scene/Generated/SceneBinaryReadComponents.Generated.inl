@@ -364,22 +364,22 @@ case 3815007389u: // DecalComponent
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_AlbedoTexture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_AlbedoTexture, bh0, true)) return false;
     }
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_NormalTexture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_NormalTexture, bh0, false)) return false;
     }
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_RMATexture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_RMATexture, bh0, false)) return false;
     }
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_EmissiveTexture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_EmissiveTexture, bh0, true)) return false;
     }
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
     comp.m_Color = glm::clamp(comp.m_Color, glm::vec4(0.0f), glm::vec4(1.0f));
@@ -1344,7 +1344,7 @@ case 4233792822u: // SpriteRendererComponent
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.Texture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.Texture, bh0, true)) return false;
     }
     if (!SceneBinIO::Read(reader, comp.TilingFactor)) return false;
     break;
@@ -1548,7 +1548,7 @@ case 906139791u: // UIImageComponent
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_Texture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_Texture, bh0, true)) return false;
     }
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
     if (!SceneBinIO::Read(reader, comp.m_BorderInsets)) return false;
@@ -1579,7 +1579,7 @@ case 1596836942u: // UIPanelComponent
     {
         u64 bh0 = 0;
         if (!SceneBinIO::ReadU64(reader, bh0)) return false;
-        if (!RestoreSceneAssetReference(comp.m_BackgroundTexture, bh0)) return false;
+        if (!RestoreSceneAssetReference(comp.m_BackgroundTexture, bh0, true)) return false;
     }
     break;
 }

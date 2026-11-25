@@ -21,7 +21,9 @@ namespace OloEngine
         // sizes below; every v6 pack's offsets ran 4 bytes per index entry past the
         // bytes they name, so none of them can be read (#1533). v8: the embedded
         // ImportedMaterialCodec blob gained the thickness-map slot (codec v4, #1259).
-        static constexpr u32 Version = 8;
+        // v9: scene texture records can carry a lossless source image (#1785).
+        static constexpr u32 Version = 9;
+        static constexpr u16 TextureWithSceneSource = 1u << 0;
 
         // ON-DISK record sizes. Every field is written with WriteRaw, so a record is
         // the sum of its fields, never sizeof() of the struct: AssetInfo's 28 bytes pad

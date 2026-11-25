@@ -55,6 +55,8 @@ namespace OloEngine
         // flip the GL twin uses — asset bytes must be identical across
         // backends, since UV sampling is convention-free.
         VulkanTexture2D(const std::string& path, bool srgb, const std::string& identityPath = "");
+        VulkanTexture2D(const DecodedImage& image, bool srgb, bool generateMips, std::string_view identityPath,
+                        bool preserveAlphaCoverage);
         // Cooked block-compressed upload (#1453): every format the cook emits
         // (TextureCompression) — BC7 sRGB or linear, BC5, BC4 sampled as
         // (R, R, R, 1), BC6H unsigned and signed. The mip chain is uploaded
