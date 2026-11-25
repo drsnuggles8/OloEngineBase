@@ -83,3 +83,17 @@ Paired p50 deltas for the two reflected poses ranged from +3.07 to +4.10 µs. Th
 ## Sky-only control
 
 The global environment A/B used the same imported tile with the sun removed. The first textured shader incorrectly required a per-material IBL flag. Its 2,268 interior samples read zero in both poses. The corrected bound-environment gate produced positive linear HDR in all 2,268 samples per pose, with center mean RGB `[0.08153, 0.02488, 0.03017]` and luma p5–p95 `0.03548–0.03923`. The checker is visible in `sky-before-after-centre.png`. The upstream specular and weight were byte-identical. The SDK loader confirmed the Khronos validation layer in the final native Deferred off/on/emissive capture, with zero reported validation diagnostics.
+
+## Reproduce the comparisons
+
+Use the [live benchmark capture entry point](../guides/renderer-benchmarks.md#the-capture-entry-point) in a fresh Release Vulkan editor. Use `ReflectionHierarchyTest.olo` as the base scene. Make two scratch copies that differ only in `RTReflectionEnabled`. Keep SSR enabled and set FXAA, DDGI, TAA and primary ray-traced shadows off. Leave the reflection's own sun visibility ray enabled. Use seed 1355, fixed `dt = 1/60`, manual exposure 0.7 and 24 warmup frames. Capture `IndirectSpecularTexture`, its weight, `RTReflectionSpecularTexture` when present, and `UIComposite`.
+
+| Pose | Position | Yaw | Downward pitch |
+| --- | --- | ---: | ---: |
+| Center | `[0, 1.6, 9]` | 0° | 14° |
+| Lateral | `[1.1, 1.85, 8.6]` | −4° | 15° |
+| Direct tile control | `[0, 1.6, 9]` | −6° | −19° |
+
+Use 45° FOV and clip distances 0.01 and 1000. Move the lateral camera along +X at 0.9 m/s while yaw decreases by 1°/s. For the mip comparison capture 24 consecutive steps and divide separated specular by its weight before comparing the same surface points. The control replaces the solid-hit `textureGrad` lookup with `oloHeapSampleLod` at mip 0 in an isolated shader copy.
+
+For the texture and emission arms replace `RedPillarBehind` with a two-submesh tile at `[-2.35, 8.1, -9]`, scale `[2.15, 1.65, 1]` and rotation `[0, 0.15, 0.18]` radians. Change one map at a time while holding the material factors. For the masked control place an alpha-striped card at `[-2.15, 7.8, -8.15]`, scale `[2, 1.55, 1]` and the same rotation. The sky-only control removes the `Sun` entity. For timing use 120 measurement steps per camera in fresh AB/BA runs and the valid unique pass rows in the benchmark trace. Use the shader from `4554d8c4ae7cb9841f42c756f26eb4f82336abde` for the factor baseline and the current shader for the textured arm, both on the same executable.
