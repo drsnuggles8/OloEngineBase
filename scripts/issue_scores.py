@@ -122,7 +122,7 @@ CLOSE_LABEL = "close-recommended"
 # sweep files renderer issues); the north star is the counterweight.
 NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
 NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
-LIST_ITEM_RE = re.compile(r"^([ \t]*(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)(.*)$")
+LIST_ITEM_RE = re.compile(r"^([ \t]*(?:[-*+]|[0-9]{1,9}[.)]))([ \t]+)(.*)$")
 CHECKLIST_RE = re.compile(r"^\[( |x|X)\][ \t]+(.*)$")
 MARKDOWN_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
@@ -198,43 +198,51 @@ def parse_north_star(text):
             if key.strip() == "milestone":
                 out["milestone"] = scalar_value(val)
     items = out["items"]
-    root_numbers, content_column = None, 0
+    root_numbers = None
+    item_columns = []  # content indentation required by each open list item
     fence, fence_column = None, 0
     for line in (text or "").splitlines():
+        if not line.strip():
+            continue
         indent = line[:len(line) - len(line.lstrip(" \t"))]
         column = len(indent.expandtabs(4))
-        nonblank = bool(line.strip())
         marker = MARKDOWN_FENCE_RE.match(line)
-        if fence:
-            if nonblank and column < fence_column:
-                # A fence inside a list ends when the list item ends.
+        if fence and column >= fence_column:
+            if (column <= fence_column + 3 and marker and marker[1].startswith(fence)
+                    and not marker[2].strip()):
                 fence = None
-            else:
-                if marker and marker[1].startswith(fence) and not marker[2].strip():
-                    fence = None
-                continue
-        bullet = LIST_ITEM_RE.match(line)
-        if not bullet:
-            if nonblank and column < content_column:
-                root_numbers, content_column = None, 0
-            if marker:
-                fence, fence_column = marker[1], content_column
             continue
-        prefix, content = bullet.groups()
-        item_column = len(prefix.expandtabs(4))
-        top_level = not content_column or column < content_column
-        if top_level:
-            root_numbers, content_column = None, item_column
-        marker = MARKDOWN_FENCE_RE.match(content)
-        if marker:
-            fence, fence_column = marker[1], item_column
+        # Dedenting out of a list item closes its fence, even without a delimiter.
+        fence = None
+        while item_columns and column < item_columns[-1]:
+            item_columns.pop()
+        container_column = item_columns[-1] if item_columns else 0
+        if not item_columns:
+            root_numbers = None
+        if column > container_column + 3:
+            continue  # indented code inside the current item or at the document root
+        bullet = LIST_ITEM_RE.match(line)
+        if bullet:
+            prefix, gap, content = bullet.groups()
+            marker_end = len(prefix.expandtabs(4))
+            container_column = len((prefix + gap).expandtabs(4))
+            if container_column > marker_end + 4:
+                item_columns.append(marker_end + 1)  # list item beginning with indented code
+                continue
+            item_columns.append(container_column)
+            marker = MARKDOWN_FENCE_RE.match(content)
+        # A backtick fence cannot have backticks in its info string.
+        if marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence, fence_column = marker[1], container_column
+            continue
+        if not bullet:
             continue
         numbers = [int(n) for n in TITLE_NUM_RE.findall(content)]
-        if not top_level and root_numbers is not None:
+        if len(item_columns) > 1 and root_numbers is not None:
             root_numbers.extend(n for n in numbers if n not in root_numbers)
         task = CHECKLIST_RE.match(content)
         if task:
-            if top_level:
+            if len(item_columns) == 1:
                 root_numbers = numbers
             done, item = task.groups()
             items.append((done.lower() == "x", item.strip(), numbers))
@@ -1977,9 +1985,16 @@ NORTH_STAR_CASES = (
      "- ```md\n  - [ ] Example\n  ```\n- [ ] Real (#23)", "", [(False, [23])]),
     ("dedenting out of a list ends an unclosed list fence",
      "- ```md\n  - [ ] Example\n- [ ] Real (#23)", "", [(False, [23])]),
+    ("dedenting to a sibling ends a fence inside a nested item's content",
+     "- [ ] Parent\n  - Example\n\n    ```md\n    sample\n  - [ ] Real (#23)",
+     "", [(False, [23]), (False, [23])]),
     ("plain descendant bullets can file the parent but are not checklist rows",
      "- [ ] Parent\n  - Child (#23)\n  1. Another child (#24)\n  - [ ] Unfiled",
      "", [(False, [23, 24]), (False, [])]),
+    ("an indented code block in a bullet does not file the parent",
+     "- [ ] Parent\n  -     Example (#23)\n  - [ ] Unfiled", "", [(False, []), (False, [])]),
+    ("backticks inside inline code do not start a fence",
+     "- [ ] Parent\n  - ``` inline ``` (#23)\n  - [ ] Unfiled", "", [(False, [23]), (False, [])]),
     ("a quoted milestone keeps its '#', the comment after the quote goes",
      '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
     ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
