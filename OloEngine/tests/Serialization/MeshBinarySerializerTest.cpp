@@ -5,6 +5,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include "OloEngine/Renderer/Material.h"
@@ -280,6 +281,9 @@ TEST_F(MeshBinarySerializerTest, ImportedMaterialsRoundTripThroughV4Section)
 
 TEST_F(MeshBinarySerializerTest, PreRevisionGlbCacheRejectsStaleImportedFactors)
 {
+    // The ProjectIsolation listener restores the previous project and asset
+    // manager after the test, including on a fatal assertion.
+    Project::NewInMemory(OloEngine::Tests::TempDir("project"), ProjectConfig{});
     const auto source = GetTestCachePath("source.glb");
     {
         // Cache validity uses source metadata for GLB. The serializer fixture
@@ -307,7 +311,6 @@ TEST_F(MeshBinarySerializerTest, PreRevisionGlbCacheRejectsStaleImportedFactors)
     ASSERT_TRUE(restored);
     EXPECT_FLOAT_EQ(restored->GetBaseColorFactor().a, 0.4f);
     EXPECT_FLOAT_EQ(restored->GetEmissiveFactor().g, 2.0f);
-    MeshCache::InvalidateCache(source);
 }
 
 // One version is read (docs/agent-rules/binary-format-versioning.md): a cache
