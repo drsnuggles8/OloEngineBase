@@ -865,9 +865,9 @@ namespace OloEngine
     {
         for (auto [handle, id, target] : staging.GetAllEntitiesWith<IDComponent, ComponentType>().each())
         {
-            if (const auto original = authored.TryGetEntityWithUUID(id.ID); original && original->HasComponent<ComponentType>())
+            if (const auto original = authored.TryGetEntityWithUUID(id.ID); original && original->template HasComponent<ComponentType>())
             {
-                const auto& source = original->GetComponent<ComponentType>();
+                const auto& source = original->template GetComponent<ComponentType>();
                 ((target.*members = source.*members), ...);
             }
         }
