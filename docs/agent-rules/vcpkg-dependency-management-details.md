@@ -432,6 +432,22 @@ Both live in `cmake/overlay-ports/`. Keep each a minimal diff against
 | `joltphysics` | `CROSS_PLATFORM_DETERMINISTIC=ON` (one line) | The registry portfile hardcodes it `OFF` as a plain option, not a feature, so it cannot be selected from a manifest. `rtti` *is* a feature and needs no override. |
 | `gamenetworkingsockets` | `USE_CRYPTO=libsodium`, `ice` off by default, explicit `sodium_*` cache seeding | The registry portfile hardcodes `USE_CRYPTO=OpenSSL` and takes an `openssl` dependency. Taking a whole TLS stack into the supply chain to avoid owning a portfile is a bad trade. GNS's bundled `Findsodium.cmake` searches a hand-rolled vendor-SDK layout that a vcpkg install does not have, *and* declares both the debug and release library paths as `REQUIRED_VARS` — so it is fed explicit cache variables instead of being allowed to search. |
 
+## Sanitizer coverage for vcpkg ports
+
+Keep the shared `x64-linux` triplet for Linux ASan, UBSan, and TSan CI. Engine targets are
+instrumented, while compiled vcpkg ports reuse the same binary packages across those jobs. This is
+option 1 from [#782](https://github.com/drsnuggles8/OloEngineBase/issues/782#issuecomment-7174676789).
+
+ASan still intercepts allocation and free across the library boundary. Internal port operations lack
+compiler-inserted ASan and UBSan checks. TSan still sees intercepted synchronization primitives,
+while atomic and lock-free synchronization inside an uninstrumented port can be invisible. Known
+Jolt reports and the scope of their suppressions are documented in
+[`tsan.txt`](../../.github/sanitizer-suppressions/tsan.txt).
+
+For a concrete race crossing the physics or networking boundary, evaluate a TSan configuration
+that instruments Jolt and GameNetworkingSockets before adopting separate triplets for all
+sanitizers. Separate triplets would split the Linux port cache across all three jobs.
+
 ## What did NOT move, and why
 
 The #773 audit called 25 dependencies "clean moves". Six of them were not, and
