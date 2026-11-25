@@ -441,7 +441,7 @@ the reasons are worth knowing before someone retries one:
 |---|---|---|---|
 | **sol2** | 3.5.0 + a Lua-5.5 patch | newer `develop` pin | Header-only ⇒ no compile to cache, so ~zero benefit; and the `SOL_ALL_INTEGER_VALUES_FIT` u64 contract (issue #643) is load-bearing and hard-won. |
 | **lua** | 5.5.1 | 5.4.7 | A major-ish jump against a sol2 pin tested on 5.4. Pinning 5.4.7 needs a version override, which needs non-shallow registry history. |
-| **stb** | 2024-07-29 | ~2 years newer | `stb_image` is an image **decoder fed untrusted files**. Silently reverting two years of fixes there is not a build-system decision. (vcpkg installs its own stb anyway as an assimp dependency, but flat as `<stb_image.h>`; we include `<stb_image/stb_image.h>`, so they do not collide.) |
+| **stb** | 2026-08-02 (`2c980bb`, baseline `af839a4`) | `6b5799b` | The registry snapshot predates our pin by 351 commits, with changes to `stb_image.h`, `stb_image_write.h`, and `stb_truetype.h` since that snapshot. vcpkg installs its own copy as an assimp dependency under flat paths. We include our newer copy via `<stb_image/stb_image.h>` and the corresponding prefixed paths for the other headers. |
 | **imguizmo** | 1.10 | ~equivalent | The port takes a hard dependency on the **imgui port**. imgui stays in-tree (hand-picked backends + `IMGUI_IMPL_OPENGL_LOADER_GLAD=1`), so moving imguizmo would link two Dear ImGui copies into one binary. |
 
 ### What moved on a second pass, and the version cost of each
