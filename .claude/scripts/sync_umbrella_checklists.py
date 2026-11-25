@@ -17,8 +17,10 @@ An issue closed as NOT_PLANNED or DUPLICATE, and a PR closed without merging, is
 under "left unticked" for a person to decide: a tick would claim work that never happened.
 
 The only edit is `[ ]` -> `[x]` on those lines; every other byte of the body, including
-line endings and the olo-score block, is kept, and the script asserts it. Each body is
-re-read right before it is written, so an edit made since the scan is not overwritten.
+line endings and the olo-score block, is kept, and the script asserts it. Checklist-looking
+lines inside fenced code blocks are examples, not items, and are never ticked. Each body is
+re-read right before it is written, so an edit made since the scan survives; one made in the
+second between that re-read and the write is overwritten (see write_body).
 
 Usage:
   python .claude/scripts/sync_umbrella_checklists.py              # dry run: print what would change
@@ -71,23 +73,52 @@ class RefState:
         return f"issue closed as {(self.reason or 'unknown').lower()}"
 
 
+# A fenced code block's opening or closing line: up to three spaces, then three or more
+# backticks or tildes (CommonMark). Group 1 is the fence run.
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def fenced_spans(body: str) -> list[tuple[int, int]]:
+    """Character ranges of fenced code blocks, so an example checklist inside one is not an
+    item. An unclosed fence runs to the end of the body, as CommonMark renders it."""
+    spans: list[tuple[int, int]] = []
+    fence: str | None = None
+    start = pos = 0
+    for line in body.splitlines(keepends=True):
+        m = FENCE.match(line)
+        if fence is None and m:
+            fence, start = m.group(1), pos
+        elif fence is not None and m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                and not line[m.end():].strip():
+            spans.append((start, pos + len(line)))
+            fence = None
+        pos += len(line)
+    if fence is not None:
+        spans.append((start, len(body)))
+    return spans
+
+
+def active_items(body: str) -> list[re.Match[str]]:
+    """UNTICKED_ITEM matches outside fenced code blocks."""
+    spans = fenced_spans(body)
+    return [m for m in UNTICKED_ITEM.finditer(body)
+            if not any(lo <= m.start() < hi for lo, hi in spans)]
+
+
 def unticked_refs(body: str) -> list[int]:
-    return [int(m.group(2)) for m in UNTICKED_ITEM.finditer(body)]
+    return [int(m.group(2)) for m in active_items(body)]
 
 
 def tick(body: str, done: set[int]) -> tuple[str, list[int]]:
     """Return the body with every unticked item for a number in `done` ticked, and the numbers
     ticked, in body order. Nothing but the box character changes."""
     ticked: list[int] = []
-
-    def repl(m: re.Match[str]) -> str:
-        if int(m.group(2)) not in done:
-            return m.group(0)
-        ticked.append(int(m.group(2)))
-        prefix = m.group(1)
-        return prefix + "[x]" + m.group(0)[len(prefix) + 3:]
-
-    new_body = UNTICKED_ITEM.sub(repl, body)
+    chars = list(body)
+    for m in active_items(body):
+        if int(m.group(2)) in done:
+            ticked.append(int(m.group(2)))
+            chars[m.end(1) + 1] = "x"  # the space inside "[ ]"
+    new_body = "".join(chars)
     assert_only_boxes_changed(body, new_body)
     return new_body, ticked
 
@@ -159,6 +190,9 @@ def ref_states(owner: str, name: str, numbers: set[int]) -> dict[int, RefState]:
 
 
 def write_body(repo: str, number: int, body: str) -> None:
+    # Replaces the whole body. `gh issue edit --body-file` has no revision precondition, so an
+    # edit made remotely between main()'s re-read and this write is overwritten. The re-read
+    # only narrows that window to about a second; it does not close it.
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8", newline="") as f:
         f.write(body)
         path = f.name

@@ -32,6 +32,24 @@ class TickTest(unittest.TestCase):
         new_body, _ = sync.tick(body, {3})
         self.assertEqual(new_body, body.replace("- [ ] #3", "- [x] #3"))
 
+    def test_fenced_example_is_not_an_item(self):
+        body = ("```markdown\n"
+                "- [ ] #7 example\n"
+                "```\n"
+                "- [ ] #7 example\n"
+                "~~~~\n"
+                "- [ ] #7 inside a tilde fence, ``` does not close it\n"
+                "```\n"
+                "~~~~\n")
+        self.assertEqual(sync.unticked_refs(body), [7])
+        new_body, ticked = sync.tick(body, {7})
+        self.assertEqual(ticked, [7])
+        self.assertEqual(new_body, body.replace("```\n- [ ] #7", "```\n- [x] #7", 1))
+
+    def test_unclosed_fence_runs_to_the_end(self):
+        body = "- [ ] #1 a\n```\n- [ ] #1 b\n"
+        self.assertEqual(sync.tick(body, {1}), ("- [x] #1 a\n```\n- [ ] #1 b\n", [1]))
+
     def test_guard_rejects_any_other_change(self):
         with self.assertRaises(AssertionError):
             sync.assert_only_boxes_changed("- [ ] #1 a", "- [ ] #1 b")
