@@ -1,0 +1,53 @@
+#version 450 core
+
+layout(local_size_x = 256) in;
+#define OLO_PREFIX_SUM_GROUP_SIZE 256
+#include "../include/PrefixSum.glsl"
+#include "../include/FoliageCullCommon.glsl"
+#include "../include/FoliageCullCompaction.glsl"
+#include "../include/GPUReadbackStats.glsl"
+
+// Each lane owns a contiguous range of tiles, even above 65,536 instances.
+// It reads and rewrites only its range. The work-group scan brackets the
+// two loops, so a short final range and idle lanes still reach every barrier.
+void main()
+{
+    uint tiles = oloFoliageTileCount();
+    uint tilesPerLane = (tiles - 1u) / gl_WorkGroupSize.x + 1u;
+    uint first = gl_LocalInvocationIndex * tilesPerLane;
+    uint end = min(first + tilesPerLane, tiles);
+    uint cardCount = 0u;
+    uint meshCount = 0u;
+    for (uint tile = first; tile < end; ++tile)
+    {
+        uint counts = s_Tail[oloFoliageTileOffset(tile)];
+        cardCount += counts & kFoliageCountMask;
+        meshCount += (counts >> 9u) & kFoliageCountMask;
+    }
+
+    uint cards;
+    uint meshes;
+    uint cardOffset = OloPrefixSumExclusive(cardCount, cards);
+    uint meshOffset = OloPrefixSumExclusive(meshCount, meshes);
+    for (uint tile = first; tile < end; ++tile)
+    {
+        uint offset = oloFoliageTileOffset(tile);
+        uint counts = s_Tail[offset];
+        s_Tail[offset] = cardOffset;
+        s_Tail[offset + 1u] = meshOffset;
+        cardOffset += counts & kFoliageCountMask;
+        meshOffset += (counts >> 9u) & kFoliageCountMask;
+    }
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        s_VisibleCount = cards;
+        s_ReserveCursor = cards;
+        if (cards > s_OutputCapacity)
+        {
+            oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped,
+                            cards - s_OutputCapacity);
+            atomicMax(s_ListDemand, cards);
+        }
+    }
+}

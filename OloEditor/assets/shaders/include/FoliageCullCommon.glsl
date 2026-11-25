@@ -1,5 +1,5 @@
 // FoliageCullCommon.glsl — the buffer contract and the geometry the foliage GPU
-// cull's two kernels share (issue #1235).
+// cull kernels share (issue #1235).
 //
 // C++ twin: OloEngine/src/OloEngine/Terrain/Foliage/FoliageGPUCuller.h
 //           (FoliageCullLayerHeader / FoliageCullStateHeader), pinned by
@@ -7,10 +7,9 @@
 //           which runs the real dispatch and compares its survivor set against
 //           FoliageInstanceBounds() + Frustum::IsBoxVisible() on the CPU.
 //
-// Only the two buffers BOTH kernels touch are declared here. The instance
-// stream (16), the compacted output (15) and the indirect args (17) are
-// declared in FoliageInstanceCull.comp alone, so the group kernel's program
-// does not carry three storage blocks it never reads.
+// The layer table and view state are shared here. Mark and scatter read the
+// canonical instance stream (16). Scatter alone writes the compacted stream
+// (15) and the indirect args (17).
 //
 // ── Why the bindings are 15..19 ──────────────────────────────────────────────
 // The engine SSBO namespace is FULL (every number 0..79 is claimed;
@@ -79,7 +78,7 @@ layout(std430, binding = 19) buffer FoliageCullState
     uint s_OutputCapacity;
     uint s_PartCount;
     uint s_VisibleCount;    // survivors of the per-instance test (pre-overflow)
-    uint s_ReserveCursor;   // monotonic append cursor — see FoliageInstanceCull.comp
+    uint s_ReserveCursor;   // card demand before truncation
     uint s_GroupsVisible;   // survivors of the patch test
     uint s_SourceRowOffset; // index into s_Tail where the survivor -> source row map starts
     // 1 on the MAIN view's cull, 0 on every shadow view's.
@@ -94,11 +93,10 @@ layout(std430, binding = 19) buffer FoliageCullState
     // in ANY view is a condition the frame has.
     uint s_EmitStats;
     // The mesh region (#1533): its first slot in the compacted stream (0 = no
-    // region), the pivot distance it admits up to, and its append cursor.
-    // FoliageCullStateHeader says what each one is.
+    // region), and the pivot distance it admits up to.
     uint s_MeshRegionBase;
     float s_MeshReach;
-    uint s_MeshCursor;
+    uint s_ScratchOffset; // packed row ranks, then tile offsets
     // Coverage-preserving density LOD (issue #1237). Same two lanes, same
     // packing, as FoliageParams' u_LodTransition0/1 — the cull and the vertex
     // stages evaluate the SAME function over the SAME numbers, which is what
@@ -126,10 +124,8 @@ layout(std430, binding = 19) buffer FoliageCullState
     // rejected, so a level that keeps its cached pages draws nothing.
     mat4 s_VsmLocalToClip;
     ivec4 s_VsmLevel;
-    // Tail: group visibility (one uint per group, 1 = visible) followed by the
-    // compacted slot -> SOURCE ROW map (one uint per output capacity). The
-    // second is what makes "compaction preserved identity" a checkable claim
-    // rather than a hope — see FoliageInstanceCull.comp.
+    // Tail: group visibility, compacted slot -> canonical source row,
+    // one packed rank per input row, and two offsets per tile.
     uint s_Tail[];
 };
 

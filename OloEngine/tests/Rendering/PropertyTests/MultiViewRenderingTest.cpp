@@ -196,15 +196,6 @@ namespace OloEngine::Tests
             bool SameShape = false;
         };
 
-        // How far a shared view may be from its single-view reference. Exact
-        // by default. A bound is given only where the SAME single view rendered
-        // twice already differs, and is sized from that measurement.
-        struct Tolerance
-        {
-            u32 Pixels = 0;
-            u32 MaxDelta = 0;
-        };
-
         [[nodiscard]] Difference Compare(const Frame& a, const Frame& b)
         {
             Difference difference;
@@ -582,20 +573,17 @@ namespace OloEngine::Tests
             return shared;
         }
 
-        static Difference ExpectSameFrame(const Frame& reference, const Frame& shared, const std::string& what,
-                                          Tolerance tolerance = {})
+        static void ExpectSameFrame(const Frame& reference, const Frame& shared, const std::string& what)
         {
             const Difference difference = Compare(reference, shared);
             EXPECT_TRUE(difference.SameShape) << what << ": the shared view is " << shared.Size.Width << "x"
                                               << shared.Size.Height << ", its single-view reference "
                                               << reference.Size.Width << "x" << reference.Size.Height;
-            EXPECT_LE(difference.Pixels, tolerance.Pixels) << what << ": " << difference.Pixels
-                                                           << " pixel(s) differ from the single-view reference, max delta "
-                                                           << difference.MaxDelta << "/255";
-            EXPECT_LE(difference.MaxDelta, tolerance.MaxDelta) << what << ": a pixel differs by " << difference.MaxDelta << "/255";
+            EXPECT_EQ(difference.Pixels, 0u) << what << ": " << difference.Pixels
+                                             << " RGB pixel(s) differ from the single-view reference, max delta "
+                                             << difference.MaxDelta << "/255";
             std::cout << "[MultiView] " << what << ": " << difference.Pixels << " differing pixel(s), max delta "
                       << difference.MaxDelta << "/255\n";
-            return difference;
         }
 
         // The whole comparison for one configuration: references for both
@@ -603,7 +591,7 @@ namespace OloEngine::Tests
         // frame against them. `evidence` names the PNGs.
         void ExpectBothViewsMatchTheirReferences(const std::string& evidence, const std::string& label,
                                                  const PosePair& poses, u32 frames, const Configure& configureMain,
-                                                 const Configure& configureSecond, Tolerance tolerance = {})
+                                                 const Configure& configureSecond)
         {
             const Frame mainReference = RenderReference(poses.Main, kMainSize, frames, configureMain);
             const Frame secondReference = RenderReference(poses.Second, kSecondSize, frames, configureSecond);
@@ -623,8 +611,8 @@ namespace OloEngine::Tests
                 const std::string where = label + "/" + OrderName(order);
                 WriteEvidence(evidence + "_" + OrderName(order) + "_Main", shared.Main);
                 WriteEvidence(evidence + "_" + OrderName(order) + "_Second", shared.Second);
-                ExpectSameFrame(mainReference, shared.Main, where + " main view", tolerance);
-                ExpectSameFrame(secondReference, shared.Second, where + " second view", tolerance);
+                ExpectSameFrame(mainReference, shared.Main, where + " main view");
+                ExpectSameFrame(secondReference, shared.Second, where + " second view");
             }
             DestroySecondView();
         }
@@ -1651,6 +1639,195 @@ namespace OloEngine::Tests
         Entity m_Meadow;
     };
 
+    TEST_F(MultiViewFoliage, SingleViewFoliageRepro)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime mockTime(kCaptureTime);
+        WaitForTheMeadow();
+        ASSERT_FALSE(HasFatalFailure());
+        struct RestoreCulling
+        {
+            bool Enabled = FoliageRenderer::IsGPUCullingEnabled();
+            ~RestoreCulling()
+            {
+                FoliageRenderer::SetGPUCullingEnabled(Enabled);
+            }
+        } restoreCulling;
+
+        constexpr u32 rounds = 40u;
+        for (RenderingPath path : { RenderingPath::Deferred, RenderingPath::Forward, RenderingPath::ForwardPlus })
+        {
+            for (const auto& [gpuCull, taa] : { std::pair{ true, true }, std::pair{ false, true }, std::pair{ true, false } })
+            {
+                FoliageRenderer::SetGPUCullingEnabled(gpuCull);
+                const Configure configure = [path, taa]()
+                {
+                    Renderer3D::GetRendererSettings().Path = path;
+                    Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = 1u;
+                    Renderer3D::GetPostProcessSettings().TAAEnabled = taa;
+                    Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+                };
+                u32 unequalRounds = 0;
+                u32 maxPixels = 0;
+                u32 maxDelta = 0;
+                const std::string evidence = TestRenderBackend::EvidenceName("FoliageCullRepro") + PathName(path) +
+                                             (gpuCull ? "_CullOn" : "_CullOff") + (taa ? "_TaaOn" : "_TaaOff");
+                for (u32 i = 0; i < rounds; ++i)
+                {
+                    const Frame a = RenderReference(kPosePairs[1].Main, kMainSize, 6u, configure);
+                    const Frame b = RenderReference(kPosePairs[1].Main, kMainSize, 6u, configure);
+                    const Difference difference = Compare(a, b);
+                    ASSERT_TRUE(difference.SameShape);
+                    if (i == 0u)
+                    {
+                        const auto& plants = m_Meadow.GetComponent<FoliageComponent>().m_Renderer;
+                        ASSERT_TRUE(plants);
+                        ASSERT_EQ(plants->WasMainViewCulled(), gpuCull) << PathName(path);
+                        ASSERT_EQ(Renderer3D::IsEngineTAAWanted(), taa) << PathName(path);
+                        ASSERT_FALSE(Renderer3D::IsTemporalUpscaleActive()) << PathName(path);
+                        ASSERT_GT(CountDistinctColours(b), kMinDistinctColours) << PathName(path);
+                        WriteEvidence(evidence + "_A", a);
+                        WriteEvidence(evidence + "_B", b);
+                    }
+                    if (a.Rgba != b.Rgba)
+                    {
+                        if (unequalRounds == 0u)
+                        {
+                            WriteEvidence(evidence + "_FirstDifferenceA", a);
+                            WriteEvidence(evidence + "_FirstDifferenceB", b);
+                        }
+                        ++unequalRounds;
+                    }
+                    maxPixels = std::max(maxPixels, difference.Pixels);
+                    maxDelta = std::max(maxDelta, difference.MaxDelta);
+                }
+                std::cout << "[foliage-repro] " << PathName(path) << " cull=" << gpuCull << " taa=" << taa << " differing="
+                          << unequalRounds << '/' << rounds << " maxPixels=" << maxPixels << " maxDelta=" << maxDelta << "/255\n";
+                EXPECT_EQ(unequalRounds, 0u) << evidence;
+            }
+        }
+    }
+
+    TEST_F(MultiViewFoliage, MeadowReproducesAcrossRasterSettings)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime mockTime(kCaptureTime);
+        WaitForTheMeadow();
+        ASSERT_FALSE(HasFatalFailure());
+        const Pose start = kPosePairs[1].Main;
+        const auto moveCamera = [this, start](u32 frame)
+        {
+            Pose pose = start;
+            pose.Position.x += 0.065f * static_cast<f32>(frame);
+            SetMainCamera(pose);
+        };
+
+        struct Cell
+        {
+            RenderingPath Path;
+            Extent Size;
+            const char* Label;
+            UpscaleMode Scale = UpscaleMode::Off;
+            u32 Samples = 1u;
+        };
+        const auto verify = [&](const Cell& cell, bool moving)
+        {
+            const Configure configure = [&cell]()
+            {
+                auto& renderer = Renderer3D::GetRendererSettings();
+                renderer.Path = cell.Path;
+                renderer.Deferred.MSAASampleCount = cell.Samples;
+                auto& post = Renderer3D::GetPostProcessSettings();
+                post.TAAEnabled = true;
+                post.Technique = UpscalerTechnique::Spatial;
+                post.Upscale = cell.Scale;
+            };
+            const Frame a = RenderReference(start, cell.Size, 6u, configure);
+            const Frame b = RenderReference(start, cell.Size, 6u, configure);
+            ASSERT_EQ(b.Size.Width, cell.Size.Width);
+            ASSERT_EQ(b.Size.Height, cell.Size.Height);
+            ASSERT_TRUE(m_Meadow.GetComponent<FoliageComponent>().m_Renderer->WasMainViewCulled());
+            ASSERT_TRUE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::TAAColor));
+
+            u32 samples = 1u;
+            if (cell.Samples > 1u)
+            {
+                const auto gbuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::GBufferMS);
+                ASSERT_TRUE(gbuffer);
+                samples = gbuffer->GetSpecification().Samples;
+                ASSERT_EQ(samples, cell.Samples);
+            }
+            if (cell.Scale != UpscaleMode::Off)
+                ASSERT_TRUE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UpscaledDepthVelocity));
+
+            const std::string name = TestRenderBackend::EvidenceName("FoliageMotion") + PathName(cell.Path) +
+                                     "_" + cell.Label + "_MSAA" + std::to_string(samples) + (moving ? "_Moving" : "_Static");
+            WriteEvidence(name + "_A", a);
+            WriteEvidence(name + "_B", b);
+            ExpectSameFrame(a, b, name);
+            ASSERT_GT(CountDistinctColours(b), kMinDistinctColours);
+        };
+
+        const u32 samples = std::min(4u, Renderer3D::GetMaxMSAASamples());
+        for (const bool moving : { false, true })
+        {
+            m_BeforeFrame = moving ? std::function<void(u32)>{ moveCamera } : nullptr;
+            for (const auto& cell : {
+                     Cell{ RenderingPath::Forward, kMainSize, "Native" },
+                     Cell{ RenderingPath::ForwardPlus, kMainSize, "Native" },
+                     Cell{ RenderingPath::Deferred, kMainSize, "Native" },
+                     Cell{ RenderingPath::Forward, kMainSize, "Quality", UpscaleMode::Quality },
+                     Cell{ RenderingPath::Forward, kMainSize, "Performance", UpscaleMode::Performance },
+                     Cell{ RenderingPath::Forward, { 257u, 223u }, "OddSize" },
+                 })
+            {
+                ASSERT_NO_FATAL_FAILURE(verify(cell, moving));
+            }
+            if (samples > 1u)
+                ASSERT_NO_FATAL_FAILURE(verify({ RenderingPath::Deferred, kMainSize, "Native", UpscaleMode::Off, samples }, moving));
+        }
+        if (samples <= 1u)
+            std::cout << "[foliage-repro] Deferred MSAA unavailable on this device\n";
+
+        if (TestRenderBackend::IsVulkanProcess() || !TemporalUpscalerUsable())
+        {
+            std::cout << "[foliage-repro] temporal upscaling unavailable in this process\n";
+            return;
+        }
+        const Configure temporal = []()
+        {
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+            auto& post = Renderer3D::GetPostProcessSettings();
+            post.TAAEnabled = false;
+            post.Technique = UpscalerTechnique::Temporal;
+            post.Upscale = UpscaleMode::Quality;
+        };
+        const Frame culled = RenderReference(start, kMainSize, 6u, temporal);
+        const Frame culledRepeat = RenderReference(start, kMainSize, 6u, temporal);
+        auto& plants = *m_Meadow.GetComponent<FoliageComponent>().m_Renderer;
+        ASSERT_TRUE(plants.WasMainViewCulled());
+        ASSERT_TRUE(Renderer3D::IsTemporalUpscaleActive());
+        ASSERT_FALSE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::TAAColor));
+        FoliageRenderer::SetGPUCullingEnabled(false);
+        const Frame unculled = RenderReference(start, kMainSize, 6u, temporal);
+        const Frame unculledRepeat = RenderReference(start, kMainSize, 6u, temporal);
+        const bool culledUnexpectedly = plants.WasMainViewCulled();
+        FoliageRenderer::SetGPUCullingEnabled(true);
+        ASSERT_FALSE(culledUnexpectedly);
+        const std::string label = TestRenderBackend::EvidenceName("FoliageMotion") + "Forward_TemporalQuality_TaaOff";
+        WriteEvidence(label + "_CullOn", culled);
+        WriteEvidence(label + "_CullOff", unculled);
+        ExpectSameFrame(culled, culledRepeat, label + " cull-on repeat");
+        ExpectSameFrame(unculled, unculledRepeat, label + " cull-off repeat");
+        const Difference parity = Compare(culled, unculled);
+        ASSERT_TRUE(parity.SameShape);
+        // The cull arms use different submission paths before FSR2. Their
+        // composite can round differently at RGBA8 precision.
+        EXPECT_LE(parity.MaxDelta, 1u) << label;
+        std::cout << "[MultiView] " << label << ": " << parity.Pixels << " differing pixel(s), max delta "
+                  << parity.MaxDelta << "/255\n";
+    }
+
     // Each view draws the meadow a single view draws from its camera: the same
     // plants (they are the world's, placed and published once per frame by its
     // primary view), culled, thinned and faded for THAT view's camera.
@@ -1661,15 +1838,8 @@ namespace OloEngine::Tests
     // the clock and the foliage step once per physical frame is counted below
     // and in TwoViewsAdvanceTheSceneOncePerPhysicalFrame.
     //
-    // The comparison is bounded, not exact, and the bound is a single view's
-    // own: GPU-culled card foliage under TAA does not reproduce itself (#1695).
-    // The cull compacts its visible list with an atomic cursor, the plants are
-    // drawn in whatever order that left, and where two cards intersect within
-    // a depth quantum the first one drawn wins. ONE view rendered twice from a
-    // sequence restart differed in 27 of 48 rounds on Vulkan and 1 of 40 on
-    // OpenGL, by 2 to 6 pixels and at most 2/255, and in none of 24 with the
-    // GPU cull off. A view that drew the other view's plants, cull or LOD
-    // moves thousands of pixels: the meadow covers 17,000 of the smaller frame.
+    // Stable foliage compaction preserves canonical draw order (#1695), so
+    // intersections at equal depth reproduce exactly under TAA in both views.
     TEST_F(MultiViewFoliage, EachViewDrawsTheMeadowASingleViewDrawsFromItsCamera)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -1698,15 +1868,11 @@ namespace OloEngine::Tests
                 return;
             const Difference plants = Compare(planted, bare);
             std::cout << "[MultiView] the meadow covers " << plants.Pixels << " pixel(s) of the " << name << " camera's frame\n";
-            ASSERT_GT(plants.Pixels, 5000u) << "the " << name << " camera sees too few plants: the bounded comparison below would hold vacuously";
+            ASSERT_GT(plants.Pixels, 5000u) << "the " << name << " camera sees too few plants for the comparison to be meaningful";
         }
 
-        // Several times the measured floor: the software rasteriser CI runs
-        // schedules the cull's invocations differently from this GPU. The
-        // pixel count is the bound that tells noise from a leak.
-        constexpr Tolerance kCullOrderNoise{ .Pixels = 32u, .MaxDelta = 16u };
         ExpectBothViewsMatchTheirReferences(TestRenderBackend::EvidenceName("MultiViewFoliage") + "Deferred",
-                                            "foliage", poses, kSettleFrames, temporal, temporal, kCullOrderNoise);
+                                            "foliage", poses, kSettleFrames, temporal, temporal);
         if (HasFatalFailure())
             return;
 

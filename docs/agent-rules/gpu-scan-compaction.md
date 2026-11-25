@@ -22,6 +22,7 @@ Issue #713 (GPU prefix-sum primitive). Read this before converting a compaction 
 16. **Pin the tile-size to `kMaxElements` relation with a `static_assert`.** A histogram-and-scatter pass scans `bins x ceil(maxCount / tile)` entries (splat radix sort, #1043), so a smaller tile can exceed the 16.7 M ceiling. [Details](gpu-scan-compaction-details.md#7-smaller-things-that-cost-time)
 17. **Test a radix sort with ties and with ties spanning many tiles.** Use `MatchesTheCpuReference{WhenEveryDepthIsIdentical,WhenTiesSpanManyRadixTiles}`; a single-tile tie cloud cannot see a cross-tile rank error. [Details](gpu-scan-compaction-details.md#7-smaller-things-that-cost-time)
 18. **Prove the algorithm on the CPU before spending a build.** A ~150-line Python transcription diffed against `sorted()` costs minutes against an hour of lock queue. [Details](gpu-scan-compaction-details.md#7-smaller-things-that-cost-time)
+19. **Bound a derived stream by the accepted prefix of its primary stream.** When foliage hits the card-list limit, the last admitted card's inclusive mesh rank gives the mesh demand. [Details](gpu-scan-compaction-details.md#2-a-compaction-test-that-compares-sets-passes-on-the-bug-it-is-meant-to-catch)
 
 ## Commands and checks
 

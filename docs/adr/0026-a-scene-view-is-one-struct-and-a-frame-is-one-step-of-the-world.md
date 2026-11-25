@@ -166,7 +166,7 @@ served whichever view happened to render first.
 | the scene advances once per physical frame | `MultiViewSceneAdvance.TwoViewsAdvanceTheSceneOncePerPhysicalFrame`, `...AMovingObjectBlursTheSameInBothViews` |
 | histories are keyed by view | `MultiViewSceneAdvance.AViewsHistoriesAreKeyedByItsOwnId`, `TemporalHistoryRegistryViewBinding.*` |
 | a world invalidation reaches every view, a view's own only itself | `MultiViewSceneAdvance.AWorldInvalidationReachesEveryViewAndAViewsOwnOnlyItself` |
-| each view draws the meadow a single view draws from its camera, and the meadow advances once per frame | `MultiViewFoliage.EachViewDrawsTheMeadowASingleViewDrawsFromItsCamera` (bounded by a single view's own cull-order noise, #1695) |
+| each view draws the meadow a single view draws from its camera, and the meadow advances once per frame | `MultiViewFoliage.EachViewDrawsTheMeadowASingleViewDrawsFromItsCamera` compares exact frames with stable GPU compaction (#1695) |
 | a planar reflection mirrors its own view's camera | `MultiViewAlternateCamera.EachViewReflectsFromItsOwnCamera` |
 | a probe bake renders through the main view whichever view is active | `MultiViewBake.ABakeStartedUnderAnotherViewRendersThroughTheMainView` (OpenGL) |
 | every view traces the frame's one acceleration structure | `MultiViewRayTracing.BothViewsTraceTheFramesAccelerationStructure` (ray-tracing device only) |

@@ -21,7 +21,6 @@ namespace OloEngine
     namespace
     {
         constexpr u32 kGroupWorkgroupSize = 64;
-        constexpr u32 kInstanceWorkgroupSize = 256;
 
         // The dispatch-local halves of the binding set. 15/16/17 are the
         // instance-cull family's own numbers used for their own roles; 18/19 are
@@ -43,7 +42,7 @@ namespace OloEngine
 
         [[nodiscard]] u32 DispatchGroups(u32 items, u32 workgroupSize)
         {
-            return (items + workgroupSize - 1u) / workgroupSize;
+            return items / workgroupSize + static_cast<u32>(items % workgroupSize != 0u);
         }
     } // namespace
 
@@ -56,20 +55,28 @@ namespace OloEngine
 
         m_GroupCullShader = ComputeShader::Create("assets/shaders/compute/FoliageGroupCull.comp");
         m_InstanceCullShader = ComputeShader::Create("assets/shaders/compute/FoliageInstanceCull.comp");
+        m_ScanCullBlocksShader = ComputeShader::Create("assets/shaders/compute/FoliageCullScanBlocks.comp");
+        m_ScatterCullShader = ComputeShader::Create("assets/shaders/compute/FoliageCullScatter.comp");
 
         const bool ok = m_GroupCullShader && m_GroupCullShader->IsValid() &&
-                        m_InstanceCullShader && m_InstanceCullShader->IsValid();
+                        m_InstanceCullShader && m_InstanceCullShader->IsValid() &&
+                        m_ScanCullBlocksShader && m_ScanCullBlocksShader->IsValid() &&
+                        m_ScatterCullShader && m_ScatterCullShader->IsValid();
         if (!ok)
         {
             // LOUD, once, and the caller keeps drawing every instance — a
             // correct frame that costs more, never a quietly empty one.
-            OLO_CORE_ERROR("FoliageGPUCuller: compute shader load failed (group={}, instance={}) — foliage "
+            OLO_CORE_ERROR("FoliageGPUCuller: compute shader load failed (group={}, mark={}, scan={}, scatter={}) — foliage "
                            "falls back to submitting every generated instance, uncompacted",
                            m_GroupCullShader && m_GroupCullShader->IsValid(),
-                           m_InstanceCullShader && m_InstanceCullShader->IsValid());
+                           m_InstanceCullShader && m_InstanceCullShader->IsValid(),
+                           m_ScanCullBlocksShader && m_ScanCullBlocksShader->IsValid(),
+                           m_ScatterCullShader && m_ScatterCullShader->IsValid());
             m_LoadFailed = true;
             m_GroupCullShader.Reset();
             m_InstanceCullShader.Reset();
+            m_ScanCullBlocksShader.Reset();
+            m_ScatterCullShader.Reset();
             return;
         }
 
@@ -298,7 +305,7 @@ namespace OloEngine
     }
 
     bool FoliageGPUCuller::EnsureViewCapacity(ViewResources& view, u32 listCapacity, u32 meshCapacity,
-                                              u32 groupCount) const
+                                              u32 groupCount, u32 instanceCount) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -344,8 +351,14 @@ namespace OloEngine
             compactedRecreated = true;
         }
 
-        const u32 stateBytes =
-            static_cast<u32>(sizeof(FoliageCullStateHeader)) + (groupCount + view.Capacity) * 4u;
+        const u64 stateBytes64 = sizeof(FoliageCullStateHeader) +
+                                 (groupCount + static_cast<u64>(view.Capacity)) * sizeof(u32) + ScratchBytesFor(instanceCount);
+        if (stateBytes64 > std::numeric_limits<u32>::max())
+        {
+            view.State.Reset();
+            return compactedRecreated;
+        }
+        const auto stateBytes = static_cast<u32>(stateBytes64);
         if (!view.State || view.State->GetSize() != stateBytes || compactedRecreated)
         {
             view.State = StorageBuffer::Create(stateBytes, kStateBinding, StorageBufferUsage::DynamicCopy);
@@ -360,6 +373,7 @@ namespace OloEngine
         // GroupCapacity left describing the previous pair is exactly the kind of
         // stale bound the Cull() precondition is there to catch.
         view.GroupCapacity = groupCount;
+        view.ScratchRows = instanceCount;
 
         if (!view.DrawArgs)
         {
@@ -377,7 +391,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_Initialised || !layer.IsValid() || !view.IsValid() || parts.empty() || !sourceInstances.IsValid())
+        if (!m_Initialised || !layer.IsValid() || !view.IsValid() || parts.empty() || !sourceInstances.IsValid() ||
+            view.ScratchRows != layer.InstanceCount)
         {
             return false;
         }
@@ -406,11 +421,8 @@ namespace OloEngine
                                 view.MeshCapacity > 0 && RenderCommand::SupportsIndirectFirstInstance();
         const u32 meshRegionBase = meshRegion ? view.ListCapacity : 0u;
 
-        // A layer wholly outside this view rejects here, before either kernel is
-        // dispatched. Two dispatches are ~22 us of launch cost on this box and
-        // they are paid per layer PER VIEW, so with five views and five layers a
-        // camera facing away from an island was paying for fifty of them to
-        // compute zero survivors.
+        // A layer wholly outside this view rejects here, before dispatching
+        // any kernels. Launch and barrier costs are paid per layer and view.
         //
         // It must still SEED the args and report success, not `return false`:
         // false means "no compacted set", which sends the draw down the
@@ -431,7 +443,7 @@ namespace OloEngine
                                      MemoryBarrierFlags::Command);
 
         // ── 1. Seed the indirect args. Count / FirstIndex are CPU knowledge;
-        // instanceCount starts at zero and the kernel counts into it. ──
+        // instanceCount starts at zero and scatter publishes the clamped count. ──
         std::array<FoliageCullDrawArgs, kMaxParts> args{};
         for (u32 i = 0; i < partCount; ++i)
         {
@@ -444,6 +456,7 @@ namespace OloEngine
         }
         view.DrawArgs->SetData(args.data(), partCount * kDrawArgsStride, 0);
 
+        view.Dispatched = layerVisible;
         if (!layerVisible)
         {
             view.PartCount = partCount;
@@ -479,7 +492,7 @@ namespace OloEngine
         state.EmitStats = emitStats ? 1u : 0u;
         state.MeshRegionBase = meshRegionBase;
         state.MeshReach = meshRegion ? lod.MeshReach : 0.0f;
-        state.MeshCursor = 0;
+        state.ScratchOffset = layer.GroupCount + view.Capacity;
         state.MeshCapacity = meshRegion ? view.MeshCapacity : 0u;
         // A clip level is culled against the VSM's dirty pages as well (#1580)
         // when the variant and the pyramid are both there.
@@ -527,8 +540,17 @@ namespace OloEngine
         // the plausible-but-wrong result this whole class is written to avoid.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 
+        const u32 groups = DispatchGroups(layer.InstanceCount, kInstanceWorkgroupSize);
         m_InstanceCullShader->Bind();
-        RenderCommand::DispatchCompute(DispatchGroups(layer.InstanceCount, kInstanceWorkgroupSize), 1, 1);
+        RenderCommand::DispatchCompute(groups, 1, 1);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+        m_ScanCullBlocksShader->Bind();
+        RenderCommand::DispatchCompute(1, 1, 1);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+        m_ScatterCullShader->Bind();
+        RenderCommand::DispatchCompute(groups, 1, 1);
 
         // Three consumers downstream, three barrier classes: the draw reads the
         // compacted buffer as a VERTEX stream, reads the args as an INDIRECT
@@ -578,15 +600,10 @@ namespace OloEngine
             }
         } releaseStaging{ m_Readback };
 
-        // Everything the kernels wrote has to have landed before the read. This
-        // is the one place a full barrier is the right instrument rather than a
-        // targeted one: the call is a deliberate stall already, and getting the
-        // class wrong here would read a number that is right most of the time,
-        // which is the worst possible output for a diagnostic.
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
-
+        // A whole-layer rejection writes new indirect counts and leaves the
+        // header from the previous dispatch. Read the commands in both cases.
         FoliageCullStateHeader header{};
-        if (!ReadStaged(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header))
+        if (view.Dispatched && !ReadStaged(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header))
             return false;
 
         // The all-survivor list's count is on any part that does NOT draw the
@@ -595,26 +612,33 @@ namespace OloEngine
         const u32 readParts = std::min(view.PartCount, kMaxParts);
         if (!ReadStaged(view.DrawArgs->GetRHIHandle(), 0, readParts * kDrawArgsStride, partArgs.data()))
             return false;
-        FoliageCullDrawArgs args = partArgs[0];
+        const FoliageCullDrawArgs* card = nullptr;
+        const FoliageCullDrawArgs* mesh = nullptr;
         for (u32 i = 0; i < readParts; ++i)
         {
-            if (partArgs[i].MeshRegion == 0u)
+            const auto& part = partArgs[i];
+            auto*& region = part.MeshRegion == 0u ? card : mesh;
+            if (region && (part.InstanceCount != region->InstanceCount || part.BaseInstance != region->BaseInstance))
             {
-                args = partArgs[i];
-                break;
+                OLO_CORE_ERROR("FoliageGPUCuller: indirect parts disagree on their shared instance range");
+                return false;
             }
+            region = &part;
         }
 
         out.GroupsVisible = header.GroupsVisible;
         out.Visible = header.VisibleCount;
         out.Reserved = header.ReserveCursor;
-        out.Submitted = args.InstanceCount;
+        out.Submitted = card ? card->InstanceCount : std::min(header.VisibleCount, header.OutputCapacity);
+        out.MeshSubmitted = mesh ? mesh->InstanceCount : 0u;
+        if (!view.Dispatched)
+            return true;
 
-        if (out.Submitted > view.Capacity)
+        if (out.Submitted > view.ListCapacity ||
+            (mesh && (mesh->BaseInstance != view.ListCapacity || out.MeshSubmitted > view.MeshCapacity ||
+                      out.MeshSubmitted > out.Submitted)))
         {
-            OLO_CORE_ERROR("FoliageGPUCuller: the indirect command claims {} instances but the compacted buffer "
-                           "holds {} — refusing to read past it",
-                           out.Submitted, view.Capacity);
+            OLO_CORE_ERROR("FoliageGPUCuller: indirect counts exceed the bounded card or mesh stream");
             return false;
         }
 
@@ -625,9 +649,17 @@ namespace OloEngine
 
         out.SourceRows.SetNum(out.Submitted, EAllowShrinking::No);
         const u32 rowByteOffset =
-            static_cast<u32>(sizeof(FoliageCullStateHeader)) + header.SourceRowOffset * 4u;
+            static_cast<u32>(sizeof(FoliageCullStateHeader)) + layer.GroupCount * static_cast<u32>(sizeof(u32));
         if (!ReadStaged(view.State->GetRHIHandle(), rowByteOffset, out.Submitted * 4u, out.SourceRows.GetData()))
             return false;
+
+        if (mesh && out.MeshSubmitted > 0u)
+        {
+            out.MeshSourceRows.SetNum(out.MeshSubmitted, EAllowShrinking::No);
+            if (!ReadStaged(view.State->GetRHIHandle(), rowByteOffset + mesh->BaseInstance * 4u,
+                            out.MeshSubmitted * 4u, out.MeshSourceRows.GetData()))
+                return false;
+        }
 
         out.Compacted.SetNum(out.Submitted, EAllowShrinking::No);
         return ReadStaged(view.Compacted->GetRHIHandle(), 0,

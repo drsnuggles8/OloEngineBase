@@ -66,10 +66,10 @@ namespace OloEngine
     //   1. `FoliageGroupCull.comp`    — one thread per spatial group: frustum +
     //      distance against the group's terrain-local AABB, leaving a visibility
     //      bit.
-    //   2. `FoliageInstanceCull.comp` — one thread per instance row: skips a
-    //      rejected group outright, tests the survivors, and atomic-appends the
-    //      row WHOLE into a compacted `VertexBuffer` while bumping every part's
-    //      `DrawElementsIndirectCommand::instanceCount`.
+    //   2. `FoliageInstanceCull.comp` tests each row and scans the card and
+    //      mesh marks within its tile. `FoliageCullScanBlocks.comp` scans the
+    //      tile totals in input order. `FoliageCullScatter.comp` copies each
+    //      accepted row whole into its unique rank and writes indirect counts.
     //   3. The draw binds the compacted buffer as VAO stream 1 and issues
     //      `DrawBoundElementsIndirect` — no CPU round trip, no readback.
     //
@@ -79,8 +79,7 @@ namespace OloEngine
     // keyed on the plant's POSITION rather than its slot, so a plant that leaves
     // and returns cannot inherit another's history. The compacted slot -> source
     // row map is written anyway so that claim is checkable against
-    // `FoliageInstanceRegistry::GetIdForBufferRow`. The long form of this
-    // argument is in FoliageInstanceCull.comp.
+    // `FoliageInstanceRegistry::GetIdForBufferRow`.
     class FoliageGPUCuller : public RefCounted
     {
       public:
@@ -89,6 +88,16 @@ namespace OloEngine
         // submeshes than this draws its extra parts non-indirectly, loudly —
         // see FoliageRenderer.
         static constexpr u32 kMaxParts = 16;
+
+        static constexpr u32 kInstanceWorkgroupSize = 256;
+
+        // A packed rank per canonical row, then two full-width offsets per tile.
+        [[nodiscard]] static constexpr u64 ScratchBytesFor(u32 instanceCount)
+        {
+            constexpr u64 tileSize = kInstanceWorkgroupSize;
+            const u64 tiles = (instanceCount + tileSize - 1u) / tileSize;
+            return (instanceCount + 2u * tiles) * sizeof(u32);
+        }
 
         // Stride of one DrawElementsIndirectCommand record. 32 rather than the
         // 20 bytes GL reads, so each part's draw offset is 4-byte aligned on
@@ -259,7 +268,9 @@ namespace OloEngine
             u32 ListCapacity = 0;        // the all-survivor list, from slot 0
             u32 MeshCapacity = 0;        // the mesh region (#1533) right after it; 0 = none
             u32 GroupCapacity = 0;       // groups the state tail holds
+            u32 ScratchRows = 0;         // one rank per row and two words per tile
             u32 PartCount = 0;           // parts the last cull wrote args for
+            bool Dispatched = false;     // false when the layer bound rejected the whole cull
 
             [[nodiscard]] bool IsValid() const
             {
@@ -269,7 +280,7 @@ namespace OloEngine
 
         FoliageGPUCuller() = default;
 
-        // Load the two kernels. Idempotent, and a failure is latched so a broken
+        // Load the cull kernels. Idempotent, and a failure is latched so a broken
         // shader costs one error line rather than one per frame.
         void EnsureInitialised();
 
@@ -349,7 +360,7 @@ namespace OloEngine
         // which is the caller's signal to rebuild the vertex arrays that stream
         // it. A recreated buffer also gets a fresh State, so its demand pair
         // starts at zero against the new capacities.
-        bool EnsureViewCapacity(ViewResources& view, u32 listCapacity, u32 meshCapacity, u32 groupCount) const;
+        bool EnsureViewCapacity(ViewResources& view, u32 listCapacity, u32 meshCapacity, u32 groupCount, u32 instanceCount) const;
 
         // Dispatch the two kernels. `sourceInstances` is the layer's full
         // instance stream. Returns false without dispatching when anything is
@@ -400,9 +411,11 @@ namespace OloEngine
         {
             u32 GroupsVisible = 0;
             u32 Visible = 0;   // passed the per-instance test
-            u32 Reserved = 0;  // append slots handed out; > Visible never happens
+            u32 Reserved = 0;  // total card slots requested before the capacity cut
             u32 Submitted = 0; // what the indirect draw draws
+            u32 MeshSubmitted = 0;
             TArray<u32> SourceRows;
+            TArray<u32> MeshSourceRows;
             TArray<FoliageInstanceData> Compacted;
         };
 
@@ -427,6 +440,8 @@ namespace OloEngine
         Ref<ComputeShader> m_GroupCullVsmShader;
         bool m_WarnedVsmGroupCullUnavailable = false;
         Ref<ComputeShader> m_InstanceCullShader;
+        Ref<ComputeShader> m_ScanCullBlocksShader;
+        Ref<ComputeShader> m_ScatterCullShader;
         // Grow-only staging for ReadbackResult. Mutable because the read is a
         // const query of the cull's result; the staging buffer is scratch.
         mutable StagedBufferReadback m_Readback;
@@ -479,11 +494,10 @@ namespace OloEngine
         u32 EmitStats = 0;
         // The mesh region (#1533): where in the compacted stream it starts (0 =
         // none; it is the view's list capacity when present, past every slot
-        // the all-survivor list can use), the pivot distance it admits up to,
-        // and its append cursor. See LodInputs::MeshReach.
+        // the all-survivor list can use) and the pivot distance it admits up to.
         u32 MeshRegionBase = 0;
         f32 MeshReach = 0.0f;
-        u32 MeshCursor = 0;
+        u32 ScratchOffset = 0; // packed row ranks and tile offsets in the state tail
         // Coverage-preserving density LOD (issue #1237), in exactly the two
         // lanes FoliageUBO::LodTransition0/1 carry and with the same packing —
         // FoliageLod::PackFlags for the first component. The cull drops a row
@@ -636,6 +650,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::ListCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::MeshCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::GroupCapacity)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value;
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::ScratchRows)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::Dispatched)>::Value;
     };
 } // namespace OloEngine

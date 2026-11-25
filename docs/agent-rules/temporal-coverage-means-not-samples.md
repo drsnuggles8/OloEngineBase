@@ -81,6 +81,13 @@ is `OLO_STOCHASTIC_COVERAGE_MARK` (-1, `include/SurfaceCoverageMark.glsl`). TAA 
 current 4x4 and takes `max(.a, 0)` as the profile, so a coat pixel that shows the lawn behind it next
 frame has not changed material.
 
+`TAACoverageMotionRampTest.OnlyStochasticCoverageKeepsItsFeedbackInMotion` feeds the
+shipping TAA pass fixed RT3 bands and a known color history (#1663). The color history lies
+within both clip boxes, and the surface history holds coverage and profile constant across
+reprojection. The distance of the resolved color from that history measures the history
+weight. Changing only the exemption to fractional coverage raises the two moving unmarked
+bands to the full feedback. A marked moving band checks the intended exemption.
+
 ## A stochastic estimator reprojects by its mean velocity
 
 **Reproject a stochastic coat's pixel by the mean velocity of the coat texels around it**, not by the

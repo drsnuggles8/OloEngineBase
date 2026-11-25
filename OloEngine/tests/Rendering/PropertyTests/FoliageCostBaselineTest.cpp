@@ -46,14 +46,19 @@
 // The scene clock is pinned (Time::SetMockTime) so wind is identical in every
 // arm: the bend still costs what it costs, but every arm draws the same bend.
 //
-// This fixture is not ported to the windowless Vulkan process; those cost
-// cells are a live editor session, recorded in the analysis doc.
+// Both GPU processes run the same opt-in cost workload. The ordinary
+// OpenGL contracts in this file leave Vulkan admission off.
 //
 // OLO_TEST_LAYER: L6
 // =============================================================================
 
 #include "OloEnginePCH.h"
 #include "FoliageCostTestFixture.h"
+#include "TestRenderBackend.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
+
+#include <algorithm>
+#include <functional>
 
 namespace OloEngine::Tests
 {
@@ -831,7 +836,7 @@ namespace OloEngine::Tests
         // The scene sets the terrain's own transform again on the next tick.
     }
 
-    TEST_F(FoliageCostBaselineTest, MeasureBaseline)
+    void FoliageCostBaselineTest::MeasureBaselineWorkload()
     {
         if (!EnvFlag("OLO_FOLIAGE_COST"))
             GTEST_SKIP() << "set OLO_FOLIAGE_COST=1 to measure (scripts/perf/foliage-cost-baseline.py runs it)";
@@ -850,16 +855,24 @@ namespace OloEngine::Tests
 
         nlohmann::json result;
         result["issue"] = 1391;
-        result["host"] = {
-            { "glVendor", reinterpret_cast<const char*>(glGetString(GL_VENDOR)) },
-            { "glRenderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)) },
-            { "glVersion", reinterpret_cast<const char*>(glGetString(GL_VERSION)) },
+        auto& host = result["host"];
+        if (TestRenderBackend::IsVulkanProcess())
+        {
+            host["backend"] = "Vulkan";
+            host["device"] = TestRenderBackend::EnsureWindowlessContext().DeviceName;
+        }
+        else
+        {
+            host["backend"] = "OpenGL";
+            host["glVendor"] = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            host["glRenderer"] = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            host["glVersion"] = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+        }
 #if defined(NDEBUG)
-            { "buildConfig", "optimised (NDEBUG)" },
+        host["buildConfig"] = "optimised (NDEBUG)";
 #else
-            { "buildConfig", "Debug" },
+        host["buildConfig"] = "Debug";
 #endif
-        };
         // The VSM foliage invalidation policy (#1580), for a same-binary A/B:
         // OLO_FOLIAGE_COST_VSM_POLICY=everyframe is the pre-#1580 behaviour.
         // Restored when the test ends.
@@ -955,6 +968,38 @@ namespace OloEngine::Tests
                 ++coldRebuildFrames;
             }
         };
+        const auto collectGpuCensus = [&](const Pose& pose)
+        {
+            bool& enabled = Renderer3D::GetRendererSettings().GPUReadbackStatsEnabled;
+            struct RestoreStats
+            {
+                bool& Setting;
+                bool WasEnabled;
+                ~RestoreStats()
+                {
+                    Setting = WasEnabled;
+                }
+            } restoreStats{ enabled, enabled };
+            const u64 firstFrame = GPUReadbackStats::GetFrameIndex() + 1u;
+            enabled = true;
+            for (u32 frame = 0; frame < 12u; ++frame)
+            {
+                Tick(pose, 1u);
+                const auto& stats = GPUReadbackStats::GetLatest();
+                if (stats.Valid && stats.FrameIndex >= firstFrame)
+                {
+                    return nlohmann::json{
+                        { "generated", stats.Get(GPUStatCounter::FoliageCullGenerated) },
+                        { "tested", stats.Get(GPUStatCounter::FoliageCullTested) },
+                        { "visible", stats.Get(GPUStatCounter::FoliageCullVisible) },
+                        { "submitted", stats.Get(GPUStatCounter::FoliageCullSubmitted) },
+                        { "allViewsDropped", stats.Get(GPUStatCounter::FoliageCullDropped) },
+                    };
+                }
+            }
+            ADD_FAILURE() << "no completed GPU foliage stats frame at " << pose.Name;
+            return nlohmann::json{};
+        };
         const auto measureCell = [&](const Subject& subject, const Pose& pose, RenderingPath renderPath, bool vsm,
                                      u32 msaa, std::span<const Arm> arms)
         {
@@ -1039,7 +1084,12 @@ namespace OloEngine::Tests
             {
                 cell["shippedBracketCounts"] = windows[Arm::Shipped].back().LastFrameBracketCounts;
                 Tick(pose, 2);
-                cell["mainViewSurvivors"] = MainViewCensus();
+                // Preserve the original GL per-layer report. Both backends
+                // use the same fenced stats channel for the matched totals.
+                if (!TestRenderBackend::IsVulkanProcess())
+                    cell["mainViewSurvivors"] = MainViewCensus();
+                cell["gpuCensus"] = collectGpuCensus(pose);
+                cell["cullScratchBytes"] = Plants().GetMemoryBreakdown().CullScratchBytes;
             }
             cells.push_back(std::move(cell));
             std::printf("[foliage-cost] %s %s %s %s msaa%u %ux%u done\n", subject.Id.c_str(), pose.Name.c_str(),
@@ -1209,5 +1259,162 @@ namespace OloEngine::Tests
         const fs::path file = outDir / "foliage-cost.json";
         std::ofstream(file) << result.dump(1);
         std::printf("[foliage-cost] wrote %s\n", file.string().c_str());
+    }
+
+    TEST_F(FoliageCostBaselineTest, MeasureBaseline)
+    {
+        MeasureBaselineWorkload();
+    }
+
+    class FoliageCostVulkanBaselineTest : public FoliageCostBaselineTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+    };
+
+    TEST_F(FoliageCostVulkanBaselineTest, MeasureBaseline)
+    {
+        if (!TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "run with --olo-rhi=vulkan";
+        MeasureBaselineWorkload();
+    }
+
+    class FoliageStableOrder : public FoliageCostBaselineTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+    };
+
+    TEST_F(FoliageStableOrder, MainAndShadowDrawStableCardAndMeshStreams)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        SetPath(RenderingPath::Deferred);
+        ASSERT_TRUE(SetVsm(false));
+        Resize(512u, 384u);
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto traversal = DeriveTraversal();
+        ASSERT_TRUE(traversal);
+
+        std::array<u64, 2> cardRows{};
+        std::array<u64, 2> meshRows{};
+        for (const sizet index : { sizet{ 0 }, traversal->size() / 2u, traversal->size() - 1u })
+        {
+            const Pose& pose = (*traversal)[index];
+            Tick(pose, 6u);
+            const auto& plants = Plants();
+            ASSERT_TRUE(plants.WasMainViewCulled());
+            const auto inputs = plants.MakeCullInputs(Renderer3D::GetCullViewProjectionMatrix(), Renderer3D::GetCullViewPosition());
+            for (u32 layer = 0; layer < plants.GetLayerCount(); ++layer)
+            {
+                const f32 meshReach = plants.GetLayerShadowMeshReach(layer);
+                for (u32 slot = 0; slot < FoliageGPUCuller::kViewSlotCount; ++slot)
+                {
+                    SCOPED_TRACE(::testing::Message() << pose.Name << " layer " << layer << " slot " << slot);
+                    FoliageGPUCuller::Readback list;
+                    if (!plants.ReadbackCull(layer, static_cast<FoliageGPUCuller::ViewSlot>(slot), list))
+                        continue;
+                    EXPECT_EQ(list.Reserved, list.Visible);
+                    EXPECT_EQ(list.Submitted, list.Visible);
+                    EXPECT_EQ(list.Submitted, list.SourceRows.Num());
+                    EXPECT_EQ(list.MeshSubmitted, list.MeshSourceRows.Num());
+                    // Strict ascending order proves canonical order and also
+                    // rejects duplicate output ranks. Mesh rows form a subset
+                    // of the ordered card list from the same view.
+                    ASSERT_EQ(std::adjacent_find(list.SourceRows.begin(), list.SourceRows.end(), std::greater_equal{}), list.SourceRows.end());
+                    ASSERT_EQ(std::adjacent_find(list.MeshSourceRows.begin(), list.MeshSourceRows.end(), std::greater_equal{}), list.MeshSourceRows.end());
+                    EXPECT_TRUE(std::ranges::includes(list.SourceRows, list.MeshSourceRows));
+                    if (meshReach > 0.0f && RenderCommand::SupportsIndirectFirstInstance())
+                    {
+                        u32 membershipErrors = 0;
+                        for (i32 row = 0; row < list.SourceRows.Num(); ++row)
+                        {
+                            const f32 distance = glm::distance(glm::vec3(list.Compacted[row].PositionScale), inputs.DistanceOrigin);
+                            if (std::abs(distance - meshReach) <= 1.0e-4f)
+                                continue;
+                            const bool found = std::ranges::binary_search(list.MeshSourceRows, list.SourceRows[row]);
+                            membershipErrors += (found != (distance <= meshReach)) ? 1u : 0u;
+                        }
+                        EXPECT_EQ(membershipErrors, 0u);
+                    }
+                    const sizet kind = slot == 0u ? 0u : 1u;
+                    cardRows[kind] += list.Submitted;
+                    meshRows[kind] += list.MeshSubmitted;
+                }
+            }
+        }
+        std::cout << "[foliage-order] main card/mesh=" << cardRows[0] << '/' << meshRows[0]
+                  << " shadow card/mesh=" << cardRows[1] << '/' << meshRows[1] << '\n';
+        EXPECT_GT(cardRows[0], 0u);
+        EXPECT_GT(cardRows[1], 0u);
+        if (RenderCommand::SupportsIndirectFirstInstance())
+        {
+            EXPECT_GT(meshRows[0], 0u);
+            EXPECT_GT(meshRows[1], 0u);
+        }
+
+        // Reuse the main slot on a whole-layer frustum reject. The zero
+        // commands must agree with the census even though the mark kernel
+        // did not write a new header this time.
+        Pose away = traversal->back();
+        away.Eye.y += 1000.0f;
+        away.Pitch = -1.4f;
+        Tick(away, 2u);
+        u32 rejectedLayers = 0;
+        for (u32 layer = 0; layer < Plants().GetLayerCount(); ++layer)
+        {
+            FoliageGPUCuller::Readback list;
+            if (!Plants().ReadbackCull(layer, FoliageGPUCuller::ViewSlot::Main, list))
+                continue;
+            ++rejectedLayers;
+            EXPECT_EQ(list.Visible, 0u);
+            EXPECT_EQ(list.Reserved, 0u);
+            EXPECT_EQ(list.Submitted, 0u);
+            EXPECT_EQ(list.MeshSubmitted, 0u);
+        }
+        EXPECT_GT(rejectedLayers, 0u) << "the fixture did not reuse a cull slot";
+    }
+
+    TEST_F(FoliageStableOrder, CapacityKeepsTheFirstCanonicalSurvivors)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        SetPath(RenderingPath::Deferred);
+        ASSERT_TRUE(SetVsm(false));
+        Resize(512u, 384u);
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        const auto& pose = poses->front();
+        Tick(pose, 6u);
+
+        auto& plants = Plants();
+        constexpr u32 capacity = 32u;
+        FoliageGPUCuller::Readback full;
+        u32 layer = 0;
+        for (; layer < plants.GetLayerCount(); ++layer)
+        {
+            if (plants.ReadbackCull(layer, FoliageGPUCuller::ViewSlot::Main, full) && full.Submitted > capacity)
+                break;
+        }
+        ASSERT_LT(layer, plants.GetLayerCount());
+        ASSERT_EQ(full.Visible, full.Submitted);
+        plants.SetDebugCullCapacity(capacity);
+        Tick(pose, 2u);
+        plants.SetDebugCullCapacity(0u);
+
+        FoliageGPUCuller::Readback clipped;
+        ASSERT_TRUE(plants.ReadbackCull(layer, FoliageGPUCuller::ViewSlot::Main, clipped));
+        EXPECT_EQ(clipped.Visible, full.Visible);
+        EXPECT_EQ(clipped.Reserved, full.Visible);
+        EXPECT_EQ(clipped.Submitted, capacity);
+        ASSERT_EQ(clipped.SourceRows.Num(), capacity);
+        EXPECT_TRUE(std::equal(clipped.SourceRows.begin(), clipped.SourceRows.end(), full.SourceRows.begin()));
+        std::cout << "[foliage-order] overflow kept the first " << clipped.Submitted
+                  << " of " << clipped.Visible << " visible rows\n";
     }
 } // namespace OloEngine::Tests

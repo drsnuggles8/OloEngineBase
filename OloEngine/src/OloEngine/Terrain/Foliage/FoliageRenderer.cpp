@@ -1596,7 +1596,10 @@ namespace OloEngine
                 if (view.Compacted)
                     out.CullStreamBytes[slot] += static_cast<u64>(view.Capacity) * sizeof(FoliageInstanceData);
                 if (view.State)
+                {
                     out.CullStreamBytes[slot] += view.State->GetSize();
+                    out.CullScratchBytes += FoliageGPUCuller::ScratchBytesFor(view.ScratchRows);
+                }
                 if (view.DrawArgs)
                     out.CullStreamBytes[slot] += view.DrawArgs->GetSize();
             }
@@ -4148,7 +4151,7 @@ namespace OloEngine
             const auto stateBefore = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
             const auto argsBefore = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
             const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
-                                                               layer.CullLayer.GroupCount);
+                                                               layer.CullLayer.GroupCount, layer.CullLayer.InstanceCount);
             const auto stateAfter = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
             const auto argsAfter = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
             const bool rebuildArrays = recreated || (!view.CardVAO && !view.MeshVAO);
