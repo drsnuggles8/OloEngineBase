@@ -656,7 +656,7 @@ namespace OloEngine
             }
             else if (!path.empty())
             {
-                std::ifstream file(path, std::ios::binary | std::ios::ate);
+                std::ifstream file(cookSource, std::ios::binary | std::ios::ate);
                 if (file)
                 {
                     const std::streamsize sz = file.tellg();
