@@ -489,6 +489,9 @@ namespace OloEngine
         // Loaded assets cache
         std::unordered_map<AssetHandle, Ref<Asset>> m_LoadedAssets;
         std::unordered_map<AssetHandle, std::array<Ref<Asset>, 2>> m_SceneTextures;
+        // Settings changes retire the cache entries. A live scene may still
+        // hold one of those views and should continue receiving pixel reloads.
+        std::unordered_map<AssetHandle, TArray<WeakRef<Texture2D>>> m_LiveSceneTextures;
 
         // Memory-only assets (no backing file)
         std::unordered_map<AssetHandle, Ref<Asset>> m_MemoryAssets;

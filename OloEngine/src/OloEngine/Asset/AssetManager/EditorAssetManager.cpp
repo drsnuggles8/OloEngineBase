@@ -256,6 +256,7 @@ namespace OloEngine
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             m_LoadedAssets.clear();
             m_SceneTextures.clear();
+            m_LiveSceneTextures.clear();
             m_MemoryAssets.clear();
         }
 
@@ -393,18 +394,21 @@ namespace OloEngine
         if (type == AssetType::Texture2D)
         {
             Ref<Asset> existing;
-            std::array<Ref<Asset>, 2> sceneTextures;
+            TArray<Ref<Texture2D>> sceneTextures;
             {
                 TSharedLock<FSharedMutex> lock(m_AssetsMutex);
                 if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
                     existing = it->second;
-                if (auto it = m_SceneTextures.find(assetHandle); it != m_SceneTextures.end())
-                    sceneTextures = it->second;
+                if (auto it = m_LiveSceneTextures.find(assetHandle); it != m_LiveSceneTextures.end())
+                {
+                    for (const auto& live : it->second)
+                        if (auto variant = live.Lock())
+                            sceneTextures.Add(MoveTemp(variant));
+                }
             }
 
             for (const auto& variant : sceneTextures)
-                if (variant)
-                    (void)Texture2D::ReloadInPlace(variant.As<Texture2D>());
+                (void)Texture2D::ReloadInPlace(variant);
 
             // Through the renderer's reload gate: under memory pressure the upload waits
             // for room (#1764), and the old pixels stay on screen until then.
@@ -684,6 +688,7 @@ namespace OloEngine
             TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
             m_LoadedAssets.erase(handle);
             m_SceneTextures.erase(handle);
+            m_LiveSceneTextures.erase(handle);
             m_MemoryAssets.erase(handle);
         }
 
@@ -956,7 +961,13 @@ namespace OloEngine
         TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
         auto& cached = m_SceneTextures[handle][srgb];
         if (!cached)
+        {
             cached = texture;
+            auto& live = m_LiveSceneTextures[handle];
+            live.RemoveAll([](const auto& entry)
+                           { return !entry.IsValid(); });
+            live.Add(WeakRef<Texture2D>(texture));
+        }
         return cached;
     }
 
@@ -1609,7 +1620,9 @@ namespace OloEngine
             if (alreadyTracked && !decision.CurrentlyLoaded && assetType == AssetType::Texture2D)
             {
                 TSharedLock<FSharedMutex> lock(m_AssetsMutex);
-                decision.CurrentlyLoaded = m_SceneTextures.contains(assetHandle);
+                if (const auto it = m_LiveSceneTextures.find(assetHandle); it != m_LiveSceneTextures.end())
+                    decision.CurrentlyLoaded = std::ranges::any_of(it->second, [](const auto& entry)
+                                                                   { return entry.IsValid(); });
             }
             {
                 std::error_code statEc;
