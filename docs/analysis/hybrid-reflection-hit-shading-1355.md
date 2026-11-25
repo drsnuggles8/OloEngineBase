@@ -94,6 +94,19 @@ Use the [live benchmark capture entry point](../guides/renderer-benchmarks.md#th
 | Lateral | `[1.1, 1.85, 8.6]` | −4° | 15° |
 | Direct tile control | `[0, 1.6, 9]` | −6° | −19° |
 
-Use 45° FOV and clip distances 0.01 and 1000. Move the lateral camera along +X at 0.9 m/s while yaw decreases by 1°/s. For the mip comparison capture 24 consecutive steps and divide separated specular by its weight before comparing the same surface points. The control replaces the solid-hit `textureGrad` lookup with `oloHeapSampleLod` at mip 0 in an isolated shader copy.
+Use 45° FOV and clip distances 0.01 and 1000. Move the lateral camera along +X at 0.9 m/s while yaw decreases by 1°/s. Name the motion manifest `textured-motion-960x540-motion.yaml` and point its `Scene` to the generated `textured-motion.olo`. Set the lateral camera's `Sequence` to `{Every: 1, Count: 24, Attachments: [RTSpecular, Weight]}`. Declare both attachments as `hdr`, with sources `RTReflectionSpecularTexture` and `IndirectSpecularWeightTexture`. Divide separated specular by its weight before comparing the same surface points. The mip control replaces the solid-hit `textureGrad` lookup with `oloHeapSampleLod` at mip 0 in an isolated shader copy.
 
-For the texture and emission arms replace `RedPillarBehind` with a two-submesh tile at `[-2.35, 8.1, -9]`, scale `[2.15, 1.65, 1]` and rotation `[0, 0.15, 0.18]` radians. Change one map at a time while holding the material factors. For the masked control place an alpha-striped card at `[-2.15, 7.8, -8.15]`, scale `[2, 1.55, 1]` and the same rotation. The sky-only control removes the `Sun` entity. For timing use 120 measurement steps per camera in fresh AB/BA runs and the valid unique pass rows in the benchmark trace. Use the shader from `4554d8c4ae7cb9841f42c756f26eb4f82336abde` for the factor baseline and the current shader for the textured arm, both on the same executable.
+Generate the exact scene, geometry, UVs, factors and embedded PNGs with the [fixture recipe](../../scripts/perf/fixtures/hybrid-reflection-fixtures-1355.py), which uses NumPy, Pillow and PyYAML. The default destination is `OloEditor/assets/tests/visual/HybridReflectionFixture1355/`.
+
+| Arms | Generated inputs |
+| --- | --- |
+| RT off/on | `off.olo` and `on.olo`, with the original pillar |
+| Full and isolated map swaps | `textured-a.olo` versus `textured-b.olo`, `textured-albedo.olo`, `textured-normal.olo`, `textured-mr.olo` and `textured-emissive.olo`, each referencing its namesake GLB |
+| Alpha masked | `masked.olo` with `masked.glb` and the foreground `alpha-card.glb` |
+| Analytic emitter | `emitter-a.olo` and `emitter-b.olo`, each referencing its namesake flat-emission GLB |
+| Motion and timing | `textured-motion.olo` with the albedo-only `textured-motion.glb` |
+| Sky only | `--sky-only --arms textured-a` creates `textured-a-sky-only.olo` with the sun removed |
+
+The tile materials `TextureTile0` and `TextureTile1` occupy the two halves of a quad. Each half has unit UVs and its own albedo and emission texels. `MaskedStripe` uses one full quad and a 0.5 cutoff. The fixture recipe holds transforms and factors while changing the map bytes.
+
+For timing use 120 measurement steps per camera in fresh AB/BA runs and the valid unique pass rows in the benchmark trace. Use the shader from `4554d8c4ae7cb9841f42c756f26eb4f82336abde` for the factor baseline and the current shader for the textured arm, both on the same executable.
