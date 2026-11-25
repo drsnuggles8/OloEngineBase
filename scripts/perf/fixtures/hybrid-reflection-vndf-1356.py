@@ -34,7 +34,7 @@ COMPOSITION = '''    const vec2 energy = ggxEnergy(NoV, roughness);
     const vec3 normalizedWeight = fresnel * throughput / max(singleScatter, vec3(1.0e-4));
     const vec3 delta = confidence * normalizedWeight * (weight * hitRadiance - baseSpecular);
     const vec3 specular = max(baseSpecular + delta, vec3(0.0));
-    o_Color = vec4(baseColor + (specular - baseSpecular), 1.0);
+    o_Color = vec4(baseColor + (specular - baseSpecular), (u_Flags.x > 0.5) ? confidence : 1.0);
     o_Specular = vec4(specular, 1.0);
 '''
 
