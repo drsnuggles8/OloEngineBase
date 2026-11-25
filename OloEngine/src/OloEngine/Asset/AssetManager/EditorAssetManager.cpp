@@ -362,7 +362,14 @@ namespace OloEngine
 
     bool EditorAssetManager::ReloadData(AssetHandle assetHandle)
     {
+        bool retainedPreviousImage = false;
+        return ReloadData(assetHandle, retainedPreviousImage);
+    }
+
+    bool EditorAssetManager::ReloadData(AssetHandle assetHandle, bool& retainedPreviousImage)
+    {
         OLO_PROFILER_SCOPE("EditorAssetManager::ReloadData");
+        retainedPreviousImage = false;
 
         // Capture metadata values under registry lock for thread safety
         AssetMetadata metadata;
@@ -391,7 +398,8 @@ namespace OloEngine
         // next bind (issue #544).
         Ref<Asset> asset;
         bool reloadedInPlace = false; // LoadAssetFromFile sets the status itself; this path does not
-        if (type == AssetType::Texture2D)
+        bool failedInPlace = false;
+        if (type == AssetType::Texture2D && !TextureSerializer::IsCookedSource(path))
         {
             Ref<Asset> existing;
             TArray<Ref<Texture2D>> sceneTextures;
@@ -407,16 +415,37 @@ namespace OloEngine
                 }
             }
 
-            for (const auto& variant : sceneTextures)
-                (void)Texture2D::ReloadInPlace(variant);
-
-            // Through the renderer's reload gate: under memory pressure the upload waits
-            // for room (#1764), and the old pixels stay on screen until then.
-            if (auto texture = existing.As<Texture2D>(); texture && Texture2D::ReloadInPlace(texture))
+            // The registry is authoritative even for async-loaded textures
+            // whose GPU object does not store a source path.
+            const auto source = GetFileSystemPath(metadata);
+            const auto reloadTexture = [&](const Ref<Texture2D>& texture)
             {
-                OLO_CORE_TRACE("Reloaded texture in place: {} (handle {})", path.string(), (u64)assetHandle);
-                asset = existing; // same cached object, refreshed contents — Refs stay valid
-                reloadedInPlace = true;
+                const bool accepted = Texture2D::ReloadInPlace(texture, source);
+                if (!accepted)
+                {
+                    failedInPlace = true;
+                    retainedPreviousImage |= texture->IsLoaded();
+                }
+                return accepted;
+            };
+            for (const auto& variant : sceneTextures)
+                (void)reloadTexture(variant);
+
+            if (auto texture = existing.As<Texture2D>();
+                texture && texture->GetHandle() == assetHandle &&
+                !IsCompressedFormat(texture->GetSpecification().Format))
+            {
+                // Keep this object in the cache even when the edit is invalid.
+                // The next valid edit must update the same material bindings.
+                asset = existing;
+                reloadedInPlace = reloadTexture(texture);
+            }
+            else if (!sceneTextures.IsEmpty() && (!existing || PlaceholderAssetManager::IsPlaceholderAsset(existing)))
+            {
+                // A slot-only source can reload its live views without
+                // eagerly allocating a second, canonical GPU texture.
+                asset = sceneTextures[0];
+                reloadedInPlace = !failedInPlace;
             }
         }
 
@@ -485,13 +514,25 @@ namespace OloEngine
                 {
                     OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", current.FilePath.string(), ec.message());
                 }
-                if (reloadedInPlace)
+                if (failedInPlace)
+                {
+                    current.Status = AssetStatus::Failed;
+                }
+                else if (reloadedInPlace)
                 {
                     current.Status = AssetStatus::Loaded;
                 }
                 m_AssetRegistry.UpdateMetadata(assetHandle, current);
             }
         }
+
+        if (failedInPlace)
+        {
+            OLO_CORE_WARN("Texture reload failed for '{}' (last usable image retained: {})", path.string(), retainedPreviousImage);
+            return false;
+        }
+        if (type == AssetType::Texture2D && PlaceholderAssetManager::IsPlaceholderAsset(asset))
+            return false;
 
         // Track reload generation for stale-handle detection
         IncrementAssetGeneration(assetHandle);
@@ -1126,6 +1167,23 @@ namespace OloEngine
         {
             for (auto& pending : rawAssets)
             {
+                if (pending.Metadata.Type == AssetType::Texture2D)
+                {
+                    const auto current = GetMetadata(pending.Metadata.Handle);
+                    if (!current.IsValid() || current.Type != pending.Metadata.Type ||
+                        current.FilePath != pending.Metadata.FilePath ||
+                        current.LastWriteTime != pending.Metadata.LastWriteTime)
+                        continue;
+                    TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+                    if (const auto it = m_LoadedAssets.find(pending.Metadata.Handle);
+                        it != m_LoadedAssets.end() && it->second && it->second->GetHandle() == pending.Metadata.Handle)
+                    {
+                        // A late raw decode must not replace a texture that
+                        // has already been integrated or loaded synchronously.
+                        continue;
+                    }
+                }
+
                 Ref<Asset> asset;
                 if (AssetImporter::FinalizeFromRawData(pending.Metadata, pending.RawData, asset))
                 {

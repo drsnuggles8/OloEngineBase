@@ -278,15 +278,17 @@ namespace OloEngine
                        static_cast<u64>(Pixels.Num()) == static_cast<u64>(Width) * Height * Channels;
             }
         };
-        [[nodiscard]] bool DecodeReloadSource(DecodedImage& out) const;
+        [[nodiscard]] bool DecodeReloadSource(DecodedImage& out, const std::filesystem::path& sourcePath = {}) const;
         bool ApplyReload(const DecodedImage& image);
 
         // A hot reload of `texture` in place, through the gate the renderer installed (its
         // memory admission defers an upload that does not fit the budget, #1764), or
         // straight through Reload() when none is. True when the reload was applied or
         // accepted for a later frame; false where Reload() would refuse.
-        using ReloadGate = bool (*)(Ref<Texture2D> texture);
-        static bool ReloadInPlace(Ref<Texture2D> texture);
+        // An empty decoded image tells the gate to discard an older pending
+        // reload for this texture after the newest source failed to decode.
+        using ReloadGate = bool (*)(Ref<Texture2D> texture, DecodedImage image);
+        static bool ReloadInPlace(Ref<Texture2D> texture, const std::filesystem::path& sourcePath = {});
         static void SetReloadGate(ReloadGate gate);
 
         // Resolve a stored source path (what GetPath() reports) to a path the

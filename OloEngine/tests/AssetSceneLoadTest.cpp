@@ -69,6 +69,7 @@
 #include "OloEngine/Renderer/ColorTransfer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -93,6 +94,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -102,6 +104,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -1075,6 +1078,110 @@ namespace OloEngine::Tests
         {
         }
     };
+
+    TEST_F(SceneTextureGPUContract, BoundLinearTexturesRecoverAfterMalformedReimport)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        GLStateGuard glGuard("AssetSceneLoad.ReimportRecovery", GLStateGuard::Policy::Restore);
+        struct UnloadProject
+        {
+            ~UnloadProject()
+            {
+                Project::Unload();
+            }
+        } unloadProject;
+
+        const fs::path root = TempDir("reimport-recovery");
+        fs::create_directories(root / "Assets");
+        ProjectConfig config;
+        config.Name = "ReimportRecovery";
+        config.AssetDirectory = "Assets";
+        ASSERT_TRUE(Project::NewInMemory(root, config));
+        auto editor = Ref<EditorAssetManager>::Create();
+        editor->Initialize(false);
+        Project::SetAssetManager(editor);
+
+        const fs::path source = root / "Assets" / "MetallicRoughness.png";
+        const auto write = [&](int width, int height, u8 roughness, u8 metallic)
+        {
+            TArray<u8> pixels;
+            pixels.SetNumUninitialized(width * height * 4);
+            const i32 size = pixels.Num();
+            for (i32 i = 0; i < size; i += 4)
+            {
+                pixels[i] = 0;
+                pixels[i + 1] = roughness;
+                pixels[i + 2] = metallic;
+                pixels[i + 3] = 255;
+            }
+            return stbi_write_png(source.string().c_str(), width, height, 4, pixels.GetData(), width * 4) != 0;
+        };
+        ASSERT_TRUE(write(128, 128, 51, 0));
+        const AssetHandle handle = editor->ImportAsset(source);
+        ASSERT_NE(handle, AssetHandle(0));
+        const auto linearSlot = editor->GetSceneTexture(handle, false).As<Texture2D>();
+        ASSERT_TRUE(linearSlot && linearSlot->IsLoaded());
+        ASSERT_TRUE(editor->ReloadData(handle));
+        EXPECT_FALSE(editor->IsAssetLoaded(handle)) << "reloading a live slot allocated a canonical texture";
+        auto material = Ref<Material>::Create();
+        auto loaded = editor->GetAssetAsync(handle);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!loaded.IsReady && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            editor->SyncWithAssetThread();
+            loaded = editor->GetAssetAsync(handle);
+        }
+        ASSERT_TRUE(loaded.IsReady);
+        const auto canonical = loaded.Ptr.As<Texture2D>();
+        ASSERT_TRUE(canonical && canonical->IsLoaded());
+        material->SetMetallicRoughnessMap(canonical);
+
+        const auto expectBound = [&](u32 width, u32 height, u8 roughness, u8 metallic)
+        {
+            const auto bound = material->GetMetallicRoughnessMap();
+            EXPECT_EQ(bound, canonical);
+            for (const auto& texture : { bound, linearSlot })
+            {
+                ASSERT_TRUE(texture && texture->IsLoaded());
+                EXPECT_EQ(texture->GetHandle(), handle);
+                EXPECT_EQ(texture->GetWidth(), width);
+                EXPECT_EQ(texture->GetHeight(), height);
+                RHI::TextureFormatInfo format;
+                ASSERT_TRUE(RenderCommand::QueryTextureFormat(texture->GetRHIHandle(), 0, format));
+                EXPECT_EQ(format.Neutral, RHI::Format::RGBA8UNorm);
+                std::array<f32, 4> pixel{};
+                ASSERT_TRUE(RenderCommand::ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, 1, 1, 1,
+                                                               RHI::Format::RGBA32Float, sizeof(pixel), pixel.data()));
+                EXPECT_NEAR(pixel[1], static_cast<f32>(roughness) / 255.0f, 1e-6f);
+                EXPECT_NEAR(pixel[2], static_cast<f32>(metallic) / 255.0f, 1e-6f);
+            }
+        };
+        ASSERT_NO_FATAL_FAILURE(expectBound(128, 128, 51, 0));
+
+        bool retained = false;
+        ASSERT_TRUE(write(96, 64, 204, 255));
+        ASSERT_TRUE(editor->ReloadData(handle, retained));
+        EXPECT_FALSE(retained);
+        const u32 validGeneration = editor->GetAssetGeneration(handle);
+        ASSERT_NO_FATAL_FAILURE(expectBound(96, 64, 204, 255));
+
+        std::ofstream(source, std::ios::binary | std::ios::trunc) << "invalid PNG";
+        EXPECT_FALSE(editor->ReloadData(handle, retained));
+        EXPECT_TRUE(retained);
+        EXPECT_EQ(editor->GetMetadata(handle).Status, AssetStatus::Failed);
+        EXPECT_EQ(editor->GetAssetGeneration(handle), validGeneration);
+        EXPECT_EQ(editor->GetAsset(handle).As<Texture2D>(), canonical);
+        ASSERT_NO_FATAL_FAILURE(expectBound(96, 64, 204, 255));
+
+        ASSERT_TRUE(write(128, 128, 51, 0));
+        ASSERT_TRUE(editor->ReloadData(handle, retained));
+        EXPECT_FALSE(retained);
+        EXPECT_EQ(editor->GetMetadata(handle).Status, AssetStatus::Loaded);
+        EXPECT_EQ(editor->GetAssetGeneration(handle), validGeneration + 1u);
+        EXPECT_EQ(editor->GetAsset(handle).As<Texture2D>(), canonical);
+        ASSERT_NO_FATAL_FAILURE(expectBound(128, 128, 51, 0));
+    }
 
     TEST_F(SceneTextureGPUContract, SceneTextureAndFontHandlesResolveLooseAndPacked)
     {

@@ -1347,10 +1347,9 @@ namespace OloEngine
         // `image` now when the replacement fits; otherwise queue it, charge it to the
         // governor so it makes room, keep the old contents on screen, and upload on the
         // first frame it fits (or at the floor, where nothing more can be given back).
-        // Returns true when applied now, false when queued.
+        // Returns true when applied or queued. An invalid image cancels the
+        // previous pending replacement for this texture and returns false.
         static bool ReplaceTextureContents(Ref<Texture2D> texture, Texture2D::DecodedImage image);
-        // Texture2D's reload gate: decode, then ReplaceTextureContents.
-        static bool ReloadTextureInPlace(Ref<Texture2D> texture);
         // Reloads waiting for room, and how many were applied late or at the floor.
         struct DeferredReloadStats
         {

@@ -72,6 +72,7 @@ namespace OloEngine
 
         void AddMemoryOnlyAsset(Ref<Asset> asset) override;
         [[nodiscard]] bool ReloadData(AssetHandle assetHandle) override;
+        [[nodiscard]] bool ReloadData(AssetHandle assetHandle, bool& retainedPreviousImage);
         void ReloadDataAsync(AssetHandle assetHandle) override;
         [[nodiscard]] bool EnsureCurrent(AssetHandle assetHandle) override;
         [[nodiscard]] bool EnsureAllLoadedCurrent() override;

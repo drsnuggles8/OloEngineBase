@@ -17,6 +17,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <utility>
 
 namespace OloEngine
 {
@@ -66,22 +67,28 @@ namespace OloEngine
         s_ReloadGate = gate;
     }
 
-    bool Texture2D::ReloadInPlace(Ref<Texture2D> texture)
+    bool Texture2D::ReloadInPlace(Ref<Texture2D> texture, const std::filesystem::path& sourcePath)
     {
         if (!texture)
             return false;
-        return s_ReloadGate ? s_ReloadGate(texture) : texture->Reload();
+        if (!s_ReloadGate && sourcePath.empty())
+            return texture->Reload();
+
+        DecodedImage image;
+        const bool decoded = texture->DecodeReloadSource(image, sourcePath);
+        if (s_ReloadGate)
+            return s_ReloadGate(texture, decoded ? std::move(image) : DecodedImage{});
+        return decoded && texture->ApplyReload(image);
     }
 
-    bool Texture2D::DecodeReloadSource(DecodedImage& out) const
+    bool Texture2D::DecodeReloadSource(DecodedImage& out, const std::filesystem::path& sourcePath) const
     {
         OLO_PROFILE_FUNCTION();
 
-        // The same refusals as the backends' Reload(): a cooked container is a build
-        // artifact, and only the uncompressed upload path can replace storage in place.
-        if (IsCompressedFormat(GetSpecification().Format) || GetPath().empty())
+        // Only the uncompressed upload path can replace storage in place.
+        if (IsCompressedFormat(GetSpecification().Format) || (sourcePath.empty() && GetPath().empty()))
             return false;
-        const std::filesystem::path readPath = ResolveStoredSourcePath(GetPath());
+        const auto readPath = sourcePath.empty() ? ResolveStoredSourcePath(GetPath()) : sourcePath;
         if (readPath.empty())
             return false;
 

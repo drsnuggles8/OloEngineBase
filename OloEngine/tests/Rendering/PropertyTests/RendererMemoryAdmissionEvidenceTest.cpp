@@ -694,6 +694,17 @@ TEST_F(RendererMemoryAdmissionTransitions, AReloadThatDoesNotFitWaitsForRoomAndN
     };
     EXPECT_NEAR(redAt(1u), 64.0f / 255.0f, 1.5f / 255.0f) << "the old pixels are not the ones on screen while the reload waits";
 
+    // A malformed newer edit supersedes the waiting upload. The last image
+    // that actually reached the GPU remains visible until a valid edit arrives.
+    std::ofstream(file, std::ios::binary | std::ios::trunc) << "invalid PNG";
+    EXPECT_FALSE(Texture2D::ReloadInPlace(asset));
+    EXPECT_EQ(Renderer3D::GetDeferredReloadStats().Pending, 0u);
+    EXPECT_EQ(asset->GetWidth(), kOldSize);
+    EXPECT_NEAR(redAt(1u), 64.0f / 255.0f, 1.5f / 255.0f);
+    ASSERT_NO_FATAL_FAILURE(WriteSolidPng(file, kNewSize, 200, 40));
+    ASSERT_TRUE(Texture2D::ReloadInPlace(asset));
+    ASSERT_EQ(Renderer3D::GetDeferredReloadStats().Pending, 1u);
+
     // The governor makes room; the upload lands once there is room for it.
     u32 framesUntilApplied = 0;
     const auto trace = [&](const char* what)

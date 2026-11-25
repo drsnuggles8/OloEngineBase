@@ -1294,7 +1294,8 @@ namespace OloEngine::Automation
             ProjectView project;
             AssetTarget target;
             bool reloaded = false;
-            const Json result = host.MarshalRead([&project, &target, &reloaded, &args]() -> Json
+            bool retainedPreviousImage = false;
+            const Json result = host.MarshalRead([&project, &target, &reloaded, &retainedPreviousImage, &args]() -> Json
                                                  {
                 if (Json captured = CaptureProject(project); IsFailure(captured))
                     return captured;
@@ -1307,23 +1308,23 @@ namespace OloEngine::Automation
                 auto manager = EditorManager();
                 if (!manager)
                     return Failure("Reimport requires an editor asset manager.");
-                reloaded = manager->ReloadData(target.Handle);
+                const bool accepted = manager->ReloadData(target.Handle, retainedPreviousImage);
                 const AssetMetadata metadata = manager->GetMetadata(target.Handle);
                 target.Status = metadata.Status;
+                reloaded = accepted && metadata.Status == AssetStatus::Loaded;
                 return Json::object(); });
             if (IsFailure(result))
                 return AutomationResult::Error(result.at("__error").get<std::string>());
 
             Json described = DescribeTarget(target, project);
             described["reimported"] = reloaded;
+            described["retainedPreviousImage"] = retainedPreviousImage;
             described["undoable"] = false;
             if (!reloaded)
             {
-                // ReloadData returning false is a real failure, not a no-op, and it
-                // is invisible in the editor: the old bytes stay live. Say so.
-                described["message"] =
-                    "ReloadData returned false: the asset was NOT reloaded and the previously loaded data is still "
-                    "in use. Check olo_assets_problems and the log for the underlying loader error.";
+                described["message"] = retainedPreviousImage
+                                           ? "The reimport failed. The last usable texture image remains in use."
+                                           : "The reimport failed. Check olo_assets_problems and the log for the loader error.";
             }
             return AutomationResult::Structured(described);
         }
@@ -1739,12 +1740,13 @@ namespace OloEngine::Automation
                  AssetImport, true, AutomationUndo::Irreversible, false, /*idempotent*/ true);
 
         Register(registry, "olo_asset_reimport", "Reimport asset",
-                 "Reload a registered asset's data from disk (the hot-reload path). Reports reimported:false with "
-                 "an explanation when the reload fails -- a failed reload leaves the previously loaded data live, "
-                 "which is invisible in the editor. NOT undoable.",
+                 "Reload a registered asset from disk. Accepted texture reloads may wait for GPU memory. "
+                 "A failed reload reports reimported:false and sets retainedPreviousImage if the last usable "
+                 "texture image stays live. NOT undoable.",
                  TargetSelector(),
                  AssetDescriptionSchema()
                      .Prop("reimported", Schema::Bool())
+                     .Prop("retainedPreviousImage", Schema::Bool())
                      .Prop("message", Schema::String())
                      .Prop("undoable", Schema::Bool()),
                  AssetReimport, true, AutomationUndo::Irreversible, false);

@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/Texture2DArray.h"
 
 #include <optional>
+#include <utility>
 
 namespace OloEngine::RendererMemoryOwners
 {
@@ -220,8 +221,9 @@ namespace OloEngine::RendererMemoryOwners
         // Requested against realized quality under the budget (#1343).
         RendererMemoryTracker::GetInstance().SetAdmissionReporter(&Renderer3D::ReportMemoryAdmission);
         // Hot reloads go through memory admission (#1764).
-        Texture2D::SetReloadGate([](Ref<Texture2D> texture)
-                                 { return Renderer3D::HasInitialized() ? Renderer3D::ReloadTextureInPlace(texture) : texture->Reload(); });
+        Texture2D::SetReloadGate([](Ref<Texture2D> texture, Texture2D::DecodedImage image)
+                                 { return Renderer3D::HasInitialized() ? Renderer3D::ReplaceTextureContents(texture, std::move(image))
+                                                                       : texture->ApplyReload(image); });
     }
 
     void Unregister()
