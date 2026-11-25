@@ -95,6 +95,9 @@ Capture that proof now; it is the cheapest moment.
   **Never close it here**: closing waits for the user.
 - **Partially done**: comment what is done and what remains; leave it open; not on the close list.
 - **Not certain**: no comment; list it in the report so the user decides.
+- **Umbrella checklists**: `python "$BASE/.claude/scripts/sync_umbrella_checklists.py" --apply`
+  ticks every open issue's `- [ ] #N` line whose `#N` is a completed issue or merged PR, without
+  asking. Report what it lists as "left unticked" (closed as not planned, duplicate, unmerged).
 - Stale `docs/` checkboxes and resolved `// TODO`s: in scope for the chosen task's PR if related,
   otherwise list them in the report.
 - Durable reusable facts that are not registry items go to persistent memory.

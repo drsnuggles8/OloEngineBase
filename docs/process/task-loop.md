@@ -428,6 +428,8 @@ Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy b
 
 1. **Confirm the source is marked done.** The checkbox and `// TODO` edits went in before Phase 4. If
    the PR only advanced an umbrella tracker, comment which item landed (a comment, not a repo edit).
+   Leave the umbrella's checkbox alone: once the merge closes the child issue, `/cleanup-worktree`
+   ticks it with [sync_umbrella_checklists.py](../../.claude/scripts/sync_umbrella_checklists.py).
 2. **Capture any reusable lesson, repo first.** Repo lessons belong in the PR (Phase 4); if one
    only surfaces now, it goes back through commit, push and the exit gate. A non-obvious engine gotcha goes to
    `docs/agent-rules/`: a failure story as its own postmortem file, an incremental fact appended to
