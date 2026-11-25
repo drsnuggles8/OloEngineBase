@@ -31,6 +31,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -46,6 +47,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -324,19 +326,23 @@ namespace OloEngine::Tests
             // The SSR-specific case below checks the separated specular term.
             u32 changed = 0;
             u32 lit = 0;
+            u32 invalid = 0;
+            const auto& off = inputs[0].Pixels;
+            const auto& on = inputs[1].Pixels;
             for (sizet pixel = 0; pixel < kWidth * kHeight; ++pixel)
             {
                 const auto offset = pixel * 4u;
-                const auto& off = inputs[0].Pixels;
-                const auto& on = inputs[1].Pixels;
                 lit += Luma(inputs[0], pixel) > 1e-4;
-                changed += std::abs(off[offset] - on[offset]) > 0.0f ||
-                           std::abs(off[offset + 1u] - on[offset + 1u]) > 0.0f ||
-                           std::abs(off[offset + 2u] - on[offset + 2u]) > 0.0f;
+                changed += !Math::BitwiseEqual(off[offset], on[offset]) ||
+                           !Math::BitwiseEqual(off[offset + 1u], on[offset + 1u]) ||
+                           !Math::BitwiseEqual(off[offset + 2u], on[offset + 2u]);
+                for (sizet channel = 0; channel < 3u; ++channel)
+                    invalid += !std::isfinite(off[offset + channel]) || !std::isfinite(on[offset + channel]);
             }
             std::printf("[reflection-tier-fallback] GL %s: %u lit, %u of %u HDR pixels changed\n",
                         name, lit, changed, kWidth * kHeight);
             EXPECT_GT(lit, 100u);
+            EXPECT_EQ(invalid, 0u);
             EXPECT_EQ(changed, 0u);
         }
     }

@@ -35,6 +35,10 @@ The factor-only captures were byte-identical when the off-screen maps were excha
 
 The first GPU path-tracer comparison used 548 samples per pixel in each arm. The exchanged-map reference delta had RMS 0.000141 in the mirror region and estimated RMS uncertainty 0.000126. This fixture established that the raster and ray paths saw the same map changes but gave weak precision for quantifying agreement with reference transport. The per-map HDR comparisons above are detection controls.
 
+## Analytic emissive reference
+
+The final Release editor swapped a flat emitter map from sRGB bytes `[16, 64, 192]` to `[192, 64, 16]`, holding geometry, other maps and the linear 0.32 material factor fixed. For each of 2,204 same-UV samples in the reflected tile, multiply the decoded linear map difference by 0.32 and the measured receiver BRDF weight. The expected mean RGB delta was `[0.148145, 0, -0.151406]`. The captured delta was `[0.148177, -0.000048, -0.152173]`. RGB RMS error was 0.001202 and absolute p95 error was 0.001960, including the texture and Radiance HDR quantization. The isolated emissive check changed 13,867 and 13,687 HDR pixels in the two poses. All four captures exercised the Vulkan ray tier and reported zero shader errors or VUIDs.
+
 ## Vulkan settings and fallback
 
 Each settings row used a fresh editor. The table counts the same separated HDR delta as the native captures. Resolved normals were available with 4× Deferred MSAA. The temporal request fell back to spatial upscale on Vulkan with `backendNotOpenGL`.
@@ -59,3 +63,23 @@ Two fresh editor sessions captured the same 24-step 960 × 540 trajectory. The c
 | Projected ray footprint | 0.002176 | 3.70% | 0.003322 |
 
 The projected footprint reduces temporal RMS by 10.53× in this fixture. The result covers the measured transformed tile and trajectory. Sharper close-up detail and curved receivers have different footprints.
+
+## Material readiness and lifetime
+
+The Vulkan linear metallic-roughness reload used the same registered handle and changed the image extent from 128 × 128 to 96 × 64. The three reflected HDR probes moved by 0.34241–0.34851 and the no-hit control stayed exact. When decoding a malformed edit failed, the live renderer retained the last usable image and all three HDR probes stayed exact. The registry exposed its failed placeholder. A subsequent valid file restored the registry bytes, while the already-bound raster and reflection materials kept the previous image until scene reopen. The shared recovery case is tracked in #1789. Reopening restored the initial reflected HDR exactly. The Vulkan heap tests also exercised unresolved descriptors, invalidated slots and stable handle identity.
+
+## GPU cost
+
+Four AB/BA pairs ran in fresh Release Vulkan editors on the RTX 4090, with the build lock held exclusively and competing apps stopped. Both arms used the same final executable, 960 × 540 native Deferred, the same geometry and texture data, and the same cameras. The factor-only arm restored the pre-change reflection shader. The metric is the resolved `RayTracedReflectionPass` GPU interval. Each camera contributed 239–240 unique valid GPU frames per run. One duplicate was excluded. The values below are medians of the four run percentiles in each arm.
+
+| Pose | Factor-only p50 / p95 | Textured p50 / p95 | Median paired p50 / p95 delta |
+| --- | ---: | ---: | ---: |
+| Center | 29.70 / 30.72 µs | 32.77 / 34.82 µs | +3.07 / +4.10 µs |
+| Lateral | 29.70 / 30.72 µs | 32.77 / 34.82 µs | +3.07 / +4.10 µs |
+| Direct control | 23.55 / 25.60 µs | 23.55 / 25.60 µs | 0 / 0 µs |
+
+Paired p50 deltas for the two reflected poses ranged from +3.07 to +4.10 µs. The ray budget and history allocation are the same in both arms.
+
+## Sky-only control
+
+The global environment A/B used the same imported tile with the sun removed. The first textured shader incorrectly required a per-material IBL flag. Its 2,268 interior samples read zero in both poses. The corrected bound-environment gate produced positive linear HDR in all 2,268 samples per pose, with center mean RGB `[0.08153, 0.02488, 0.03017]` and luma p5–p95 `0.03548–0.03923`. The checker is visible in `sky-before-after-centre.png`. The upstream specular and weight were byte-identical. The SDK loader confirmed the Khronos validation layer in the final native Deferred off/on/emissive capture, with zero reported validation diagnostics.

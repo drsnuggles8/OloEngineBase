@@ -406,7 +406,7 @@ void main()
 
     // The existing high-mip diffuse environment approximation. No extra
     // indirect bounce or specular environment lookup at the secondary hit.
-    if (u_RoughnessGate.w > 0.5 && (material.Flags & OLO_GPU_SCENE_MATERIAL_IBL) != 0u)
+    if (u_RoughnessGate.w > 0.5)
         hitRadiance += albedo * ((1.0 - metallic) * occlusion) *
                        textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
 
