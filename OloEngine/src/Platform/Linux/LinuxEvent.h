@@ -38,11 +38,11 @@ namespace OloEngine
         void Trigger() override
         {
             TriggerForStats();
-            {
-                std::lock_guard lock(m_Mutex);
-                m_Triggered = true;
-                ++m_Generation;
-            }
+            // A waiter can observe the predicate without waiting for a wake.
+            // Finish notifying before it can return the event to the pool.
+            std::lock_guard lock(m_Mutex);
+            m_Triggered = true;
+            ++m_Generation;
             if (m_ManualReset)
             {
                 m_Condition.notify_all();
