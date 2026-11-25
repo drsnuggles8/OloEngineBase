@@ -258,6 +258,75 @@ TEST_F(GltfPhysicalMaterialImportTest, MissingNormalTextureScaleKeepsTheMaterial
     EXPECT_FLOAT_EQ(material.GetNormalScale(), 1.0f);
 }
 
+TEST_F(GltfPhysicalMaterialImportTest, AuthoredLinearEmissionAndStrengthSurviveTheRealGltfReader)
+{
+    std::ifstream input(FixturePath());
+    ASSERT_TRUE(input.good());
+    auto document = nlohmann::json::parse(input);
+
+    constexpr const char* kStrengthExtension = "KHR_materials_emissive_strength";
+    document["extensionsUsed"].push_back(kStrengthExtension);
+    for (auto& entry : document["materials"])
+    {
+        if (entry["name"] == "OpaqueControl")
+            entry["emissiveFactor"] = { 0.25f, 0.5f, 0.125f };
+        if (entry["name"] == "ThinGlass")
+        {
+            entry["emissiveFactor"] = { 0.25f, 0.5f, 0.125f };
+            entry["extensions"][kStrengthExtension]["emissiveStrength"] = 4.0f;
+        }
+    }
+
+    const auto bytes = document.dump();
+    Assimp::Importer importer;
+    const auto* scene = importer.ReadFileFromMemory(bytes.data(), bytes.size(), aiProcess_Triangulate, "gltf");
+    ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+
+    Material unscaled;
+    ImportGltfPhysicalMaterial(FindMaterial(scene, "OpaqueControl"), unscaled);
+    EXPECT_FLOAT_EQ(unscaled.GetEmissiveFactor().r, 0.25f);
+    EXPECT_FLOAT_EQ(unscaled.GetEmissiveFactor().g, 0.5f);
+    EXPECT_FLOAT_EQ(unscaled.GetEmissiveFactor().b, 0.125f);
+
+    Material scaled;
+    ImportGltfPhysicalMaterial(FindMaterial(scene, "ThinGlass"), scaled);
+    EXPECT_FLOAT_EQ(scaled.GetEmissiveFactor().r, 1.0f);
+    EXPECT_FLOAT_EQ(scaled.GetEmissiveFactor().g, 2.0f);
+    EXPECT_FLOAT_EQ(scaled.GetEmissiveFactor().b, 0.5f);
+
+    Material absent;
+    ImportGltfPhysicalMaterial(FindMaterial(scene, "TintedVolumeGlass"), absent);
+    EXPECT_FLOAT_EQ(absent.GetEmissiveFactor().r, 0.0f);
+    EXPECT_FLOAT_EQ(absent.GetEmissiveFactor().g, 0.0f);
+    EXPECT_FLOAT_EQ(absent.GetEmissiveFactor().b, 0.0f);
+}
+
+TEST_F(GltfPhysicalMaterialImportTest, AuthoredBaseAlphaSurvivesTheRealGltfReader)
+{
+    std::ifstream input(FixturePath());
+    ASSERT_TRUE(input.good());
+    auto document = nlohmann::json::parse(input);
+    for (auto& entry : document["materials"])
+    {
+        if (entry["name"] == "OpaqueControl")
+        {
+            entry["alphaMode"] = "MASK";
+            entry["pbrMetallicRoughness"]["baseColorFactor"] = { 0.25f, 0.5f, 0.125f, 0.4f };
+        }
+    }
+
+    const auto bytes = document.dump();
+    Assimp::Importer importer;
+    const auto* scene = importer.ReadFileFromMemory(bytes.data(), bytes.size(), aiProcess_Triangulate, "gltf");
+    ASSERT_NE(scene, nullptr) << importer.GetErrorString();
+
+    Material material;
+    material.SetBaseColorFactor(glm::vec4(1.0f));
+    ImportGltfPhysicalMaterial(FindMaterial(scene, "OpaqueControl"), material);
+    EXPECT_FLOAT_EQ(material.GetBaseColorFactor().a, 0.4f);
+    EXPECT_FLOAT_EQ(material.GetBaseColorFactor().r, 1.0f) << "keep the Model path's authored RGB override";
+}
+
 TEST_F(GltfPhysicalMaterialImportTest, NonFiniteNormalTextureScaleCannotReachTheMaterial)
 {
     for (const f32 scale : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity() })
