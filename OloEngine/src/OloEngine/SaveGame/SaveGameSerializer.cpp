@@ -860,6 +860,19 @@ namespace OloEngine
         saved.GetComponent<SkeletonComponent>().SetSkeleton(skeleton);
     }
 
+    template<class ComponentType, class... MemberTypes>
+    static void RestoreAuthoredFields(Scene& staging, Scene& authored, MemberTypes ComponentType::*... members)
+    {
+        for (auto [handle, id, target] : staging.GetAllEntitiesWith<IDComponent, ComponentType>().each())
+        {
+            if (const auto original = authored.TryGetEntityWithUUID(id.ID); original && original->HasComponent<ComponentType>())
+            {
+                const auto& source = original->GetComponent<ComponentType>();
+                ((target.*members = source.*members), ...);
+            }
+        }
+    }
+
     bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
     {
         OLO_PROFILE_FUNCTION();
@@ -1006,6 +1019,19 @@ namespace OloEngine
                 }
             }
         }
+
+        // The component payloads carry mutable scalar state. Copy authored
+        // asset bindings from the matching scene entity while both registries
+        // are live. The decal mode selects which of its bindings is sampled.
+        RestoreAuthoredFields(*staging, scene, &SpriteRendererComponent::Texture);
+        RestoreAuthoredFields(*staging, scene, &UIImageComponent::m_Texture);
+        RestoreAuthoredFields(*staging, scene, &UIPanelComponent::m_BackgroundTexture);
+        RestoreAuthoredFields(*staging, scene, &DecalComponent::m_AlbedoTexture, &DecalComponent::m_NormalTexture,
+                              &DecalComponent::m_RMATexture, &DecalComponent::m_EmissiveTexture, &DecalComponent::m_Mode);
+        RestoreAuthoredFields(*staging, scene, &TextComponent::FontAsset);
+        RestoreAuthoredFields(*staging, scene, &UITextComponent::m_FontAsset);
+        RestoreAuthoredFields(*staging, scene, &UIInputFieldComponent::m_FontAsset);
+        RestoreAuthoredFields(*staging, scene, &UIDropdownComponent::m_FontAsset);
 
         // --- All parsing succeeded — commit to real scene ---
 
