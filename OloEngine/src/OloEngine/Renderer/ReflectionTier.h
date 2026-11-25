@@ -217,14 +217,6 @@ namespace OloEngine
         // the shader has no way to report back how many did.
         u64 ReflectionRaysDispatchedUpperBound = 0;
 
-        // Hits are shaded from untextured material factors. True whenever the
-        // tier ran at all, because every hit is untextured — a standing
-        // limitation, not an occasional one. Textured hit shading is #1355.
-        bool HitsShadedUntextured = false;
-        // No MaskedGeometryReflectsAsSolid here (#1337). It was declared, never
-        // written, and no longer true: the tier requires the material shader
-        // heap and RayTracedReflection.glsl alpha-tests masked candidates.
-
         void Reset() noexcept
         {
             *this = ReflectionTierStats{};

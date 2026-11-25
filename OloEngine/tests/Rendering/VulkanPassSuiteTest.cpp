@@ -15656,4 +15656,37 @@ TEST_F(VulkanPassSuite, ATexture3DUploadedInsideAFrameIsRecordedAndLandsInTheSam
     EXPECT_EQ(wrong, 0u) << "the recorded upload did not land the texels it was handed";
 }
 
+TEST_F(VulkanPassSuite, ReflectionHitFootprintProjectsAndBoundsTheActualShaderGradients)
+{
+    auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_ReflectionRayFootprint.glsl");
+    ASSERT_TRUE(shader && shader->IsValid());
+    using Footprints = std::array<std::array<f32, 4>, 5>;
+    auto output = StorageBuffer::Create(sizeof(Footprints), 32, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(output);
+    SubmitFrame([&]()
+                {
+                    output->Bind();
+                    shader->Bind();
+                    RenderCommand::DispatchCompute(1, 1, 1); });
+
+    Footprints actual{};
+    output->GetData(&actual, sizeof(actual));
+    // The fixture maps two metres to four U repeats and one metre to one V
+    // repeat. A quarter-metre cone spans 1/2 U and 1/4 V. Mirroring changes
+    // the sign of U. Grazing spans 1/2 U times the maximum projection of 8.
+    constexpr Footprints expected{ {
+        { -0.5f, 0.0f, 0.0f, 0.25f },
+        { 0.5f, 0.0f, 0.0f, 0.25f },
+        { 0.0f, 0.25f, -4.0f, 0.0f },
+        {}, // degenerate triangle
+        {}, // non-finite cone
+    } };
+    for (sizet caseIndex = 0; caseIndex < expected.size(); ++caseIndex)
+    {
+        SCOPED_TRACE(caseIndex);
+        for (sizet channel = 0; channel < expected[caseIndex].size(); ++channel)
+            EXPECT_NEAR(actual[caseIndex][channel], expected[caseIndex][channel], 1e-6f);
+    }
+}
+
 #endif // OLO_WITH_VULKAN

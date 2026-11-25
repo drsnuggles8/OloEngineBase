@@ -50,6 +50,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -61,6 +62,18 @@ namespace OloEngine::Tests
         constexpr u32 kWidth = 640;
         constexpr u32 kHeight = 480;
         constexpr f32 kCaptureTime = 4.0f;
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 time)
+            {
+                Time::SetMockTime(time);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        };
 
         struct LinearFrame
         {
@@ -253,21 +266,86 @@ namespace OloEngine::Tests
         bool m_GizmosWas = true;
     };
 
+    TEST_F(ReflectionTierTermEvidenceTest, OpenGLReflectionRequestLeavesEachPathUnchanged)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime time(kCaptureTime);
+
+        constexpr std::array paths{
+            std::pair{ RenderingPath::Forward, "Forward" },
+            std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+            std::pair{ RenderingPath::Deferred, "Deferred" },
+        };
+        auto& settings = Renderer3D::GetRendererSettings();
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.TAAEnabled = false;
+        post.SSREnabled = true;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 4.0f, 6.0f }, 0.0f, 0.42f);
+
+        const fs::path directory = fs::path("assets") / "tests" / "visual";
+        std::error_code error;
+        fs::create_directories(directory, error);
+        ASSERT_FALSE(error) << error.message();
+
+        for (const auto& [path, name] : paths)
+        {
+            SCOPED_TRACE(name);
+            settings.Path = path;
+            Renderer3D::ApplyRendererSettings();
+            std::array<LinearFrame, 2> inputs;
+            for (sizet arm = 0; arm < inputs.size(); ++arm)
+            {
+                const bool requested = arm != 0u;
+                post.RayTracedReflection.Enabled = requested;
+                RunEditorFrames(camera, 24);
+                EXPECT_FALSE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::RTReflectionColor));
+                EXPECT_FALSE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::RTReflectionSpecularTexture));
+                ASSERT_TRUE(ReadAttachment(ResourceNames::SceneColor, 0u, inputs[arm]));
+                ASSERT_EQ(inputs[arm].Width, kWidth);
+                ASSERT_EQ(inputs[arm].Height, kHeight);
+                const auto frame = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+                ASSERT_TRUE(frame);
+                std::vector<u8> image;
+                ReadbackRgba8(frame->GetColorAttachmentHandle(0), kWidth, kHeight, image);
+                ASSERT_EQ(image.size(), kWidth * kHeight * 4u);
+                const auto output = (directory / (std::string(requested ? "ReflectionTier_GL_" : "ReflectionTierOff_GL_") +
+                                                  name + ".png"))
+                                        .string();
+                stbi_flip_vertically_on_write(1);
+                const int written = stbi_write_png(output.c_str(), kWidth, kHeight, 4, image.data(), kWidth * 4u);
+                stbi_flip_vertically_on_write(0);
+                EXPECT_NE(written, 0) << output;
+            }
+
+            // The upstream HDR comparison excludes frame-to-frame SSR noise.
+            // The SSR-specific case below checks the separated specular term.
+            u32 changed = 0;
+            u32 lit = 0;
+            for (sizet pixel = 0; pixel < kWidth * kHeight; ++pixel)
+            {
+                const auto offset = pixel * 4u;
+                const auto& off = inputs[0].Pixels;
+                const auto& on = inputs[1].Pixels;
+                lit += Luma(inputs[0], pixel) > 1e-4;
+                changed += std::abs(off[offset] - on[offset]) > 0.0f ||
+                           std::abs(off[offset + 1u] - on[offset + 1u]) > 0.0f ||
+                           std::abs(off[offset + 2u] - on[offset + 2u]) > 0.0f;
+            }
+            std::printf("[reflection-tier-fallback] GL %s: %u lit, %u of %u HDR pixels changed\n",
+                        name, lit, changed, kWidth * kHeight);
+            EXPECT_GT(lit, 100u);
+            EXPECT_EQ(changed, 0u);
+        }
+    }
+
     TEST_F(ReflectionTierTermEvidenceTest, SSRReplacesTheSpecularTermAndLeavesTheRestOfTheColour)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        struct ScopedMockTime
-        {
-            explicit ScopedMockTime(f32 t)
-            {
-                Time::SetMockTime(t);
-            }
-            ~ScopedMockTime()
-            {
-                Time::ClearMockTime();
-            }
-        } scopedMockTime(kCaptureTime);
+        const ScopedMockTime time(kCaptureTime);
 
         auto& pp = Renderer3D::GetPostProcessSettings();
         pp.SSREnabled = true;

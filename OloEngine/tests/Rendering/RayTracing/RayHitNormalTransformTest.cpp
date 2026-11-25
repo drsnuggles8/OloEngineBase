@@ -370,21 +370,27 @@ namespace OloEngine::Tests
         // Every site that turns an object-space hit normal into a world-space
         // one. RayTracedShadow.glsl is deliberately absent: it reads the
         // G-buffer's already-world normal and never touches an instance basis.
-        const char* const sites[] = {
-            "RayTracedReflection.glsl",
-            "include/RayTracedSurfaceHit.glsl",
-            "compute/RayTracingProbe.comp",
+        struct HitSite
+        {
+            const char* Path;
+            const char* Include;
+            const char* Call;
+        };
+        constexpr HitSite sites[] = {
+            { "RayTracedReflection.glsl", "RayHitTriangle.glsl", "OloRtFetchTriangle(" },
+            { "include/RayTracedSurfaceHit.glsl", "RayHitTriangle.glsl", "OloRtFetchTriangle(" },
+            { "compute/RayTracingProbe.comp", "RayHitNormalTransform.glsl", "oloRtObjectNormalToWorld(" },
         };
 
-        for (const char* site : sites)
+        for (const auto& [site, include, call] : sites)
         {
             const std::filesystem::path path = ResolveShaderPath(site);
             ASSERT_FALSE(path.empty()) << site;
             const std::string source = ReadTextFile(path);
 
-            EXPECT_NE(source.find("RayHitNormalTransform.glsl"), std::string::npos)
+            EXPECT_NE(source.find(include), std::string::npos)
                 << site << " must include the shared operation rather than re-deriving it";
-            EXPECT_NE(source.find("oloRtObjectNormalToWorld("), std::string::npos)
+            EXPECT_NE(source.find(call), std::string::npos)
                 << site << " must call the shared operation";
             EXPECT_NE(source.find("rayQueryGetIntersectionWorldToObjectEXT"), std::string::npos)
                 << site << " must take the matrix from the ray query itself";
@@ -395,26 +401,18 @@ namespace OloEngine::Tests
                            "will re-derive the same wrong conclusion from it";
         }
 
-        // And the specific shape of the old bug, in the two shaders that had it.
-        //
-        // Counted, and stated as "no object-to-world basis is ever applied to a
-        // normal", because the bug's spelling is not fixed: `basis * ln0`,
-        // `mat3(objectToWorld) * ln0` and `mat3(objectToWorld[0], ...) * ln0`
-        // are the same defect written three ways.
+        // Both closest-hit consumers share the triangle fetch. Check all three
+        // normals, since the interpolated result can hide a single bad vertex.
         const std::string reflection = ReadTextFile(ResolveShaderPath("RayTracedReflection.glsl"));
-        EXPECT_EQ(CountOccurrences(reflection, "oloRtObjectNormalToWorld(objectNormal, worldToObject)"), 1u);
-        EXPECT_EQ(reflection.find("* objectNormal"), std::string::npos)
-            << "RayTracedReflection must not left-multiply the object normal by any basis";
-
         const std::string surfaceHit = ReadTextFile(ResolveShaderPath("include/RayTracedSurfaceHit.glsl"));
-        // All THREE vertex normals, not just the first one.
-        EXPECT_EQ(CountOccurrences(surfaceHit, "oloRtObjectNormalToWorld(ln"), 3u)
-            << "every vertex normal in OloRtFetchTriangle must go through the shared operation; a "
-               "partial revert is still the bug";
-        EXPECT_EQ(surfaceHit.find("* ln0"), std::string::npos)
+        const std::string triangle = ReadTextFile(ResolveShaderPath("include/RayHitTriangle.glsl"));
+        EXPECT_NE(triangle.find("RayHitNormalTransform.glsl"), std::string::npos);
+        EXPECT_EQ(CountOccurrences(triangle, "oloRtObjectNormalToWorld(ln"), 3u);
+        EXPECT_EQ(triangle.find("* ln0"), std::string::npos)
             << "no basis may be left-multiplied onto an object-space vertex normal";
-        EXPECT_EQ(surfaceHit.find("* ln1"), std::string::npos);
-        EXPECT_EQ(surfaceHit.find("* ln2"), std::string::npos);
+        EXPECT_EQ(triangle.find("* ln1"), std::string::npos);
+        EXPECT_EQ(triangle.find("* ln2"), std::string::npos);
+        EXPECT_NE(reflection.find("oloRtInstanceWindingSign(objectToWorld)"), std::string::npos);
         EXPECT_NE(surfaceHit.find("oloRtInstanceWindingSign(objectToWorld)"), std::string::npos)
             << "the winding-derived geometric normal must carry the mirrored-instance sign";
     }

@@ -59,9 +59,9 @@ namespace OloEngine
     // LIMITS. Masked candidates are alpha-tested against the material's albedo
     // alpha and canonical cutoff (HybridRayTracingAlpha.glsl, the helper
     // RayTracedShadow uses); the tier stands down with GPUSceneUnavailable when
-    // the material heap is unresolved. Hits are shaded from material FACTORS,
-    // untextured, and that is counted (ReflectionTierStats::HitsShadedUntextured);
-    // canonical textured hit shading with a ray-footprint policy is #1355.
+    // the material heap is unresolved. Committed hits use the canonical maps
+    // and a ray footprint projected onto the hit triangle (#1355). Hit lighting
+    // is limited to emission, the sun and diffuse environment light.
     class RayTracedReflectionPass : public RenderGraphNode
     {
       public:
