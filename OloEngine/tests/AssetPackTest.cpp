@@ -113,8 +113,8 @@ TEST(AssetPackFileTest, DefaultHeaderHasCorrectMagicAndVersion)
 {
     AssetPackFile::FileHeader header;
     EXPECT_EQ(header.MagicNumber, 0x504C4F4F);
-    // v8 (#1259): the MeshSource record's imported-material blob carries the thickness map.
-    EXPECT_EQ(header.Version, 8u);
+    // v9 (#1785): scene texture records can carry a lossless source image.
+    EXPECT_EQ(header.Version, 9u);
     EXPECT_EQ(header.Version, AssetPackFile::Version);
 }
 
