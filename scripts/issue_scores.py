@@ -22,6 +22,7 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
     set    re-score one issue: `set 1584 effort=2 confidence=1.0`. Writes the
            given axes and stamps `scored:` with today's date, which is also how
            a stale or merged-work flag is acknowledged (`set N` with no axes).
+           Edits limited to `areas` and `not_before` preserve `scored:`.
     pull   record the USER's Pull decision: `pull 1558 1559` writes
            `fun_by: user` (and raises Fun to 8); `pull --off N` writes
            `fun_by: agent` (declined: Fun stays a tie-break, lint stops asking).
@@ -121,7 +122,9 @@ CLOSE_LABEL = "close-recommended"
 # sweep files renderer issues); the north star is the counterweight.
 NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
 NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
-CHECKLIST_RE = re.compile(r"^([ \t]*)[-*][ \t]+\[( |x|X)\][ \t]+(.*)$", re.MULTILINE)
+LIST_ITEM_RE = re.compile(r"^(([ \t]*)[-*+][ \t]+)(.*)$")
+CHECKLIST_RE = re.compile(r"^\[( |x|X)\][ \t]+(.*)$")
+MARKDOWN_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
 
 # Fields `render_section` writes in this order; anything else in a block is kept,
@@ -195,14 +198,33 @@ def parse_north_star(text):
             if key.strip() == "milestone":
                 out["milestone"] = scalar_value(val)
     items = out["items"]
-    root_index, root_indent = 0, 0
-    for indent, done, item in CHECKLIST_RE.findall(text or ""):
-        column = len(indent.expandtabs(4))
+    root_numbers, content_column, fence = None, 0, None
+    for line in (text or "").splitlines():
+        marker = MARKDOWN_FENCE_RE.match(line)
+        if fence:
+            if marker and marker[1].startswith(fence) and not marker[2].strip():
+                fence = None
+            continue
+        bullet = LIST_ITEM_RE.match(line)
+        if not bullet:
+            indent = line[:len(line) - len(line.lstrip())]
+            if line.strip() and len(indent.expandtabs(4)) < content_column:
+                root_numbers, content_column = None, 0
+            if marker:
+                fence = marker[1]
+            continue
+        top_level = len(bullet[2].expandtabs(4)) < content_column or content_column == 0
+        if top_level:
+            root_numbers, content_column = None, len(bullet[1].expandtabs(4))
+        task = CHECKLIST_RE.match(bullet[3])
+        if not task:
+            continue
+        done, item = task.groups()
         numbers = [int(n) for n in TITLE_NUM_RE.findall(item)]
-        if not items or column <= root_indent:
-            root_index, root_indent = len(items), column
-        else:
-            items[root_index][2].extend(n for n in numbers if n not in items[root_index][2])
+        if top_level:
+            root_numbers = numbers
+        elif root_numbers is not None:
+            root_numbers.extend(n for n in numbers if n not in root_numbers)
         items.append((done.lower() == "x", item.strip(), numbers))
     return out
 
@@ -1932,6 +1954,13 @@ NORTH_STAR_CASES = (
     ("a nested item with no issue remains unfiled even when its own child has one",
      "- [ ] Skiers on screen\n  - [ ] Skier model\n    - [ ] Animation (#1748)",
      "", [(False, [1748]), (False, []), (False, [1748])]),
+    ("one space under a two-column bullet makes a sibling",
+     "- [ ] Unfiled\n - [ ] Filed sibling (#23)", "", [(False, []), (False, [23])]),
+    ("a non-checklist sibling owns the indented item that follows it",
+     "- [ ] Unfiled\n- Other\n  - [ ] Filed under Other (#23)", "", [(False, []), (False, [23])]),
+    ("a heading ends the list and fenced examples are ignored",
+     "- [ ] Unfiled\n\n## Example\n\n```md\n  - [ ] Example (#23)\n```",
+     "", [(False, [])]),
     ("a quoted milestone keeps its '#', the comment after the quote goes",
      '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
     ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
@@ -2397,7 +2426,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--only", type=int, nargs="*", help="limit to these issue numbers")
     ap.set_defaults(func=cmd_apply)
-    sp = sub.add_parser("set", help="re-score one issue and stamp `scored:` with today")
+    sp = sub.add_parser("set", help="re-score one issue, or edit its areas or earliest start date")
     sp.add_argument("number", type=int)
     sp.add_argument("fields", nargs="*", metavar="axis=value")
     sp.add_argument("--dry-run", action="store_true")
