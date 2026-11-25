@@ -578,13 +578,6 @@ namespace OloEngine
             }
         } releaseStaging{ m_Readback };
 
-        // Everything the kernels wrote has to have landed before the read. This
-        // is the one place a full barrier is the right instrument rather than a
-        // targeted one: the call is a deliberate stall already, and getting the
-        // class wrong here would read a number that is right most of the time,
-        // which is the worst possible output for a diagnostic.
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
-
         FoliageCullStateHeader header{};
         if (!ReadStaged(view.State->GetRHIHandle(), 0, static_cast<u32>(sizeof(header)), &header))
             return false;

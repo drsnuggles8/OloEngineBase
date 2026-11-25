@@ -201,7 +201,11 @@ namespace OloEngine
         // carry whatever ordered the WRITES it is copying (ShaderStorage for the
         // usual atomic case). Dropping either makes the copy read a value that
         // is right most of the time.
-        RenderCommand::MemoryBarrier(barriers | MemoryBarrierFlags::BufferUpdate);
+        // Vulkan's copy supplies its own availability barriers, including on
+        // the one-shot path used by synchronous diagnostics between frames.
+        // A separate facade barrier there has no recording command buffer.
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
+            RenderCommand::MemoryBarrier(barriers | MemoryBarrierFlags::BufferUpdate);
         RenderCommand::CopyBufferSubData(source, m_Staging, srcOffsetBytes, 0, sizeBytes);
         m_Staged = true;
     }
