@@ -544,9 +544,6 @@ namespace OloEngine
                         // only a GPU counter could say how many actually did.
                         ImGui::Text("reflection rays <= %llu / frame",
                                     static_cast<unsigned long long>(stats.ReflectionRaysDispatchedUpperBound));
-                        if (stats.HitsShadedUntextured)
-                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                               "hits shaded UNTEXTURED - see #1355");
                     }
                     else
                     {
@@ -556,10 +553,8 @@ namespace OloEngine
                 }
 
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("A ray hit is shaded from its material's base-colour,\n"
-                                      "metallic, roughness and emissive FACTORS, so a brick\n"
-                                      "wall currently reflects flat brick-red. Textured hit\n"
-                                      "shading is #1355.");
+                    ImGui::SetTooltip("Hits use material maps filtered by the ray footprint.\n"
+                                      "Hit lighting includes emission, the sun and diffuse sky light.");
             }
 
             ImGui::Unindent();

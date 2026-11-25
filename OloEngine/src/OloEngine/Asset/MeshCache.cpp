@@ -21,6 +21,9 @@ namespace OloEngine
         constexpr const char* kMeshCacheSubdir = "cache/mesh";
         constexpr const char* kAnimationCacheSubdir = "cache/animation";
         constexpr const char* kEmbeddedTextureCacheSubdir = "cache/embedded";
+        // Older glTF mesh caches stored default alpha and emission instead of
+        // the authored factors. Keep the filename and make the old stamp stale.
+        constexpr u64 kGltfMaterialFactorRevision = 0xd31c90f1ebc71299ULL;
 
         // Returns the project asset directory if a project is active, or falls back
         // to the CWD-relative "assets/" for headless / test scenarios.
@@ -70,9 +73,10 @@ namespace OloEngine
 
         // glTF keeps vertex, morph and animation data in external buffers. A
         // facial edit can change only that .bin, leaving the descriptor untouched.
-        // The cache header's timestamp slot therefore stores a metadata fingerprint
-        // for glTF, and the original last-write-time for self-contained formats.
-        u64 GetSourceTimestamp(const std::filesystem::path& sourcePath)
+        // The cache header's timestamp slot stores a metadata fingerprint for
+        // glTF and the last-write time for self-contained formats, with the
+        // import revision folded in for glTF mesh caches.
+        u64 GetSourceTimestamp(const std::filesystem::path& sourcePath, u64 gltfImportRevision = 0)
         {
             std::error_code ec;
             auto ftime = std::filesystem::last_write_time(sourcePath, ec);
@@ -86,7 +90,7 @@ namespace OloEngine
                                    { return static_cast<char>(std::tolower(c)); });
             if (extension != ".gltf")
             {
-                return timestamp;
+                return extension == ".glb" ? timestamp ^ gltfImportRevision : timestamp;
             }
 
             u64 fingerprint = 14695981039346656037ULL;
@@ -145,7 +149,7 @@ namespace OloEngine
             {
                 return 0; // Let the importer diagnose an unreadable descriptor.
             }
-            return fingerprint;
+            return fingerprint ^ gltfImportRevision;
         }
     } // anonymous namespace
 
@@ -221,7 +225,7 @@ namespace OloEngine
                 return false;
             }
 
-            u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
+            u64 sourceTimestamp = GetSourceTimestamp(sourcePath, kGltfMaterialFactorRevision);
             return (sourceTimestamp != 0) && (cachedTimestamp == sourceTimestamp);
         }
 
@@ -285,7 +289,7 @@ namespace OloEngine
         {
             OLO_PROFILE_FUNCTION();
 
-            u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
+            u64 sourceTimestamp = GetSourceTimestamp(sourcePath, kGltfMaterialFactorRevision);
             if (sourceTimestamp == 0)
             {
                 OLO_CORE_WARN("MeshCache: Cannot get timestamp for source '{}', skipping cache", sourcePath.string());

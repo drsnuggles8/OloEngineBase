@@ -96,9 +96,9 @@ void main()
 // .rgb) — and it is written ONLY when the debug view is on, so no production
 // frame ever carries a non-1.0 alpha down the chain.
 //
-// Hit lighting retains the tier's material-factor approximation. Masked
-// geometry uses actual albedo alpha from the raster material sampler heap,
-// with the canonical material cutoff shared by shadows and reflections.
+// Hit lighting uses the canonical material maps and a bounded local closure.
+// Colour and data maps use a projected ray footprint. Masked traversal uses
+// the existing albedo-alpha cutoff and explicit level-zero policy.
 //
 // THE RAY IS THE MIRROR DIRECTION, not a VNDF sample. That is defensible only
 // because the roughness gate below is narrow: the tier is faded out well before
@@ -173,7 +173,9 @@ layout(std140, binding = 65) uniform RayTracingReflectionParams
 #define OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT u_MaterialHeapAddressAndSampler.xyz
 #define OLO_HYBRID_RT_SAMPLER u_MaterialHeapAddressAndSampler.w
 #include "include/HybridRayTracingAlpha.glsl"
-#include "include/RayHitNormalTransform.glsl"
+#include "include/PBRCommon.glsl"
+#include "include/RayHitTriangle.glsl"
+#include "include/HybridReflectionHit.glsl"
 #include "include/ReflectionTierComposite.glsl"
 
 // Every ray starts this far along its own direction, on top of the normal
@@ -198,59 +200,14 @@ vec3 ViewPosFromDepth(vec2 uv, float depth)
     return view.xyz / view.w;
 }
 
-// The hit triangle's interpolated shading normal, in WORLD space.
-//
-// The vertex stream is the same 32-byte OloEngine::Vertex the #978 helper
-// fetches UVs from; the normal sits at byte offset 12. Object -> world uses the
-// ray query's OWN world-to-object matrix rather than the GPU Scene instance
-// transform: the ray is already in whatever space the TLAS was built in, and
-// deriving the basis from a second source is how a transpose bug gets in.
-//
-// The INVERSE TRANSPOSE, via include/RayHitNormalTransform.glsl, which owns the
-// algebra and the conventions (#1326). It used to be the object-to-world 3x3
-// applied directly, with a comment claiming the correction "needs an inverse
-// the ray query does not hand back" — rayQueryGetIntersectionWorldToObjectEXT
-// hands exactly that back, and multiplying on the right supplies the transpose,
-// so no per-hit inverse is computed.
-vec3 HitWorldNormal(GPUSceneGeometry geometry, uint primitiveIndex, vec2 barycentrics, mat4x3 worldToObject)
+vec4 oloReflectSampleMap(uint offset, vec2 uv, mat2 footprint)
 {
-    OloRtIndexStream indices = OloRtIndexStream(geometry.IndexAddress);
-    OloRtVertexUVStream vertices = OloRtVertexUVStream(geometry.VertexAddress);
-
-    const uint indexBase = geometry.FirstIndex + primitiveIndex * 3u;
-    const int i0 = int(indices.Indices[indexBase + 0u]) + geometry.BaseVertex;
-    const int i1 = int(indices.Indices[indexBase + 1u]) + geometry.BaseVertex;
-    const int i2 = int(indices.Indices[indexBase + 2u]) + geometry.BaseVertex;
-
-    const uint stride = OLO_RT_VERTEX_STRIDE / 4u;
-    const uint normalOffset = 12u / 4u;
-
-    const vec3 n0 = vec3(vertices.Floats[uint(i0) * stride + normalOffset + 0u],
-                         vertices.Floats[uint(i0) * stride + normalOffset + 1u],
-                         vertices.Floats[uint(i0) * stride + normalOffset + 2u]);
-    const vec3 n1 = vec3(vertices.Floats[uint(i1) * stride + normalOffset + 0u],
-                         vertices.Floats[uint(i1) * stride + normalOffset + 1u],
-                         vertices.Floats[uint(i1) * stride + normalOffset + 2u]);
-    const vec3 n2 = vec3(vertices.Floats[uint(i2) * stride + normalOffset + 0u],
-                         vertices.Floats[uint(i2) * stride + normalOffset + 1u],
-                         vertices.Floats[uint(i2) * stride + normalOffset + 2u]);
-
-    const float b0 = 1.0 - barycentrics.x - barycentrics.y;
-    const vec3 objectNormal = n0 * b0 + n1 * barycentrics.x + n2 * barycentrics.y;
-
-    const vec3 worldNormal = oloRtObjectNormalToWorld(objectNormal, worldToObject);
-
-    // A degenerate interpolated normal (a mesh with unnormalised or zero
-    // normals), or a SINGULAR instance transform, would come back as a NaN from
-    // normalize() and poison the whole composite through bloom. This tier has no
-    // geometric normal to fall back on — it never fetches the hit triangle's
-    // positions — so world up is the documented finite substitute, and the
-    // caller's face-the-normal-back-along-the-ray step below makes it usable
-    // rather than merely defined. The reflection is then wrong on that hit, and
-    // visibly so: a flat horizontal shading normal on a surface that is not
-    // horizontal reads as a hard patch, not as a plausible image.
-    vec3 result;
-    return oloRtNormalizeHitNormal(worldNormal, result) ? result : vec3(0.0, 1.0, 0.0);
+#ifdef OLO_VULKAN
+    return textureGrad(OLO_HEAP_MATERIAL_TEX_2D(offset, OLO_HYBRID_RT_SAMPLER), uv,
+                       footprint[0], footprint[1]);
+#else
+    return vec4(1.0);
+#endif
 }
 
 // True when nothing blocks the sun at this world position. A second, cheap
@@ -352,72 +309,109 @@ void main()
 
     const GPUSceneGeometry geometry = g_GPUSceneGeometries[instance.GeometryIndex];
     const GPUSceneMaterial material = g_GPUSceneMaterials[instance.MaterialIndex];
+    const uint primitiveIndex = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
     if ((geometry.Flags & OLO_GPU_SCENE_GEOMETRY_ACTIVE) == 0u ||
-        (material.Flags & OLO_GPU_SCENE_MATERIAL_ACTIVE) == 0u)
+        (material.Flags & OLO_GPU_SCENE_MATERIAL_ACTIVE) == 0u ||
+        geometry.Generation != instance.GeometryGeneration || material.Generation != instance.MaterialGeneration ||
+        primitiveIndex >= geometry.IndexCount / 3u ||
+        (material.Flags & OLO_GPU_SCENE_MATERIAL_TRANSMISSION) != 0u)
+        return;
+
+    OloMaterialShaderHeapRecord maps;
+    if (!oloMaterialShaderHeapRecord(uvec4(0u, 0u, instance.MaterialIndex, instance.MaterialGeneration),
+                                     OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT, maps))
         return;
 
     const float hitT = rayQueryGetIntersectionTEXT(rayQuery, true);
-    const vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
-    const uint primitiveIndex = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
+    const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+    const float b0 = 1.0 - bary.x - bary.y;
+    const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
     const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true);
-
     const vec3 hitPos = worldPos + N * u_RayParams.y + R * hitT;
-    vec3 hitNormal = HitWorldNormal(geometry, primitiveIndex, barycentrics, worldToObject);
-    // Face the normal back along the incoming ray. A ray that hits the inside
-    // of a closed mesh (or a single-sided wall from behind) would otherwise be
-    // shaded by a normal pointing away from it and come back black.
-    //
-    // This is also this tier's MIRRORED-INSTANCE and two-sided answer, and it
-    // needs no winding sign (#1326): every hit here is shaded two-sided by
-    // construction, so the only thing the instance's handedness could change is
-    // which of the two antipodes is picked — and the ray, not the winding,
-    // picks that. A tier that snapped to a winding-derived geometric normal
-    // instead would need oloRtInstanceWindingSign(); see RayTracedSurfaceHit.
-    if (dot(hitNormal, R) > 0.0)
+    vec3 p0, p1, p2, n0, n1, n2;
+    vec2 uv0, uv1, uv2;
+    OloRtFetchTriangle(geometry, primitiveIndex, objectToWorld, worldToObject,
+                       p0, p1, p2, n0, n1, n2, uv0, uv1, uv2);
+
+    const vec3 e1 = p1 - p0;
+    const vec3 e2 = p2 - p0;
+    vec3 geometricNormal;
+    if (!oloRtNormalizeHitNormal(cross(e1, e2) * oloRtInstanceWindingSign(objectToWorld), geometricNormal))
+        return;
+    const bool frontFace = dot(geometricNormal, R) <= 0.0;
+    if (!frontFace && (material.Flags & OLO_GPU_SCENE_MATERIAL_TWO_SIDED) == 0u)
+        return;
+
+    vec3 hitNormal;
+    if (!oloRtNormalizeHitNormal(n0 * b0 + n1 * bary.x + n2 * bary.y, hitNormal) ||
+        dot(hitNormal, geometricNormal) <= 0.0)
+        hitNormal = geometricNormal;
+
+    const vec2 uv = uv0 * b0 + uv1 * bary.x + uv2 * bary.y;
+    const vec2 pixelAngle = 2.0 * abs(vec2(u_InvProjection[0][0], u_InvProjection[1][1])) * u_ScreenParams.zw;
+    const float diameter = (length(viewPos) + hitT) * max(pixelAngle.x, pixelAngle.y);
+    const mat2 footprint = oloReflectHitFootprint(e1, e2, uv1 - uv0, uv2 - uv0, R, diameter);
+
+    vec3 albedo = material.BaseColorFactor.rgb * instance.Tint.rgb;
+    vec3 emissive = material.EmissiveFactor.rgb;
+    float metallic = material.MetallicFactor;
+    float hitRoughness = material.RoughnessFactor;
+    float occlusion = 1.0;
+    if ((maps.Flags & OLO_GPU_SCENE_MATERIAL_ALBEDO_MAP) != 0u)
+        albedo *= oloReflectSampleMap(maps.Textures.x, uv, footprint).rgb;
+    if ((maps.Flags & OLO_GPU_SCENE_MATERIAL_METALLIC_ROUGHNESS_MAP) != 0u)
+    {
+        const vec2 metalRough = oloReflectSampleMap(maps.Textures.y, uv, footprint).bg;
+        metallic *= metalRough.x;
+        hitRoughness *= metalRough.y;
+    }
+    if ((maps.Flags & OLO_GPU_SCENE_MATERIAL_NORMAL_MAP) != 0u)
+    {
+        const vec2 mappedNormal = oloReflectSampleMap(maps.Textures.z, uv, footprint).xy;
+        hitNormal = OloRtApplyNormalMap(hitNormal, p0, p1, p2, uv0, uv1, uv2, mappedNormal, material.NormalScale);
+        if (dot(hitNormal, geometricNormal) <= 0.0)
+            hitNormal = geometricNormal;
+    }
+    if ((maps.Flags & OLO_GPU_SCENE_MATERIAL_OCCLUSION_MAP) != 0u)
+        occlusion = mix(1.0, oloReflectSampleMap(maps.Textures.w, uv, footprint).r,
+                        clamp(material.OcclusionStrength, 0.0, 1.0));
+    if ((maps.Flags & OLO_GPU_SCENE_MATERIAL_EMISSIVE_MAP) != 0u)
+        emissive *= oloReflectSampleMap(maps.Emissive, uv, footprint).rgb;
+
+    if (!frontFace)
+    {
+        geometricNormal = -geometricNormal;
         hitNormal = -hitNormal;
+    }
+    if (!(dot(hitNormal, R) < 0.0))
+        hitNormal = geometricNormal;
 
-    // ---- Shade the hit ----------------------------------------------------
-    // Untextured: these are the material's FACTORS (textured hit shading is
-    // #1355). See the pass header.
-    // Times the instance's tint, as the raster paths do (issue #1691).
-    const vec3 hitAlbedo = material.BaseColorFactor.rgb * instance.Tint.rgb;
-    const vec3 hitEmissive = material.EmissiveFactor.rgb;
-    // The body lobe's reflectance (issue #1336): albedo * (1 - metallic), the
-    // diffuse weight the raster ladder and the ReSTIR GI bounce vertex use, so
-    // a metal hit reflects no diffuse light — and the Lambert 1/pi below, so a
-    // reflected surface is exactly as bright as the same surface seen directly.
-    const vec3 hitDiffuseReflectance = hitAlbedo * (1.0 - clamp(material.MetallicFactor, 0.0, 1.0));
-
-    vec3 hitRadiance = hitEmissive;
-
+    // A single directional light and at most one shadow ray. Keep a finite
+    // minimum lobe width at this secondary vertex: it has no finite sun disk
+    // or specular antialiasing, so a sharper punctual highlight would alias.
+    metallic = clamp(metallic, 0.0, 1.0);
+    hitRoughness = clamp(hitRoughness, 0.2, 1.0);
+    vec3 hitRadiance = emissive;
     if (u_SunDirection.w > 0.5)
     {
         const vec3 L = normalize(u_SunDirection.xyz);
-        const float NdotL = max(dot(hitNormal, L), 0.0);
-        if (NdotL > 0.0 && SunVisible(hitPos, hitNormal))
+        const float NdotL = dot(hitNormal, L);
+        if (NdotL > 0.0 && dot(geometricNormal, L) > 0.0 && SunVisible(hitPos, geometricNormal))
         {
-            // Lambertian only. A specular lobe at the hit would need the view
-            // vector of a secondary bounce, which this slice does not trace.
-            // u_SunColor is the directional light's colour * intensity — the
-            // number the raster loop multiplies by albedo / pi — so the 1/pi is
-            // not optional: without it a sunlit reflection read pi times
-            // brighter than the surface it reflects (issue #1336).
-            hitRadiance += hitDiffuseReflectance * (1.0 / 3.14159265359) * u_SunColor.rgb * NdotL;
+            const vec3 brdf = evaluatePBRClosure(int(material.ClosureVersion), hitNormal, -R, L,
+                                                 albedo, metallic, hitRoughness);
+            hitRadiance += brdf * u_SunColor.rgb * NdotL;
         }
     }
 
-    // Ambient at the hit, from the environment pre-filter at a high LOD — the
-    // cheapest stand-in for irradiance that is already resident. It is the same
-    // environment the probe/IBL tier below uses, so a reflected surface and the
-    // surface itself agree about what the sky is.
-    //
-    // GUARDED, because the pass only binds the cube when the frame HAS one: the
-    // blackboard's PrefilterMap is optional, and sampling a sampler that was
-    // never bound is undefined behaviour rather than a zero read. Without an
-    // environment a hit is lit by the sun alone — darker than it should be, but
-    // a defined value rather than whatever the unit last held.
+    // The existing high-mip diffuse environment approximation. No extra
+    // indirect bounce or specular environment lookup at the secondary hit.
     if (u_RoughnessGate.w > 0.5)
-        hitRadiance += hitDiffuseReflectance * textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
+        hitRadiance += albedo * ((1.0 - metallic) * occlusion) *
+                       textureLod(u_PrefilterMap, hitNormal, u_RoughnessGate.z).rgb;
+
+    if (any(isnan(hitRadiance)) || any(isinf(hitRadiance)))
+        return;
 
     // ADR 0020 §4: c_ray = hitValid * roughnessGate, times the artist
     // intensity. Clamped to [0,1] because a confidence outside it is what the

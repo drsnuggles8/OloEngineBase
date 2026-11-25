@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
+#include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include "OloEngine/Renderer/Material.h"
@@ -275,6 +277,40 @@ TEST_F(MeshBinarySerializerTest, ImportedMaterialsRoundTripThroughV4Section)
     EXPECT_EQ(loaded->GetSubmeshes().Num(), original->GetSubmeshes().Num());
 
     std::filesystem::remove(path);
+}
+
+TEST_F(MeshBinarySerializerTest, PreRevisionGlbCacheRejectsStaleImportedFactors)
+{
+    // The ProjectIsolation listener restores the previous project and asset
+    // manager after the test, including on a fatal assertion.
+    Project::NewInMemory(OloEngine::Tests::TempDir("project"), ProjectConfig{});
+    const auto source = GetTestCachePath("source.glb");
+    {
+        // Cache validity uses source metadata for GLB. The serializer fixture
+        // supplies the mesh payload independently of any Assimp import.
+        std::ofstream output(source, std::ios::binary);
+        output.put(' ');
+        ASSERT_TRUE(output.good());
+    }
+    const auto cache = MeshCache::GetMeshCachePath(source);
+    auto mesh = MakeSimpleMesh();
+    auto material = Material::CreatePBR("Emitter", glm::vec3(1.0f), 0.0f, 0.6f);
+    mesh->SetImportedMaterials({ material });
+
+    const auto oldStamp = static_cast<u64>(std::filesystem::last_write_time(source).time_since_epoch().count());
+    ASSERT_TRUE(MeshBinarySerializer::Write(cache, *mesh, oldStamp));
+    EXPECT_FALSE(MeshCache::IsMeshCacheValid(source));
+    EXPECT_FALSE(MeshCache::LoadMeshFromCache(source));
+
+    material->SetBaseColorFactor(glm::vec4(1.0f, 1.0f, 1.0f, 0.4f));
+    material->SetEmissiveFactor(glm::vec4(0.5f, 2.0f, 0.25f, 0.0f));
+    ASSERT_TRUE(MeshCache::SaveMeshToCache(source, *mesh));
+    auto reloaded = MeshCache::LoadMeshFromCache(source);
+    ASSERT_TRUE(reloaded);
+    const auto restored = reloaded->GetImportedMaterialForSubmesh(0);
+    ASSERT_TRUE(restored);
+    EXPECT_FLOAT_EQ(restored->GetBaseColorFactor().a, 0.4f);
+    EXPECT_FLOAT_EQ(restored->GetEmissiveFactor().g, 2.0f);
 }
 
 // One version is read (docs/agent-rules/binary-format-versioning.md): a cache

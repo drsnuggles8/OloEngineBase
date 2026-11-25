@@ -7,6 +7,7 @@
 #include <assimp/material.h>
 #include <assimp/scene.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -23,12 +24,47 @@ namespace OloEngine
         std::atomic<u64> s_ThicknessMapsIgnored{ 0 };
         std::atomic<u64> s_TransmissiveDrawsWithoutForwardOverlay{ 0 };
         std::atomic<bool> s_WarnedTransmissiveDrawWithoutForwardOverlay{ false };
+
+        void ImportGltfColorFactors(const aiMaterial& source, Material& material)
+        {
+            // Assimp's glTF2 importer always writes its alpha-mode key. The
+            // color keys alone are also used by other Assimp importers.
+            if (aiString alphaMode; source.Get(AI_MATKEY_GLTF_ALPHAMODE, alphaMode) != AI_SUCCESS)
+                return;
+
+            // Retain the RGB and texture override chosen by the Model path.
+            if (aiColor4D baseColor; source.Get(AI_MATKEY_BASE_COLOR, baseColor) == AI_SUCCESS && std::isfinite(baseColor.a))
+            {
+                glm::vec4 factor = material.GetBaseColorFactor();
+                factor.a = std::clamp(static_cast<f32>(baseColor.a), 0.0f, 1.0f);
+                material.SetBaseColorFactor(factor);
+            }
+
+            // Both importers load the map separately. Its contribution is
+            // multiplied by this linear factor, which defaults to black.
+            if (aiColor3D emissive; source.Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS)
+            {
+                f32 strength = 1.0f;
+                source.Get(AI_MATKEY_EMISSIVE_INTENSITY, strength);
+                if (!std::isfinite(strength) || strength < 0.0f)
+                    strength = 1.0f;
+
+                const auto scale = [strength](f32 channel)
+                {
+                    const f32 radiance = channel * strength;
+                    return std::isfinite(radiance) && radiance > 0.0f ? radiance : 0.0f;
+                };
+                material.SetEmissiveFactor(glm::vec4(scale(emissive.r), scale(emissive.g), scale(emissive.b), 0.0f));
+            }
+        }
     } // namespace
 
     void ImportGltfPhysicalMaterial(const aiMaterial* mat, Material& material)
     {
         if (!mat)
             return;
+
+        ImportGltfColorFactors(*mat, material);
 
         // glTF's normalTexture.scale is stored separately from the texture.
         // Both mesh importers load the map after this shared scalar import.

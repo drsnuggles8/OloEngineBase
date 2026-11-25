@@ -214,23 +214,6 @@ namespace OloEngine
                               ToString(reason));
         }
 
-        if (m_Stats.RayQueryTierActive)
-        {
-            // A STANDING limitation rather than an occasional one, so it is true
-            // whenever the tier ran at all. Counted instead of commented because
-            // it is not visible in a still frame.
-            m_Stats.HitsShadedUntextured = true; // untextured material factors; #1355
-            // No "masked geometry reflects as solid" flag beside it. One was
-            // declared, never written, and by the time #1337 audited it the
-            // statement had stopped being true: this tier stands down unless
-            // the material shader heap is resolved (GPUSceneUnavailable above),
-            // and RayTracedReflection.glsl alpha-tests every candidate through
-            // oloHybridRayTracingProceed. Writing `true` would have shipped a
-            // panel warning about a limitation that no longer exists, so the
-            // field was deleted instead (criterion 3: remove or mark, never
-            // leave a plausible constant).
-        }
-
         return m_Stats.RayQueryTierActive;
     }
 
