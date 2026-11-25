@@ -433,9 +433,8 @@ namespace OloEngine
 
         const bool graphResolved = outputFramebuffer && inputColorID.IsValid();
 
-        // The verdict was resolved from the per-frame wiring, before the graph
-        // was built; the one reason only THIS point can see is a target the
-        // graph did not produce. The verdict does NOT gate the draw: when the
+        // The per-frame verdict predates the graph build. Both the resolved
+        // target and the published trace address are known here. When the
         // tracer cannot answer, running the draw is still correct, because the
         // shader passes the input colour through on a zero TLAS address and
         // carries the history planes forward unchanged — and the extraction
@@ -446,6 +445,13 @@ namespace OloEngine
             ReportFallback(GpuPathTracerFallbackReason::TargetUnavailable);
             return;
         }
+        // RayTracingScenePass publishes this frame's TLAS after pass configuration.
+        // If it withheld a previously ready structure, the shader will carry the
+        // histories forward. Its CPU sample count must take the same branch.
+        const u64 tlasAddress = m_Stats.Active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
+        if (m_Stats.Active && tlasAddress == 0u)
+            ReportFallback(m_RayTracingScene->IsTlasWithheld() ? GpuPathTracerFallbackReason::AccelerationStructureWithheld
+                                                               : GpuPathTracerFallbackReason::AccelerationStructureEmpty);
         const bool active = m_Stats.Active;
 
         const auto& outSpec = outputFramebuffer->GetSpecification();
@@ -476,7 +482,6 @@ namespace OloEngine
         // A ZERO TLAS ADDRESS IS THE OFF SWITCH, uploaded deliberately: it is
         // the value the shader's first guard tests, so an inactive tracer
         // reaches the GPU as "pass through" instead of as a stale address.
-        const u64 tlasAddress = active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
         params.TlasAddress = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                         static_cast<u32>(tlasAddress >> 32u), RayTracing::kInstanceMaskAll,
                                         settings.Seed);

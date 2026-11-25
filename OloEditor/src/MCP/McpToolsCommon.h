@@ -284,12 +284,12 @@ namespace OloEngine::MCP
         if (request.IsOrbit)
         {
             if (request.FovDegrees > 0.0f)
-                ctx.SetCameraPose(glm::vec3(0.0f), 0.0f, 0.0f, request.FovDegrees); // FOV only; pose follows
+                ctx.SetCameraPose(glm::vec3(0.0f), 0.0f, 0.0f, request.FovDegrees, CameraPoseTransition::Cut); // FOV only; pose follows
             ctx.OrbitCamera(request.EyeOrTarget, request.YawRadians, request.PitchRadians, request.Distance);
         }
         else
         {
-            ctx.SetCameraPose(request.EyeOrTarget, request.YawRadians, request.PitchRadians, request.FovDegrees);
+            ctx.SetCameraPose(request.EyeOrTarget, request.YawRadians, request.PitchRadians, request.FovDegrees, CameraPoseTransition::Cut);
         }
     }
 

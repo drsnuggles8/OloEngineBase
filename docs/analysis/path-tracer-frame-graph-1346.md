@@ -1,0 +1,81 @@
+# Reference path tracing and raster fallback (#1346)
+
+Keep the raster colour input available until the acceleration-structure build has published the TLAS for the frame. A pass can be eligible at graph compilation and still need the raster frame when it executes.
+
+## What consumes the frame
+
+The CPU commits GPU Scene instances, geometry, materials, lights, environment and the two path-tracer tables before compiling the frame graph. Skeletal deformation feeds the BLAS/TLAS build. The trace consumes the published TLAS, scene records, emissive and material texture tables, the environment prefilter when available, and four RGBA32F history planes. The shader derives its next sample index from the radiance plane's alpha. The CPU reference and level-zero texture sampling are the comparison standard.
+
+The successful trace overwrites the upstream colour. The zero-address branch copies that colour and carries the four histories forward. Both branches use the same shader. At the furnace camera, bloom, tone mapping, FXAA and UI compositing consumed the traced colour. Tone mapping also declared scene depth for underwater fog. The VSM marking pass rooted depth independently. Editor picking reads the entity-ID attachment of SceneColor after rendering. Removing a single colour dependency therefore has different effects on the three raster paths.
+
+## Experiment
+
+The two workloads were the production renderer with the CPU reference's Cornell geometry and materials, and the 100-sphere material laboratory. The latter used the camera, seed, scene and four samples per frame in `material-lab-furnace.pathtracer.yaml`. All measurements used the same RTX 4090 and Release configuration. The prototype editor SHA-256 was `4984d8036f7e9a0fa50fbbad4fccd025d43d69ff5bf43953dace1bc5fb044fbe`. The scoped prototype omitted the upstream colour read in `GpuPathTracerPass::Setup` for an enabled tracer and bound the renderer's white texture to unused sampler slots when no input resolved. This made the consequence of losing fallback visible and kept sampler descriptors valid. All other graph roots and the transport shader stayed intact.
+
+## Cornell cost and execution
+
+Two pairs ran in full/cut, cut/full order in fresh processes at 320 × 240 and one sample per pixel per frame. Each cell averages the two run medians for each arm. CPU is the sum of the graph's per-pass CPU intervals per frame. GPU is the whole timestamp span of a unique, valid resolved frame. Only frame ages below the timer pool's four-slot ring were admitted. The costs are descriptive for this scene.
+
+| Path | Executed passes, full → cut | CPU ms, full → cut | GPU ms, full → cut | Transient demand, full → cut |
+|---|---:|---:|---:|---:|
+| Forward | 14 → 14 | 0.225 → 0.227 | 0.531 → 0.487 | 10,444,800 → 10,444,800 B |
+| Forward+ | 14 → 14 | 0.239 → 0.241 | 0.551 → 0.551 | 10,444,800 → 10,444,800 B |
+| Deferred | 18 → 13 | 0.256 → 0.138 | 0.497 → 0.398 | 10,444,800 → 10,444,800 B |
+
+The Deferred cut removed deferred lighting, the scene-velocity seed, forward overlay, particles and debug overlay. Scene geometry still executed. Both forward paths executed the same pass list in both arms, so their timing differences cannot be attributed to pass culling.
+
+## Frame where availability changes
+
+The production Cornell test makes a published TLAS unavailable at the end of `RayTracingScenePass`, using the same readiness setter as the vegetation producer. This injects the timing of a real producer verdict into a reproducible scene. The shader preserved the radiance and count. Before the accounting fix the CPU still claimed one sample and reported the tracer active. The corrected pass fetches the trace address once at execution and uses it for both the shader and the counters.
+
+All six attachment readbacks at 15 samples per pixel were bitwise identical on Forward, Forward+ and Deferred in the successful trace. With the TLAS withheld, the prototype replaced the raster fallback with a flat image on all three paths. Each comparison differed at all 76,800 pixels (320 × 240), with a maximum channel difference of 173/255.
+## Material laboratory cost and picking
+
+At 1280 × 720 on Deferred, six pairs of fresh editors ran in alternating order. Each run contributed 240 unique GPU frames after warmup. All six exported attachments matched across all 12 runs at 976 samples per pixel. Each pair saved exactly 14,871,212 bytes of transient pool demand. The table shows the median of the six run medians for each arm. Paired savings are computed within each pair before taking the median. The range gives the smallest and largest paired saving.
+
+| Measurement | Full | Cut | Median paired saving (observed range) |
+|---|---:|---:|---:|
+| CPU, ms | 1.168 | 0.980 | 0.194 (−0.054 to 0.227) |
+| GPU, ms | 4.148 | 3.387 | 0.620 (−0.918 to 0.894) |
+| Completed editor frame, ms | 4.149 | 3.446 | 0.570 (−0.921 to 0.851) |
+| Transient demand, B | 153,723,052 | 138,851,840 | 14,871,212 |
+| Executed / culled passes | 19 / 52 | 15 / 56 | 4 fewer executed |
+
+The four removed passes were deferred lighting, GTAO, particles and the scene-velocity seed. Five pairs were faster and one was slower. With the reference still visibly showing the same spheres, full mode returned entity IDs 81 and 80 at (1035, 405) and (947, 409). Clicking those pixels selected the corresponding material spheres. In the cut both IDs were −1. Two more sphere clicks, at (675, 353) and (597, 354), also lost their selection. The sky control at (120, 70) remained empty in both arms. Capture confirmed zero Vulkan validation messages and zero editor errors.
+
+The production regression snapshots the selected raster input and tracer output immediately after the same draw. Lavapipe's filtered read changed 733 of 76,800 RGB pixels on each path, with a maximum float difference of 0.001953125. An exact texel fetch for matching extents preserved every RGB texel on all three paths. Different extents keep scaled sampling. The four accumulation planes are checked byte for byte on the withheld frame.
+
+## MSAA and upscale
+
+At 1280 × 720 and 4× MSAA the Deferred G-buffer and resolve pass remained live in both arms. The observed resolve intervals were 0.082 and 0.081 ms (one sample each). With spatial Quality upscale, the traced attachments were 640 × 360 and the display was 960 × 540. EASU read `PathTracerColorTexture@GpuPathTracerPass`. Bloom read `EASUColorTexture@EASUPass`. The observed EASU intervals were 0.015 and 0.016 ms. Both cells matched all six exported attachments at 16 samples per pixel, with zero validation messages. Resource sizes and consumers were checked in the live graph.
+
+On OpenGL with FSR2 Quality, the raster renderer produced an 853 × 480 input and a 1280 × 720 display. Requesting the tracer left its shader unavailable and its graph target absent. Four fresh off/on/on/off captures at 64 mocked ticks matched every display pixel (maximum delta and RMSE 0).
+
+## Reproducing the comparison
+
+**Production regression.** Use a Vulkan device exposing acceleration structures and ray queries, such as the RTX 4090 or Mesa 26.2.0 lavapipe with ray queries enabled. Run the Release test binary with `--gtest_filter=ReferencePaths/GpuPathTracerFrameGraphTest.* --olo-rhi=vulkan --olo-require-vulkan --gtest_output=xml:cornell.xml`. The Vulkan requirement flag checks context availability. A device without ray queries skips the Cornell cases. Confirm that Forward, Forward+ and Deferred all executed and passed (three cases, zero skips) before using the measurements or images. The production test records pass timings, GPU frame identity, transient demand and persistent pass-target bytes under `frameCosts`. Its front and raking images are in `OloEditor/assets/tests/visual/`.
+
+**Historical experiment.** Apply the [source overlay for the measurement](../../scripts/perf/fixtures/path-tracer-raster-cut-1346.patch) in a separate checkout at `2df5d5f751f28ba511a67dc54b2fad879584ce2a`. Use `git apply --check <patch-path>` followed by `git apply <patch-path>`. This restores the measured renderer and test fixture, including the late-TLAS accounting correction. Build the Release editor and test executable once using the repository build lock. The measured editor hash appears above. The same executable served both arms within each host.
+
+Launch a **fresh process for each arm** with these PowerShell settings:
+
+| Arm | Before launching the same executable |
+|---|---|
+| Full | `Remove-Item Env:OLO_PT_RASTER_CUT_PROBE -ErrorAction SilentlyContinue` |
+| Cut | `$env:OLO_PT_RASTER_CUT_PROBE = '1'` |
+
+The diagnostic tests for presence, so **unset** the variable for full mode. The cut omits the enabled tracer's upstream colour read during graph setup. At execution it binds the white texture if the input handle is missing. The shipping renderer contains no such selector.
+
+* **Cornell.** For each arm, set `OLO_PT_AOV_DIRECTORY` to a separate output directory. Run the same Vulkan test filter given above. The historical fixture prints per-pass CPU/GPU rows and writes all six decoded float attachments. Compare like-named files at the same actual sample count. Inspect the full/cut fallback PNGs from the injected late-withheld frame.
+* **Furnace.** Run `olo_benchmark_capture` on `material-lab-furnace.pathtracer.yaml` in a Release Vulkan editor launched in each arm. For paired timings add `Measurement: {Frames: 120, DeadlineMs: 16.667}` and keep the manifest's stationary camera, scene, warmup and four samples per frame. Retain completed frame IDs, graph topology, transient demand, pass timings and all six exported attachments. In a separate diagnostic run, use a second MCP client to read topology and `olo_pathtracer_stats` while the capture is active.
+* **Live picking.** Run a fresh native Deferred furnace capture per arm, with overlay panels closed so the clicks reach the viewport. While the first client is still inside `olo_benchmark_capture`, use the second client to wait for `availability.active` and at least eight accumulated samples per pixel. At the sphere and sky coordinates above, read `channels.entityID` from `olo_render_probe_pixel`. Click the same pixel with `olo_input_inject` (`action="click"`, `space="viewport"`) and record the selected entity UUID. Confirm the tracer is still active after the last click, then let the capture finish and restore the panels. Before returning, the benchmark clears its viewport-size override and restores the saved camera pose and renderer settings. For a pick made after it returns, use the furnace scene, reapply its camera and the manifest's native 1280 × 720 Deferred path-tracer settings, then wait for active accumulation again.
+
+The paired experiment predates the benchmark camera fixes. Match the observed sample count when comparing it with a new run. To cap a live capture, put `GpuPathTracerMaxSamples` in the **scene's** `PostProcessSettings`. Opening the manifest's scene applies its settings after any earlier live override. At a scene-authored cap of 64 and 64 warmup steps, the old stationary camera produced 16 spp and the corrected host produced 64 everywhere. Both captured all six attachments. Leave the cap open when measuring the cost of active tracing and check `samplesTracedThisFrame` during measurement.
+
+For moving shots the first pose is a cut and later samples are continuous. On a +0.6-unit/s dolly, 32 warmup steps followed by 160 measurement steps reached X = 1.91 in both runs. The old TAA history aged at most four frames. All 47 valid in-shot observations on the corrected host held generation 5, reaching age 378. The descriptor change after restoring the viewport is outside that shot.
+
+## Decision
+
+Keep the full comparison graph as the production path. The measured cut pays back on the Deferred furnace, but it saves no passes on either forward Cornell path and removes current-frame raster fallback and editor picking. Restoring the full graph one frame later would expose exactly the bad frame reproduced above. Keying the cut on the tracer's precompile availability would make the same mistake whenever the build withdraws the address.
+
+A secondary view rendered after the world build can use a published TLAS, but restricting the cut to such views saves nothing on either measured single-view workload. A static-scene specialization would need the producer to guarantee the address through execution. Absence of scene edits alone does not express vegetation readiness or pending acceleration-structure work. It would also need every raster consumer, including hover and diagnostic reads, to declare demand before the graph compiles. A split before and after publishing the TLAS could support a same-frame choice. That changes scheduling, history ownership across the split and resource declaration for all three raster paths. For the measured workloads we retain the existing topology and the verified sample-accounting fix. Revisit a restricted graph if a caller can supply both a frame-stable trace result and its complete output demand.

@@ -1,8 +1,8 @@
 // OLO_TEST_LAYER: integration
 // =============================================================================
 // GpuPathTracerFallbackTest.cpp — the GPU reference path tracer on a machine
-// that CANNOT ray trace, which is the path every CI runner takes (issue
-// #1055). Drives the real render pipeline on the OpenGL fixture with the
+// without ray queries (issue #1055). Drives the real render pipeline on
+// OpenGL or Vulkan with ray queries disabled, with the
 // tracer switched ON and demonstrates, rather than asserts, that:
 //
 //   * the frame is BYTE-IDENTICAL to the tracer-off frame — the fallback is
@@ -16,13 +16,15 @@
 //
 // "Skips cleanly with a diagnosable reason" is the acceptance criterion, and
 // the reason is what the panel shows and the log prints. Skips itself only
-// for the usual reason: no GL 4.6 context at all.
+// when there is no usable context or when hardware ray queries are available.
 // =============================================================================
 
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
+#include "VisualEvidenceGuards.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -42,6 +44,8 @@
 #include <glm/glm.hpp>
 
 #include <cstring>
+#include <filesystem>
+#include <stb_image/stb_image_write.h>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -58,6 +62,11 @@ namespace OloEngine::Tests
     class GpuPathTracerFallbackTest : public RendererAttachedTest
     {
       protected:
+        bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
         void BuildScene() override
         {
             Scene& scene = GetScene();
@@ -120,40 +129,54 @@ namespace OloEngine::Tests
     TEST_F(GpuPathTracerFallbackTest, SwitchedOnWithoutARayTracingDeviceChangesNothingAndSaysWhy)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        // This test is about the OpenGL fixture's answer. A Vulkan build of the
-        // test binary still runs the fixture on GL, so the predicate is the
-        // renderer's, not the build's.
         if (RenderCommand::SupportsRayTracing())
             GTEST_SKIP() << "This fixture reports hardware ray tracing; the fallback path is not reachable here.";
 
         auto& settings = Renderer3D::GetPostProcessSettings();
-        settings.GpuPathTracer.Enabled = false;
-        std::vector<u8> off;
-        ASSERT_NO_FATAL_FAILURE(Capture(off));
+        for (const RenderingPath path : kRenderingPaths)
+        {
+            SCOPED_TRACE(ToToken(path));
+            Renderer3D::GetRendererSettings().Path = path;
+            RunInFrame([]
+                       { Renderer3D::ApplyRendererSettings(); });
+            settings.GpuPathTracer.Enabled = false;
+            std::vector<u8> off;
+            ASSERT_NO_FATAL_FAILURE(Capture(off));
 
-        settings.GpuPathTracer.Enabled = true;
-        std::vector<u8> on;
-        ASSERT_NO_FATAL_FAILURE(Capture(on));
+            settings.GpuPathTracer.Enabled = true;
+            std::vector<u8> on;
+            ASSERT_NO_FATAL_FAILURE(Capture(on));
 
-        ASSERT_EQ(on.size(), off.size());
-        EXPECT_EQ(std::memcmp(on.data(), off.data(), on.size()), 0)
-            << "with no ray-tracing device the tracer must leave the rasterised frame byte-identical";
+            ASSERT_EQ(on.size(), off.size());
+            EXPECT_EQ(std::memcmp(on.data(), off.data(), on.size()), 0)
+                << "with no ray-tracing device the tracer must leave the rasterised frame byte-identical";
+            std::filesystem::create_directories("assets/tests/visual");
+            auto save = [&](std::vector<u8>& pixels, std::string_view feature)
+            {
+                VisualEvidence::FlipRgbaRowsInPlace(pixels, kWidth, kHeight);
+                const auto filename = "assets/tests/visual/" + TestRenderBackend::EvidenceName(feature) +
+                                      ToToken(path) + ".png";
+                EXPECT_NE(stbi_write_png(filename.c_str(), kWidth, kHeight, 4, pixels.data(), kWidth * 4), 0);
+            };
+            save(off, "GpuPathTracerOff");
+            save(on, "GpuPathTracerFallback");
 
-        GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass();
-        ASSERT_NE(pass, nullptr) << "the pass exists on every backend; only its shader is conditional";
-        EXPECT_FALSE(pass->IsReadyForExecution());
-        const GpuPathTracerStats& stats = pass->GetStats();
-        EXPECT_FALSE(stats.Active);
-        EXPECT_EQ(stats.Fallback, GpuPathTracerFallbackReason::ShaderUnavailable)
-            << "the reason is resolved every frame from the per-frame wiring, not from Execute, which a culled pass "
-               "never runs; got: "
-            << ToString(stats.Fallback);
-        EXPECT_FALSE(ToString(stats.Fallback).empty());
+            GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass();
+            ASSERT_NE(pass, nullptr) << "the pass exists on every backend; only its shader is conditional";
+            EXPECT_FALSE(pass->IsReadyForExecution());
+            const GpuPathTracerStats& stats = pass->GetStats();
+            EXPECT_FALSE(stats.Active);
+            EXPECT_EQ(stats.Fallback, GpuPathTracerFallbackReason::ShaderUnavailable)
+                << "the reason is resolved every frame from the per-frame wiring, not from Execute, which a culled pass "
+                   "never runs; got: "
+                << ToString(stats.Fallback);
+            EXPECT_FALSE(ToString(stats.Fallback).empty());
 
-        // The graph declared no target: the structural half of the fallback.
-        EXPECT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor), nullptr);
+            // The graph declared no target: the structural half of the fallback.
+            EXPECT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor), nullptr);
 
-        // And the light table was never gathered — it costs nothing here.
-        EXPECT_EQ(stats.EmissiveTriangles, 0u);
+            // And the light table was never gathered — it costs nothing here.
+            EXPECT_EQ(stats.EmissiveTriangles, 0u);
+        }
     }
 } // namespace OloEngine::Tests

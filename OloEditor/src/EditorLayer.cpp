@@ -544,12 +544,13 @@ namespace OloEngine
                 pose.ViewportHeight = static_cast<u32>(m_ViewportSize.y);
                 return pose;
             };
-            mcpContext.SetCameraPose = [this](const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees)
+            mcpContext.SetCameraPose = [this](const glm::vec3& eye, f32 yawRadians, f32 pitchRadians, f32 fovDegrees, MCP::CameraPoseTransition transition)
             {
                 if (fovDegrees > 0.0f)
                     m_EditorCamera.SetFOV(fovDegrees);
                 m_EditorCamera.SetPose(eye, yawRadians, pitchRadians);
-                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
+                if (transition == MCP::CameraPoseTransition::Cut)
+                    Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             mcpContext.OrbitCamera = [this](const glm::vec3& target, f32 yawRadians, f32 pitchRadians, f32 distance)
             {

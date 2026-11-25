@@ -1,0 +1,413 @@
+diff --git a/OloEngine/src/OloEngine/Renderer/Passes/GpuPathTracerPass.cpp b/OloEngine/src/OloEngine/Renderer/Passes/GpuPathTracerPass.cpp
+index 468dbc3a0..7acf2320e 100644
+--- a/OloEngine/src/OloEngine/Renderer/Passes/GpuPathTracerPass.cpp
++++ b/OloEngine/src/OloEngine/Renderer/Passes/GpuPathTracerPass.cpp
+@@ -19,6 +19,10 @@
+ #include "OloEngine/Renderer/ResourceHandle.h"
+ #include "OloEngine/Renderer/ShaderBindingLayout.h"
+
++#include "OloEngine/Renderer/Renderer3D.h"
++#include "OloEngine/Renderer/Texture.h"
++
++#include <cstdlib>
+ #include <algorithm>
+ #include <array>
+ #include <cmath>
+@@ -113,6 +117,9 @@ namespace OloEngine
+         m_SelectedNormalHistoryTexture = {};
+         m_SelectedPrefilterTexture = {};
+
++        // Offline experiment: hold the shader input valid without rooting the raster chain.
++        if (!m_Enabled || std::getenv("OLO_PT_RASTER_CUT_PROBE") == nullptr)
++        {
+         // The upstream colour, passed through when the tracer stands down.
+         // Everything the screen-space chain produced ranks above the lit
+         // colour; PostProcessColor is not a candidate because its alias is
+@@ -129,6 +136,8 @@ namespace OloEngine
+                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SceneColor, ResourceNames::SceneColorTexture),
+             });
+
++        }
++
+         // PathTracerColor is declared only when the tracer is enabled on a
+         // backend that loaded the shader, so its absence is the off / non-RT
+         // path and downstream aliases straight back to the upstream colour.
+@@ -411,6 +420,9 @@ namespace OloEngine
+         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
+             inputColorID = context.ResolveTextureHandle(inputTextureHandle);
+
++        if (!inputColorID.IsValid() && std::getenv("OLO_PT_RASTER_CUT_PROBE") != nullptr && Renderer3D::GetWhiteTexture())
++            inputColorID = Renderer3D::GetWhiteTexture()->GetRHIHandle();
++
+         Ref<Framebuffer> outputFramebuffer;
+         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
+             outputFramebuffer = context.ResolveFramebuffer(outputHandle);
+@@ -446,6 +458,13 @@ namespace OloEngine
+             ReportFallback(GpuPathTracerFallbackReason::TargetUnavailable);
+             return;
+         }
++        // RayTracingScenePass publishes this frame's TLAS after pass configuration.
++        // If it withheld a previously ready structure, the shader will carry the
++        // histories forward. Its CPU sample count must take the same branch.
++        const u64 tlasAddress = m_Stats.Active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
++        if (m_Stats.Active && tlasAddress == 0u)
++            ReportFallback(m_RayTracingScene->IsTlasWithheld() ? GpuPathTracerFallbackReason::AccelerationStructureWithheld
++                                                               : GpuPathTracerFallbackReason::AccelerationStructureEmpty);
+         const bool active = m_Stats.Active;
+
+         const auto& outSpec = outputFramebuffer->GetSpecification();
+@@ -476,7 +495,6 @@ namespace OloEngine
+         // A ZERO TLAS ADDRESS IS THE OFF SWITCH, uploaded deliberately: it is
+         // the value the shader's first guard tests, so an inactive tracer
+         // reaches the GPU as "pass through" instead of as a stale address.
+-        const u64 tlasAddress = active ? m_RayTracingScene->GetTlasDeviceAddressForTrace() : 0u;
+         params.TlasAddress = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
+                                         static_cast<u32>(tlasAddress >> 32u), RayTracing::kInstanceMaskAll,
+                                         settings.Seed);
+diff --git a/OloEngine/tests/CMakeLists.txt b/OloEngine/tests/CMakeLists.txt
+index e568079d8..1d514f3b6 100644
+--- a/OloEngine/tests/CMakeLists.txt
++++ b/OloEngine/tests/CMakeLists.txt
+@@ -609,6 +609,7 @@ add_executable(OloEngine-Tests
+ 		# every CI runner takes. Drives the real pipeline on the GL fixture and
+ 		# demonstrates a byte-identical frame plus a named reason.
+ 		Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
++		Rendering/PropertyTests/GpuPathTracerFrameGraphTest.cpp
+ 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
+ 		Rendering/BackendSelectionTest.cpp
+ 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
+diff --git a/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp b/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
+index 6fd177aaf..b7b424b74 100644
+--- a/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
++++ b/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
+@@ -2,7 +2,7 @@
+ // =============================================================================
+ // GpuPathTracerFallbackTest.cpp — the GPU reference path tracer on a machine
+ // that CANNOT ray trace, which is the path every CI runner takes (issue
+-// #1055). Drives the real render pipeline on the OpenGL fixture with the
++// #1055). Drives the real render pipeline on OpenGL or Vulkan without ray queries with the
+ // tracer switched ON and demonstrates, rather than asserts, that:
+ //
+ //   * the frame is BYTE-IDENTICAL to the tracer-off frame — the fallback is
+@@ -16,13 +16,15 @@
+ //
+ // "Skips cleanly with a diagnosable reason" is the acceptance criterion, and
+ // the reason is what the panel shows and the log prints. Skips itself only
+-// for the usual reason: no GL 4.6 context at all.
++// when there is no usable context or when hardware ray queries are available.
+ // =============================================================================
+
+ #include "OloEnginePCH.h"
+
+ #include "RenderPropertyTest.h"
+ #include "RendererAttachedTest.h"
++#include "TestRenderBackend.h"
++#include "VisualEvidenceGuards.h"
+
+ #include "OloEngine/Renderer/Camera/EditorCamera.h"
+ #include "OloEngine/Renderer/Framebuffer.h"
+@@ -42,6 +44,8 @@
+ #include <glm/glm.hpp>
+
+ #include <cstring>
++#include <filesystem>
++#include <stb_image/stb_image_write.h>
+ #include <vector>
+
+ namespace OloEngine::Tests
+@@ -58,6 +62,11 @@ namespace OloEngine::Tests
+     class GpuPathTracerFallbackTest : public RendererAttachedTest
+     {
+       protected:
++        bool RunsInVulkanProcess() const override
++        {
++            return true;
++        }
++
+         void BuildScene() override
+         {
+             Scene& scene = GetScene();
+@@ -120,24 +129,37 @@ namespace OloEngine::Tests
+     TEST_F(GpuPathTracerFallbackTest, SwitchedOnWithoutARayTracingDeviceChangesNothingAndSaysWhy)
+     {
+         OLO_ENSURE_GPU_OR_SKIP();
+-        // This test is about the OpenGL fixture's answer. A Vulkan build of the
+-        // test binary still runs the fixture on GL, so the predicate is the
+-        // renderer's, not the build's.
+         if (RenderCommand::SupportsRayTracing())
+             GTEST_SKIP() << "This fixture reports hardware ray tracing; the fallback path is not reachable here.";
+
+         auto& settings = Renderer3D::GetPostProcessSettings();
+-        settings.GpuPathTracer.Enabled = false;
+-        std::vector<u8> off;
+-        ASSERT_NO_FATAL_FAILURE(Capture(off));
+-
+-        settings.GpuPathTracer.Enabled = true;
+-        std::vector<u8> on;
+-        ASSERT_NO_FATAL_FAILURE(Capture(on));
+-
+-        ASSERT_EQ(on.size(), off.size());
+-        EXPECT_EQ(std::memcmp(on.data(), off.data(), on.size()), 0)
+-            << "with no ray-tracing device the tracer must leave the rasterised frame byte-identical";
++        for (const RenderingPath path : kRenderingPaths)
++        {
++            SCOPED_TRACE(ToToken(path));
++            Renderer3D::GetRendererSettings().Path = path;
++            RunInFrame([] { Renderer3D::ApplyRendererSettings(); });
++            settings.GpuPathTracer.Enabled = false;
++            std::vector<u8> off;
++            ASSERT_NO_FATAL_FAILURE(Capture(off));
++
++            settings.GpuPathTracer.Enabled = true;
++            std::vector<u8> on;
++            ASSERT_NO_FATAL_FAILURE(Capture(on));
++
++            ASSERT_EQ(on.size(), off.size());
++            EXPECT_EQ(std::memcmp(on.data(), off.data(), on.size()), 0)
++                << "with no ray-tracing device the tracer must leave the rasterised frame byte-identical";
++            std::filesystem::create_directories("assets/tests/visual");
++            auto save = [&](std::vector<u8>& pixels, std::string_view feature)
++            {
++                VisualEvidence::FlipRgbaRowsInPlace(pixels, kWidth, kHeight);
++                const auto filename = "assets/tests/visual/" + TestRenderBackend::EvidenceName(feature) +
++                                      ToToken(path) + ".png";
++                EXPECT_NE(stbi_write_png(filename.c_str(), kWidth, kHeight, 4, pixels.data(), kWidth * 4), 0);
++            };
++            save(off, "GpuPathTracerOff");
++            save(on, "GpuPathTracerFallback");
++        }
+
+         GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass();
+         ASSERT_NE(pass, nullptr) << "the pass exists on every backend; only its shader is conditional";
+diff --git a/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFrameGraphTest.cpp b/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFrameGraphTest.cpp
+new file mode 100644
+index 000000000..4a8ad7878
+--- /dev/null
++++ b/OloEngine/tests/Rendering/PropertyTests/GpuPathTracerFrameGraphTest.cpp
+@@ -0,0 +1,226 @@
++// OLO_TEST_LAYER: integration
++#include "OloEnginePCH.h"
++
++#include "RendererAttachedTest.h"
++#include "TestRenderBackend.h"
++#include "VisualEvidenceGuards.h"
++#include "../PathTracing/ReferenceSceneFixtures.h"
++#include "OloEngine/Renderer/Camera/EditorCamera.h"
++#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
++#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
++#include "OloEngine/Renderer/Framebuffer.h"
++#include "OloEngine/Renderer/MeshSource.h"
++#include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
++#include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
++#include "OloEngine/Renderer/RenderCommand.h"
++#include "OloEngine/Renderer/RenderGraph.h"
++#include "OloEngine/Renderer/ResourceHandle.h"
++#include "OloEngine/Scene/Components.h"
++#include "OloEngine/Scene/Entity.h"
++
++#include <cstdlib>
++#include <fstream>
++#include <cmath>
++#include <cstdio>
++#include <cstring>
++#include <filesystem>
++#include <format>
++#include <string_view>
++#include <vector>
++#include <stb_image/stb_image_write.h>
++
++namespace OloEngine::Tests
++{
++    class GpuPathTracerFrameGraphTest : public RendererAttachedTest, public ::testing::WithParamInterface<RenderingPath>
++    {
++      protected:
++        bool RunsInVulkanProcess() const override
++        {
++            return true;
++        }
++        static constexpr u32 kWidth = 320;
++        static constexpr u32 kHeight = 240;
++
++        void SaveComposite(std::string_view pose)
++        {
++            u32 width = 0, height = 0;
++            std::vector<u8> rgba;
++            ASSERT_TRUE(ReadbackComposite(rgba, width, height));
++            ASSERT_EQ(width, kWidth);
++            ASSERT_EQ(height, kHeight);
++            VisualEvidence::FlipRgbaRowsInPlace(rgba, width, height);
++            std::filesystem::create_directories("assets/tests/visual");
++            const auto file = std::format("assets/tests/visual/{}{}_{}.png", TestRenderBackend::EvidenceName("GpuPathTracerFull"),
++                                          ToToken(GetParam()), pose);
++            ASSERT_NE(stbi_write_png(file.c_str(), width, height, 4, rgba.data(), width * 4), 0);
++        }
++
++        void BuildScene() override
++        {
++            if (!RenderCommand::SupportsRayTracing())
++                return;
++            EnableRendering(kWidth, kHeight);
++            // Use the exact geometry and materials of the CPU/device parity fixture,
++            // through scene extraction and the production acceleration-structure pass.
++            const auto fixture = PathTracingFixtures::MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
++            RunInFrame([&]()
++                       {
++                for (const auto& instance : fixture.Scene.GetInstances())
++                {
++                    const auto& geometry = fixture.Scene.GetGeometry(instance.GeometryIndex);
++                    const auto vertices = geometry.GetVertices();
++                    const auto indices = geometry.GetIndices();
++                    auto source = Ref<MeshSource>::Create(
++                        TArray<Vertex>(vertices.data(), static_cast<i32>(vertices.size())),
++                        TArray<u32>(indices.data(), static_cast<i32>(indices.size())));
++                    Submesh submesh;
++                    submesh.m_VertexCount = static_cast<u32>(vertices.size());
++                    submesh.m_IndexCount = static_cast<u32>(indices.size());
++                    submesh.m_BoundingBox = geometry.GetLocalBounds();
++                    source->AddSubmesh(submesh);
++                    source->Build();
++                    auto entity = GetScene().CreateEntity("Cornell surface");
++                    entity.AddComponent<MeshComponent>(source);
++                    const auto& material = fixture.Scene.GetMaterial(instance.MaterialIndex);
++                    auto& surface = entity.AddComponent<MaterialComponent>().m_Material;
++                    surface.SetBaseColorFactor(glm::vec4(material.BaseColor, 1.0f));
++                    surface.SetEmissiveFactor(glm::vec4(material.Emissive, 0.0f));
++                    surface.SetMetallicFactor(material.Metallic);
++                    surface.SetRoughnessFactor(material.Roughness);
++                    surface.SetPBRModel(material.Model);
++                } });
++        }
++    };
++
++    TEST_P(GpuPathTracerFrameGraphTest, CornellSurfacesAccumulateThroughTheProductionGraph)
++    {
++        OLO_ENSURE_GPU_OR_SKIP();
++        if (!RenderCommand::SupportsRayTracing())
++            GTEST_SKIP() << "Reference transport needs hardware ray queries.";
++        Renderer3D::GetRendererSettings().Path = GetParam();
++        RunInFrame([] { Renderer3D::ApplyRendererSettings(); });
++        auto& settings = Renderer3D::GetPostProcessSettings().GpuPathTracer;
++        settings.Enabled = true;
++        settings.SamplesPerFrame = 1;
++        settings.Seed = 974;
++        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / kHeight, 0.1f, 100.0f);
++        camera.SetViewportSize(kWidth, kHeight);
++        camera.SetPose(PathTracingFixtures::CornellBoxScene::EyePosition(), 0.0f, 0.0f);
++        auto* tracer = Renderer3D::GetGpuPathTracerPass();
++        ASSERT_NE(tracer, nullptr);
++        // Scene reset can withhold the TLAS until the vegetation recovery window closes.
++        // Count actual accumulated samples before taking any timing or image evidence.
++        for (u32 frame = 0; frame < 32; ++frame)
++        {
++            RunEditorFrames(camera, 1);
++            if (tracer->GetStats().Active && tracer->GetStats().AccumulatedSamplesPerPixel > 1u)
++                break;
++        }
++        ASSERT_TRUE(tracer->GetStats().Active) << ToString(tracer->GetStats().Fallback);
++        EXPECT_GT(tracer->GetStats().AccumulatedSamplesPerPixel, 1u);
++        EXPECT_GT(tracer->GetStats().EmissiveTriangles, 0u);
++        auto graph = RenderGraphDebugRuntime::GetActiveGraph();
++        ASSERT_TRUE(graph);
++        ASSERT_EQ(static_cast<bool>(graph->GetNode<RenderGraphNode>("DeferredLightingPass")), GetParam() == RenderingPath::Deferred);
++        for (u32 frame = 0; frame < 12; ++frame)
++        {
++            RunEditorFrames(camera, 1);
++            const auto memory = graph->MeasureScreenMemory();
++            const auto gpu = GPUPassTimerPool::GetInstance().GetLastFrameTimings();
++            std::printf("cornell path=%s frame=%u gpuFrame=%llu gpuAge=%llu gpuMs=%.6f transientBytes=%llu targets=%llu\n", ToToken(GetParam()), frame,
++                        static_cast<unsigned long long>(gpu.FrameNumber),
++                        static_cast<unsigned long long>(gpu.AgeFrames), gpu.Frame.ValueOr(-1.0),
++                        static_cast<unsigned long long>(memory.TransientDemandBytes),
++                        static_cast<unsigned long long>(memory.NodeTargetBytes));
++            for (const auto& timing : graph->GetLastExecutionTimings())
++                std::printf("cpu,%s,%.6f\n", *timing.NodeName, timing.CpuMs);
++            for (const auto& timing : gpu.Passes)
++                if (!timing.IsSubPass && timing.Sample.IsValid())
++                    std::printf("gpu,%s,%.6f\n", *timing.Name, timing.Sample.ValueOr(0.0));
++        }
++        const auto output = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
++        ASSERT_TRUE(output);
++        std::vector<f32> sums;
++        ReadbackRgbaFloat(output->GetColorAttachmentHandle(1), kWidth, kHeight, sums);
++        ASSERT_EQ(sums.size(), static_cast<sizet>(kWidth) * kHeight * 4);
++        // RGBA32F stores one exact integer count per pixel, including every miss.
++        const auto expected = tracer->GetStats().AccumulatedSamplesPerPixel + tracer->GetStats().SamplesTracedThisFrame;
++        u32 incorrectCounts = 0, litPixels = 0;
++        for (sizet pixel = 0; pixel < sums.size(); pixel += 4)
++        {
++            if (std::abs(sums[pixel + 3] - static_cast<f32>(expected)) > 0.25f || !std::isfinite(sums[pixel + 3]))
++                ++incorrectCounts;
++            if (sums[pixel] > 0.0f)
++                ++litPixels;
++        }
++        if (const char* dump = std::getenv("OLO_PT_AOV_DIRECTORY"))
++        {
++            std::filesystem::create_directories(dump);
++            for (u32 attachment = 0; attachment < 6; ++attachment)
++            {
++                std::vector<f32> values;
++                ReadbackRgbaFloat(output->GetColorAttachmentHandle(attachment), kWidth, kHeight, values);
++                const auto filename = std::format("{}_{}_{}.f32", ToToken(GetParam()), expected, attachment);
++                std::ofstream file(std::filesystem::path(dump) / filename, std::ios::binary);
++                file.write(reinterpret_cast<const char*>(values.data()), static_cast<std::streamsize>(values.size() * sizeof(f32)));
++                ASSERT_TRUE(file);
++            }
++        }
++        EXPECT_EQ(incorrectCounts, 0u);
++        EXPECT_GT(litPixels, kWidth * kHeight / 4);
++        ASSERT_NO_FATAL_FAILURE(SaveComposite("Front"));
++
++        const glm::vec3 eye = PathTracingFixtures::CornellBoxScene::RakingEyePosition();
++        const glm::vec3 direction = glm::normalize(glm::vec3(-0.35f, -0.90f, -0.45f) - eye);
++        camera.SetPose(eye, std::atan2(direction.x, -direction.z), -std::asin(direction.y));
++        RunEditorFrames(camera, 1);
++        EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 0u);
++        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 1u);
++        RunEditorFrames(camera, 12);
++        EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 12u);
++        ASSERT_NO_FATAL_FAILURE(SaveComposite("Raking"));
++
++        const auto materials = GetScene().GetAllEntitiesWith<MaterialComponent>();
++        ASSERT_NE(materials.begin(), materials.end());
++        Entity{ *materials.begin(), &GetScene() }.GetComponent<MaterialComponent>().m_Material.SetBaseColorFactor(
++            glm::vec4(0.1f, 0.2f, 0.3f, 1.0f));
++        RunEditorFrames(camera, 1);
++        EXPECT_EQ(tracer->GetStats().AccumulatedSamplesPerPixel, 0u);
++        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 1u);
++
++        // Vegetation can withhold a previously published TLAS during the build,
++        // after the pass verdict used to compile the graph. Inject that producer
++        // verdict at its publication point without an entire vegetation workload.
++        const auto readAccumulation = [&](std::vector<f32>& values)
++        {
++            const auto target = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PathTracerColor);
++            ASSERT_TRUE(target);
++            ReadbackRgbaFloat(target->GetColorAttachmentHandle(1), kWidth, kHeight, values);
++        };
++        std::vector<f32> previous;
++        ASSERT_NO_FATAL_FAILURE(readAccumulation(previous));
++        bool withheld = false;
++        graph->AddPostPassHook("WithholdTraceScene", [&](std::string_view pass, RenderGraph&)
++                               {
++            if (pass == "RayTracingScenePass")
++            {
++                Renderer3D::GetRayTracingScene().SetVegetationReady(false);
++                withheld = true;
++            } });
++        RunEditorFrames(camera, 1);
++        graph->RemovePostPassHook("WithholdTraceScene");
++        Renderer3D::GetRayTracingScene().SetVegetationReady(true);
++        ASSERT_TRUE(withheld);
++        if (std::getenv("OLO_PT_AOV_DIRECTORY"))
++            ASSERT_NO_FATAL_FAILURE(SaveComposite(std::getenv("OLO_PT_RASTER_CUT_PROBE") ? "CutFallback" : "FullFallback"));
++        EXPECT_EQ(tracer->GetStats().Fallback, GpuPathTracerFallbackReason::AccelerationStructureWithheld);
++        EXPECT_EQ(tracer->GetStats().SamplesTracedThisFrame, 0u);
++        std::vector<f32> retained;
++        ASSERT_NO_FATAL_FAILURE(readAccumulation(retained));
++        ASSERT_EQ(previous.size(), retained.size());
++        EXPECT_EQ(std::memcmp(previous.data(), retained.data(), retained.size() * sizeof(f32)), 0);
++    }
++
++    INSTANTIATE_TEST_SUITE_P(ReferencePaths, GpuPathTracerFrameGraphTest,
++                             ::testing::ValuesIn(kRenderingPaths));
++} // namespace OloEngine::Tests

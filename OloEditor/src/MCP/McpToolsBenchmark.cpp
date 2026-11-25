@@ -445,14 +445,15 @@ namespace OloEngine::MCP
                     std::optional<Benchmark::ManifestCameraPose> pose;
                     if (poseFrame)
                         pose = Benchmark::CameraPoseAtFrame(cameraSpec, *poseFrame, manifestCopy->FixedDtSeconds);
+                    const auto transition = poseFrame == 0u ? CameraPoseTransition::Cut : CameraPoseTransition::Continuous;
                     const f32 seconds = clockStart + static_cast<f32>(motionFrame) * clockDt;
                     const Json result = host.MarshalRead(
-                        [&host, manifestCopy, pose, fovDegrees, seconds, motionFrame]() -> Json
+                        [&host, manifestCopy, pose, fovDegrees, seconds, motionFrame, transition]() -> Json
                         {
                             if (pose)
                             {
                                 host.Context().SetCameraPose(pose->Position, glm::radians(pose->YawDegrees),
-                                                             glm::radians(pose->PitchDegrees), fovDegrees);
+                                                             glm::radians(pose->PitchDegrees), fovDegrees, transition);
                             }
                             Time::SetMockTime(seconds);
                             // Every step, not only for a manifest with EntityMotion:
@@ -483,7 +484,11 @@ namespace OloEngine::MCP
                 // one outcome this schema exists to prevent.
                 for (u32 frame = 0; frame < warmFrames; ++frame)
                 {
-                    const std::optional<u64> baseFrame = applyStep(frame, trajectoryFrame++);
+                    // Install a still pose once. A moving shot cuts to frame zero
+                    // and reprojects subsequent samples along the trajectory.
+                    const std::optional<u32> poseFrame =
+                        (frame == 0u || cameraSpec.Motion) ? std::optional<u32>(frame) : std::nullopt;
+                    const std::optional<u64> baseFrame = applyStep(poseFrame, trajectoryFrame++);
                     if (!baseFrame)
                         return ToolResult::Error("EntityMotion target missing from the active scene");
                     if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))

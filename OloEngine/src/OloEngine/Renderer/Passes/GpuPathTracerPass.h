@@ -156,8 +156,8 @@ namespace OloEngine
         // Decide whether the tracer runs this frame and fill the fallback
         // half of GetStats(). Called from the per-frame wiring AFTER the GPU
         // Scene commit and the emissive gather, every frame, so the verdict
-        // and the counters are fresh whether or not the graph culls the pass
-        // — the one reason Execute alone can see (no target) is added there.
+        // and the counters are fresh even on a culled pass. Execute checks
+        // the target and the TLAS published by this frame's build.
         void ResolveAvailabilityForFrame();
 
         [[nodiscard]] const GpuPathTracerStats& GetStats() const noexcept

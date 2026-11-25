@@ -141,6 +141,8 @@ Camera:                          # explicit editor-camera pose (not the scene ca
 # Cameras:
 #   - { Id: atrium, Position: [...], ... }            # full warm-up
 #   - { Id: vista,  Position: [...], WarmupFrames: 32 }  # post-cut settle
+# The editor cuts once per shot. Motion samples after the first pose preserve
+# reprojectable histories while each clock step still advances entity motion.
 
 Output:
   Resolution: [3840, 2160]

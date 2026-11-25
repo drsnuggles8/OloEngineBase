@@ -694,8 +694,6 @@ void main()
     // Every early-out below must leave a DEFINED value in every attachment:
     // the history extraction runs whether or not this fragment traced, and a
     // transient's leftovers would be published as valid history.
-    const vec4 passThrough = vec4(texture(u_SceneColor, v_TexCoord).rgb, 1.0);
-    o_Color = passThrough;
     o_Variance = vec4(0.0, 0.0, 0.0, 1.0);
 
     // The imported sums, or zero when the registry restarted them.
@@ -732,10 +730,18 @@ void main()
     // The TLAS address is zero when no acceleration structure has been built.
     // Tracing against it is undefined behaviour at rayQueryInitializeEXT, not
     // a miss, so this is a guard rather than an optimisation — and the
-    // pass-through above is the structural fallback: the raster frame shows
+    // pass-through is the structural fallback: the raster frame shows
     // and the pass reports why (GpuPathTracerFallbackReason).
     if ((u_TlasAddress.x | u_TlasAddress.y) == 0u || size.x <= 0 || size.y <= 0)
+    {
+        // At matching extents this is a copy. An interpolated UV can land
+        // off the texel centre and blend a neighbouring surface on lavapipe.
+        const vec3 raster = all(equal(textureSize(u_SceneColor, 0), size))
+            ? texelFetch(u_SceneColor, frag, 0).rgb
+            : texture(u_SceneColor, v_TexCoord).rgb;
+        o_Color = vec4(raster, 1.0);
         return;
+    }
 
     // The sample index each pixel draws next is its accumulated COUNT: a run
     // at a fixed seed reproduces the same sequence whatever frame it started
