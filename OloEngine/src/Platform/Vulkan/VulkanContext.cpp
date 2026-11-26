@@ -1053,6 +1053,7 @@ namespace OloEngine
     namespace
     {
         u32 s_FailNextFlushSubmits = 0u;
+        u32 s_FailNextFlushWaits = 0u;
     } // namespace
 
     void VulkanContext::SetFailNextFlushSubmitsForTesting(const u32 count)
@@ -1063,6 +1064,16 @@ namespace OloEngine
     u32 VulkanContext::GetPendingFailNextFlushSubmitsForTesting()
     {
         return s_FailNextFlushSubmits;
+    }
+
+    void VulkanContext::SetFailNextFlushWaitsForTesting(const u32 count)
+    {
+        s_FailNextFlushWaits = count;
+    }
+
+    u32 VulkanContext::GetPendingFailNextFlushWaitsForTesting()
+    {
+        return s_FailNextFlushWaits;
     }
 
     bool VulkanContext::FlushFrameRecordingAndWait()
@@ -1185,7 +1196,16 @@ namespace OloEngine
             {
                 accepted = true;
                 constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
-                result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
+                if (s_FailNextFlushWaits > 0u)
+                {
+                    --s_FailNextFlushWaits;
+                    OLO_CORE_WARN("[Vulkan] flush: failing the fence wait by test injection");
+                    result = VK_ERROR_OUT_OF_HOST_MEMORY;
+                }
+                else
+                {
+                    result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
+                }
                 if (result == VK_TIMEOUT)
                 {
                     // The submission may STILL be executing, and the
@@ -1199,19 +1219,6 @@ namespace OloEngine
                                    "completion or device loss before recycling the command buffer");
                     result = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
                 }
-                if (result == VK_SUCCESS)
-                {
-                    // Either wait may prove completion. A timeout followed by
-                    // success must publish layouts; an error from either wait must not.
-                    // The recording is on the queue AND retired: recorded and
-                    // executed layouts have converged (issue #800). This is
-                    // deliberately NOT gated on the aggregate `ok` below — a
-                    // failure to REOPEN the bracket does not un-execute what
-                    // the GPU already ran, and leaving the executed layout
-                    // stale would make the fallback read barrier from a layout
-                    // the image is no longer in.
-                    api.LayoutTracker().CommitRecordedToExecuted();
-                }
                 if (result != VK_SUCCESS)
                 {
                     OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));
@@ -1219,13 +1226,14 @@ namespace OloEngine
                     {
                         d.Device.LogDeviceFaultInfo();
                     }
-                    else
+                    else if (vkQueueWaitIdle(d.Device.GetQueue()) != VK_SUCCESS)
                     {
-                        // An error wait (OOM) proves nothing about the fence:
-                        // destroying a possibly-in-flight fence is invalid
-                        // usage (VUID-vkDestroyFence-fence-01120).
-                        // Deliberately leak this one instead — the leak beats
-                        // UB. (On DEVICE_LOST the destroy below is legal.)
+                        // An error wait (OOM) proves nothing about the fence, so
+                        // the queue is drained before the command buffer below is
+                        // reset. If even that fails, destroying a possibly
+                        // in-flight fence is invalid usage
+                        // (VUID-vkDestroyFence-fence-01120): leak this one, the
+                        // leak beats UB. (On DEVICE_LOST the destroy is legal.)
                         fence = VK_NULL_HANDLE;
                     }
                     ok = false;
@@ -1236,11 +1244,17 @@ namespace OloEngine
         {
             vkDestroyFence(device, fence, nullptr);
         }
-        // The reset below throws away commands that never reached the queue.
-        // Their layout transitions never happen, so the next barrier must start
-        // from the executed layouts. An accepted submit whose wait failed keeps
-        // its recorded layouts: the GPU may still run that work.
-        if (!accepted)
+        // Once the queue accepts the recording its transitions will execute,
+        // whatever the wait reported, so recorded and executed layouts converge
+        // (issue #800). This is NOT gated on the aggregate `ok`: a failed wait
+        // or a failure to reopen the bracket does not un-run the GPU's work, and
+        // a stale executed layout would let a later rollback or borrowed read
+        // name a layout the image has left. Commands that never reached the
+        // queue are thrown away by the reset below; their transitions never
+        // happen, so the recorded layouts return to the executed ones.
+        if (accepted)
+            api.LayoutTracker().CommitRecordedToExecuted();
+        else
             api.LayoutTracker().RevertRecordedToExecuted();
 
         // A successful flush proves the old segment's queries completed. A

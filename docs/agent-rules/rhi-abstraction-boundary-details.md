@@ -3123,14 +3123,16 @@ issue #800, exactly as reported.
 **The fix is to stop overloading the value.** The tracker now carries a second
 layout per subresource — the layout after all *submitted* work:
 
-- `CommitRecordedToExecuted()` at the end of `EndRecording` (and after a
-  successful mid-frame flush) advances it: the bracket closing is what puts the
+- `CommitRecordedToExecuted()` at the end of `EndRecording` (and once the queue
+  accepts a mid-frame flush) advances it: the bracket closing is what puts the
   recording on the queue.
 - `RevertRecordedToExecuted()` is its opposite, for a mid-frame flush whose end,
   fence or submit failed. The command-buffer reset throws those commands away, so
   their transitions never happen and every recorded layout returns to the
-  executed one. A flush the queue accepted but whose wait failed keeps its
-  recorded layouts: the GPU may still run that work.
+  executed one. A flush the queue accepted commits its layouts even when the
+  fence wait then fails, because the GPU still runs that work; otherwise a later
+  rollback would name a layout the image has left. A wait error other than
+  device loss drains the queue before the command buffer is reset.
 - `VulkanImageLayoutTracker::ImmediateExecutionScope`, opened by
   `VulkanOneShot::Submit` around its record callback, makes writes inside it
   advance **both** — that work reaches the queue as it is recorded. This is what
