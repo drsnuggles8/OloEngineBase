@@ -2004,7 +2004,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(UnderwaterFogUBOData) % 16 == 0, "UnderwaterFogUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(UnderwaterFogUBOData) == 272,"UnderwaterFogUBOData unexpected size — update GLSL layout");
+    static_assert(sizeof(UnderwaterFogUBOData) == 272, "UnderwaterFogUBOData unexpected size — update GLSL layout");
 
     // Local fog volume shape type (matches FogVolumeShape enum in Components.h)
     static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;
