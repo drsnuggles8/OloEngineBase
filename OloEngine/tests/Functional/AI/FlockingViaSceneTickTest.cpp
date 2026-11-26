@@ -203,6 +203,39 @@ TEST_F(FlockingViaSceneTickTest, ParentedBoidSteersAndMovesTowardsItsWorldGoal)
     EXPECT_NEAR(glm::distance(forward, glm::normalize(boid.m_Velocity)), 0.0f, 1.0e-5f);
 }
 
+TEST_F(FlockingViaSceneTickTest, MirroredRootAndIdentityParentRenderTheSameForwardAxis)
+{
+    Entity root = m_Boids[0];
+    Entity child = m_Boids[1];
+    child.SetParent(GetScene().CreateEntity("Identity carrier"));
+    const glm::vec3 heading = glm::normalize(glm::vec3(1.0f, 0.0f, -1.0f));
+    for (Entity boid : { root, child })
+    {
+        boid.GetComponent<TransformComponent>().Scale.z = -1.0f;
+        ASSERT_TRUE(GetScene().TrySetWorldForward(boid, heading, { 0, 1, 0 }));
+        const glm::vec3 rendered = glm::normalize(-glm::vec3(GetScene().ComputeWorldTransform(boid)[2]));
+        EXPECT_NEAR(glm::distance(rendered, heading), 0.0f, 1.0e-5f);
+    }
+}
+
+TEST_F(FlockingViaSceneTickTest, ForwardWriteReportsOnlyRepresentableStoredHeadings)
+{
+    Entity rig = GetScene().CreateEntity("Thin carrier");
+    rig.GetComponent<TransformComponent>().Scale = { 1.0e-12f, 1.0f, 1.0f };
+    Entity child = m_Boids.front();
+    child.SetParent(rig);
+    auto& local = child.GetComponent<TransformComponent>();
+    const glm::quat before = local.GetRotation();
+    const glm::vec3 heading = glm::normalize(glm::vec3(1.0f, 0.0f, -1.0f));
+    if (GetScene().TrySetWorldForward(child, heading, { 0, 1, 0 }))
+    {
+        const glm::vec3 rendered = glm::normalize(-glm::vec3(GetScene().ComputeWorldTransform(child)[2]));
+        EXPECT_LE(glm::distance(rendered, heading), 1.0e-4f);
+    }
+    else
+        EXPECT_TRUE(Math::BitwiseEqual(local.GetRotation(), before));
+}
+
 TEST_F(FlockingViaSceneTickTest, FlockConvergesAndStaysBounded)
 {
     const f32 initialSpread = MeanRadius();

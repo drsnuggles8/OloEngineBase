@@ -3244,24 +3244,37 @@ namespace OloEngine
     bool Scene::TrySetWorldForward(entt::entity entity, const glm::vec3& forward, const glm::vec3& up)
     {
         auto& local = m_Registry.get<TransformComponent>(entity);
+        glm::mat3 parentBasis(1.0f);
+        glm::quat candidate;
         if (ResolveTransformParent(entity) == entt::null)
         {
-            local.SetRotation(glm::quatLookAt(forward, up));
-            return true;
+            // Mirroring local Z reverses the mesh's visible forward axis.
+            candidate = glm::quatLookAt(std::copysign(1.0f, local.Scale.z) * forward, up);
         }
-        const glm::mat3 parentBasis(ComputeParentWorldTransform(entity));
-        const auto inverse = InverseParentBasis(parentBasis);
-        if (!inverse)
+        else
+        {
+            parentBasis = glm::mat3(ComputeParentWorldTransform(entity));
+            const auto inverse = InverseParentBasis(parentBasis);
+            if (!inverse)
+                return false;
+            const glm::dvec3 worldBack(-forward);
+            const f64 sign = std::copysign(1.0, local.Scale.z);
+            const glm::dvec3 back = glm::normalize(*inverse * worldBack) * sign;
+            // Cross products of inverse-transformed directions use the dual basis.
+            // This keeps the right axis precise even for strongly unequal scales.
+            const glm::dmat3 parent(parentBasis);
+            const f64 handedness = std::copysign(1.0, glm::determinant(parent));
+            const glm::dvec3 right = glm::normalize(glm::transpose(parent) * glm::cross(glm::dvec3(up), worldBack)) * (sign * handedness);
+            candidate = glm::quat(glm::quat_cast(glm::dmat3(right, glm::cross(back, right), back)));
+        }
+        // Validate the normalized f32 quaternion that SetRotation will store.
+        // The parent can amplify its rounding enough to reverse a heading.
+        const glm::vec3 localBack = glm::mat3_cast(glm::normalize(candidate))[2] * local.Scale.z;
+        const glm::dvec3 renderedBack(parentBasis * localBack);
+        const f64 length = glm::length(renderedBack);
+        if (!(length > 0.0) || !(glm::distance(-renderedBack / length, glm::dvec3(forward)) <= 1.0e-4))
             return false;
-        const glm::dvec3 worldBack(-forward);
-        const f64 sign = std::copysign(1.0, local.Scale.z);
-        const glm::dvec3 back = glm::normalize(*inverse * worldBack) * sign;
-        // Cross products of inverse-transformed directions use the dual basis.
-        // This keeps the right axis precise even for strongly unequal scales.
-        const glm::dmat3 parent(parentBasis);
-        const f64 handedness = std::copysign(1.0, glm::determinant(parent));
-        const glm::dvec3 right = glm::normalize(glm::transpose(parent) * glm::cross(glm::dvec3(up), worldBack)) * (sign * handedness);
-        local.SetRotation(glm::quat(glm::quat_cast(glm::dmat3(right, glm::cross(back, right), back))));
+        local.SetRotation(candidate);
         return true;
     }
 
