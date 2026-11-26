@@ -847,6 +847,7 @@ namespace OloEngine
         m_Pending2DShapes.erase(entity);
         m_RejectedPhysicsWritebacks.erase(entity);
         m_TerrainCollisionFrames.erase(entity);
+        m_TerrainCollisionRetryTicks.erase(entity);
         // Capture UUID before the Lua callback — the script may re-entrantly
         // destroy this entity, invalidating the handle. Capture the name too, for
         // the diagnostics timeline recorded once the destroy actually completes.
@@ -7994,6 +7995,7 @@ namespace OloEngine
     void Scene::OnComponentRemoved<TerrainComponent>(Entity entity, TerrainComponent& component)
     {
         m_TerrainCollisionFrames.erase(entity);
+        m_TerrainCollisionRetryTicks.erase(entity);
         if (m_JoltScene)
             m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
         if (m_JoltScene && component.m_RuntimeCollisionBodyToken != 0)
@@ -8692,7 +8694,8 @@ namespace OloEngine
         // runtime render path); otherwise they are generated GPU-free so headless runtimes
         // (dedicated server, functional tests) still get collision — GenerateHeightField
         // produces the identical field the render path's GenerateHeightmap would.
-        void BuildTerrainCollisionBody(JoltScene& joltScene, Entity entity, TerrainComponent& terrain)
+        void BuildTerrainCollisionBody(JoltScene& joltScene, Entity entity, TerrainComponent& terrain, const glm::mat3& bodyBasis,
+                                       const glm::vec3& position, const glm::quat& rotation)
         {
             // Drop any prior terrain body first, so every early-out below (collision
             // disabled, streaming, no CPU heights, shape build failure) leaves a
@@ -8721,9 +8724,6 @@ namespace OloEngine
                 return;
             }
 
-            const auto pose = entity.GetScene()->ComputeWorldTRS(entity);
-            const glm::mat4 model = entity.GetScene()->ComputeWorldTransform(entity);
-            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(model);
             JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainCollisionShape(
                 heights, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, bodyBasis);
             if (!shape)
@@ -8732,7 +8732,7 @@ namespace OloEngine
                 return;
             }
 
-            JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, pose.Position, pose.Rotation);
+            JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, position, rotation);
             terrain.m_RuntimeCollisionBodyToken = bodyID.IsInvalid() ? 0 : static_cast<u64>(bodyID.GetIndexAndSequenceNumber());
         }
 
@@ -8746,14 +8746,11 @@ namespace OloEngine
         // translate(tile.WorldOrigin) — see submitChunkPackets), so collision coincides
         // with the rendered tile.
         void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity,
-                                                const TArray<Ref<TerrainTile>>& readyTiles)
+                                                const TArray<Ref<TerrainTile>>& readyTiles, const glm::mat4& model, const glm::quat& rotation)
         {
             const UUID entityID = entity.GetUUID();
 
-            const auto pose = entity.GetScene()->ComputeWorldTRS(entity);
-            const glm::mat4 model = entity.GetScene()->ComputeWorldTransform(entity);
-            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(model);
-            const glm::quat rotation = pose.Rotation;
+            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(rotation)) * glm::mat3(model);
 
             // `readyTiles` is the SAME per-frame snapshot the render submit path uses, taken
             // once by the caller (GetReadyTiles takes a shared lock + copies) — an empty list
@@ -8948,10 +8945,14 @@ namespace OloEngine
         for (auto entity : terrainView)
         {
             Entity ent = { entity, this };
-            BuildTerrainCollisionBody(*m_JoltScene, ent, ent.GetComponent<TerrainComponent>());
-            const glm::mat4 model = ComputeWorldTransform(entity);
-            const glm::mat3 shapeBasis = glm::transpose(glm::mat3_cast(ComputeWorldTRS(entity).Rotation)) * glm::mat3(model);
-            m_TerrainCollisionFrames[entity] = { model, shapeBasis, ent.GetComponent<TerrainComponent>().m_StreamingEnabled };
+            auto& terrain = ent.GetComponent<TerrainComponent>();
+            if (!terrain.m_CollisionEnabled)
+                continue;
+            const auto frame = CaptureTerrainCollisionFrame(entity, terrain.m_StreamingEnabled);
+            if (frame.Streamed)
+                m_TerrainCollisionFrames[entity] = frame;
+            else
+                RebuildTerrainCollision(ent, terrain, frame);
         }
 
         // Cloth pass: build a Jolt soft body for every enabled ClothComponent from its
@@ -8997,6 +8998,7 @@ namespace OloEngine
     void Scene::OnPhysics3DStop()
     {
         m_TerrainCollisionFrames.clear();
+        m_TerrainCollisionRetryTicks.clear();
         // Idempotent: m_JoltScene is a lifetime member (created in the ctor and
         // never nulled), so guard on whether physics is actually *running*, not on
         // the pointer. A second OnPhysics3DStop (e.g. a manual stop followed by a
@@ -9092,6 +9094,30 @@ namespace OloEngine
         m_JoltScene->Shutdown();
     }
 
+    Scene::TerrainCollisionPlacement Scene::CaptureTerrainCollisionFrame(entt::entity entity, bool streamed) const
+    {
+        const glm::mat4 model = ComputeWorldTransform(entity);
+        const glm::quat rotation = ComputeWorldTRS(entity).Rotation;
+        return { model, glm::transpose(glm::mat3_cast(rotation)) * glm::mat3(model), rotation, streamed };
+    }
+
+    void Scene::RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame)
+    {
+        BuildTerrainCollisionBody(*m_JoltScene, entity, terrain, frame.ShapeBasis, glm::vec3(frame.Model[3]), frame.Rotation);
+        if (m_JoltScene->HasTerrainBody(entity.GetUUID()))
+        {
+            m_TerrainCollisionFrames[entity] = frame;
+            m_TerrainCollisionRetryTicks.erase(entity);
+        }
+        else
+        {
+            m_TerrainCollisionFrames.erase(entity);
+            // A missing heightmap can become available later. Back off for one
+            // second at 60 Hz; a render/brush rebuild can retry immediately.
+            m_TerrainCollisionRetryTicks[entity] = 60;
+        }
+    }
+
     void Scene::SyncTerrainCollisionFrames()
     {
         // The gameplay scheduler also ticks scenes with 3D physics disabled.
@@ -9104,6 +9130,7 @@ namespace OloEngine
             Entity entity(e, this);
             if (!terrain.m_CollisionEnabled)
             {
+                m_TerrainCollisionRetryTicks.erase(e);
                 if (m_TerrainCollisionFrames.erase(e))
                 {
                     m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
@@ -9112,6 +9139,12 @@ namespace OloEngine
                 }
                 continue;
             }
+            if (const auto retry = m_TerrainCollisionRetryTicks.find(e); retry != m_TerrainCollisionRetryTicks.end())
+            {
+                if (--retry->second != 0 && !terrain.m_StreamingEnabled)
+                    continue;
+                m_TerrainCollisionRetryTicks.erase(retry);
+            }
             const glm::mat4 world = ComputeWorldTransform(e);
             const auto previous = m_TerrainCollisionFrames.find(e);
             if (previous != m_TerrainCollisionFrames.end() && previous->second.Streamed == terrain.m_StreamingEnabled &&
@@ -9119,6 +9152,7 @@ namespace OloEngine
                 continue;
             const auto pose = ComputeWorldTRS(e);
             const glm::mat3 shapeBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(world);
+            const TerrainCollisionPlacement frame{ world, shapeBasis, pose.Rotation, terrain.m_StreamingEnabled };
             bool rebuild = previous == m_TerrainCollisionFrames.end() || previous->second.Streamed != terrain.m_StreamingEnabled;
             for (glm::length_t i = 0; i < 3 && !rebuild; ++i)
             {
@@ -9130,21 +9164,25 @@ namespace OloEngine
                 m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
                 m_JoltScene->DestroyTerrainBody(entity.GetUUID());
                 terrain.m_RuntimeCollisionBodyToken = 0;
-                m_TerrainCollisionFrames[e] = { world, shapeBasis, terrain.m_StreamingEnabled };
+                if (terrain.m_StreamingEnabled)
+                    m_TerrainCollisionFrames[e] = frame;
             }
             else
+            {
                 previous->second.Model = world;
+                previous->second.Rotation = pose.Rotation;
+            }
             if (terrain.m_StreamingEnabled)
             {
                 if (!terrain.m_Streamer)
                     continue;
                 TArray<Ref<TerrainTile>> ready;
                 terrain.m_Streamer->GetReadyTiles(ready);
-                ReconcileStreamingTerrainCollision(*m_JoltScene, entity, ready);
+                ReconcileStreamingTerrainCollision(*m_JoltScene, entity, ready, world, pose.Rotation);
             }
             else if (rebuild)
             {
-                BuildTerrainCollisionBody(*m_JoltScene, entity, terrain);
+                RebuildTerrainCollision(entity, terrain, frame);
             }
             else
             {
@@ -9177,7 +9215,7 @@ namespace OloEngine
 
         // No live body yet (terrain built after OnPhysics3DStart, or a prior build failed).
         // Build a fresh full body from the current heights so collision still reflects the edit.
-        BuildTerrainCollisionBody(*m_JoltScene, terrainEntity, terrain);
+        RebuildTerrainCollision(terrainEntity, terrain, CaptureTerrainCollisionFrame(terrainEntity, false));
         return m_JoltScene->HasTerrainBody(entityID);
     }
 
@@ -14473,7 +14511,8 @@ namespace OloEngine
                         if (m_JoltScene && m_JoltScene->IsInitialized())
                         {
                             Entity terrainEnt = { entity, this };
-                            BuildTerrainCollisionBody(*m_JoltScene, terrainEnt, terrain);
+                            if (terrain.m_CollisionEnabled)
+                                RebuildTerrainCollision(terrainEnt, terrain, CaptureTerrainCollisionFrame(entity, false));
                         }
                     }
 
@@ -14964,7 +15003,10 @@ namespace OloEngine
                     {
                         Entity terrainEnt = { entity, this };
                         if (terrain.m_CollisionEnabled)
-                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles);
+                        {
+                            const auto frame = CaptureTerrainCollisionFrame(entity, true);
+                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles, frame.Model, frame.Rotation);
+                        }
                         else
                             m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
                     }

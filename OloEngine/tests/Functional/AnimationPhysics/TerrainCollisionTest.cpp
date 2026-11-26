@@ -195,6 +195,30 @@ TEST_F(TerrainWithoutPhysicsTest, GameplayTickLeavesTerrainCollisionUnbuilt)
     EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
 }
 
+TEST_F(TerrainWithoutPhysicsTest, EnablingCollisionBeforeFirstTickBuildsTheBody)
+{
+    Entity entity = GetScene().GetEntityByUUID(m_TerrainID);
+    auto& terrain = entity.GetComponent<TerrainComponent>();
+    terrain.m_CollisionEnabled = false;
+    EnablePhysics3D();
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+    terrain.m_CollisionEnabled = true;
+    RunFrames(1);
+    EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
+TEST_F(TerrainWithoutPhysicsTest, MissingHeightDataIsRetriedWhenItBecomesAvailable)
+{
+    Entity entity = GetScene().GetEntityByUUID(m_TerrainID);
+    auto& terrain = entity.GetComponent<TerrainComponent>();
+    terrain.m_HeightmapPath = Tests::TempFile("missing-height.png").generic_string();
+    EnablePhysics3D();
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+    terrain.m_HeightmapPath.clear(); // flat CPU height field is now available
+    RunFrames(61);
+    EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
 class TerrainCollisionHierarchyTest : public FunctionalTest
 {
   protected:
