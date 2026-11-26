@@ -609,6 +609,7 @@ namespace OloEngine::Tests
         m_Terrain.GetComponent<TransformComponent>() = parent;
         std::vector<u8> root, child;
         ASSERT_NO_FATAL_FAILURE(Capture(root));
+        WriteEvidence(EvidenceName("ParentedTerrainOff", "StreamedTile"), root);
         ASSERT_TRUE(terrain.m_Streamer);
         ASSERT_TRUE(terrain.m_Streamer->GetTile(1, -1));
         ASSERT_EQ(terrain.m_Streamer->GetLoadedTileCount(), 1u);
@@ -616,7 +617,6 @@ namespace OloEngine::Tests
         m_Terrain.SetParent(rig);
         m_Terrain.GetComponent<TransformComponent>() = TransformComponent{};
         ASSERT_NO_FATAL_FAILURE(Capture(child));
-        WriteEvidence(EvidenceName("ParentedTerrainOff", "StreamedTile"), root);
         WriteEvidence(EvidenceName("ParentedTerrain", "StreamedTile"), child);
         const f64 difference = ChangedFraction(root, child);
         EXPECT_LT(difference, 0.015);
@@ -708,6 +708,7 @@ namespace OloEngine::Tests
         auto& camera = m_Camera.GetComponent<TransformComponent>();
         camera.Translation = target + offset;
         camera.SetRotationEuler({ -glm::quarter_pi<f32>(), 0, 0 });
+        m_Camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(60.0f), 0.5f, 1000.0f);
         std::vector<u8> root, child, bare;
         ASSERT_NO_FATAL_FAILURE(Capture(root));
         ASSERT_TRUE(foliage.m_Renderer);
@@ -729,6 +730,7 @@ namespace OloEngine::Tests
         EXPECT_LT(twinDiff, 0.015);
         foliage.m_Enabled = false;
         ASSERT_NO_FATAL_FAILURE(Capture(bare));
+        WriteEvidence(EvidenceName("ParentedTerrainBare", "Foliage"), bare);
         const f64 coverage = ChangedFraction(child, bare);
         EXPECT_GT(coverage, 0.001) << "removing the grass should change visible terrain pixels";
         std::cout << "[ParentedTerrain] " << EvidenceName("ParentedTerrain", "Foliage")

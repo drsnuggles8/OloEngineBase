@@ -14555,40 +14555,6 @@ namespace OloEngine
                         terrain.m_VirtualTexture = nullptr;
                     }
 
-                    // Run quadtree LOD selection each frame if tessellation is enabled.
-                    // Node bounds are terrain-local; transform the world camera / VP /
-                    // frustum into that local space (precise far from origin, #429).
-                    if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
-                    {
-                        // Culling camera (#726): the quadtree descent is LOD
-                        // selection AND frustum culling in one, so both halves
-                        // must stay frozen or the terrain silently re-tessellates
-                        // around the observer.
-                        const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
-                            GetWorldTransform(entity), cullCameraPosition, cullViewProjection);
-
-                        // GPU descent first (issue #714): it does the whole
-                        // selection + seam resolution on the GPU and leaves an
-                        // indirect draw behind, so neither SelectLOD nor
-                        // ResolveNeighborLODs runs at all. It returns false when
-                        // the GPU tree is unusable (compute shaders unavailable,
-                        // or OLO_TERRAIN_CPU_LOD=1), and only then does the CPU
-                        // descent run.
-                        const f32 targetTriangleSize =
-                            SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
-
-                        if (!terrain.m_ChunkManager->DispatchGPULOD(
-                                local.ViewFrustum, local.CameraPos, local.ViewProjection,
-                                static_cast<f32>(m_ViewportHeight), targetTriangleSize))
-                        {
-                            terrain.m_ChunkManager->SelectVisibleChunks(
-                                local.ViewFrustum,
-                                local.CameraPos,
-                                local.ViewProjection,
-                                static_cast<f32>(m_ViewportHeight));
-                        }
-                    }
-
                     // GPU terrain picking (issue #717). DELIBERATELY OUTSIDE the
                     // tessellation gate above: picking is an editor interaction
                     // that has to answer in every terrain scene, and the LOD
@@ -14914,7 +14880,7 @@ namespace OloEngine
                 auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
                 for (auto entity : terrainRenderView)
                 {
-                    const auto& terrain = terrainRenderView.get<TerrainComponent>(entity);
+                    auto& terrain = terrainRenderView.get<TerrainComponent>(entity);
                     const TerrainFrame terrainFrame{ GetWorldTransform(entity) };
 
                     bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
@@ -14993,17 +14959,18 @@ namespace OloEngine
                         // by: the size of the main view's own terrain triangles.
                         const f32 shadowPixelSizePerMetre =
                             TerrainShadowLod::PixelSizePerMetre(cullViewProjection, static_cast<f32>(m_ViewportHeight));
-                        const f32 shadowTargetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
+                        const f32 targetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
+                        const f32 viewportHeight = static_cast<f32>(m_ViewportHeight);
                         auto submitChunkPackets = [&terrain, &terrainFrame, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
                                                    &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
-                                                   shadowPixelSizePerMetre, shadowTargetTrianglePixels](const TerrainChunkManager& chunkMgr,
-                                                                                                        const TerrainData* terrainData,
-                                                                                                        const TerrainMaterial* tileMaterial,
-                                                                                                        f32 worldSizeX, f32 worldSizeZ,
-                                                                                                        f32 heightScale,
-                                                                                                        const glm::vec3& tileWorldOrigin)
+                                                   shadowPixelSizePerMetre, targetTrianglePixels, viewportHeight](TerrainChunkManager& chunkMgr,
+                                                                                                                  const TerrainData* terrainData,
+                                                                                                                  const TerrainMaterial* tileMaterial,
+                                                                                                                  f32 worldSizeX, f32 worldSizeZ,
+                                                                                                                  f32 heightScale,
+                                                                                                                  const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -15136,21 +15103,15 @@ namespace OloEngine
                             // derives each instance's terrain rect and seam
                             // deltas from the list the compute pass built.
                             const auto& gpuQuadtree = chunkMgr.GetGPUQuadtree();
-                            // The patch mesh is part of the GPU path's viability,
-                            // not a detail inside it. Treating it as an inner
-                            // check meant a null mesh drew NO terrain at all —
-                            // the branch was already taken, so the CPU path below
-                            // never ran. Asked for only once the rest of the path
-                            // is viable, because GetSharedPatchMesh() BUILDS the
-                            // mesh on first call and a context-less path must not
-                            // be made to build a vertex array it will never draw.
+                            // Select on the manager that will draw, once per tile and view.
+                            // Streamed tiles own separate quadtrees; the entity-level
+                            // manager exists only for single-tile terrain.
                             const Ref<VertexArray>* gpuPatchMesh = nullptr;
-                            if (useTess && gpuQuadtree && gpuQuadtree->HasDispatched())
+                            if (useTess && chunkMgr.DispatchGPULOD(tileCull.ViewFrustum, tileCull.CameraPos, tileCull.ViewProjection,
+                                                                   viewportHeight, targetTrianglePixels))
                             {
                                 if (const auto& mesh = TerrainGPUQuadtree::GetSharedPatchMesh())
-                                {
                                     gpuPatchMesh = &mesh;
-                                }
                             }
                             const bool gpuDriven = (gpuPatchMesh != nullptr);
                             if (gpuDriven)
@@ -15191,6 +15152,8 @@ namespace OloEngine
                             }
                             else if (useTess)
                             {
+                                chunkMgr.SelectVisibleChunks(tileCull.ViewFrustum, tileCull.CameraPos,
+                                                             tileCull.ViewProjection, viewportHeight);
                                 const auto& selectedChunks = chunkMgr.GetSelectedChunks();
                                 for (const auto& rc : selectedChunks)
                                 {
@@ -15310,7 +15273,7 @@ namespace OloEngine
                                             .Transform(tileModel);
                                     const glm::vec3 nearest = glm::clamp(cullCameraPosition, tileBounds.Min, tileBounds.Max);
                                     if (TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
-                                                                 shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                 shadowPixelSizePerMetre, targetTrianglePixels,
                                                                  shadowCoarsestReceiverQuad) == TerrainShadowLod::kLevelCount - 1u)
                                     {
                                         // A flat grid: its height is always the
@@ -15355,7 +15318,7 @@ namespace OloEngine
                                     {
                                         const glm::vec3 nearest = glm::clamp(cullCameraPosition, worldBounds.Min, worldBounds.Max);
                                         shadowLevel = TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
-                                                                               shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                               shadowPixelSizePerMetre, targetTrianglePixels,
                                                                                shadowCoarsestReceiverQuad);
                                     }
                                     else
