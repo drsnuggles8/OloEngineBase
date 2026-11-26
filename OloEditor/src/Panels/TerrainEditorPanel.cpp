@@ -49,22 +49,22 @@ namespace OloEngine
         ImGui::Text("Edit Mode:");
         ImGui::SameLine();
         if (ImGui::RadioButton("None", m_EditMode == TerrainEditMode::None))
-            m_EditMode = TerrainEditMode::None;
+            SetEditMode(TerrainEditMode::None);
         ImGui::SameLine();
         if (ImGui::RadioButton("Generate", m_EditMode == TerrainEditMode::Generate))
-            m_EditMode = TerrainEditMode::Generate;
+            SetEditMode(TerrainEditMode::Generate);
         ImGui::SameLine();
         if (ImGui::RadioButton("Sculpt", m_EditMode == TerrainEditMode::Sculpt))
-            m_EditMode = TerrainEditMode::Sculpt;
+            SetEditMode(TerrainEditMode::Sculpt);
         ImGui::SameLine();
         if (ImGui::RadioButton("Paint", m_EditMode == TerrainEditMode::Paint))
-            m_EditMode = TerrainEditMode::Paint;
+            SetEditMode(TerrainEditMode::Paint);
         ImGui::SameLine();
         if (ImGui::RadioButton("Voxel", m_EditMode == TerrainEditMode::Voxel))
-            m_EditMode = TerrainEditMode::Voxel;
+            SetEditMode(TerrainEditMode::Voxel);
         ImGui::SameLine();
         if (ImGui::RadioButton("Erosion", m_EditMode == TerrainEditMode::Erosion))
-            m_EditMode = TerrainEditMode::Erosion;
+            SetEditMode(TerrainEditMode::Erosion);
 
         ImGui::Separator();
 
@@ -384,8 +384,10 @@ namespace OloEngine
         }
     }
 
-    void TerrainEditorPanel::OnFrameTick(bool editingAllowed)
+    void TerrainEditorPanel::OnFrameTick(bool editingAllowed, bool mouseDown)
     {
+        if (!editingAllowed || !mouseDown)
+            EndStroke();
         if (!editingAllowed)
         {
             // Not a reason to return early: an in-flight session must still settle,
@@ -439,7 +441,7 @@ namespace OloEngine
             return;
         }
 
-        Entity strokeEnt = (m_Context && m_StrokeEntity != entt::null)
+        Entity strokeEnt = (m_Context && m_Context->GetAllEntitiesWith<TerrainComponent>().contains(m_StrokeEntity))
                                ? Entity{ m_StrokeEntity, m_Context.get() }
                                : Entity{};
         const UUID strokeUUID = strokeEnt ? strokeEnt.GetUUID() : UUID(0);
@@ -651,16 +653,17 @@ namespace OloEngine
         }
     }
 
-    void TerrainEditorPanel::OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown)
+    void TerrainEditorPanel::EndStroke()
     {
-        m_BrushWorldPos = hitPos;
-        m_HasBrushHit = hasHit;
-
-        // Stroke end detection: was painting but mouse released
-        if (m_StrokeActive && !mouseDown)
+        if (m_StrokeActive)
         {
             // Finalize stroke and push undo command
-            if (m_StrokeUsesGPU)
+            if (m_StrokeVoxels)
+            {
+                if (m_CommandHistory && !m_VoxelStroke.Empty())
+                    m_CommandHistory->PushAlreadyExecuted(std::make_unique<VoxelEditCommand>(m_StrokeVoxels, std::move(m_VoxelStroke)));
+            }
+            else if (m_StrokeUsesGPU)
             {
                 // GPU path: undo is a pair of texture-region snapshots rather than a
                 // pair of std::vector regions, so the commit is entirely different
@@ -669,26 +672,20 @@ namespace OloEngine
                 // texel actually touched is not an undo step.
                 if (m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
                 {
-                    if (m_EditMode == TerrainEditMode::Sculpt)
+                    if (m_StrokeTerrainData)
                     {
                         CommitGPUSculptStroke();
                     }
-                    else if (m_EditMode == TerrainEditMode::Paint)
+                    else if (m_StrokeMaterial)
                     {
                         CommitGPUPaintStroke();
-                    }
-                    else
-                    {
-                        // No additional handling required — Voxel commits in
-                        // OnVoxelUpdate, and the remaining modes take no stroke.
                     }
                 }
 
                 // Settle work deferred off the per-frame path (issue #716). Both of
                 // these read the CPU mirror, so this is where the stroke's ONE
                 // readback happens — not one per drag frame.
-                if (m_EditMode == TerrainEditMode::Sculpt && m_StrokeTerrainData &&
-                    m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
+                if (m_StrokeTerrainData && m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
                 {
                     if (m_StrokeChunkManager)
                     {
@@ -699,7 +696,7 @@ namespace OloEngine
                                                          m_StrokeHeightScale);
                     }
 
-                    if (m_Context && m_StrokeEntity != entt::null)
+                    if (m_Context && m_Context->GetAllEntitiesWith<TerrainComponent>().contains(m_StrokeEntity))
                     {
                         Entity strokeEnt{ m_StrokeEntity, m_Context.get() };
                         if (strokeEnt)
@@ -712,7 +709,7 @@ namespace OloEngine
             }
             else if (m_CommandHistory && m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
             {
-                if (m_EditMode == TerrainEditMode::Sculpt && m_StrokeTerrainData)
+                if (m_StrokeTerrainData)
                 {
                     // Extract old heights for the dirty region from the full snapshot
                     u32 resolution = m_StrokeTerrainData->GetResolution();
@@ -739,7 +736,7 @@ namespace OloEngine
                     // Resolve the stroke's terrain entity once: the undo command uses it to
                     // refresh collision on redo/undo (held weakly, issue #469 review), and the
                     // stroke-settle call below covers the initial live-applied stroke.
-                    Entity strokeEnt = (m_Context && m_StrokeEntity != entt::null)
+                    Entity strokeEnt = (m_Context && m_Context->GetAllEntitiesWith<TerrainComponent>().contains(m_StrokeEntity))
                                            ? Entity{ m_StrokeEntity, m_Context.get() }
                                            : Entity{};
                     const UUID strokeUUID = strokeEnt ? strokeEnt.GetUUID() : UUID(0);
@@ -761,7 +758,7 @@ namespace OloEngine
                             strokeEnt, m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH);
                     }
                 }
-                else if (m_EditMode == TerrainEditMode::Paint && m_StrokeMaterial)
+                else if (m_StrokeMaterial)
                 {
                     u32 resolution = m_StrokeMaterial->GetSplatmapResolution();
                     constexpr u32 channels = 4;
@@ -832,10 +829,6 @@ namespace OloEngine
                                 std::move(oldRegion0), std::move(newSplatmap0)));
                     }
                 }
-                // No Voxel case here: EditorLayer routes Voxel mode to
-                // OnVoxelUpdate instead of this function, which is where the
-                // stroke is committed. The resets below still clear the voxel
-                // stroke state, so a mode switch mid-stroke leaves nothing behind.
             }
 
             m_StrokeActive = false;
@@ -852,42 +845,33 @@ namespace OloEngine
             m_VoxelStroke = {};
             m_StrokeEntity = entt::null;
         }
+    }
 
-        if (!hasHit || !mouseDown || m_EditMode == TerrainEditMode::None || !m_Context)
-            return;
-
-        auto terrainView = m_Context->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-
-        for (auto entity : terrainView)
+    void TerrainEditorPanel::OnUpdate(f32 deltaTime, Entity hitTerrain, const glm::vec3& hitPos, bool mouseDown)
+    {
+        if (!mouseDown)
+            EndStroke();
+        m_BrushWorldPos = hitPos;
+        m_HasBrushHit = hitTerrain && hitTerrain.GetScene() == m_Context.Raw() &&
+                        hitTerrain.HasComponent<TerrainComponent>() &&
+                        (!m_StrokeActive || m_StrokeEntity == static_cast<entt::entity>(hitTerrain));
+        if (m_HasBrushHit && mouseDown)
         {
-            auto& terrain = terrainView.get<TerrainComponent>(entity);
-
+            auto& terrain = hitTerrain.GetComponent<TerrainComponent>();
+            if (m_StrokeActive && ((m_StrokeTerrainData && terrain.m_TerrainData != m_StrokeTerrainData) ||
+                                   (m_StrokeMaterial && terrain.m_Material != m_StrokeMaterial)))
+                return;
             if (!terrain.m_TerrainData || !terrain.m_ChunkManager || !terrain.m_ChunkManager->IsBuilt())
-                continue;
+                return;
 
-            const TerrainFrame frame{ m_Context->ComputeWorldTransform(entity) };
+            const TerrainFrame frame{ m_Context->ComputeWorldTransform(hitTerrain) };
             const auto localHit = frame.ToLocal(hitPos);
             if (!localHit || localHit->x < 0.0f || localHit->z < 0.0f ||
                 localHit->x > terrain.m_WorldSizeX || localHit->z > terrain.m_WorldSizeZ)
-                continue;
+                return;
             const auto projection = TerrainBrushProjection::FromTerrain(frame.Model, localHit->y, terrain.m_HeightScale, *terrain.m_TerrainData);
             if (m_EditMode == TerrainEditMode::Sculpt)
             {
-                // Three conditions, and the third is the interesting one. The GPU
-                // sculpt path defers the chunk-mesh rebuild to stroke settle, because
-                // that rebuild reads the CPU mirror and doing it per drag frame would
-                // reinstate exactly the per-operation readback this issue removes. That
-                // is only acceptable while the terrain is DRAWN from the heightmap
-                // texture — i.e. on the GPU-driven LOD path, where the stroke is
-                // visible immediately and the meshes are only wanted by the CPU
-                // fallback. With GPU LOD off the user would see nothing until release,
-                // so that configuration keeps the CPU brush: no better, but no worse
-                // than before, and never a silent regression.
-                const bool useGPU = m_GPUBrush.IsSculptReady() &&
-                                    terrain.m_TerrainData->GetGPUHeightmap() != nullptr &&
-                                    terrain.m_TessellationEnabled &&
-                                    TerrainChunkManager::IsGpuDrivenLODEnabled();
-
                 // Stroke start. No longer gated on m_CommandHistory: an editor with no
                 // undo stack must still set up the stroke (the GPU path reads
                 // m_StrokeUsesGPU and m_StrokeTargetHeight every frame), it just does
@@ -895,17 +879,20 @@ namespace OloEngine
                 if (!m_StrokeActive)
                 {
                     m_StrokeActive = true;
-                    m_StrokeUsesGPU = useGPU;
+                    m_StrokeUsesGPU = m_GPUBrush.IsSculptReady() &&
+                                      terrain.m_TerrainData->GetGPUHeightmap() != nullptr &&
+                                      terrain.m_TessellationEnabled &&
+                                      TerrainChunkManager::IsGpuDrivenLODEnabled();
                     m_StrokeTerrainData = terrain.m_TerrainData;
                     m_StrokeChunkManager = terrain.m_ChunkManager;
-                    m_StrokeEntity = entity;
+                    m_StrokeEntity = hitTerrain;
                     m_StrokeWorldSizeX = terrain.m_WorldSizeX;
                     m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
                     m_StrokeHeightScale = terrain.m_HeightScale;
                     m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
                     m_StrokeTargetHeight = 0.0f;
 
-                    if (useGPU)
+                    if (m_StrokeUsesGPU)
                     {
                         // Flatten and Level converge on the height under the press.
                         // Sampled ONCE, here: this is a CPU height query, so on the GPU
@@ -929,12 +916,7 @@ namespace OloEngine
                     }
                 }
 
-                // `useGPU` for THIS terrain, not the stroke's flag: in a multi-terrain
-                // scene m_StrokeUsesGPU was decided by whichever terrain started the
-                // stroke, and a sibling with tessellation off must not be dispatched
-                // to (nor a sibling with it on be brushed on the CPU). m_StrokeUsesGPU
-                // stays authoritative for the settle-time commit, which is per stroke.
-                auto dirty = useGPU
+                auto dirty = m_StrokeUsesGPU
                                  ? m_GPUBrush.ApplySculpt(
                                        *terrain.m_TerrainData, m_SculptSettings, *localHit,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
@@ -948,14 +930,14 @@ namespace OloEngine
                 {
                     // The GPU brush wrote the texture directly — there is nothing to
                     // upload, and uploading the CPU mirror here would overwrite it.
-                    if (!useGPU)
+                    if (!m_StrokeUsesGPU)
                     {
                         terrain.m_TerrainData->UploadRegionToGPU(dirty.X, dirty.Y, dirty.Width, dirty.Height);
                     }
 
-                    // Deferred to stroke settle on the GPU path — see the useGPU
-                    // comment above for why that is safe there and not otherwise.
-                    if (!useGPU)
+                    // GPU LOD reads the edited height texture immediately. The
+                    // CPU path needs updated chunk meshes before the next draw.
+                    if (!m_StrokeUsesGPU)
                     {
                         TerrainBrush::RebuildDirtyChunks(
                             *terrain.m_ChunkManager, *terrain.m_TerrainData,
@@ -990,7 +972,7 @@ namespace OloEngine
             else if (m_EditMode == TerrainEditMode::Paint)
             {
                 if (!terrain.m_Material)
-                    continue;
+                    return;
 
                 // Initialize CPU splatmaps if not done yet
                 if (!terrain.m_Material->HasCPUSplatmaps())
@@ -999,22 +981,21 @@ namespace OloEngine
                     terrain.m_Material->InitializeCPUSplatmaps(splatRes);
                 }
 
-                const bool usePaintGPU = m_GPUBrush.IsPaintReady() &&
-                                         terrain.m_Material->GetSplatmap(0) != nullptr &&
-                                         terrain.m_Material->GetSplatmap(1) != nullptr &&
-                                         (!projection.UsesHeight() || terrain.m_TerrainData->GetGPUHeightmap() != nullptr);
-
                 // Snapshot splatmap on stroke start
                 if (!m_StrokeActive)
                 {
                     m_StrokeActive = true;
-                    m_StrokeUsesGPU = usePaintGPU;
+                    m_StrokeEntity = hitTerrain;
+                    m_StrokeUsesGPU = m_GPUBrush.IsPaintReady() &&
+                                      terrain.m_Material->GetSplatmap(0) != nullptr &&
+                                      terrain.m_Material->GetSplatmap(1) != nullptr &&
+                                      (!projection.UsesHeight() || terrain.m_TerrainData->GetGPUHeightmap() != nullptr);
                     m_StrokeMaterial = terrain.m_Material;
                     m_StrokeWorldSizeX = terrain.m_WorldSizeX;
                     m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
                     m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
 
-                    if (usePaintGPU)
+                    if (m_StrokeUsesGPU)
                     {
                         TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreSplat0,
                                                                 terrain.m_Material->GetSplatmap(0));
@@ -1092,16 +1073,9 @@ namespace OloEngine
         if (hit.Hit)
             m_BrushWorldPos = hit.Point;
 
-        if (m_StrokeActive && !mouseDown)
-        {
-            if (m_CommandHistory && m_StrokeVoxels && !m_VoxelStroke.Empty())
-                m_CommandHistory->PushAlreadyExecuted(std::make_unique<VoxelEditCommand>(m_StrokeVoxels, std::move(m_VoxelStroke)));
-            m_StrokeActive = false;
-            m_StrokeVoxels = nullptr;
-            m_VoxelStroke = {};
-            return;
-        }
-        if (!voxels || !hit.Hit || !mouseDown)
+        if (!mouseDown)
+            EndStroke();
+        if (!voxels || !hit.Hit || !mouseDown || (m_StrokeActive && voxels != m_StrokeVoxels))
             return;
 
         // Deliberately not gated on m_CommandHistory: an editor without an undo

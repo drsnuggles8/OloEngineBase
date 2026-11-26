@@ -34,7 +34,14 @@ namespace OloEngine
 
         void SetContext(const Ref<Scene>& scene)
         {
-            m_Context = scene;
+            if (m_Context != scene)
+            {
+                EndStroke();
+                if (m_ErosionSessionActive)
+                    EndContinuousErosionSession();
+                m_Context = scene;
+                m_HasBrushHit = false;
+            }
         }
         void SetCommandHistory(CommandHistory* history)
         {
@@ -45,7 +52,7 @@ namespace OloEngine
         // Called from EditorLayer each frame with terrain hit info. Only runs while
         // the VIEWPORT is hovered, which is correct for a brush stroke and wrong for
         // anything driven from the panel itself — see OnFrameTick.
-        void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown);
+        void OnUpdate(f32 deltaTime, Entity hitTerrain, const glm::vec3& hitPos, bool mouseDown);
 
         // Every frame, unconditionally — including throttled frames, and including
         // frames where `editingAllowed` is false. Continuous erosion lives here
@@ -59,7 +66,7 @@ namespace OloEngine
         // whether a session may STEP, not whether this is called: an active session
         // that becomes disallowed — Play pressed, panel closed — is settled here
         // rather than stranded.
-        void OnFrameTick(bool editingAllowed);
+        void OnFrameTick(bool editingAllowed, bool mouseDown);
         // Voxel picking supplies the exact grid cell and placement face rather
         // than inferring one from the rendered surface.
         //
@@ -68,6 +75,15 @@ namespace OloEngine
         // writes cells — cannot bind to. Copying the Ref is one refcount bump
         // and matches the shared ownership the panel takes for the stroke.
         void OnVoxelUpdate(Ref<VoxelOverride> voxels, const VoxelRayHit& hit, bool mouseDown);
+
+        void SetEditMode(TerrainEditMode mode)
+        {
+            if (mode != m_EditMode)
+            {
+                EndStroke();
+                m_EditMode = mode;
+            }
+        }
 
         [[nodiscard]] TerrainEditMode GetEditMode() const
         {
@@ -108,6 +124,7 @@ namespace OloEngine
         // is hovered and this is driven by a checkbox on the panel itself.
         void UpdateContinuousErosion();
         // Push the settled stroke's undo command for the GPU path.
+        void EndStroke();
         void CommitGPUSculptStroke();
         void CommitGPUPaintStroke();
         // Close a continuous-erosion session: push its undo entry and bring the
@@ -199,7 +216,7 @@ namespace OloEngine
         f32 m_StrokeWorldSizeX = 0.0f;
         f32 m_StrokeWorldSizeZ = 0.0f;
         f32 m_StrokeHeightScale = 0.0f;
-        // Owning terrain entity of the active sculpt stroke, so its collision body can be
+        // Picked terrain for this sculpt or paint stroke. Its collision body can be
         // refreshed once at stroke settle when physics is running (issue #469).
         entt::entity m_StrokeEntity = entt::null;
     };

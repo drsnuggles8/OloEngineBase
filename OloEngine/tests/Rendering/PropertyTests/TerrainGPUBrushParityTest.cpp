@@ -27,8 +27,12 @@
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "Panels/TerrainEditorPanel.h"
+#include "UndoRedo/EditorCommand.h"
 
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
 #include "OloEngine/Terrain/Editor/TerrainGPUBrush.h"
@@ -155,6 +159,78 @@ class ParentedTerrainBrush : public RendererAttachedTest
         return true;
     }
 };
+
+TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    Entity upper = GetScene().CreateEntity("Picked upper field");
+    Entity lower = GetScene().CreateEntity("Lower field");
+    upper.GetComponent<TransformComponent>().Translation.y = 2;
+    auto prepare = [](Entity e, u32 resolution, bool tessellates)
+    {
+        auto& terrain = e.AddComponent<TerrainComponent>();
+        terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 64;
+        terrain.m_HeightScale = 8;
+        terrain.m_TessellationEnabled = tessellates;
+        terrain.m_TerrainData = Ref<TerrainData>::Create();
+        terrain.m_TerrainData->CreateFlat(resolution, 0.25f);
+        terrain.m_ChunkManager = Ref<TerrainChunkManager>::Create();
+        terrain.m_ChunkManager->GenerateAllChunks(*terrain.m_TerrainData, 64, 64, 8);
+        terrain.m_Material = Ref<TerrainMaterial>::Create();
+        terrain.m_Material->AddLayer(TerrainLayer{});
+        terrain.m_Material->AddLayer(TerrainLayer{});
+        terrain.m_Material->InitializeCPUSplatmaps(resolution);
+        auto& splat = terrain.m_Material->GetSplatmapData(0);
+        for (i32 i = 0; i < splat.Num(); i += 4)
+        {
+            splat[i] = 0;
+            splat[i + 1] = 255;
+        }
+        terrain.m_Material->UploadSplatmapRegion(0, 0, 0, resolution, resolution);
+    };
+    RunInFrame([&]
+               { prepare(upper, 65, false); prepare(lower, 129, true); });
+    auto& upperTile = upper.GetComponent<TerrainComponent>();
+    auto& lowerTile = lower.GetComponent<TerrainComponent>();
+    const auto beforeUpper = upperTile.m_TerrainData->GetHeightData();
+    const auto beforeLower = lowerTile.m_TerrainData->GetHeightData();
+
+    CommandHistory history;
+    TerrainEditorPanel panel;
+    panel.SetContext(GetSceneRef());
+    panel.SetCommandHistory(&history);
+    panel.SetEditMode(TerrainEditMode::Sculpt);
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, upper, { 32, 4, 32 }, true);
+                   panel.OnUpdate(1, lower, { 48, 2, 48 }, true);
+                   panel.OnUpdate(1, {}, {}, true);
+                   // Release while the cursor is outside the viewport.
+                   panel.OnFrameTick(true, false); });
+    ASSERT_TRUE(history.CanUndo());
+    EXPECT_GT(CountChanged(beforeUpper, upperTile.m_TerrainData->GetHeightData()), 0u);
+    EXPECT_EQ(CountChanged(beforeLower, lowerTile.m_TerrainData->GetHeightData()), 0u);
+    RunInFrame([&]
+               { history.Undo(); });
+    EXPECT_FALSE(history.CanUndo());
+    EXPECT_EQ(CountChanged(beforeUpper, upperTile.m_TerrainData->GetHeightData()), 0u);
+
+    const auto beforeUpperPaint = upperTile.m_Material->GetSplatmapData(0);
+    const auto beforeLowerPaint = lowerTile.m_Material->GetSplatmapData(0);
+    panel.SetEditMode(TerrainEditMode::Paint);
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   panel.OnUpdate(1, upper, { 48, 4, 48 }, true);
+                   panel.OnUpdate(0, {}, {}, false); });
+    ASSERT_TRUE(history.CanUndo());
+    EXPECT_TRUE(upperTile.m_Material->GetSplatmapData(0) == beforeUpperPaint);
+    EXPECT_FALSE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    RunInFrame([&]
+               { history.Undo(); });
+    EXPECT_FALSE(history.CanUndo());
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+}
 
 TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)
 {

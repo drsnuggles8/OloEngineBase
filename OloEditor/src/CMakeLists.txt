@@ -267,6 +267,7 @@ set(OLO_EDITOR_CORE_SOURCES
 		"MCP/McpToolsResources.cpp"
 		"MCP/McpToolsTesting.cpp"
 		"MCP/McpToolsValidation.cpp"
+		"Panels/TerrainEditorPanel.cpp"
 		"Panels/ContentBrowser/ContentBrowserItem.cpp"
 		"Panels/ContentBrowser/DirectoryTree.cpp"
 		# Arrived on master (#1249) while this library was in flight, listed as ordinary

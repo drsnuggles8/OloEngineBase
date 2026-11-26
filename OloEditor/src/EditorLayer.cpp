@@ -31,6 +31,7 @@
 #include <exception>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -2249,7 +2250,8 @@ namespace OloEngine
         // passed as an argument instead of wrapping this call, because a session that
         // is no longer allowed to run still has to SETTLE — pushing its undo entry and
         // releasing the terrain it holds. Skipping the call would strand it.
-        m_TerrainEditorPanel.OnFrameTick(m_ShowTerrainEditor && m_SceneState == SceneState::Edit);
+        m_TerrainEditorPanel.OnFrameTick(m_ShowTerrainEditor && m_SceneState == SceneState::Edit,
+                                         Input::IsMouseButtonPressed(Mouse::ButtonLeft));
 
         // Same rationale as the terrain tick above: a paint stroke interrupted by a
         // throttled frame, by the cursor leaving the viewport, or by leaving Edit
@@ -2399,8 +2401,8 @@ namespace OloEngine
                 else
                 {
                     glm::vec3 terrainHitPos{};
-                    const bool hasTerrainHit = TerrainRaycast(mouseTopDown, viewportSize, terrainHitPos);
-                    m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
+                    Entity hitTerrain = TerrainRaycast(mouseTopDown, viewportSize, terrainHitPos);
+                    m_TerrainEditorPanel.OnUpdate(ts, hitTerrain, terrainHitPos, mouseDown);
                 }
             }
 
@@ -2425,30 +2427,26 @@ namespace OloEngine
                 {
                     OLO_PROFILE_SCOPE("EditorLayer::ScatterBrushRaycast");
 
-                    hasHit = TerrainRaycast(mouseTopDown, viewportSize, hitPos);
-                    if (hasHit && m_ActiveScene)
+                    Entity terrainEntity = TerrainRaycast(mouseTopDown, viewportSize, hitPos);
+                    hasHit = static_cast<bool>(terrainEntity);
+                    if (hasHit)
                     {
                         // Pull the surface normal from the same terrain entity
                         // TerrainRaycast hit. The normal is needed for slope
                         // filtering (§1.4) and align-to-normal (§1.5 style).
-                        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-                        if (auto it = view.begin(); it != view.end())
+                        const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
+                        const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
+                        if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
                         {
-                            Entity terrainEntity(*it, m_ActiveScene.get());
-                            const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
-                            const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
-                            if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
+                            const glm::mat4 inverse = glm::inverse(terrainWorld);
+                            const glm::vec3 local(inverse * glm::vec4(hitPos, 1.0f));
+                            if (Math::IsFinite(local))
                             {
-                                const glm::mat4 inverse = glm::inverse(terrainWorld);
-                                const glm::vec3 local(inverse * glm::vec4(hitPos, 1.0f));
-                                if (Math::IsFinite(local))
-                                {
-                                    const glm::vec3 normal = tc.m_TerrainData->GetNormalAt(
-                                        glm::clamp(local.x / tc.m_WorldSizeX, 0.0f, 1.0f),
-                                        glm::clamp(local.z / tc.m_WorldSizeZ, 0.0f, 1.0f),
-                                        tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
-                                    surfaceNormal = glm::normalize(glm::transpose(glm::mat3(inverse)) * normal);
-                                }
+                                const glm::vec3 normal = tc.m_TerrainData->GetNormalAt(
+                                    glm::clamp(local.x / tc.m_WorldSizeX, 0.0f, 1.0f),
+                                    glm::clamp(local.z / tc.m_WorldSizeZ, 0.0f, 1.0f),
+                                    tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                                surfaceNormal = glm::normalize(glm::transpose(glm::mat3(inverse)) * normal);
                             }
                         }
                     }
@@ -5684,25 +5682,13 @@ namespace OloEngine
         return s_Enabled;
     }
 
-    EditorLayer::TerrainPickState EditorLayer::TerrainRaycastGPU(const glm::vec2& mousePos,
-                                                                 const glm::vec2& viewportSize,
+    EditorLayer::TerrainPickState EditorLayer::TerrainRaycastGPU(Entity terrainEntity, const Ray& mouseRay,
                                                                  glm::vec3& outHitPos, bool& outHit) const
     {
         OLO_PROFILE_FUNCTION();
 
         outHit = false;
-        if (!IsGpuTerrainPickingEnabled() || !m_ActiveScene)
-        {
-            return TerrainPickState::Unavailable;
-        }
-
-        Entity terrainEntity;
-        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-        if (auto it = view.begin(); it != view.end())
-        {
-            terrainEntity = Entity(*it, m_ActiveScene.get());
-        }
-        if (!terrainEntity)
+        if (!IsGpuTerrainPickingEnabled())
         {
             return TerrainPickState::Unavailable;
         }
@@ -5715,12 +5701,6 @@ namespace OloEngine
         }
         const auto& quadtree = tc.m_ChunkManager->GetGPUQuadtree();
         if (!quadtree || !quadtree->IsBuilt())
-        {
-            return TerrainPickState::Unavailable;
-        }
-
-        Ray mouseRay;
-        if (!BuildMouseRay(mousePos, viewportSize, mouseRay))
         {
             return TerrainPickState::Unavailable;
         }
@@ -5887,42 +5867,43 @@ namespace OloEngine
         return snapshot;
     }
 
-    bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    Entity EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
     {
         OLO_PROFILE_FUNCTION();
+        Ray mouseRay;
+        if (!m_ActiveScene || !BuildMouseRay(mousePos, viewportSize, mouseRay))
+            return {};
 
-        bool gpuHit = false;
-        if (TerrainRaycastGPU(mousePos, viewportSize, outHitPos, gpuHit) == TerrainPickState::Answered)
+        Entity nearest;
+        f32 nearestDistance = std::numeric_limits<f32>::max();
+        for (const auto id : m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>())
         {
-            return gpuHit;
+            Entity terrain{ id, m_ActiveScene.get() };
+            glm::vec3 position{};
+            bool hit = false;
+            if (TerrainRaycastGPU(terrain, mouseRay, position, hit) != TerrainPickState::Answered)
+                hit = TerrainRaycastCPU(terrain, mouseRay, position);
+            if (!hit)
+                continue;
+            const f32 distance = glm::dot(position - mouseRay.Origin, mouseRay.Direction);
+            if (distance >= 0.0f && distance < nearestDistance)
+            {
+                nearest = terrain;
+                nearestDistance = distance;
+                outHitPos = position;
+            }
         }
-        return TerrainRaycastCPU(mousePos, viewportSize, outHitPos);
+        return nearest;
     }
 
-    bool EditorLayer::TerrainRaycastCPU(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    bool EditorLayer::TerrainRaycastCPU(Entity terrainEntity, const Ray& mouseRay, glm::vec3& outHitPos) const
     {
         OLO_PROFILE_FUNCTION();
-
-        // Find a terrain entity in the active scene
-        Entity terrainEntity;
-        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
-        if (auto it = view.begin(); it != view.end())
-        {
-            terrainEntity = Entity(*it, m_ActiveScene.get());
-        }
-        if (!terrainEntity || !terrainEntity.GetComponent<TerrainComponent>().m_TerrainData)
-        {
+        const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
+        if (!tc.m_TerrainData)
             return false;
-        }
 
-        auto const& tc = terrainEntity.GetComponent<TerrainComponent>();
         const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
-
-        Ray mouseRay;
-        if (!BuildMouseRay(mousePos, viewportSize, mouseRay))
-        {
-            return false;
-        }
         const glm::mat4 inverse = glm::inverse(terrainWorld);
         const glm::vec3 rayOrigin(inverse * glm::vec4(mouseRay.Origin, 1.0f));
         const glm::vec3 rayDir(inverse * glm::vec4(mouseRay.Direction, 0.0f));
