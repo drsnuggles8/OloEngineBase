@@ -141,6 +141,8 @@ namespace OloEngine
 
     class VulkanRendererAPI : public RendererAPI
     {
+        friend class VulkanTextureCubemapArray;
+
       public:
         VulkanRendererAPI() = default;
         ~VulkanRendererAPI() override = default;

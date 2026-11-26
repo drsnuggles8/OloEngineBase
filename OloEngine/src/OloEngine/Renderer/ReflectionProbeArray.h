@@ -110,5 +110,6 @@ namespace OloEngine
         bool m_GridValid = false;
         bool m_Initialized = false;
         bool m_WarnedPrefilterMismatch = false;
+        bool m_WarnedBudgetRefusal = false;
     };
 } // namespace OloEngine

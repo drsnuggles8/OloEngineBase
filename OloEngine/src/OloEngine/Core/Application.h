@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Templates/Function.h"
 #include "OloEngine/Core/FramePacer.h"
 #include "OloEngine/Core/LayerStack.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -94,6 +96,10 @@ namespace OloEngine
         void PushOverlay(std::unique_ptr<Layer> layer);
         void PopLayer(Layer* layer);
         void PopOverlay(Layer* layer);
+
+        // Called on the game thread. Run the job at the start of the next
+        // rendered frame, inside the graphics recording bracket on Vulkan.
+        void EnqueueFrameWork(TFunction<void()> work);
 
         [[nodiscard("Store this!")]] Window& GetWindow()
         {
@@ -281,6 +287,7 @@ namespace OloEngine
         bool m_Running = true;
         bool m_Minimized = false;
         LayerStack m_LayerStack;
+        TArray<TFunction<void()>> m_FrameWork;
         static constexpr f32 s_MaxTimestep = 0.25f;
         // Golden-ratio-derived constant; an arbitrary but fixed default so runs
         // are reproducible without an explicit SetRandomSeed call.

@@ -13,9 +13,11 @@
 #include "MCP/McpAudienceReport.h"
 #include "MCP/McpEventStream.h"
 
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <algorithm>
@@ -882,8 +884,18 @@ namespace OloEngine::MCP
         return (dir / ("oloengine-mcp-" + std::to_string(port) + ".json")).string();
     }
 
-    Json McpServer::MarshalReadOnMainThread(const std::function<Json()>& readJob,
-                                            std::chrono::milliseconds timeout)
+    Json McpServer::MarshalReadOnMainThread(const std::function<Json()>& readJob, std::chrono::milliseconds timeout)
+    {
+        return MarshalMainThreadJob(readJob, timeout, false);
+    }
+
+    Json McpServer::MarshalRenderWorkOnMainThread(const std::function<Json()>& work, std::chrono::milliseconds timeout)
+    {
+        return MarshalMainThreadJob(work, timeout, true);
+    }
+
+    Json McpServer::MarshalMainThreadJob(const std::function<Json()>& work, std::chrono::milliseconds timeout,
+                                         bool requiresRecording)
     {
         if (!m_Running.load(std::memory_order_acquire))
             throw std::runtime_error("MCP server is not running");
@@ -894,16 +906,24 @@ namespace OloEngine::MCP
         if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
             throw std::runtime_error("Request cancelled before main-thread operation");
 
-        auto job = std::make_shared<Automation::AutomationMainThreadJob>(readJob);
+        auto job = std::make_shared<Automation::AutomationMainThreadJob>(work);
 
         // Enqueue onto the game thread; it drains this at the next frame boundary
         // (Application::Run, before the scene is stepped) — a consistent snapshot.
         OloEngine::Tasks::EnqueueGameThreadTask(
-            [job, cancelFlag]()
+            [job, cancelFlag, requiresRecording]()
             {
-                if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
-                    job->CancelPending("Request cancelled before main-thread operation");
-                job->Execute();
+                auto execute = [job, cancelFlag]
+                {
+                    if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
+                        job->CancelPending("Request cancelled before main-thread operation");
+                    job->Execute();
+                };
+                auto* app = Application::TryGet();
+                if (requiresRecording && app != nullptr && !app->IsHeadless() && RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+                    app->EnqueueFrameWork(std::move(execute));
+                else
+                    execute();
             },
             "MCP_MainThreadRead");
 
