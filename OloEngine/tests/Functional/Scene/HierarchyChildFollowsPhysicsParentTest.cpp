@@ -465,6 +465,9 @@ TEST_F(PlanarColliderPlacementTest, BoxStartingOnCollapsedCarrierGainsItsShapeOn
     const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
     ASSERT_TRUE(b2Body_IsValid(native));
     EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    // A body awaiting its first shape has zero mass. Prescribe motion to
+    // exercise native integration without assuming a gravity response.
+    b2Body_SetLinearVelocity(native, { 0.0f, -3.0f });
     RunFrames(4);
     EXPECT_LT(b2Body_GetPosition(native).y, 0.0f);
     EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, 0.0f, 1.0e-5f);
