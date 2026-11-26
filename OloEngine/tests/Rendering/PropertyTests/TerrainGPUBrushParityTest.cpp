@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -159,6 +160,38 @@ class ParentedTerrainBrush : public RendererAttachedTest
         return true;
     }
 };
+
+TEST_F(ParentedTerrainBrush, SnapshotReadbackAndUndoRebuildTheCurrentFramesMipChain)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    auto original = Ref<TerrainData>::Create();
+    auto edited = Ref<TerrainData>::Create();
+    original->CreateFlat(8, 0.25f);
+    edited->CreateFlat(8, 0.75f);
+    TerrainTextureUndoStack stack;
+    const auto live = edited->GetGPUHeightmap();
+    ASSERT_EQ(live->GetMipLevelCount(), 4u);
+
+    RunInFrame([&]
+               {
+                   const auto before = stack.Capture(original->GetGPUHeightmap(), 0, 0, 8, 8);
+                   ASSERT_NE(before, TerrainTextureUndoStack::kInvalidSnapshot);
+                   ASSERT_NE(stack.Capture(live, 0, 0, 8, 8), TerrainTextureUndoStack::kInvalidSnapshot);
+                   // Erosion settlement reads back level zero after the copy used
+                   // it as a source, then undo uses it as the destination.
+                   TArray64<u8> bytes;
+                   ASSERT_TRUE(live->GetData(bytes));
+                   ASSERT_EQ(bytes.Num(), 8u * 8u * sizeof(f32));
+                   f32 height = 0.0f;
+                   std::memcpy(&height, bytes.GetData(), sizeof(height));
+                   EXPECT_FLOAT_EQ(height, 0.75f);
+                   ASSERT_TRUE(stack.Restore(before, live));
+                   ASSERT_TRUE(live->GetData(bytes, 3u));
+                   ASSERT_EQ(bytes.Num(), sizeof(f32));
+                   std::memcpy(&height, bytes.GetData(), sizeof(height));
+                   EXPECT_FLOAT_EQ(height, 0.25f) << "the restored mip chain must observe this frame's level-zero copy";
+               });
+}
 
 TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
 {
