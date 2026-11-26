@@ -189,8 +189,7 @@ TEST_F(ParentedTerrainBrush, SnapshotReadbackAndUndoRebuildTheCurrentFramesMipCh
                    ASSERT_TRUE(live->GetData(bytes, 3u));
                    ASSERT_EQ(bytes.Num(), sizeof(f32));
                    std::memcpy(&height, bytes.GetData(), sizeof(height));
-                   EXPECT_FLOAT_EQ(height, 0.25f) << "the restored mip chain must observe this frame's level-zero copy";
-               });
+                   EXPECT_FLOAT_EQ(height, 0.25f) << "the restored mip chain must observe this frame's level-zero copy"; });
 }
 
 TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
