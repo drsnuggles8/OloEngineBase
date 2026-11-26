@@ -37,6 +37,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <vector>
 
@@ -127,6 +128,19 @@ namespace OloEngine::Tests
         std::vector<u8> rough;
         ASSERT_NO_FATAL_FAILURE(capture(0.12f, "MaterialPreviewSmooth_OpenGL_Thumbnail.png", smooth));
         ASSERT_NO_FATAL_FAILURE(capture(0.85f, "MaterialPreviewRough_OpenGL_Thumbnail.png", rough));
+        // The unit sphere should fill about 60% of the frame. A positive size
+        // and a visible highlight alone both pass for a cropped thumbnail.
+        u32 silhouetteWidth = 0;
+        for (u32 x = 0; x < size; ++x)
+        {
+            const sizet middlePixel = (size / 2 * size + x) * 4;
+            if (std::memcmp(&smooth[middlePixel], smooth.data(), 3) != 0)
+                ++silhouetteWidth;
+        }
+        RecordProperty("SilhouetteWidth", silhouetteWidth);
+        EXPECT_GT(silhouetteWidth, size / 2);
+        EXPECT_LT(silhouetteWidth, size * 7 / 10);
+
         u32 changed = 0;
         for (sizet i = 0; i < smooth.size(); i += 4)
         {

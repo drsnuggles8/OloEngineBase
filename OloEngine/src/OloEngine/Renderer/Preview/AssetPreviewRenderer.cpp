@@ -41,8 +41,10 @@ namespace OloEngine
     namespace
     {
         // Default camera rig for the sphere preview. Pulled back along +Z
-        // so the unit-radius icosphere fills ~60% of the framebuffer.
-        constexpr f32 kSphereCameraDistance = 2.6f;
+        // so the unit-radius icosphere fills ~60% of the square thumbnail.
+        // A sphere at distance d projects to 1 / (tan(FOV/2) * sqrt(d*d - 1))
+        // of the frame width. At 35 degrees, the target distance is 5.38.
+        constexpr f32 kSphereCameraDistance = 5.38f;
         constexpr f32 kCameraFovYDeg = 35.0f;
         constexpr f32 kNearClip = 0.05f;
         constexpr f32 kFarClip = 25.0f;
