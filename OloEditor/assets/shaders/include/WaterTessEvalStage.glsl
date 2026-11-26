@@ -320,7 +320,10 @@ void main()
         // Band-limited cascade sum (issue #969), through the shared function
         // the fragment stage's foam and the CPU mirror
         // (OceanFFTField::SampleCascades) also go through.
-        OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams);
+        bool tilted = hasColumn && dot(restSlope, restSlope) > 1e-12;
+        float tangentStep = tilted ? max(0.02, 0.25 * vertexSpacing) : 0.0;
+        mat2 horizontalDerivative;
+        OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams, tangentStep, horizontalDerivative);
         vec3 fftDisp = vec3(fft.Displacement.x * u_FFTParams.w,
                             fft.Displacement.y * u_FFTParams.z,
                             fft.Displacement.z * u_FFTParams.w);
@@ -353,13 +356,10 @@ void main()
         // as well: choppiness moves a vertex away from the column in which
         // its rest height was measured.
         vec3 fftNormal = oceanCascadeNormal(fft);
-        if (hasColumn && dot(restSlope, restSlope) > 1e-12)
+        if (tilted)
         {
-            float stepSize = max(0.02, 0.25 * vertexSpacing);
-            vec2 dx = (sampleOceanCascades(posAbs.xz + vec2(stepSize, 0.0), u_FFTParams, u_FFTCascadeParams).Displacement.xz -
-                       fft.Displacement.xz) * (u_FFTParams.w / stepSize);
-            vec2 dz = (sampleOceanCascades(posAbs.xz + vec2(0.0, stepSize), u_FFTParams, u_FFTCascadeParams).Displacement.xz -
-                       fft.Displacement.xz) * (u_FFTParams.w / stepSize);
+            vec2 dx = horizontalDerivative[0] * u_FFTParams.w;
+            vec2 dz = horizontalDerivative[1] * u_FFTParams.w;
             vec2 slope = fft.Slope * u_FFTParams.z + restSlope;
             fftNormal = cross(vec3(dz.x, slope.y, 1.0 + dz.y), vec3(1.0 + dx.x, slope.x, dx.y));
         }

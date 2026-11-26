@@ -59,8 +59,10 @@ vec2 oceanRotate(vec2 v, vec2 cs)
 // rotation kills the shared axis, and one rotated domain is enough for both
 // (Ocean/OceanCascades.h point 3). Rotating more would cost another UBO vec4
 // and buy nothing the eye can find.
-OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascadeParams)
+OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascadeParams,
+                                      float tangentStep, out mat2 horizontalDerivative)
 {
+    horizontalDerivative = mat2(0.0);
     OceanCascadeSample result;
     result.Displacement = vec3(0.0);
     result.Slope = vec2(0.0);
@@ -93,6 +95,17 @@ OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascad
         result.Displacement.x += horizontal.x;
         result.Displacement.z += horizontal.y;
 
+        // A tilted grid needs the derivative of the choppy horizontal shift.
+        // Reuse this band's location and centre sample. Flat tiles need no
+        // extra fetches and the vertex displacement is still evaluated once.
+        if (tangentStep > 0.0)
+        {
+            vec2 offsetX = oceanRotate(vec2(tangentStep, 0.0), rot) * invPatch[i];
+            vec2 offsetZ = oceanRotate(vec2(0.0, tangentStep), rot) * invPatch[i];
+            horizontalDerivative[0] += oceanRotate(oceanCascadeFetchDisplacement(uv + offsetX, i).xz - disp.xz, rotInv) / tangentStep;
+            horizontalDerivative[1] += oceanRotate(oceanCascadeFetchDisplacement(uv + offsetZ, i).xz - disp.xz, rotInv) / tangentStep;
+        }
+
         // Slopes add; normals do not. -n.xz / n.y is exact against
         // Ocean_Assemble.comp's normalize(vec3(-sx, 1.0, -sz)).
         float ny = (abs(deriv.y) > 1e-5) ? deriv.y : 1.0;
@@ -103,6 +116,12 @@ OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascad
 
     result.Foam = clamp(result.Foam, 0.0, 1.0);
     return result;
+}
+
+OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascadeParams)
+{
+    mat2 unused;
+    return sampleOceanCascades(worldXZ, fftParams, cascadeParams, 0.0, unused);
 }
 
 // The summed surface normal. Built from the summed SLOPE, which is the only
