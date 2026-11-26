@@ -5,13 +5,9 @@
 // GroomSceneShadowVisualEvidenceTest — issue #1323, the pixels.
 //
 // Writes OloEditor/assets/tests/visual/GroomSceneShadow_<GL|Vulkan>_<Path>[_<Case>].png
-// (Vulkan from the --olo-rhi=vulkan process, #1556)
 // and the matching GroomSceneShadowOff_* controls. The filename carries the
-// {backend} x {path} cell it covers, deliberately including the backend even
-// though it is always GL here: a reader counting files then cannot mistake a
-// complete set of OpenGL captures for a complete verification matrix. Every
-// Vulkan cell is live-only — these fixtures need a real GL 4.6 context and skip
-// without one — and is evidenced in the PR body instead.
+// {backend} x {path} cell. Vulkan captures run in the windowless
+// --olo-rhi=vulkan process (#1556).
 //
 // THE MASKS ARE DERIVED, NOT HAND-PLACED, and that is the design decision the
 // file rests on. "The coat's shadow fell on the ground" and "the ground's
@@ -1552,6 +1548,45 @@ namespace OloEngine::Tests
         EXPECT_GT(widenedDarkening, honestDarkening * 1.5)
             << "widening the strands to a shadow texel bought less than half again the occlusion that "
                "rasterising them honestly did, so the floor is not reaching the raster";
+
+        // This is the Forward scene immediately after the three-path case in
+        // the shared process (#1666). Recycled image contents in the black
+        // IBL cube can wash out the shadows and still satisfy the width ratio
+        // above. Measure the two diffuse terms on unobstructed ground.
+        Routing().m_CastShadows = false;
+        Groom().m_RenderStrands = false;
+        auto& tap = Renderer3D::GetPostProcessSettings().LightingDebugTap;
+        const auto savedTap = tap;
+        const auto captureFloorLuma = [&](LightingTap term, const char* name)
+        {
+            tap = term;
+            std::vector<u8> pixels;
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + name, pixels);
+            if (HasFatalFailure())
+                return 0.0;
+
+            constexpr u32 kFloorX = 180;
+            constexpr u32 kFloorY = 550;
+            constexpr u32 kFloorWidth = 80;
+            constexpr u32 kFloorHeight = 60;
+            f64 sum = 0.0;
+            for (u32 y = kFloorY; y < kFloorY + kFloorHeight; ++y)
+                for (u32 x = kFloorX; x < kFloorX + kFloorWidth; ++x)
+                    sum += Luma(pixels, (y * kWidth + x) * 4u);
+            return sum / (kFloorWidth * kFloorHeight);
+        };
+        const f64 direct = captureFloorLuma(LightingTap::DirectDiffuse, "Forward_BlackSkyDirect");
+        const f64 indirect = captureFloorLuma(LightingTap::IndirectDiffuse, "Forward_BlackSkyIndirect");
+        tap = savedTap;
+        ASSERT_FALSE(HasFatalFailure());
+        std::printf("[groom-scene-shadow] black sky floor diffuse luma: direct %.3f, indirect %.3f\n",
+                    direct, indirect);
+        // Direct luma measured about 148. The floor at 30 catches a lost sun.
+        // The black sky should contribute zero, within one 8-bit luma step.
+        constexpr f64 kMinDirectLuma = 30.0;
+        constexpr f64 kMaxIndirectLuma = 1.0;
+        EXPECT_GT(direct, kMinDirectLuma) << "the sun no longer lights the unobstructed ground";
+        EXPECT_LE(indirect, kMaxIndirectLuma) << "the black environment supplies indirect diffuse light";
     }
 
     // ── 9. The caster subset (#1533 E1) ──────────────────────────────────

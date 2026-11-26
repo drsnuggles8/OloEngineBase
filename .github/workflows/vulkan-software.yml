@@ -150,12 +150,6 @@ env:
   # shadow-family evidence (one terrain case ran past 20 min on lavapipe in a
   # Debug build) and the dog showcase's rendering cases (one took 565 s on
   # lavapipe locally, #1659); its three cases that render no frames run here.
-  # FOUR GroomSceneShadow cases are excluded (#1652): with the shadow region
-  # forked and split for the groom opaque copies they shade the fur with
-  # garbage, every time on lavapipe 26.2.0 and on a loaded hardware GPU, with
-  # no validation error. Delete the four exclusions when #1652 closes.
-  # The rest of that suite runs one case per process (#1666, see the scene
-  # step); return it to the shared process when #1666 closes.
 
 jobs:
   lavapipe:
@@ -557,12 +551,8 @@ jobs:
       # unimplemented-stub hit, the Vulkan counterpart of the GL error drain.
       # !cancelled(): a red L7 step must not hide the scene suite's verdict.
       #
-      # THE GROOM SUITE RUNS ONE CASE PER PROCESS (#1666). On lavapipe, once a
-      # process has rendered Forward, Forward+ and Deferred in that order --
-      # across any cases, ShadowAtlas's included -- the next Forward frame loses
-      # the sun's direct light, so whichever groom case follows fails. Every
-      # case passes alone, so each gets its own process; the rest of the filter
-      # stays one. Each writes its own XML and the gate below reads them all.
+      # Keep the groom suite in this process. Its Forward case after the other
+      # raster paths exercises scene and pipeline state across scene changes (#1666).
       #
       # 150 MINUTES, sized like the step above (#1705): 8.9 min on a fast
       # nightly, 63-67 min on slow PR runners, and 74 min when PR #1722's run
@@ -583,27 +573,8 @@ jobs:
           $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
           $exe = "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe"
           $common = '--olo-rhi=vulkan', '--olo-require-vulkan', '--olo-golden-vendor=lavapipe', '--olo-perf-machine=ci-lavapipe-windows', '--gtest_catch_exceptions=1'
-          $isolated = 'GroomSceneShadowVisualEvidenceTest'
-          $positive, $negative = $filter -split '-', 2
-          $mainFilter = $positive + '-' + ((@($negative, "$isolated.*") | Where-Object { $_ }) -join ':')
-          & $exe @common "--gtest_filter=$mainFilter" --gtest_output=xml:..\test_results\vulkan_scene.xml
-          $failed = $LASTEXITCODE -ne 0
-          # The isolated cases are the ones the SAME filter selects, so its exclusions apply.
-          $listing = & $exe --gtest_list_tests "--gtest_filter=$filter"
-          if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the isolated case set is unknown"; exit 1 }
-          $suite = $null
-          $cases = $listing | ForEach-Object {
-            if ($_ -match '^([A-Za-z_][A-Za-z0-9_/]*)\.(\s+#.*)?$') { $suite = $Matches[1] }
-            elseif ($suite -eq $isolated -and $_ -match '^  ([A-Za-z_][A-Za-z0-9_/]*)') { "$suite.$($Matches[1])" }
-          }
-          $index = 0
-          foreach ($case in $cases) {
-            & $exe @common "--gtest_filter=$case" "--gtest_output=xml:..\test_results\vulkan_scene_isolated_$index.xml"
-            if ($LASTEXITCODE -ne 0) { Write-Output "::error::$case failed in its own process"; $failed = $true }
-            $index++
-          }
-          Write-Output "Isolated $isolated cases run: $index"
-          if ($failed) { exit 1 }
+          & $exe @common "--gtest_filter=$filter" --gtest_output=xml:..\test_results\vulkan_scene.xml
+          exit $LASTEXITCODE
 
       # The scene suite's MISSING-EXECUTION GATE, the L7 gate's twin: every case
       # the filter selects must have executed. A case that skipped -- a GL-only
@@ -625,10 +596,8 @@ jobs:
           $suites = Get-Content ..\test_results\vulkan_scene_cases.txt | Where-Object { $_ -match '^([A-Za-z_][A-Za-z0-9_/]*)\.(\s+#.*)?$' } | ForEach-Object { $Matches[1] } | Select-Object -Unique
           if (-not $suites) { Write-Error "the scene filter selected no suite"; exit 1 }
           $suiteArgs = $suites | ForEach-Object { '--suite', $_ }
-          # One report from the shared process and one per isolated groom case.
-          $reportArgs = @('..\test_results\vulkan_scene.xml') + @(Get-ChildItem ..\test_results\vulkan_scene_isolated_*.xml | ForEach-Object { $_.FullName }) | ForEach-Object { '--report', $_ }
           python ..\scripts\vulkan_ray_query_coverage.py --require --title 'Scene suite on the windowless Vulkan context (lavapipe)' `
-            @reportArgs --expected-list ..\test_results\vulkan_scene_cases.txt `
+            --report ..\test_results\vulkan_scene.xml --expected-list ..\test_results\vulkan_scene_cases.txt `
             --capability-report ..\test_results\vulkan_capability_report.md @suiteArgs
           exit $LASTEXITCODE
 
@@ -661,7 +630,6 @@ jobs:
             test_results/vulkan_path_tracer_fallback.xml
             test_results/ray_query_cases.txt
             test_results/vulkan_scene.xml
-            test_results/vulkan_scene_isolated_*.xml
             test_results/vulkan_scene_cases.txt
           if-no-files-found: warn
 
