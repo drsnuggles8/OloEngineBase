@@ -22,9 +22,9 @@
 #   lua         The registry baseline is 5.5.1; we pin 5.4.7 because that is what
 #               our sol2 pin is tested against. A version override to 5.4.7 needs
 #               registry git history that a shallow vcpkg clone does not carry.
-#   stb         The registry port is stb@2024-07-29; our pin is ~2 years newer.
-#               stb_image is an image DECODER fed untrusted files — silently
-#               reverting two years of fixes there is not a build-system decision.
+#   stb         At vcpkg baseline af839a4, the registry port's 2026-08-02 snapshot
+#               predates our pin and lacks changes to all three headers we use.
+#               Preserve the newer pin, especially for the image decoder.
 #               (vcpkg installs its own stb as an assimp dependency, but flat as
 #               <stb_image.h>; we include <stb_image/stb_image.h>. The two collide
 #               the moment a file includes the bare name: it compiles against
@@ -36,8 +36,8 @@
 #   imguizmo    The port takes a hard dependency on the imgui PORT. With imgui
 #               staying here that would link two different Dear ImGui copies into
 #               one binary — a guaranteed ODR/symbol collision.
-#   glad        The port is glad 1.x; we use 2.0.8's configure-time generator.
-#   filewatch   Our own fork.
+#   glad        The port is glad 0.1.36; we use 2.0.8's configure-time generator.
+#   filewatch   The thomasmonkman-filewatch port uses upstream; we use our own fork.
 #   bc7enc_rdo  We compile 3 of its TUs and deliberately skip the ISPC encoder.
 #   bcdec       Single header, no port.
 #   xatlas      No port at the pinned registry baseline (only uvatlas exists,

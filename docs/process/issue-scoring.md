@@ -118,6 +118,9 @@ where you will not know it looks right until you try).
 - **External blockers**: `blocked_by_external: ["…"]`, free text for what the tech tree cannot name (an
   upstream release, a vendor fix). Blocks unconditionally. Omit the field when there is none. Not a way
   to park unwanted work; fix the axes instead.
+- **Earliest start date**: set `not_before: YYYY-MM-DD` when work can first start on a known
+  calendar day. Use `issue_scores.py set N not_before=2026-12-20` to set it or
+  `issue_scores.py set N not_before=` to remove it. A date-only edit preserves `scored:`.
 - **Areas**: `areas: ["Renderer", "Vulkan/RHI"]`, the areas the work will touch, from the §1
   *Discovery* list. The input of the discovery term; `lint` fails on an open issue without it or
   with an unknown name. `set N areas=[Renderer,Vulkan/RHI]` writes it as a JSON list (an older
@@ -175,6 +178,11 @@ The picker resolves every distinct `blocked_by` number on each run (one batched 
 cached). A closed issue or merged PR does not block. A partially delivered tree prints `blocked:` with
 only the open edges. A blocker whose state cannot be read keeps blocking, flagged `blocked?:<N>` with a
 counted banner: assuming open hides work, and assuming closed invents work out of a network error.
+
+Before its `not_before` date, an issue sorts into group 3 with `not-before:YYYY-MM-DD` and is
+ineligible for `next:`, the Tier-1 slot, the large-item slot, the goal slot, and the Pull-override.
+It becomes eligible on the named date if its other blockers are clear. `lint` reports the tag as
+expired from that date onward and reports malformed dates separately.
 
 ### §3.7 — Tier-1 slot
 
@@ -284,10 +292,10 @@ label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
   and the north-star milestone's progress. `/start-work` prints it in its report.
 - `lint`: everything that makes the backlog lie. Unscored issues, missing or unknown `areas:`, merged
   work since the score, scores older than 45 days, unconfirmed Pulls, stale and unresolvable blocker
-  edges. Exits non-zero on any.
+  edges, and expired or invalid `not_before` dates. Exits non-zero on any.
 - `set N axis=value …`: re-score and stamp `scored:` with today. `set N` with no axes re-stamps after a
-  check found nothing to change. `set N areas=[…]` alone keeps `scored:`. Refuses `fun_by` and
-  `scored`.
+  check found nothing to change. Edits limited to `areas` and `not_before` keep `scored:`. Refuses
+  `fun_by` and `scored`.
 - `pull N…` / `pull --off N…`: the user's Pull confirmation or decline (§3.4).
 - `apply`: one-time migration from a JSON file.
 - `selftest`: the picker's built-in cases. `rank` and `lint` run them first on every invocation.
