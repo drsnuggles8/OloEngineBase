@@ -758,9 +758,10 @@ TEST(WaterRendering, UnderwaterFogUBOAlignment)
     // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + vec4 RefractionParams
     // + vec4 CausticParams + vec4 CausticColorAndSun + vec4 GodRayParams
     // + vec4 GodRaySun + vec4 GodRayColor + vec4 GodRayShape + mat4 InvViewProj
-    // + vec4 SurfaceGradient = 240 bytes. The god-ray params were appended after the
-    // caustics block; if this changes, update the GLSL UnderwaterFogBlock layout too.
-    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 240u);
+    // + vec4 SurfaceGradient + vec4 SurfaceTileU + vec4 SurfaceTileV = 272 bytes.
+    // The god-ray params were appended after the caustics block; if this changes,
+    // update the GLSL UnderwaterFogBlock layout too.
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 272u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
@@ -779,6 +780,8 @@ TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayShape), 144u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 160u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceGradient), 224u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceTileU), 240u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceTileV), 256u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
@@ -1212,6 +1215,41 @@ TEST(WaterRendering, UnderwaterSegment_AtWaterlineSplitsRayByDirection)
     EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, down, kWaterSurfaceY),
                 glm::length(down), 1e-4f);
     EXPECT_FLOAT_EQ(UnderwaterFog::UnderwaterSegmentLength(cam, up, kWaterSurfaceY), 0.0f);
+}
+
+TEST(WaterRendering, UnderwaterSurfaceSlopeAppliesOnlyToTheEyeTilesOwnSurface)
+{
+    // A 20 x 10 tile pitched about X, carried to (100, 3, -50) and turned 90 degrees
+    // about Y: its local X runs along world -Z and its local Z along world X.
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 3.0f, -50.0f));
+    model = glm::rotate(model, glm::half_pi<f32>(), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    const auto rows = UnderwaterFog::MakeTileFootprintRows(model, 20.0f, 10.0f);
+    const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+    ASSERT_TRUE(frame.has_value());
+    const glm::vec2 slope(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y);
+    ASSERT_GT(glm::length(slope), 0.3f);
+    const auto at = [&](glm::vec2 local)
+    {
+        const glm::vec2 xz = glm::inverse(frame->WorldXZToLocal) * local + glm::vec2(frame->Origin.x, frame->Origin.z);
+        return glm::vec3(xz.x, frame->RestHeight(xz), xz.y);
+    };
+    const auto same = [](glm::vec2 a, glm::vec2 b)
+    { return glm::length(a - b) < 1.0e-6f; };
+    const f32 m = UnderwaterFog::kTileFootprintMargin;
+    // On the tile, at its corners plus the wave margin, and at any height.
+    for (const glm::vec2 local : { glm::vec2(0.0f), glm::vec2(10.0f + m, 5.0f + m) * 0.999f, glm::vec2(-10.0f - m, 5.0f + m) * 0.999f })
+    {
+        const glm::vec3 p = at(local);
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, p), slope)) << local.x << ',' << local.y;
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, p + glm::vec3(0.0f, 40.0f, 0.0f)), slope));
+    }
+    // Just past either edge belongs to some other tile, whose own slope is unknown.
+    for (const glm::vec2 local : { glm::vec2(10.0f + m, 0.0f) * 1.001f, glm::vec2(0.0f, -5.0f - m) * 1.001f })
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, at(local)), glm::vec2(0.0f))) << local.x << ',' << local.y;
+    // No frame (a tile on edge) leaves every pixel on the eye tile's plane.
+    const auto edgeOn = UnderwaterFog::MakeTileFootprintRows(glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(1.0f, 0.0f, 0.0f)), 20.0f, 10.0f);
+    EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(edgeOn, slope, glm::vec3(1.0e4f)), slope));
 }
 
 TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)

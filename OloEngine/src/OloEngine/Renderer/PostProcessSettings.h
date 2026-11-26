@@ -1992,6 +1992,10 @@ namespace OloEngine
 
         // xy = world rest-height change per X/Z metre. The eye's column anchors the plane.
         glm::vec4 SurfaceGradient{ 0.0f };
+        // UnderwaterFog::TileFootprintRows of the eye tile: SurfaceGradient
+        // applies only to surface pixels that tile drew. Zero rows cover everything.
+        glm::vec4 SurfaceTileU{ 0.0f };
+        glm::vec4 SurfaceTileV{ 0.0f };
 
         static constexpr u32 GetSize()
         {
@@ -2000,7 +2004,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(UnderwaterFogUBOData) % 16 == 0, "UnderwaterFogUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(UnderwaterFogUBOData) == 240, "UnderwaterFogUBOData unexpected size — update GLSL layout");
+    static_assert(sizeof(UnderwaterFogUBOData) == 272,"UnderwaterFogUBOData unexpected size — update GLSL layout");
 
     // Local fog volume shape type (matches FogVolumeShape enum in Components.h)
     static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;

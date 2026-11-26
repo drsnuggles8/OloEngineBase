@@ -16923,6 +16923,14 @@ namespace OloEngine
                 // caustic scroll (mirrors the water surface's own wave time).
                 if (const auto frame = WaterSurface::SurfaceFrame::FromModel(fogWaterModel))
                     uwData.SurfaceGradient = glm::vec4(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y, 0.0f, 0.0f);
+                // The depth capture holds every drawn tile. Only the fog tile's
+                // surface lies on the plane the gradient describes.
+                if (fogWater)
+                {
+                    const auto rows = UnderwaterFog::MakeTileFootprintRows(fogWaterModel, fogWater->m_WorldSizeX, fogWater->m_WorldSizeZ);
+                    uwData.SurfaceTileU = rows.U;
+                    uwData.SurfaceTileV = rows.V;
+                }
                 uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, eyeDepth);
                 uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
                 uwData.RefractionParams = refractionParams;

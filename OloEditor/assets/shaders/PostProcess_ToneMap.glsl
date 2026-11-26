@@ -134,6 +134,8 @@ layout(std140, binding = 37) uniform UnderwaterFogBlock
     vec4 u_UnderwaterGodRayShape;     // x = dappleFloor, y = sunFalloff, zw = pad
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
     vec4 u_UnderwaterSurfaceGradient; // xy = rest-plane dY/dX and dY/dZ
+    vec4 u_UnderwaterSurfaceTileU;    // eye tile footprint rows: |dot(row, vec4(p, 1))| <= 1 on the tile
+    vec4 u_UnderwaterSurfaceTileV;    // (all-zero rows cover everything)
 };
 
 // How much of the full-screen lens (wobble + god rays) an eye sees: none until it
@@ -266,12 +268,22 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
     return vec3(openness * weight * dapple);
 }
 
+// The slope a captured surface point slides along to the eye's column: the eye
+// tile's own where that tile drew it, none for a surface another tile drew.
+// MUST match UnderwaterFog::PixelSurfaceGradient (UnderwaterFog.h).
+vec2 underwaterPixelSurfaceGradient(vec3 surface)
+{
+    vec4 p = vec4(surface, 1.0);
+    bool onEyeTile = abs(dot(u_UnderwaterSurfaceTileU, p)) <= 1.0 && abs(dot(u_UnderwaterSurfaceTileV, p)) <= 1.0;
+    return onEyeTile ? u_UnderwaterSurfaceGradient.xy : vec2(0.0);
+}
+
 // Length of the part of segment [camPos -> worldPos] below the water plane.
 // MUST match UnderwaterFog::UnderwaterSegmentLength (UnderwaterFog.h).
-float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY)
+float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY, vec2 gradient)
 {
     bool camUnder = camPos.y < waterY;
-    float fragmentY = worldPos.y - dot(u_UnderwaterSurfaceGradient.xy, worldPos.xz - camPos.xz);
+    float fragmentY = worldPos.y - dot(gradient, worldPos.xz - camPos.xz);
     bool fragUnder = fragmentY < waterY;
     if (camUnder && fragUnder)
         return length(worldPos - camPos);
@@ -334,14 +346,23 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
 
     // Express the sampled surface height at the camera's XZ. A captured
     // wave offsets the local rest plane; an uncaptured pixel uses the rest plane.
+    // A surface another tile drew keeps its own height: the eye tile's slope
+    // does not describe it.
     float surfaceY = u_UnderwaterFlags.y;
-    float wDepth = texture(u_WaterSurfaceDepth, uv).r;
+    vec2 gradient = u_UnderwaterSurfaceGradient.xy;
+    // The nearest of the four texels around uv, never a blend: at a water
+    // silhouette a filtered sample mixes surface depth with "no water" and
+    // reconstructs a point beyond the tile, which reads as another tile's
+    // surface. It shows where the capture is coarser than this pass (upscaling).
+    vec4 wTaps = textureGather(u_WaterSurfaceDepth, uv, 0);
+    float wDepth = min(min(wTaps.x, wTaps.y), min(wTaps.z, wTaps.w));
     if (!oloDepthIsSky(wDepth))
     {
         vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
         vec3 surface = sH.xyz / sH.w;
-        surfaceY = surface.y - dot(u_UnderwaterSurfaceGradient.xy, surface.xz - u_UnderwaterCameraPos.xz);
+        gradient = underwaterPixelSurfaceGradient(surface);
+        surfaceY = surface.y - dot(gradient, surface.xz - u_UnderwaterCameraPos.xz);
     }
     float share = underwaterSurfacePixelFogShare(u_UnderwaterCameraPos.y, surfaceY, eyeInWater);
 
@@ -357,7 +378,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     if (depth < 0.9999 && u_UnderwaterCaustics.x > 0.0)
     {
         float upFacing = max(geoN.y, 0.0);
-        float localSurfaceY = surfaceY + dot(u_UnderwaterSurfaceGradient.xy, worldPos.xz - u_UnderwaterCameraPos.xz);
+        float localSurfaceY = surfaceY + dot(gradient, worldPos.xz - u_UnderwaterCameraPos.xz);
         float fade = underwaterCausticDepthFade(localSurfaceY - worldPos.y, u_UnderwaterCaustics.w);
         float pattern = underwaterCausticPattern(worldPos.xz, u_UnderwaterFlags.z,
                                                  u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
@@ -365,7 +386,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
         color += u_UnderwaterCausticColor.rgb * caustic;
     }
 
-    float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, surfaceY);
+    float underwaterDist = underwaterSegmentLength(u_UnderwaterCameraPos.xyz, worldPos, surfaceY, gradient);
 
     float density = clamp(u_UnderwaterColorAndDensity.a, 0.0, 10.0);
     float transmittance = exp(-density * underwaterDist);

@@ -150,5 +150,52 @@ namespace OloEngine
             return std::isfinite(gap);
         }
 
+        // Tile-local metres a wave may push the drawn surface past its tile's edge
+        // and still count as that tile in TileFootprintRows.
+        inline constexpr f32 kTileFootprintMargin = 2.0f;
+
+        // Two rows that tell whether a world position lies over a water tile:
+        // it does when |dot(U, p)| <= 1 and |dot(V, p)| <= 1 for p = (x, y, z, 1).
+        // The underwater pass slides every captured surface height along the eye
+        // tile's slope (SurfaceGradient); a surface another tile drew does not lie
+        // on that plane, so the slope applies only inside these rows. All-zero rows
+        // put every position on the tile, which is what a level eye tile needs.
+        struct TileFootprintRows
+        {
+            glm::vec4 U{ 0.0f };
+            glm::vec4 V{ 0.0f };
+        };
+
+        [[nodiscard]] inline TileFootprintRows MakeTileFootprintRows(const glm::mat4& model, f32 width, f32 depth) noexcept
+        {
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            if (!frame)
+                return {};
+            const glm::vec2 origin(frame->Origin.x, frame->Origin.z);
+            // LocalXZ = WorldXZToLocal * (xz - origin); component r is row r of the matrix.
+            const auto row = [&](glm::length_t r, f32 dimension)
+            {
+                const glm::vec2 a(frame->WorldXZToLocal[0][r], frame->WorldXZToLocal[1][r]);
+                const f32 reach = WaterSurface::SanitizeTileDimension(dimension) * 0.5f + kTileFootprintMargin;
+                return glm::vec4(a.x, 0.0f, a.y, -glm::dot(a, origin)) / reach;
+            };
+            const TileFootprintRows rows{ row(0, width), row(1, depth) };
+            for (glm::length_t i = 0; i < 4; ++i)
+                if (!std::isfinite(rows.U[i]) || !std::isfinite(rows.V[i]))
+                    return {};
+            return rows;
+        }
+
+        // The slope a captured surface point slides along to the eye's column:
+        // the eye tile's own where that tile drew it, none for another tile's.
+        // MUST match the GLSL `underwaterPixelSurfaceGradient` in PostProcess_ToneMap.glsl.
+        [[nodiscard]] inline glm::vec2 PixelSurfaceGradient(const TileFootprintRows& rows, glm::vec2 eyeTileGradient,
+                                                            const glm::vec3& surface) noexcept
+        {
+            const glm::vec4 p(surface, 1.0f);
+            const bool onEyeTile = std::abs(glm::dot(rows.U, p)) <= 1.0f && std::abs(glm::dot(rows.V, p)) <= 1.0f;
+            return onEyeTile ? eyeTileGradient : glm::vec2(0.0f);
+        }
+
     } // namespace UnderwaterFog
 } // namespace OloEngine
