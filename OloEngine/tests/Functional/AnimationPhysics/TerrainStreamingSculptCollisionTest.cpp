@@ -146,6 +146,14 @@ TEST_F(TerrainStreamingTileCollisionTest, RebasingMovesTheResidentTileBody)
     EXPECT_EQ(hit.m_HitEntity, m_Terrain.GetUUID());
 }
 
+TEST_F(TerrainStreamingTileCollisionTest, RemovingTerrainComponentReleasesItsResidentTileBodies)
+{
+    auto* jolt = GetScene().GetPhysicsScene();
+    ASSERT_TRUE(jolt->HasTerrainTileBody(m_Terrain.GetUUID(), kTileGridX, kTileGridZ));
+    m_Terrain.RemoveComponent<TerrainComponent>();
+    EXPECT_FALSE(jolt->HasTerrainTileBody(m_Terrain.GetUUID(), kTileGridX, kTileGridZ));
+}
+
 TEST_F(TerrainStreamingTileCollisionTest, EvictingTileBodyRemovesCollision)
 {
     auto* jolt = GetScene().GetPhysicsScene();

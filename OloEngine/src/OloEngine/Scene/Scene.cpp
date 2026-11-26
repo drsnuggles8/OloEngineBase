@@ -7878,6 +7878,8 @@ namespace OloEngine
     template<>
     void Scene::OnComponentRemoved<TerrainComponent>(Entity entity, TerrainComponent& component)
     {
+        if (m_JoltScene)
+            m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
         if (m_JoltScene && component.m_RuntimeCollisionBodyToken != 0)
         {
             m_JoltScene->DestroyTerrainBody(entity.GetUUID());
