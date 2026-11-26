@@ -7,6 +7,7 @@
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 #include "OloEngine/Terrain/TerrainTile.h"
+#include "OloEngine/Terrain/TerrainStreamer.h"
 #include "TestTempDir.h"
 
 #include <stb_image/stb_image_write.h>
@@ -38,6 +39,18 @@
 // =============================================================================
 
 using namespace OloEngine;
+
+TEST(TerrainTileLoading, UnrepresentableLocalCameraDoesNotQueueAWrappedTile)
+{
+    TerrainStreamer streamer;
+    TerrainStreamerConfig config;
+    config.TileWorldSize = 1;
+    config.LoadRadius = 1;
+    streamer.Initialize(config);
+    streamer.Update({ std::numeric_limits<f32>::max(), 0, 0 }, 1);
+    EXPECT_EQ(streamer.GetLoadingTileCount(), 0u);
+    EXPECT_EQ(streamer.GetLoadedTileCount(), 0u);
+}
 
 TEST(TerrainTileLoading, WorkerPreparesFlatAndFileBackedSamplesWithoutAGraphicsContext)
 {
