@@ -2,9 +2,7 @@
 #include "OloEngine/Physics3D/WaterProbe.h"
 
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
-#include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
-#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -135,26 +133,14 @@ namespace OloEngine::WaterProbe
                 const auto sample = volume.m_OceanField->SampleCascades(base);
                 delta = { sample.Horizontal.x, sample.Height * volume.m_FFTHeightScale, sample.Horizontal.y };
                 if (volume.m_Params.m_ShoreEnabled)
-                {
-                    const auto shore = WaterShoreDepthSystem::SampleWorld(base);
-                    const f32 limit = volume.m_Params.m_ShoreBreakerIndex * shore.Depth;
-                    if (shore.Enabled && std::abs(delta.y) > limit)
-                        delta *= limit / std::max(std::abs(delta.y), 1.0e-6f);
-                }
+                    delta = WaterSurface::LimitFFTAtShore(delta, WaterShoreDepthSystem::SampleWorld(base), volume.m_Params.m_ShoreBreakerIndex);
             }
             else
             {
                 delta = WaterSurface::SampleDisplacement(volume.m_Params, base, rawTime);
             }
-            if (volume.m_WakeAffectsPhysics && volume.m_WakeHeightScale > 0.0f)
-            {
-                const auto wake = WaterWake::Evaluate(WaterWakeSystem::GetHullData(), WaterWakeSystem::GetHullCount(),
-                                                      volume.m_WakeHeightScale, volume.m_WakeFlattenStrength,
-                                                      base + glm::vec2(delta.x, delta.z), 0.0f);
-                delta *= 1.0f - wake.m_Flatten;
-                delta.y += wake.m_Height;
-            }
-            return delta;
+            return WaterSurface::ApplyWakeAtBase(delta, base, volume.m_WakeAffectsPhysics ? volume.m_WakeHeightScale : 0.0f,
+                                                 volume.m_WakeFlattenStrength);
         };
         glm::vec2 base = worldXZ;
         for (int i = 0; i < 3; ++i)

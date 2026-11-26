@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
 #include "OloEngine/Renderer/Water/WaterSpray.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 
 #include <algorithm>
 #include <cmath>
@@ -465,6 +466,36 @@ namespace OloEngine::Tests
         ASSERT_FALSE(particles.IsEmpty());
         for (const auto& particle : particles)
             EXPECT_NEAR(particle.PositionLifetime.y, 30.0f + WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f, 1e-5f);
+    }
+
+    TEST(WaterSprayTest, ShoreLimitScalesTheHorizontalAndVerticalCrestTogether)
+    {
+        const WaterShore::Sample shore{ 0.5f, glm::vec2(0.0f), true };
+        const auto delta = WaterSurface::LimitFFTAtShore({ 1, 2, -1 }, shore, 0.39f);
+        EXPECT_NEAR(delta.y, 0.195f, 1.0e-6f);
+        EXPECT_NEAR(delta.x, 0.0975f, 1.0e-6f);
+        EXPECT_NEAR(delta.z, -0.0975f, 1.0e-6f);
+    }
+
+    TEST(WaterSprayTest, FullHullFlattenMovesTheSprayLaunchToRestHeight)
+    {
+        WaterWakeSystem::BeginFrame();
+        struct ClearHulls
+        {
+            ~ClearHulls() { WaterWakeSystem::BeginFrame(); }
+        } clearHulls;
+        WaterWakeHullDesc hull;
+        hull.m_ForwardXZ = { 0.0f, 1.0f };
+        hull.m_HalfBeam = 25.0f;
+        hull.m_HalfLength = 25.0f;
+        ASSERT_TRUE(WaterWakeSystem::SubmitHull(hull));
+        auto settings = MakeSettings();
+        settings.m_WakeHeightScale = 1.0f;
+        settings.m_FlattenStrength = 1.0f;
+        const auto particles = WS::Emit(settings, 0.25f, { 0, 0 }, 3.0f, 1.0f / 60.0f, FlatSea(0.95f, 2.0f));
+        ASSERT_FALSE(particles.IsEmpty());
+        for (const auto& particle : particles)
+            EXPECT_NEAR(particle.PositionLifetime.y, WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f, 1.0e-4f);
     }
 
     TEST(WaterSprayTest, TiltedSprayStartsAtTheDisplacedCrestInsideItsTile)

@@ -93,6 +93,10 @@ namespace OloEngine::WaterSurface
         f32 m_ShoreBreakerIndex = WaterShore::kBreakerIndex; ///< WaterComponent::m_ShoreBreakerIndex
     };
 
+    // Vertex-domain modifiers shared by the FFT spray emitter and water probes.
+    [[nodiscard]] glm::vec3 LimitFFTAtShore(glm::vec3 delta, const WaterShore::Sample& shore, f32 breakerIndex);
+    [[nodiscard]] glm::vec3 ApplyWakeAtBase(glm::vec3 delta, glm::vec2 baseXZ, f32 wakeHeightScale, f32 flattenStrength);
+
     /// Full Gerstner displacement delta (dx, dy, dz) the shader adds to a base
     /// vertex at world (baseXZ.x, planeHeight, baseXZ.y) at raw application time
     /// `rawTime` (seconds — the same `Time::GetTime()` the renderer feeds the

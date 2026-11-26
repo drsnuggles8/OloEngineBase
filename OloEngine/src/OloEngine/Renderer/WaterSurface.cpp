@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
 
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 
@@ -176,6 +178,26 @@ namespace OloEngine::WaterSurface
             return displaced - position;
         }
     } // namespace
+
+    glm::vec3 LimitFFTAtShore(glm::vec3 delta, const WaterShore::Sample& shore, f32 breakerIndex)
+    {
+        const f32 limit = breakerIndex * shore.Depth;
+        if (shore.Enabled && std::abs(delta.y) > limit)
+            delta *= limit / std::max(std::abs(delta.y), 1.0e-6f);
+        return delta;
+    }
+
+    glm::vec3 ApplyWakeAtBase(glm::vec3 delta, glm::vec2 baseXZ, f32 wakeHeightScale, f32 flattenStrength)
+    {
+        if (wakeHeightScale > 0.0f)
+        {
+            const auto wake = WaterWake::Evaluate(WaterWakeSystem::GetHullData(), WaterWakeSystem::GetHullCount(),
+                                                  wakeHeightScale, flattenStrength, baseXZ + glm::vec2(delta.x, delta.z), 0.0f);
+            delta *= 1.0f - wake.m_Flatten;
+            delta.y += wake.m_Height;
+        }
+        return delta;
+    }
 
     glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime,
                                  const WaterShore::Sample& shore)

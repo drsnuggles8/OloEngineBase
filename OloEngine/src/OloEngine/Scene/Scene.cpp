@@ -16418,6 +16418,9 @@ namespace OloEngine
                 // winner's. The two contests have independent winners, so taking
                 // it from foamSettings would let a strict threshold authored on
                 // one tile silence spray on a completely different one.
+                spraySettings.m_BreakerIndex = shoreSettings.m_Enabled ? shoreSettings.m_BreakerIndex : 0.0f;
+                spraySettings.m_WakeHeightScale = wakeShapeSettings.m_Enabled ? wakeShapeSettings.m_HeightScale : 0.0f;
+                spraySettings.m_FlattenStrength = wakeShapeSettings.m_FlattenStrength;
                 WaterSpraySystem::SetSource(spraySettings, sprayField, sprayFoamThreshold);
 
                 // Shore wave deformation (issue #1033). Published
