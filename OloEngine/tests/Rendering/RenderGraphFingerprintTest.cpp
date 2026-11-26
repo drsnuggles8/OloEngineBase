@@ -20,6 +20,7 @@
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -203,6 +204,19 @@ namespace OloEngine::Tests
     namespace
     {
         using Access = RenderPipelineFingerprintAccess;
+
+        // Substitute shader readiness so the CPU test reaches the armed
+        // declaration path. Device capability and shader loading are covered
+        // by the live Vulkan run, where the real readiness gate must pass.
+        template<typename Pass>
+        class ReadyReSTIRPass final : public Pass
+        {
+          public:
+            [[nodiscard]] bool IsReadyForExecution() const noexcept override
+            {
+                return true;
+            }
+        };
 
         [[nodiscard]] RendererSettings DeferredSettings()
         {
@@ -517,40 +531,82 @@ namespace OloEngine::Tests
         }
     }
 
-    // ReSTIR's reservoir history is extracted from the target the LAST spatial
-    // pass wrote. The declaration input is that resolved choice, not the two
-    // settings behind it: 1 and 3 spatial passes extract from the same
-    // ping-pong target. And it is an input only while the tier can run.
-    TEST(RenderGraphFingerprint, ReSTIRExtractionSourceIsTheResolvedChoiceAndOnlyWhenArmed)
+    TEST(RenderGraphFingerprint, ReSTIRSpatialScratchAndExtractionMatchThePassSchedule)
     {
+        struct Cell
+        {
+            bool Reuse;
+            u32 Passes;
+            u32 Scratch;
+            u32 Source;
+        };
+        constexpr Cell cells[] = {
+            { false, 4u, 0u, 0u },
+            { true, 1u, 1u, 1u },
+            { true, 2u, 2u, 2u },
+            { true, 3u, 2u, 1u },
+            { true, 4u, 2u, 2u },
+        };
+        const auto verify = [&cells](auto& pass, auto settings)
+        {
+            for (const Cell& cell : cells)
+            {
+                SCOPED_TRACE(cell.Passes);
+                settings.SpatialReuse = cell.Reuse;
+                settings.SpatialPasses = cell.Passes;
+                pass.SetSettings(settings);
+                EXPECT_EQ(pass.SpatialPassCount(), cell.Reuse ? cell.Passes : 0u);
+                EXPECT_EQ(pass.SpatialScratchCount(), cell.Scratch);
+                EXPECT_EQ(pass.ReservoirExtractionSource(), cell.Source);
+            }
+        };
+
         Access::Data data;
         auto restir = Ref<ReSTIRDIPass>::Create();
+        auto gi = Ref<ReSTIRGIPass>::Create();
         data.Pipeline->SceneCompositePasses.ReSTIRDI = restir;
+        data.Pipeline->SceneCompositePasses.ReSTIRGI = gi;
+        verify(*restir, ReSTIRDISettings{});
+        verify(*gi, ReSTIRGISettings{});
 
-        ReSTIRDISettings settings;
-        settings.SpatialReuse = true;
-        settings.SpatialPasses = 1u;
-        restir->SetSettings(settings);
-        const u32 one = restir->ReservoirExtractionSource();
-        settings.SpatialPasses = 3u;
-        restir->SetSettings(settings);
-        EXPECT_EQ(restir->ReservoirExtractionSource(), one) << "1 and 3 spatial passes extract from the same target.";
-        settings.SpatialPasses = 2u;
-        restir->SetSettings(settings);
-        EXPECT_NE(restir->ReservoirExtractionSource(), one);
-        settings.SpatialReuse = false;
-        restir->SetSettings(settings);
-        EXPECT_EQ(restir->ReservoirExtractionSource(), 0u) << "Without spatial reuse the temporal target is the source.";
-
-        // A pass that cannot run (here: no shaders, as on a device without ray
-        // tracing) declares nothing from the source, so editing it must not
-        // rebuild the graph there.
+        // Without shaders, neither tier declares these targets.
         ASSERT_FALSE(restir->IsReadyForExecution());
+        ASSERT_FALSE(gi->IsReadyForExecution());
         const u64 before = data.Pipeline->ComputeDeclarationKey(data);
-        settings.SpatialReuse = true;
-        settings.SpatialPasses = 2u;
-        restir->SetSettings(settings);
+        restir->SetSettings(ReSTIRDISettings{});
+        gi->SetSettings(ReSTIRGISettings{});
         EXPECT_EQ(data.Pipeline->ComputeDeclarationKey(data), before);
+    }
+
+    TEST(RenderGraphFingerprint, ReSTIRSpatialKeyTracksBackingAndExtraction)
+    {
+        Access::Data data;
+        auto di = Ref<ReadyReSTIRPass<ReSTIRDIPass>>::Create();
+        auto gi = Ref<ReadyReSTIRPass<ReSTIRGIPass>>::Create();
+        data.Pipeline->SceneCompositePasses.ReSTIRDI = di;
+        data.Pipeline->SceneCompositePasses.ReSTIRGI = gi;
+
+        const auto verify = [&data](auto& pass, auto settings)
+        {
+            pass.SetEnabled(true);
+            settings.SpatialReuse = true;
+            const auto fingerprint = [&](u32 passes)
+            {
+                settings.SpatialPasses = passes;
+                pass.SetSettings(settings);
+                return data.Pipeline->ComputeDeclarationKey(data);
+            };
+            const u64 one = fingerprint(1u);
+            const u64 three = fingerprint(3u);
+            const u64 two = fingerprint(2u);
+            const u64 four = fingerprint(4u);
+            EXPECT_NE(one, three) << "The second scratch target is required from pass 2 onward.";
+            EXPECT_NE(three, two) << "Odd and even schedules extract from different targets.";
+            EXPECT_EQ(two, four) << "Two and four passes share both scratch and extraction.";
+        };
+
+        verify(*di, ReSTIRDISettings{});
+        verify(*gi, ReSTIRGISettings{});
     }
 
     // A render-stream pass whose Setup() declares nothing when its command

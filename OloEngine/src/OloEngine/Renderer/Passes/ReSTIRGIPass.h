@@ -10,6 +10,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 
 namespace OloEngine
@@ -96,15 +97,15 @@ namespace OloEngine
 
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
 
-        // Setup() fixes the reservoir history's extraction source.
+        // Scratch allocation and history extraction both affect this pass's
+        // cached graph declaration.
         void AppendDeclarationInputs(RGDeclarationKey& key) const override
         {
-            // Only when the tier can run: on a device without the shaders, or
-            // with the tier off, the source changes no declaration, and keying
-            // it would rebuild the graph for a settings edit that cannot
-            // change a single resource.
             if (IsEnabled() && IsReadyForExecution())
+            {
+                key.Add(SpatialScratchCount());
                 key.Add(ReservoirExtractionSource());
+            }
         }
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
@@ -180,17 +181,22 @@ namespace OloEngine
             return m_Settings;
         }
 
-        // Which target next frame's reservoir history is extracted from: 0 for
-        // the temporal target, 1 + index for a spatial ping-pong target. Setup()
-        // declares the extraction contract from this, so it is a declaration
-        // input, and it is the RESOLVED choice rather than the two settings
-        // behind it: SpatialPasses 1 and 3 extract from the same target and
-        // must not rebuild the graph (issue #1333).
+        [[nodiscard]] u32 SpatialPassCount() const noexcept
+        {
+            return m_Settings.SpatialReuse ? std::max(m_Settings.SpatialPasses, 1u) : 0u;
+        }
+
+        [[nodiscard]] u32 SpatialScratchCount() const noexcept
+        {
+            return std::min(SpatialPassCount(), 2u);
+        }
+
+        // 0 selects the temporal target. 1 and 2 select spatial buffers 0 and
+        // 1 respectively, according to the last draw's ping-pong index.
         [[nodiscard]] u32 ReservoirExtractionSource() const noexcept
         {
-            if (!m_Settings.SpatialReuse)
-                return 0u;
-            return 1u + ((std::max(m_Settings.SpatialPasses, 1u) - 1u) % 2u);
+            const u32 passes = SpatialPassCount();
+            return passes == 0u ? 0u : 1u + ((passes - 1u) % 2u);
         }
 
         // The uniform environment a bounce ray that escapes collects, and the
