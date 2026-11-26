@@ -77,7 +77,7 @@ namespace OloEngine
         cubemapSpec.Format = ImageFormat::RGBA32F;
         cubemapSpec.GenerateMips = true;
         auto cubemap = TextureCubemap::Create(cubemapSpec);
-        if (!cubemap)
+        if (!cubemap || !cubemap->IsLoaded())
         {
             OLO_CORE_ERROR("ReflectionProbeBaker: failed to allocate cubemap ({}x{} RGBA32F)", clampedResolution, clampedResolution);
             return nullptr;
@@ -100,20 +100,19 @@ namespace OloEngine
                     OLO_CORE_ERROR("ReflectionProbeBaker: cubemap face {} readback failed; abandoning the bake", face);
                     return false;
                 }
-                // TextureCubemap::SetFaceData takes a mutable pointer. It
-                // regenerates the mip chain on every call; redundant on faces
-                // 0-4 but harmless, and a bake is an editor-time interactive
-                // action.
+                // The upload takes a mutable pointer. Generate mips once,
+                // after all six base faces have been uploaded.
                 faceTexels.SetNum(rgba.size(), EAllowShrinking::No);
                 std::copy(rgba.begin(), rgba.end(), faceTexels.GetData());
-                cubemap->SetFaceData(face, faceTexels.GetData(), static_cast<u32>(rgba.size_bytes()));
-                return true;
-            });
+                return cubemap->SetFaceDataMip(face, 0u, faceTexels.GetData(), static_cast<u32>(rgba.size_bytes()));
+            },
+            /*submitEachFace=*/true);
         if (!captured)
         {
             return nullptr;
         }
 
+        cubemap->GenerateMipmaps();
         return cubemap;
     }
 
@@ -194,9 +193,7 @@ namespace OloEngine
             // back with ReadTextureImage and pushed into cube faces by
             // direction, the same shape as SkyCubemapBake / DDGI — the y flip
             // must NOT be applied or each face stores row-mirrored relative to
-            // the GL bake. This writer predates the seam and uploaded the raw
-            // matrix; identity on GL, so nothing changes there, and the path
-            // is dormant on Vulkan until the cubemap CPU upload lands.
+            // the GL bake.
             camera.ViewProjection = RHI::AdjustCaptureProjectionForBackend(proj * view);
             camera.View = view;
             camera.Projection = RHI::AdjustCaptureProjectionForBackend(proj);
@@ -221,7 +218,8 @@ namespace OloEngine
                 RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
             }
 
-            if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RG32Float,
+            if (!ProbeSceneCapture::SubmitFaceForReadback() ||
+                !RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RG32Float,
                                                  faceBytes, rgReadback.GetData()))
             {
                 OLO_CORE_WARN("ReflectionProbeBaker: distance face {} readback failed", face);
@@ -320,13 +318,18 @@ namespace OloEngine
         }
 
         // Distance-impostor capture (issue #705): rasterize the casters the
-        // warm-up render collected into the radial-distance field. A probe
-        // with no distance field still works — the per-pixel probe path just
-        // skips it and the global IBL fallback covers those pixels — so a
-        // failed distance capture degrades rather than failing the bake.
-        if (auto distanceField = CaptureDistanceField({ casters.GetData(), static_cast<sizet>(casters.Num()) }, position))
+        // warm-up render collected into the radial-distance field. Publish
+        // both halves together on Vulkan so a failed re-bake keeps the last
+        // usable probe. OpenGL retains its direction-only fallback.
+        auto distanceField = CaptureDistanceField({ casters.GetData(), static_cast<sizet>(casters.Num()) }, position);
+        if (distanceField)
         {
             environment->SetProbeDistanceField(distanceField);
+        }
+        else if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            OLO_CORE_ERROR("ReflectionProbeBaker::BakeProbe: distance capture failed");
+            return false;
         }
         else
         {

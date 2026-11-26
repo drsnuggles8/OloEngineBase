@@ -24,24 +24,19 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemapArray.h"
 
-#include <string>
+#include <functional>
 #include <string_view>
-#include <vector>
 
 namespace OloEngine
 {
+    class VulkanImageLayoutTracker;
+
     // -------------------------------------------------------------------------
     // VulkanTextureCubemapArray — a 6*Layers-layer 2D image with a CUBE_ARRAY
     // view type (#691).
     //
-    // Brought up for the reflection-probe arrays (issue #705's radiance /
-    // distance-field arrays): ReflectionProbeArray::Init creates two of these
-    // eagerly, so without this class the factory's assert wedged the first
-    // --rhi=vulkan editor launch during init — the same
-    // backend-blind-factory shape as amendment (64). Scope matches
-    // VulkanTextureCubemap's: real image, real identity (binds / barriers /
-    // layout tracking all work), with the CPU upload and GPU layer-copy
-    // halves warn-once no-ops until the cubemap-upload work lands.
+    // Reflection probes copy prefiltered radiance from a cube and upload
+    // the CPU-built distance chain one mip at a time.
     // -------------------------------------------------------------------------
     class VulkanTextureCubemapArray : public TextureCubemapArray
     {
@@ -102,6 +97,10 @@ namespace OloEngine
         bool GetData(TArray64<u8>& outData, u32 mipLevel = 0) const override;
 
       private:
+        using Transfer = std::function<bool(VkCommandBuffer, VulkanImageLayoutTracker&)>;
+        bool Write(const char* label, const Transfer& record, VkBuffer staging = VK_NULL_HANDLE,
+                   VmaAllocation stagingAllocation = VK_NULL_HANDLE) const;
+
         TextureSpecification m_Specification;
         CubemapArraySpecification m_ArraySpecification;
         FString m_Path;

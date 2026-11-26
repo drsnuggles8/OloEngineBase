@@ -4,7 +4,7 @@ Gotchas for render passes, GL wrappers, SSAO/SSR/FSR, IBL and offline capture. R
 
 ## Rules
 
-1. **Read offline captures from the graph's own targets.** Use `Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor)`, render a warmup frame after resize, pass `IBLConfiguration{ .UseDiskCache = false }`, force render scale 1.0 via a scope guard. [Details](notes-renderer-details.md#1-offline-capture-via-scenerenderscene3d--five-silently-black-traps)
+1. **Read offline captures from the graph's own targets.** Use `Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor)`, render a warmup frame after resize, pass `IBLConfiguration{ .UseDiskCache = false }`, force render scale 1.0 via a scope guard. **Submit each Vulkan reflection-probe face before reading it.** [Details](notes-renderer-details.md#1-offline-capture-via-scenerenderscene3d--five-silently-black-traps)
 2. **Drain `glGetError()` before checking it after a readback.** **When reassigning `m_RendererID`, keep the old handle until the new one is valid,** then `SubmitForDeletion` it, balance the GPU tracker and unregister side maps. [Details](notes-renderer-details.md#2-drain-glgeterror-before-checking-it-after-a-readback)
 3. **Reset raw GL ids published into `Renderer3D` globals every frame in `RenderPipeline::PrepareFrame`.** [Details](notes-renderer-details.md#4-a-raw-gl-id-published-into-global-renderer-state-must-be-reset-every-frame)
 4. **A new shader binding needs the constant plus `IsKnownUBOBinding` / `IsKnownTextureBinding` cases.** [Details](notes-renderer-details.md#5-adding-a-shader-binding-is-three-edits-not-one)

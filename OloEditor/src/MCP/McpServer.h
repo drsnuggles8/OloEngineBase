@@ -1510,6 +1510,10 @@ namespace OloEngine::MCP
         // run on handler threads, so this holds.
         [[nodiscard]] Json MarshalReadOnMainThread(const std::function<Json()>& readJob,
                                                    std::chrono::milliseconds timeout) override;
+        [[nodiscard]] Json MarshalRenderWorkOnMainThread(const std::function<Json()>& work,
+                                                         std::chrono::milliseconds timeout) override;
+        [[nodiscard]] Json MarshalMainThreadJob(const std::function<Json()>& work, std::chrono::milliseconds timeout,
+                                                bool requiresRecording);
 
         // IAutomationHost. Emit a `notifications/progress` for the CURRENTLY
         // EXECUTING tool call. A no-op unless the call carried

@@ -43,6 +43,12 @@ while adding the reflection-probe visual test.
    moment one of them fires. `ReflectionProbeBaker::BakeProbe` currently does the plain form, with
    ~80 lines between set and restore — worth converting when you next touch it. The same guard
    should carry the window-size restoration, which has the identical problem.
+   Run Vulkan reflection-probe bakes inside the editor's frame recording callback.
+   Submit the warm-up and each face as a graph segment before the CPU reads
+   the face. The segment publishes the image layout, consumes the swapchain
+   acquire wait once and signals the renderer frame fence before the next
+   face needs to reuse an allocator slot. The readback can then borrow the
+   just-submitted layout even when the present pass already drew to the window.
 5. **Exclude the probe being baked from its own IBL override.** `ApplyReflectionProbeOverride`
    installs the dominant active probe's `m_BakedEnvironment` as the global IBL, so a **re-bake**
    feeds the probe's own previous bake back into the fresh capture — an infinity-mirror artifact

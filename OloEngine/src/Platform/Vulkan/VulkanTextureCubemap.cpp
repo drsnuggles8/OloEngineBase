@@ -277,21 +277,18 @@ namespace OloEngine
             return;
         }
 
-        const auto recordChain = [this](VkCommandBuffer cmd, const VkImageLayout priorLayout)
+        const auto prepareMipRange = [this](VkCommandBuffer cmd, const VkImageSubresourceRange& range,
+                                            VkImageLayout priorLayout)
         {
-            // src access stays MEMORY_WRITE even when priorLayout is
-            // UNDEFINED: for this image UNDEFINED can mean "mixed after
-            // per-face copies" (SetFaceData collapses a partially-uploaded
-            // layout to UNDEFINED), so the face uploads' TRANSFER_WRITEs may
-            // still be in flight — an empty src scope is the WRITE_AFTER_WRITE
-            // sync-validation hazard the live editor hit. A transition FROM
-            // UNDEFINED with a non-empty src scope is legal; it only orders
-            // the prior writes, the contents are discarded either way.
             VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                              VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                                              VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                             VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
-                                             6u);
+                                             VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                             range.baseMipLevel, range.levelCount, range.baseArrayLayer, range.layerCount);
+        };
+        const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 6u };
+        const auto recordChain = [this](VkCommandBuffer cmd)
+        {
             u32 srcWidth = m_CubemapSpecification.Width;
             u32 srcHeight = m_CubemapSpecification.Height;
             for (u32 mip = 1u; mip < m_MipLevels; ++mip)
@@ -330,17 +327,16 @@ namespace OloEngine
 
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
-            // In-frame: the tracker must agree with the chain's transitions.
-            // The chain works in whole-subresource strokes, so drive it with
-            // the tracker's whole-image answer and settle everything to
-            // the device's sampled layout afterwards.
+            // A whole-image UNDEFINED would discard uploaded base faces
+            // when their layout differs from the untouched mip levels.
             auto& tracker = vk->LayoutTracker();
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             tracker.RegisterImage(m_Image, m_MipLevels, 6u, info != nullptr ? info->RegistrationId : 0u,
                                   info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED);
-            const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 6u };
-            const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
-            recordChain(vk->CurrentCommandBuffer(), prior);
+            const auto cmd = vk->CurrentCommandBuffer();
+            tracker.ForEachLayoutRun(m_Image, whole, [&](const VkImageSubresourceRange& run, VkImageLayout prior)
+                                     { prepareMipRange(cmd, run, prior); });
+            recordChain(cmd);
             tracker.SetLayout(m_Image, whole, VulkanDevice::Get()->GetSampledImageLayout());
         }
         else
@@ -352,7 +348,9 @@ namespace OloEngine
             // why the bool alone is the wrong question here.
             VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
             VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps", [&](VkCommandBuffer cmd)
-                                  { recordChain(cmd, prior); }, &outcome);
+                                  {
+                                      prepareMipRange(cmd, whole, prior);
+                                      recordChain(cmd); }, &outcome);
             if (outcome == VulkanOneShot::Outcome::NotSubmitted)
             {
                 OLO_CORE_ERROR("VulkanTextureCubemap::GenerateMipmaps: the mip chain never reached the queue — "

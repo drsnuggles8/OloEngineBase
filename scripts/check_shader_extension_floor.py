@@ -265,7 +265,7 @@ def main():
         return 2
     if ok:
         round_ok, round_diagnostic = reflect_round_trip(glslc, spirv_cross, layout_probe)
-        print(f"  {'compile→reflect round trip':<{width}}  {'ok' if round_ok else 'REJECTED'}")
+        print(f"  {'compile and reflect round trip':<{width}}  {'ok' if round_ok else 'REJECTED'}")
         if not round_ok:
             failures.append(
                 (
