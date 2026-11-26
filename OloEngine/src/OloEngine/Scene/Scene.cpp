@@ -8469,6 +8469,17 @@ namespace OloEngine
             m_Pending2DShapes[entity] = pending;
     }
 
+    namespace
+    {
+        Scene::Physics2DPlacement ProjectIntoBox2DBody(const glm::mat4& world, f32 angle)
+        {
+            const glm::vec2 x(world[0]), y(world[1]);
+            const f32 c = std::cos(angle), s = std::sin(angle);
+            const glm::mat2 inverseRotation(c, -s, s, c);
+            return { glm::vec3(world[3]), { glm::length(x), glm::length(y) }, angle, inverseRotation * glm::mat2(x, y) };
+        }
+    } // namespace
+
     void Scene::RetryPending2DShapes()
     {
         for (auto it = m_Pending2DShapes.begin(); it != m_Pending2DShapes.end();)
@@ -8480,7 +8491,20 @@ namespace OloEngine
             {
                 pending.Box &= entity.HasComponent<BoxCollider2DComponent>();
                 pending.Circle &= entity.HasComponent<CircleCollider2DComponent>();
-                CreateValid2DShapes(entity, GetPhysics2DPlacement(entity), pending);
+                if (ResolveTransformParent(entity) == entt::null)
+                    CreateValid2DShapes(entity, GetPhysics2DPlacement(entity), pending);
+                else
+                {
+                    // Writeback may have been frozen while the shapeless body
+                    // rotated. Build its recovered offsets from the native pose
+                    // it owns now, including moving simulated ancestors.
+                    const auto body = entity.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+                    const b2Rot rotation = b2Body_GetRotation(body);
+                    const glm::mat4 parent = ComputeParentWorldTransform(entity, m_JoltScene.get());
+                    const auto pose = ToLocalBox2DPose(parent, b2Body_GetPosition(body), rotation, entity.GetComponent<TransformComponent>());
+                    if (pose)
+                        CreateValid2DShapes(entity, ProjectIntoBox2DBody(parent * PhysicsPoseMatrix(*pose), b2Rot_GetAngle(rotation)), pending);
+                }
             }
             else
                 pending = {};
@@ -8507,7 +8531,7 @@ namespace OloEngine
             const glm::vec2 half = bc2d.Size * pose.Scale;
             // Polygon mass requires a finite positive area. A collapsed
             // carrier still has a native body and may recover on a later tick.
-            if (Math::IsFinite(half) && Math::IsFinite(offset) && half.x > 0.0f && half.y > 0.0f &&
+            if (InverseParentBasis(pose.OffsetToBody) && Math::IsFinite(half) && Math::IsFinite(offset) && half.x > 0.0f && half.y > 0.0f &&
                 4.0 * half.x * half.y > std::numeric_limits<f32>::epsilon())
             {
                 const b2Polygon polygon = b2MakeOffsetBox(half.x, half.y, { offset.x, offset.y }, b2MakeRot(0.0f));
@@ -8563,10 +8587,7 @@ namespace OloEngine
             angle = std::atan2(x.y, x.x);
         else if (scale.y > 1.0e-6f)
             angle = std::atan2(-y.x, y.y);
-        const f32 c = std::cos(angle);
-        const f32 s = std::sin(angle);
-        const glm::mat2 inverseRotation(c, -s, s, c);
-        return { glm::vec3(world[3]), scale, angle, inverseRotation * glm::mat2(x, y) };
+        return ProjectIntoBox2DBody(world, angle);
     }
 
     void Scene::ApplyAuthoredPhysics2DPose(Entity entity) const

@@ -488,6 +488,33 @@ TEST_F(PlanarColliderPlacementTest, BoxStartingOnCollapsedCarrierGainsItsShapeOn
     EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, b2Body_GetPosition(native).y, 1.0e-5f);
 }
 
+TEST_F(PlanarColliderPlacementTest, CollinearBoxWaitsAndUsesTheRotatedNativeFrameOnRecovery)
+{
+    Entity rig = GetScene().CreateEntity("Collapsed XY frame");
+    rig.GetComponent<TransformComponent>().Scale = { 0, 2, 1 };
+    Entity child = GetScene().CreateEntity("Angled box");
+    child.SetParent(rig);
+    child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0, glm::quarter_pi<f32>() });
+    child.AddComponent<BoxCollider2DComponent>().Offset = { 1, 0 };
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    b2Body_SetTransform(native, { 4, 8 }, b2MakeRot(glm::half_pi<f32>()));
+    RunFrames(1);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    rig.GetComponent<TransformComponent>().Scale.x = 1;
+    RunFrames(1);
+    b2ShapeId shape;
+    ASSERT_EQ(b2Body_GetShapes(native, &shape, 1), 1);
+    const b2Vec2 centre = b2Body_GetWorldPoint(native, b2Shape_GetPolygon(shape).centroid);
+    const glm::vec3 expected(GetScene().ComputeWorldTransform(child) * glm::vec4(1, 0, 0, 1));
+    EXPECT_NEAR(centre.x, expected.x, 1.0e-4f);
+    EXPECT_NEAR(centre.y, expected.y, 1.0e-4f);
+    EXPECT_NEAR(centre.y - b2Body_GetPosition(native).y, 2.0f, 1.0e-4f);
+}
+
 TEST_F(PlanarColliderPlacementTest, OffsetBoxRecoversWhenItsCornersBecomeDistinct)
 {
     Entity child = GetScene().CreateEntity("Offset box");
