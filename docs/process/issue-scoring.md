@@ -150,8 +150,9 @@ descending, Learning, Fun, issue number.
 | 2 | needs triage: work merged since the last score (§6.4), or labelled `close-recommended` | no, triage first / the user closes it |
 | 3 | blocked (§3.6) | no |
 
-`next:` is the first row of group 0 or 1, unless the Tier-1 slot (§3.7) or the large-item slot
-(§3.8) is due; it says why when it departs from the printed order.
+The table shows the canonical rank. The [development policy](development-policy.md) orders the
+eligible rows from groups 0 and 1 under `selection:`. `next:` applies that order and the slots
+in §3.7–§3.9, and identifies the reason for the pick.
 
 **`close-recommended`** is the label a sweep adds next to its evidence comment when it proves an
 open issue done (start-work §2b). The row is flagged `close?`, sorts into group 2 and never becomes
@@ -188,9 +189,10 @@ expired from that date onward and reports malformed dates separately.
 
 Tier 1 is start-work's force-multiplier work: CI, test infrastructure, MCP and dev tooling. It is
 marked with the `tooling` label (`ci-nightly-red` also counts). If none of the last **3** started tasks
-(`feature/*` PRs, open or merged) closed a Tier-1 issue or carried the label, the slot is **due** and
-`next:` becomes the top startable Tier-1 row. `rank` prints the `tier-1:` candidate and the slot state
-every run. If the PR history cannot be read it says so and `next:` follows the plain order. A
+(`feature/*` PRs, open or merged) closed a Tier-1 issue or carried the label, the slot is **due**.
+When the slot is due and `priority:` supplies no pick, `next:` takes the top eligible Tier-1 row.
+`rank` prints the candidate and slot state every run. If the PR history cannot be read it says so
+and `next:` follows `selection:`. A
 `/start-work` batch of two or more always gives one slot to Tier 1.
 
 ### §3.8 — Large-item slot
@@ -200,11 +202,12 @@ the top of the rank on its own, yet broad structural work finds and fixes the mo
 slot is **due** when none of the last **3** started tasks closed a large issue **and** no open
 `feature/*` PR closes one. A large item takes a week or more, so one still in review keeps the slot
 filled while small tasks start beside it. `rank` prints the `large:` candidate (the top startable
-large row) and the slot state every run. When the slot is due and the Tier-1 slot is not, `next:`
-becomes the `large:` row. When both are due, Tier 1 takes the single pick and the large slot stays
+large row) and the slot state every run. When a due large slot has a candidate and neither
+`priority:` nor a due Tier-1 slot supplies a pick, `next:` takes the `large:` row. When both slots
+are due and have candidates, Tier 1 takes the automatic single pick and the large slot stays
 due for the next one. A `/start-work` batch of two or more gives one slot to the `large:` candidate
 while the slot is due. The script cannot see a worktree that has no PR yet. A live worktree whose
-HANDOVER names a large issue counts as in flight; the sweep checks for one.
+HANDOVER names a large issue counts as in flight; the sweep passes it with `--large-in-flight`.
 
 ### §3.9 — North star
 
@@ -219,8 +222,8 @@ prints `north star: NOT SET`. Once it is set:
   through the existing Decay axis, so there is still one queue.
 - The north star's *Critical path* checklist lists what the milestone cannot ship without. `lint`
   fails on an unticked item with no `#N`: the goal must be filed to steer anything.
-- A `/start-work` batch of two or more gives one slot to the `goal:` candidate. For a single pick,
-  `next:` stays the plain rank, which the Decay rung already lifts.
+- A `/start-work` batch of two or more gives one slot to the eligible `goal:` candidate. For a
+  single pick, `next:` follows the phase preference and applies the Tier-1 and large-item slots.
 
 ### §3.10 — Discovery in the rank
 
@@ -228,8 +231,8 @@ The §1 Discovery term enters the score through Stability. How it meets the othe
 
 - **Low-value floor (§3.5)** tests the plain CoD. Discovery is arithmetic too, and cannot lift an
   issue over the floor.
-- **Tier-1, large-item and goal slots (§3.7–§3.9)** pick their candidates from the rank with
-  discovery in it. The slots themselves are unchanged.
+- **Tier-1, large-item and goal slots (§3.7–§3.9)** draw from `selection:`. That order uses the
+  rank with discovery within each policy priority and value band.
 - **Goal issues are never pushed down by it.** Discovery favours small items, since yield per unit
   of effort falls with effort, and items in quiet areas. Without a correction, a Renderer goal
   issue sank 7 → 15 under a synthetic milestone

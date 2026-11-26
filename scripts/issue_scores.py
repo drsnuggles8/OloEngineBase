@@ -7,7 +7,7 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
     rank   pull every open issue, parse its block, print the ranked list
            (default lens; the discovery term, Pull-override, the Tier-1 slot and
            the large-item slot applied; --no-discovery for the plain §3 order).
-           This is what /start-work calls.
+           Also prints the development policy's eligible picks for /start-work.
     yield  the discovery term's history: per area, the model behind the term;
            per merged task PR, the predicted vs actual severity-weighted yield.
     lint   everything that makes the backlog lie: open issues with no olo-score
@@ -1317,6 +1317,88 @@ def row_group(row, states, today):
     return 0 if is_pull(d, states, today) else 1
 
 
+POLICY_PATH = NORTH_STAR_PATH.with_name("development-policy.md")
+POLICY_RE = re.compile(r"```olo-development-policy\s*\n(.*?)\n```", re.DOTALL)
+
+
+def development_policy():
+    """Read the reviewed phase boundary and exceptions from the policy document."""
+    try:
+        match = POLICY_RE.search(POLICY_PATH.read_text(encoding="utf-8"))
+        if not match:
+            raise ValueError("missing olo-development-policy block")
+        data = json.loads(match[1])
+        transition = dt.date.fromisoformat(data["game_led_from"])
+        priority = data["stabilization_priority"]
+        optional = data["optional_rendering"]
+        if any(not isinstance(ids, list) or any(type(n) is not int or n <= 0 for n in ids)
+               for ids in (priority, optional)) or set(priority) & set(optional):
+            raise ValueError("issue lists must contain positive numbers and be disjoint")
+        return transition, set(priority), set(optional)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        sys.exit(f"Cannot read task selection policy in {POLICY_PATH.name}: {exc}")
+
+
+def goal_work(rows, star):
+    """Open milestone work and its scored, in-repo prerequisites."""
+    blocks = {r[0]: r[3] for r in rows}
+    pending = [n for n, d in blocks.items() if is_goal(d, star)]
+    needed = set(pending)
+    while pending:
+        prerequisites = (set(blocker_keys(blocks[pending.pop()])) & blocks.keys()) - needed
+        needed.update(prerequisites)
+        pending.extend(prerequisites)
+    return needed
+
+
+PRIORITY_PICKS = {"Pull": 0, "urgent": 1, "stabilization-priority": 2}
+
+
+def selection_pool(rows, groups, star, policy, today, floor, excluded=()):
+    """Select from the canonical rank. Every slot draws from the same eligible pool."""
+    transition, priority, optional = policy
+    stabilizing = today < transition
+    game = goal_work(rows, star)
+    decisions = {}
+    for num, _, _, _, labels, _ in rows:
+        if num in excluded:
+            decisions[num] = "registry-excluded"
+        elif groups[num] > 1:
+            continue  # existing dependency and triage flags explain the exclusion
+        elif groups[num] == 0:
+            decisions[num] = "Pull"
+        elif {"bug", "priority: urgent"} <= labels:
+            decisions[num] = "urgent"
+        elif stabilizing and num in priority:
+            decisions[num] = "stabilization-priority"
+        elif stabilizing and "bug" in labels and num not in optional:
+            decisions[num] = "production-fix"
+        elif num in game:
+            decisions[num] = "outside-stabilization" if stabilizing else "KESTREL"
+        elif num in optional:
+            decisions[num] = "outside-stabilization" if stabilizing else "research-opt-in"
+        elif (labels & (FREEZE_LABELS | TIER1_LABELS)
+              and ("feature" not in labels or labels & (TIER1_LABELS | {"bug", "cleanup"}))):
+            decisions[num] = "maintenance"
+        else:
+            decisions[num] = "outside-policy"
+
+    def preference(row):
+        decision = decisions[row[0]]
+        return (PRIORITY_PICKS.get(decision, len(PRIORITY_PICKS)),
+                floor and is_low_value(row[3]), decision not in {"KESTREL", "production-fix"})
+
+    eligible = PRIORITY_PICKS.keys() | {"KESTREL", "maintenance", "production-fix"}
+    candidates = (r for r in rows if decisions.get(r[0]) in eligible)
+    return sorted(candidates, key=preference), decisions
+
+
+def slot_candidates(eligible, star):
+    return (next((r for r in eligible if is_goal(r[3], star)), None),
+            next((r for r in eligible if r[4] & TIER1_LABELS), None),
+            next((r for r in eligible if r[3].get("effort", 0) >= LARGE_EFFORT), None))
+
+
 def discovery_banner(disc):
     """Lines saying what the discovery term was computed from, and what it left out."""
     _, history, skipped, unread = disc
@@ -1358,7 +1440,9 @@ def rank_key(row, states, floor, today):
 
 
 def cmd_rank(args, *, today=None):
-    today = today or dt.date.today()
+    as_of = getattr(args, "as_of", None)
+    today = today or as_of or dt.date.today()
+    policy = development_policy()
     rows, states, excluded, _, disc = ranked_rows(args, today, discovery=not args.no_discovery)
     floor = not args.no_low_value_floor
     if disc:
@@ -1382,30 +1466,38 @@ def cmd_rank(args, *, today=None):
               f"blocker is never assumed delivered.\n"
               f"    Check `gh auth status` / the network, or run "
               f"`issue_scores.py lint` for the per-edge detail.\n")
-    triage = [r for r in rows if row_group(r, states, today) == 2]
+    groups = {r[0]: row_group(r, states, today) for r in rows}
+    triage = [r for r in rows if groups[r[0]] == 2]
     stale = [r for r in rows if r[5]["stale"]]
     if triage or stale:
         print(f"[!] {len(triage)} issue(s) have work merged since their score (`merged:`, sorted "
               f"below startable work) and {len(stale)} score(s) are older than {STALE_DAYS} days "
               f"(`stale:`).\n    Triage them before picking: `issue_scores.py lint`.\n")
 
-    print(f"{'#':>5} {'score':>5} {'flags':<28} title")
     star = north_star()
+    live_large_issues = getattr(args, "large_in_flight", ())
+    unavailable = set(getattr(args, "exclude", ())) | set(live_large_issues)
+    startable, decisions = selection_pool(rows, groups, star, policy, today, floor, unavailable)
+    phase = "stabilization" if today < policy[0] else "KESTREL-first"
+    preview = " (preview)" if as_of else ""
+    print(f"phase: {phase} on {today}{preview}; KESTREL-first from {policy[0]}")
+    print(f"{'#':>5} {'score':>5} {'flags':<28} title (canonical rank)")
     for num, title, s, d, labels, fresh in rows:
-        flags = " ".join(row_flags(d, states, floor, today, fresh, labels, star))
-        print(f"{num:>5} {s:>5} {flags:<28} {title[:60]}")
+        flags = row_flags(d, states, floor, today, fresh, labels, star)
+        if num in decisions:
+            flags.append(f"pick:{decisions[num]}")
+        print(f"{num:>5} {s:>5} {' '.join(flags):<28} {title[:60]}")
 
-    startable = [r for r in rows if row_group(r, states, today) <= 1]
     plain = startable[0] if startable else None
-    tier1 = next((r for r in startable if r[4] & TIER1_LABELS), None)
-    large = next((r for r in startable if r[3].get("effort", 0) >= LARGE_EFFORT), None)
-    goal = next((r for r in startable if is_goal(r[3], star)), None)
+    goal, tier1, large = slot_candidates(startable, star)
     history = recent_started_tasks()
     started, open_large = history if history else (None, [])
-    nxt, why = plain, ""
-    if plain and is_pull(plain[3], states, today):
-        why = " (Pull-override: Fun >= 8, confirmed by the user)"
+    nxt, why = plain, decisions[plain[0]] if plain else ""
+    overrides = [r[0] for r in startable if decisions[r[0]] in PRIORITY_PICKS]
     print()
+    print("selection: " + (", ".join(f"#{r[0]}" for r in startable) or "no eligible issues"))
+    if overrides:
+        print("priority: " + ", ".join(f"#{n} ({decisions[n]})" for n in overrides))
     if not star["milestone"]:
         print(f"north star: NOT SET — nothing steers the backlog toward a goal "
               f"({NORTH_STAR_PATH.name}; issue-scoring.md §3.9)")
@@ -1417,13 +1509,23 @@ def cmd_rank(args, *, today=None):
               f"{unfiled} critical-path item(s) not filed yet")
         if goal:
             print(f"goal: #{goal[0]} — {goal[1]}")
+        else:
+            print("goal: none — see phase, dependency and registry flags on the milestone rows")
     if tier1:
         print(f"tier-1: #{tier1[0]} — {tier1[1]}")
+    else:
+        print("tier-1: none — no eligible Tier-1 issue")
     if large:
         print(f"large: #{large[0]} — {large[1]} (effort {large[3].get('effort')})")
+    else:
+        print("large: none — no eligible large issue")
+    live_large = ", ".join(f"#{n}" for n in live_large_issues)
     if started is None:
-        print("tier-1 slot: UNKNOWN — the PR history could not be read; `next:` follows the plain rank")
-        print("large slot: UNKNOWN — the PR history could not be read")
+        print("tier-1 slot: UNKNOWN — the PR history could not be read; `next:` follows selection order")
+        if live_large:
+            print(f"large slot: not due; live large worktree issue(s): {live_large}")
+        else:
+            print("large slot: UNKNOWN — the PR history could not be read")
     else:
         def tags(t):
             return "".join(f" ({x})" for x, on in (("tier 1", t.tier1), ("large", t.large)) if on)
@@ -1431,20 +1533,19 @@ def cmd_rank(args, *, today=None):
         due = tier1_due(started)
         print(f"tier-1 slot: {'DUE' if due else 'not due'} — last {len(started)} started task(s): {listed}")
         held = f"; open large PR(s): {', '.join(f'#{n}' for n in open_large)}" if open_large else ""
-        print(f"large slot: {'DUE' if large_due(started, open_large) else 'not due'}{held}")
-        if due and tier1 and plain and tier1[0] != plain[0]:
-            nxt = tier1
-            why = (f" (Tier-1 slot: none of the last {TIER1_EVERY} started tasks was Tier 1; "
-                   f"the plain rank would pick #{plain[0]})")
-        elif (not (due and tier1) and large_due(started, open_large) and large and plain
-              and large[0] != plain[0]):
-            # A due Tier-1 slot owns the single pick even when its candidate already
-            # leads the rank; the large slot stays due and takes the next one.
-            nxt = large
-            why = (f" (large-item slot: none of the last {TIER1_EVERY} started tasks was large and "
-                   f"no large PR is open; the plain rank would pick #{plain[0]})")
+        if live_large:
+            held += f"; live large worktree issue(s): {live_large}"
+        due_large = large_due(started, open_large) and not live_large
+        print(f"large slot: {'DUE' if due_large else 'not due'}{held}")
+        if not overrides:
+            if due and tier1:
+                nxt, why = tier1, "Tier-1 slot"
+            elif due_large and large:
+                nxt, why = large, "large-item slot"
     if nxt:
-        print(f"next: #{nxt[0]} — {nxt[1]}{why}")
+        print(f"next: #{nxt[0]} — {nxt[1]} ({why})")
+    else:
+        print("next: none — no eligible issues")
 
 
 def cmd_lint(args, *, today=None):
@@ -2289,14 +2390,63 @@ def discovery_failures():
     return bad
 
 
+def selection_cases():
+    transition = _D(2026, 12, 2)
+    before = transition - dt.timedelta(days=1)
+    after = transition + dt.timedelta(days=1)
+    star = {"milestone": "Slice"}
+    goal = {"_milestone": "Slice"}
+
+    def row(n, labels, **axes):
+        return (n, "title", 20 - n, {**_D_, **axes}, set(labels), _FRESH)
+
+    rows = [row(1, ["tooling"]), row(2, ["performance"], effort=5),
+            row(3, ["feature"], **goal, blocked_by=[13]), row(4, ["tooling"], **goal),
+            row(5, ["bug"]), row(6, ["tooling"], **goal, effort=5),
+            row(7, ["performance"], effort=5), row(8, ["tooling"], effort=5),
+            row(9, ["feature", "performance"]), row(10, ["feature"], fun=8, fun_by="user"),
+            row(11, ["bug", "priority: urgent"]), row(12, [], **goal, blocked_by=[3]),
+            row(13, ["feature"], blocked_by=[14]), row(14, ["feature"]),
+            row(15, ["feature", "bug"], **goal)]
+    groups = {r[0]: 1 for r in rows} | {3: 3, 8: 2, 10: 0, 12: 3, 13: 3}
+    policy = (transition, {6}, {2})
+    ordinary = {10, 11}
+
+    def check(today, excluded):
+        eligible, _ = selection_pool(rows, groups, star, policy, today, True, excluded)
+        return ([r[0] for r in eligible],
+                tuple(r[0] if r else None for r in slot_candidates(eligible, star)))
+
+    return (
+        ("stabilization and all slots use the eligible pool", check(before, ordinary),
+         ([6, 5, 15, 1, 7], (6, 6, 6))),
+        ("deadline day orders game and transitive prerequisites ahead of maintenance",
+         check(transition, ordinary), ([4, 6, 14, 15, 1, 5, 7], (4, 4, 6))),
+        ("the next day keeps the game preference", check(after, ordinary),
+         ([4, 6, 14, 15, 1, 5, 7], (4, 4, 6))),
+        ("a milestone production fix can fill the stabilization goal slot",
+         check(before, ordinary | {6}), ([5, 15, 1, 7], (15, 1, 7))),
+        ("in-flight work is absent from the single and batch slots",
+         check(before, ordinary | {1, 5, 6, 15}), ([7], (None, None, 7))),
+        ("blocked, needs-triage and out-of-phase rows cannot fill an empty pool",
+         check(before, ordinary | {1, 5, 6, 7, 15}), ([], (None, None, None))),
+        ("confirmed Pull and urgent bug precede scheduled stabilization priorities",
+         check(before, set()), ([10, 11, 6, 5, 15, 1, 7], (6, 6, 6))),
+    )
+
+
+SELECTION_CHECKS = 7
+
+
 DATE_GATE_CASES = (
     (dt.date(2026, 10, 14), True),
     (dt.date(2026, 10, 15), False),
     (dt.date(2026, 10, 16), False),
 )
+DATE_GATE_TRANSITIONS = (_D(2026, 10, 1), _D(2026, 11, 1))
 
 
-def date_gate_passes(today, blocked):
+def date_gate_passes(today, blocked, transition):
     from contextlib import redirect_stdout
     from io import StringIO
     from unittest.mock import patch
@@ -2312,7 +2462,9 @@ def date_gate_passes(today, blocked):
     output = StringIO()
     with patch(__name__ + ".ranked_rows", return_value=(rows, {}, 0, [], None)), \
          patch(__name__ + ".north_star", return_value={"milestone": "Slice", "items": []}), \
-         patch(__name__ + ".recent_started_tasks", return_value=([], [])), redirect_stdout(output):
+         patch(__name__ + ".recent_started_tasks", return_value=([], [])), \
+         patch(__name__ + ".development_policy", return_value=(transition, {1, 2}, set())), \
+         redirect_stdout(output):
         cmd_rank(args, today=today)
         rank = output.getvalue()
         output.seek(0)
@@ -2404,10 +2556,16 @@ def self_test():
     for message in discovery_failures():
         failures += 1
         print(f"SELF-TEST FAILED (discovery: {message})", file=sys.stderr)
-    for today, blocked in DATE_GATE_CASES:
-        if not date_gate_passes(today, blocked):
+    for description, got, want in selection_cases():
+        if got != want:
             failures += 1
-            print(f"SELF-TEST FAILED (date gate on {today}, blocked={blocked})", file=sys.stderr)
+            print(f"SELF-TEST FAILED (selection: {description}): want={want} got={got}", file=sys.stderr)
+    for transition in DATE_GATE_TRANSITIONS:
+        for today, blocked in DATE_GATE_CASES:
+            if not date_gate_passes(today, blocked, transition):
+                failures += 1
+                print(f"SELF-TEST FAILED (date gate on {today}, blocked={blocked}, transition={transition})",
+                      file=sys.stderr)
     return failures
 
 
@@ -2422,7 +2580,7 @@ def self_test_count():
             + len(DELIVERED_CASES) + len(BACKLOG_CASES) + len(TIER1_CASES) + len(LARGE_CASES)
             + len(NORTH_STAR_CASES) + len(GROUP_CASES) + len(PULSE_CASES) + 1
             + len(AREA_CASES) + len(SEVERITY_CASES) + len(PARSE_YIELD_CASES)
-            + DISCOVERY_SINGLE_CHECKS + len(DATE_GATE_CASES))
+            + DISCOVERY_SINGLE_CHECKS + SELECTION_CHECKS + len(DATE_GATE_CASES) * len(DATE_GATE_TRANSITIONS))
 
 
 def cmd_selftest(args):
@@ -2445,6 +2603,12 @@ def main():
                           f"keep their score position; Pull and the tie-break are unaffected)")
     rp.add_argument("--no-discovery", action="store_true",
                      help="rank without the discovery term (§1 Discovery): the plain §3 order")
+    rp.add_argument("--as-of", type=dt.date.fromisoformat, metavar="YYYY-MM-DD",
+                    help="preview rank and task selection on this date")
+    rp.add_argument("--exclude", type=int, nargs="+", default=[], metavar="ISSUE",
+                    help="exclude issues found in flight or unavailable during the registry sweep")
+    rp.add_argument("--large-in-flight", type=int, nargs="+", default=[], metavar="ISSUE",
+                    help="large issue already in a live worktree, even without an open PR")
     rp.set_defaults(func=cmd_rank)
     yp = sub.add_parser("yield", help="the discovery term's history: per-area model, and "
                                       "predicted vs actual yield per merged task PR")

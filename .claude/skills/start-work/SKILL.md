@@ -106,15 +106,17 @@ Capture that proof now; it is the cheapest moment.
 
 Build a slate of at least N + 2 candidates not in flight, then pick N.
 
-**The issue score is canonical.** For GitHub-issue work, `issue_scores.py rank` is the priority
-order: take the top **unblocked** issues not in flight. Take `rank`'s own `next:` line as the
-authoritative single pick; it already applies the Pull-override (a user-confirmed `Fun ≥ 8`,
-`fun_by: user`, jumps the queue), the low-value floor, the Tier-1 slot and the large-item slot.
+Read the [development policy](../../../docs/process/development-policy.md) when picking new work.
+After the registry sweep and lint, rerun `issue_scores.py rank` with `--exclude ISSUE [ISSUE ...]`
+for work in flight or otherwise unavailable. Pass `--large-in-flight ISSUE [ISSUE ...]` when a live
+worktree already holds the large slot. Resolve topic and file ownership from the registry before
+scaffolding, including branches that have no issue number. Re-run with newly excluded issues if a
+candidate cannot start. Use the current date for actual starts.
 
-> **Read the printed ORDER, not the score column.** An issue under the Cost-of-Delay floor
-> (`low-value:<CoD>`) sorts below every normal issue whatever its ratio, so `#607 0.23` can sit above
-> `#451 0.83 low-value:5`. Take the topmost unblocked rows in printed order. A `low-value` issue is a
-> legitimate deliberate pick; it must not displace real work by default.
+**Use `next:` for one task.** For a batch, honor `priority:` first, counting any picks that already
+fill a slot. Apply the slots below, then fill from `selection:` in printed order. The canonical
+rank table explains the scores and exclusions. If `next:` or a slot has no candidate, report the
+reason shown by the picker and the sweep.
 
 **Tier-1 slot** (issue-scoring.md §3.7). For N = 1, follow `next:` when it switches to the
 `tier-1:` candidate. For N ≥ 2, one slot always goes to the `tier-1:` candidate. An MCP pick counts.
@@ -122,18 +124,15 @@ Work that is Tier 1 by nature (CI, test infra, MCP, dev tooling) but lacks the `
 mislabelled: add the label during the sweep.
 
 **Large-item slot** (issue-scoring.md §3.8). For N = 1, follow `next:` when it switches to the
-`large:` candidate. For N ≥ 2, while `large slot: DUE`, one slot goes to the `large:` candidate (a
-second slot when the Tier-1 slot is also due). `rank` sees only PRs. Before trusting `DUE`, check
-the worktrees from §2: a live worktree whose HANDOVER names an `effort ≥ 5` issue already fills the
-slot. A large pick runs as one long session per
+`large:` candidate. For N ≥ 2, while `large slot: DUE`, give a slot to the `large:` candidate. The
+slot is already held when a live worktree's HANDOVER names an `effort ≥ 5` issue. A large pick runs
+as one long session per
 [model-rubric.md](model-rubric.md#the-whole-epic-fable-52-session).
 
-**Goal slot** (issue-scoring.md §3.9). While a north star is set, a batch of N ≥ 2 gives one slot to
-the `goal:` candidate, so the project's goal always has a task in flight. One task may fill several
-slots (a goal issue that is also large or Tier 1). Fill them in this order: goal, Tier 1 (always
-for N ≥ 2, due or not, per the Tier-1 slot above), large when due, then the rank. With N = 2 and
-all three wanted, goal and Tier 1 take the batch and the large slot stays due for the next one. Any
-slot without a startable candidate goes to the rank.
+**Goal slot** (issue-scoring.md §3.9). In a batch of N ≥ 2, give one slot to the eligible `goal:`
+candidate. One task may fill several slots (a goal issue that is also large or Tier 1). After
+`priority:`, fill any open slots in this order: goal, Tier 1, large when due, then `selection:`.
+When goal and Tier 1 fill a batch of two, the large slot stays due for the next one.
 
 **N > 1: the tasks must be mutually distinct and non-overlapping**, ideally different subsystems and
 disjoint files. If two candidates would touch the same files, keep one and replace the other.
@@ -141,12 +140,11 @@ disjoint files. If two candidates would touch the same files, keep one and repla
 **Justify going down.** You may pick below the top of the rank, or a non-issue task over it, when it
 is clearly higher leverage or more urgent; say what you skipped and why. When a score fights reality
 (the top issue is mostly done, its axes look wrong), fix the score (§2b) rather than silently
-overriding it.
+overriding it. Check the phase and confirmed owner decisions before considering discretionary work.
 
-**Non-issue work** has no score, so the leverage tiers govern it. The score's Capability axis is the
-same instinct quantified. File and score a substantial non-issue task so the loop converges on one
-queue. While a north star is set, non-issue work on its critical path outranks Tiers 2-4. File it
-into the milestone.
+**Non-issue work** follows the phase and the leverage tiers. File and score substantial work before
+selecting it so the loop converges on one queue. While a north star is set, eligible non-issue work
+on its critical path outranks Tiers 2-4. File it into the milestone.
 
 - **Tier 1, force multipliers** (start here): engine MCP / diagnostics and C++ tooling MCPs; CI/CD
   speed and reliability (mine the runner logs); test infrastructure; `CLAUDE.md` + `docs/agent-rules`.
@@ -199,7 +197,8 @@ thread-clean PR and stops there. Merging and closing stay the user's.
 this conversation:
 
 - **Task**: the task, issue # + link (or other source), its score + rank position from `rank` (or
-  the leverage tier for non-issue work), and one line on why it was picked.
+  the leverage tier for non-issue work), the phase and why it was picked, including any departure
+  from the development policy's allocation.
 - **Branch / worktree**: `feature/<slug>` at `<path>`, based on `origin/master` @ `<sha>`.
 - **Recommended model + effort**: per [model-rubric.md](model-rubric.md), with one line of why.
 - **Registry snapshot**: the off-limits list from §2. For N > 1, also every sibling task launched in
@@ -251,5 +250,6 @@ task, worktree path + branch, recommended model + effort and the kickoff (a tabl
 the §2b findings: evidence comments posted, issues recommended for closure (ask before closing),
 the unscored issues `lint` surfaced with the scores and resulting ranks you gave them, what you did
 with each `merged:` / `stale:` finding, every `PULL?` for the user to confirm, the goal, Tier-1 and
-large-item slot states and whether you followed them, the `pulse` table plus the north-star line
+large-item slot states and whether you followed them, the policy phase and selection reasons
+including unavailable slots and allocation deviations, the `pulse` table plus the north-star line
 (or `NOT SET`), and any durable facts written to memory.
