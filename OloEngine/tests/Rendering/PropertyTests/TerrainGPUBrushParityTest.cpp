@@ -229,6 +229,8 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
 
     CommandHistory history;
     TerrainEditorPanel panel;
+    history.BeforeUndoRedo = [&]
+    { panel.SettleEdits(); };
     panel.SetContext(GetSceneRef());
     panel.SetCommandHistory(&history);
     panel.SetEditMode(TerrainEditMode::Sculpt);
@@ -270,6 +272,44 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
                { history.Undo(); });
     EXPECT_FALSE(history.CanUndo());
     EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+
+    // A stroke can still be held when the user or automation navigates
+    // history. Publishing that new stroke invalidates the previous redo.
+    ASSERT_TRUE(history.CanRedo());
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   EXPECT_FALSE(history.Redo());
+                   EXPECT_TRUE(history.Undo()); });
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    ASSERT_TRUE(history.CanRedo());
+    EXPECT_FALSE(panel.IsAcquiringStroke(true));
+    RunInFrame([&]
+               {
+                   panel.OnFrameTick(true, true);
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   panel.OnFrameTick(true, false); });
+    EXPECT_TRUE(history.CanRedo());
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    EXPECT_TRUE(panel.IsAcquiringStroke(true));
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   panel.OnFrameTick(true, false); });
+    EXPECT_FALSE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    RunInFrame([&]
+               { EXPECT_TRUE(history.Undo()); });
+
+    panel.SetEditMode(TerrainEditMode::Erosion);
+    panel.SetContinuousErosion(true);
+    RunInFrame([&]
+               { panel.OnFrameTick(true, false); });
+    RunInFrame([&]
+               { ASSERT_TRUE(history.Undo()); });
+    ASSERT_TRUE(history.CanRedo());
+    RunInFrame([&]
+               { panel.OnFrameTick(true, false); panel.SettleEdits(); });
+    EXPECT_TRUE(history.CanRedo()) << "a settled erosion session restarted and replaced its redo entry";
 }
 
 TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)

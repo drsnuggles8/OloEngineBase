@@ -376,20 +376,28 @@ namespace OloEngine
 
     void TerrainEditorPanel::OnFrameTick(bool editingAllowed, bool mouseDown)
     {
-        if (!editingAllowed || !mouseDown)
-            EndStroke();
+        if (!mouseDown)
+            ReleaseStroke();
         if (!editingAllowed)
         {
-            // Not a reason to return early: an in-flight session must still settle,
-            // or its undo entry is never pushed and it keeps the terrain alive.
-            if (m_ErosionSessionActive)
-            {
-                EndContinuousErosionSession();
-            }
+            SettleEdits();
             return;
         }
-
         UpdateContinuousErosion();
+    }
+
+    void TerrainEditorPanel::SettleEdits()
+    {
+        m_StrokeInterrupted = m_StrokeInterrupted || m_StrokeActive;
+        EndStroke();
+        SetContinuousErosion(false);
+    }
+
+    void TerrainEditorPanel::SetContinuousErosion(bool enabled)
+    {
+        m_ErosionContinuous = enabled && m_EditMode == TerrainEditMode::Erosion;
+        if (!m_ErosionContinuous && m_ErosionSessionActive)
+            EndContinuousErosionSession();
     }
 
     TerrainTextureUndoStack& TerrainEditorPanel::EnsureUndoStack()
@@ -837,17 +845,23 @@ namespace OloEngine
         }
     }
 
+    void TerrainEditorPanel::ReleaseStroke()
+    {
+        EndStroke();
+        m_StrokeInterrupted = false;
+    }
+
     void TerrainEditorPanel::OnUpdate(f32 deltaTime, Entity hitTerrain, const glm::vec3& hitPos, bool mouseDown)
     {
         if (!mouseDown)
-            EndStroke();
+            ReleaseStroke();
         m_BrushWorldPos = hitPos;
         m_HasBrushHit = hitTerrain && hitTerrain.GetScene() == m_Context.Raw() &&
                         hitTerrain.HasComponent<TerrainComponent>() &&
                         (!m_StrokeActive || m_StrokeEntity == static_cast<entt::entity>(hitTerrain));
         if (m_HasBrushHit && m_EditMode == TerrainEditMode::Paint)
             m_PaintTarget = hitTerrain;
-        if (m_HasBrushHit && mouseDown)
+        if (m_HasBrushHit && mouseDown && !m_StrokeInterrupted)
         {
             auto& terrain = hitTerrain.GetComponent<TerrainComponent>();
             if (m_StrokeActive && ((m_StrokeTerrainData && terrain.m_TerrainData != m_StrokeTerrainData) ||
@@ -1067,8 +1081,8 @@ namespace OloEngine
             m_BrushWorldPos = hit.Point;
 
         if (!mouseDown)
-            EndStroke();
-        if (!voxels || !hit.Hit || !mouseDown || (m_StrokeActive && voxels != m_StrokeVoxels))
+            ReleaseStroke();
+        if (!voxels || !hit.Hit || !mouseDown || m_StrokeInterrupted || (m_StrokeActive && voxels != m_StrokeVoxels))
             return;
 
         // Deliberately not gated on m_CommandHistory: an editor without an undo
@@ -1179,7 +1193,8 @@ namespace OloEngine
                 // old per-iteration GetData this was a whole-map GPU->CPU stall per
                 // frame. Undo is grouped per SESSION: one entry when the box is
                 // unticked, not one per frame.
-                ImGui::Checkbox("Continuous", &m_ErosionContinuous);
+                if (bool continuous = m_ErosionContinuous; ImGui::Checkbox("Continuous", &continuous))
+                    SetContinuousErosion(continuous);
                 ImGui::SetItemTooltip("Erode every frame so the surface converges live. "
                                       "Unticking commits one undo entry for the whole session.");
 
