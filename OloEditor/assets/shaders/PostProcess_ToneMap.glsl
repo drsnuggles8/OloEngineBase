@@ -256,7 +256,8 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
     float riseFromPlane = dir.y - dot(u_UnderwaterSurfaceGradient.xy, dir.xz);
     if (riseFromPlane > 1e-4)
     {
-        float tHit = (u_UnderwaterFlags.y - u_UnderwaterCameraPos.y) / riseFromPlane;
+        // The eye can be submerged by a crest above the still plane.
+        float tHit = max(u_UnderwaterFlags.w, 0.0) / riseFromPlane;
         vec3 hit = u_UnderwaterCameraPos.xyz + dir * tHit;
         float pat = underwaterGodRayDapple(hit.xz, u_UnderwaterFlags.z,
                                            u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
