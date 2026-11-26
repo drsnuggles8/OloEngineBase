@@ -26,9 +26,9 @@
 //      with every surface a white reflector and a uniform environment entering
 //      the open face. A perfectly energy-conserving BRDF would converge to
 //      exactly 1.0 everywhere. This catches transport bugs that a single
-//      bounce cannot: a missing cosine on a secondary bounce, a Russian
-//      roulette that forgets to divide by the survival probability (energy
-//      GAIN, compounding with depth), MIS weights that do not sum to one.
+//      bounce cannot: a missing cosine on a secondary bounce, incorrect
+//      Russian roulette weights that compound with depth, or MIS weights
+//      that do not sum to one.
 //
 //   4. `NextEventEstimationDoesNotBias` — NEE + MIS switched off must converge
 //      to the same image as NEE on. They sample the same integral by different
@@ -40,6 +40,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "../../TestOptions.h"
 
 #include "PathTracing/ReferenceSceneFixtures.h"
 
@@ -186,8 +187,9 @@ namespace OloEngine::Tests
     // =========================================================================
     TEST(PathTracerFurnace, CornellFurnaceCreatesNoEnergy)
     {
-        constexpr u32 kWidth = 40;
-        constexpr u32 kHeight = 40;
+        // Sample the full field of view in both modes. The energy bounds need
+        // converged pixels; a 16x16 grid keeps the CI render under the TSan budget.
+        const u32 side = Options().PathTracerEvidence ? 40u : 16u;
 
         const Fixtures::CornellBoxScene fixture = Fixtures::MakeCornellFurnaceScene(1.0f, 1.0f);
         ASSERT_TRUE(fixture.Scene.IsBuilt());
@@ -203,8 +205,8 @@ namespace OloEngine::Tests
         settings.RussianRouletteStartBounce = 6;
         settings.EnableNextEventEstimation = false; // no emitters here; env only
 
-        ReferenceFilm film(kWidth, kHeight);
-        PathTracer::Render(fixture.Scene, fixture.MakeCamera(kWidth, kHeight), settings, film);
+        ReferenceFilm film(side, side);
+        PathTracer::Render(fixture.Scene, fixture.MakeCamera(side, side), settings, film);
 
         f32 maximum = 0.0f;
         u32 nonZeroPixels = 0;
@@ -224,25 +226,13 @@ namespace OloEngine::Tests
                 ++nonZeroPixels;
         }
 
-        ASSERT_GT(nonZeroPixels, (kWidth * kHeight) / 2)
+        ASSERT_GT(nonZeroPixels, (side * side) / 2)
             << "most of the frame is black — the camera is not looking into the box";
 
-        // The load-bearing assertion, stated on a LOW-VARIANCE statistic.
-        //
-        // The obvious form — "no pixel exceeds 1.0" — is wrong, and
-        // instructively so: the max of a Monte Carlo image is a NOISE statistic,
-        // not a bound on the quantity being estimated. An unbiased estimator whose
-        // expectation is unity still produces individual pixels above 1.0 at a low
-        // sample count, so a test asserting the max is really asserting the sample
-        // count.
-        //
-        // So: the frame MEAN carries the energy-conservation claim (it averages
-        // 4800 channel estimates, so its own error is negligible), the tail is
-        // bounded as a FRACTION rather than by an extreme order statistic, and the
-        // per-pixel ceiling sits where only gross creation can reach — a Russian
-        // roulette that forgot to divide by the survival probability compounds
-        // into the tens, not into 1.06.
-        const glm::vec3 frameMean = film.MeanRadiance(0, 0, kWidth - 1, kHeight - 1);
+        // The frame mean estimates the furnace energy. Individual Monte Carlo
+        // estimates can exceed one, so check their tail fraction and keep a
+        // separate peak ceiling for gross errors in multi-bounce throughput.
+        const glm::vec3 frameMean = film.MeanRadiance(0, 0, side - 1, side - 1);
         const f32 meanChannel = (frameMean.x + frameMean.y + frameMean.z) / 3.0f;
         EXPECT_LE(meanChannel, 1.005f)
             << "multi-bounce transport is creating energy: the mean radiance of a white enclosure "
@@ -253,11 +243,12 @@ namespace OloEngine::Tests
             << " channel estimates exceed 1.05";
         EXPECT_LE(maximum, 1.5f) << "gross energy creation in multi-bounce transport (peak = " << maximum << ")";
 
+        RecordProperty("PixelCount", side * side);
         RecordProperty("FrameMean", std::to_string(meanChannel));
         RecordProperty("Peak", std::to_string(maximum));
         RecordProperty("ChannelsAbove105", channelsAboveBound);
         // A black or absorbing enclosure would pass every upper bound.
-        const glm::vec3 centre = film.MeanRadiance(kWidth / 4, kHeight / 4, (kWidth * 3) / 4, (kHeight * 3) / 4);
+        const glm::vec3 centre = film.MeanRadiance(side / 4, side / 4, (side * 3) / 4, (side * 3) / 4);
         EXPECT_GE(std::max({ centre.x, centre.y, centre.z }), 0.5f)
             << "the white furnace enclosure converged far below the environment radiance — "
                "multi-bounce transport is losing energy it should not";

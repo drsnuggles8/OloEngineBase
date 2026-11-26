@@ -364,30 +364,25 @@ one:
 |---|---|---|
 | `PathTracerCornellBoxTest` physics/evidence | 64×64 @ 128 spp | region means; also the evidence PNG |
 | `PathTracerCornellBoxTest` bounce | 48×48 @ 128 spp | frame/patch means only |
-| `PathTracerFurnaceTest` Cornell furnace | 40×40 @ 160 spp | the sample count is a *correctness* parameter — see below |
+| `PathTracerFurnaceTest` Cornell furnace | 16×16 @ 2048 spp (40×40 with `--olo-pathtracer-evidence`) | preserve per-pixel convergence for the energy bounds |
 | `PathTracerFurnaceTest` NEE-bias | 20×20 @ 96 / 768 spp | one region mean over ~160 pixels |
 
-The whole `PathTracing/` headless set is ~5 s of work — but **~65 s under MSVC Debug**, which is
-where the suite actually runs: the tracer measures ~40× slower there, and `ParallelFor` executes
-inline because the test process starts no `FScheduler` workers. That 40× is why these budgets look
-so small; they were cut from an initial 203 s with every threshold's measured margin recorded
-beside it.
+Choose the CI grid using the slowest instrumented build. The test process starts no
+`FScheduler` workers, so `ParallelFor` renders the rows inline.
 
-Cost scales linearly in samples, variance as 1/√N. Reach for resolution when the assertion is
+Cost grows linearly in the sample count. For independent samples, standard error falls as 1/√N. Reach for resolution when the assertion is
 *spatial*, for samples when it is *photometric*.
 
-But note the trap in `CornellFurnaceCreatesNoEnergy`. The natural way to assert energy conservation
-is "no pixel exceeds 1.0" — and that assertion is about the **sample count**, not the renderer. At
-128 samples the (correct) render peaks at **1.069**, with 0.68% of channel estimates above 1.0; at
-256 it peaks at **0.992** and none exceed 1.0. Nothing changed but the noise.
+Keep 2048 samples per pixel for `CornellFurnaceCreatesNoEnergy`. With ClosureV2, the
+40×40 frame at 160 spp put 825 of 4800 channel estimates above 1.05. At 2048 spp the
+same frame averaged 0.993783 with a peak of 1.046735 and no channels above 1.05.
+That cost 3,276,800 primary paths and exceeded the 600-second Linux TSan budget.
 
-**The max of a Monte Carlo image is a noise statistic, not a bound on what is being estimated.** So
-the energy claim is made on the frame *mean* (12288 channel estimates averaged — its own error is
-negligible), the tail is bounded as a *fraction* rather than by an extreme order statistic, and the
-per-pixel ceiling is parked at 1.5, where only gross creation reaches. A Russian roulette that
-forgot to divide by the survival probability compounds into the tens; it does not sneak in at 1.06.
+The default 16×16 frame covers the same field of view with 524,288 primary paths. Its mean
+was 0.994371 and its peak was 1.049268, with no channels above 1.05. Both grids use 32 bounces, the same roulette settings, a mean ceiling of 1.005, fewer than 1% of channels
+above 1.05, and a peak ceiling of 1.5. The centre-brightness check rules out a dark enclosure.
 
-Measured reference values on the fixtures, for anyone recalibrating:
+Historical measurements with the retired closure:
 
 | quantity | value |
 |---|---|
