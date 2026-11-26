@@ -33,6 +33,9 @@ namespace OloEngine
         [[nodiscard]] static bool DecodeHeightmapFile(const std::string& path, TArray<f32>& outHeights,
                                                       u32& outResolution);
 
+        // Streamer workers prepare a new CPU field. Its first texture upload belongs to the render thread.
+        [[nodiscard]] static Ref<TerrainData> FromCPUHeights(u32 resolution, TArray<f32> heights);
+
         // Create a flat heightmap of given resolution
         void CreateFlat(u32 resolution, f32 defaultHeight = 0.0f);
 

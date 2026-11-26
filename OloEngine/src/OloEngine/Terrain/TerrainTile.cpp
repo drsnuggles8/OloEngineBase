@@ -7,15 +7,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto terrainData = Ref<TerrainData>::Create();
-        if (!terrainData->LoadFromFile(heightmapPath))
+        TArray<f32> heights;
+        u32 resolution = 0;
+        if (!TerrainData::DecodeHeightmapFile(heightmapPath, heights, resolution))
         {
             OLO_CORE_ERROR("TerrainTile[{},{}]: Failed to load heightmap '{}'", GridX, GridZ, heightmapPath);
             return false;
         }
 
-        m_TerrainData = terrainData;
-        TileResolution = terrainData->GetResolution();
+        m_TerrainData = TerrainData::FromCPUHeights(resolution, std::move(heights));
+        TileResolution = resolution;
         return true;
     }
 
@@ -23,9 +24,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto terrainData = Ref<TerrainData>::Create();
-        terrainData->CreateFlat(resolution, defaultHeight);
-        m_TerrainData = terrainData;
+        TArray<f32> heights;
+        heights.Init(defaultHeight, static_cast<sizet>(resolution) * resolution);
+        m_TerrainData = TerrainData::FromCPUHeights(resolution, std::move(heights));
         TileResolution = resolution;
     }
 
@@ -39,6 +40,7 @@ namespace OloEngine
             return;
         }
 
+        m_TerrainData->UploadToGPU();
         m_ChunkManager = Ref<TerrainChunkManager>::Create();
         m_ChunkManager->TessellationEnabled = tessellationEnabled;
 

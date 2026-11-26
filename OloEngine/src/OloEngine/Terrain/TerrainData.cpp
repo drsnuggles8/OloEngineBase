@@ -74,6 +74,16 @@ namespace OloEngine
         return true;
     }
 
+    Ref<TerrainData> TerrainData::FromCPUHeights(u32 resolution, TArray<f32> heights)
+    {
+        if (resolution == 0 || heights.Num() != static_cast<sizet>(resolution) * resolution)
+            return nullptr;
+        auto data = Ref<TerrainData>::Create();
+        data->m_Resolution = resolution;
+        data->m_Heights = std::move(heights);
+        return data;
+    }
+
     bool TerrainData::LoadFromFile(const std::string& path)
     {
         OLO_PROFILE_FUNCTION();

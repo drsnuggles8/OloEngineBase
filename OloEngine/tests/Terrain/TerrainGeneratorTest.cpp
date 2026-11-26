@@ -6,6 +6,8 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
+#include "OloEngine/Terrain/TerrainTile.h"
+#include "TestTempDir.h"
 
 #include <stb_image/stb_image_write.h>
 
@@ -13,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -35,6 +38,24 @@
 // =============================================================================
 
 using namespace OloEngine;
+
+TEST(TerrainTileLoading, WorkerPreparesFlatAndFileBackedSamplesWithoutAGraphicsContext)
+{
+    TerrainTile tile;
+    tile.CreateFlat(3u, 0.25f);
+    ASSERT_TRUE(tile.GetTerrainData());
+    EXPECT_FALSE(tile.GetTerrainData()->GetGPUHeightmap());
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(0.5f, 0.5f), 0.25f);
+
+    const auto file = Tests::TempFile("tile.png");
+    constexpr std::array<u8, 4> pixels{ 0, 255, 0, 255 };
+    ASSERT_NE(stbi_write_png(file.string().c_str(), 2, 2, 1, pixels.data(), 2), 0);
+    ASSERT_TRUE(tile.LoadFromFile(file.string()));
+    ASSERT_TRUE(tile.GetTerrainData());
+    EXPECT_FALSE(tile.GetTerrainData()->GetGPUHeightmap());
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(0.0f, 0.5f), 0.0f);
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(1.0f, 0.5f), 1.0f);
+}
 
 namespace
 {
