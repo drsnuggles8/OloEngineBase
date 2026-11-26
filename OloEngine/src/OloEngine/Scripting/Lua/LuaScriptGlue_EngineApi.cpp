@@ -189,7 +189,7 @@ namespace OloEngine
             if (!scene)
                 return glm::vec3(0.0f);
             if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
-                return glm::vec3(scene->GetWorldTransform(static_cast<entt::entity>(*entityOpt))[3]);
+                return scene->ComputeWorldPosition(*entityOpt);
             return glm::vec3(0.0f);
         };
 

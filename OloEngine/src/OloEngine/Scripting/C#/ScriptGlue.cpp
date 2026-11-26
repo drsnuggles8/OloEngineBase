@@ -3918,7 +3918,7 @@ namespace OloEngine
         *outTranslation = glm::vec3(0.0f);
         if (auto entity = scene->TryGetEntityWithUUID(entityID))
         {
-            *outTranslation = glm::vec3(scene->GetWorldTransform(static_cast<entt::entity>(*entity))[3]);
+            *outTranslation = scene->ComputeWorldPosition(*entity);
         }
     }
 
