@@ -326,7 +326,7 @@ void main()
         // transmission lobe below exists to fill.
         OloSurfaceLighting contrib = calculateLightContributionSplit(
             u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos,
-            OLO_PBR_MODEL_LEGACY);
+            OLO_PBR_MODEL_CLOSURE_V2);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);

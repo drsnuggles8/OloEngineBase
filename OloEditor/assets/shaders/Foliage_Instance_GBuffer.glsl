@@ -165,14 +165,14 @@ void main()
     o_GBufferAlbedo   = vec4(u_WindWeights.w > 0.5 ? vec3(0.0) : leaf.Albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(leaf.Normal), leaf.Roughness, ao);
 
-    // The flags lane. OLO_PBR_MODEL_LEGACY is not a choice so much as the
+    // The flags lane. OLO_PBR_MODEL_CLOSURE_V2 is not a choice so much as the
     // status quo preserved: this shader wrote a literal 0.0 lane before #1234,
     // which decodes to exactly Legacy, and moving foliage to another closure
     // would have changed every existing foliage pixel under cover of a
     // transmission feature.
     bool isLeaf = oloLeafEnabled();
     float flags = isLeaf
-                      ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY, OLO_MATERIAL_KIND_FOLIAGE,
+                      ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_CLOSURE_V2, OLO_MATERIAL_KIND_FOLIAGE,
                                                    int(u_LeafIds.x + 0.5))
                       : 0.0;
     o_GBufferEmissive = vec4(u_WindWeights.w > 0.5 ? v_Color : vec3(0.0), u_WindWeights.w > 0.5 ? 1.0 : flags); // debug sets unlit bit 0; normal foliage is lit

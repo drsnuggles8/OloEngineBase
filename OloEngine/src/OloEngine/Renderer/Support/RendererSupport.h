@@ -153,7 +153,7 @@ namespace OloEngine::RendererSupport
         Geometry GeometryFamily = Geometry::StaticMesh;
         MaterialFamily SurfaceCategory = MaterialFamily::Standard;
         OloEngine::MaterialKind AuthoredKind = OloEngine::MaterialKind::Generic;
-        PBRModel ClosureModel = PBRModel::Legacy;
+        PBRModel ClosureModel = PBRModel::ClosureV2;
         Closure SurfaceClosure = Closure::Opaque;
         bool ThinTransmission = false;
         Technique LightingTechnique = Technique::Raster;

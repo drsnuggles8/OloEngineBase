@@ -274,7 +274,7 @@ void main()
     {
         // calculateLightContribution is the sum of this split, evaluated once.
         OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_LEGACY);
+                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_CLOSURE_V2);
         vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
         float lightVisibility = 1.0;
 

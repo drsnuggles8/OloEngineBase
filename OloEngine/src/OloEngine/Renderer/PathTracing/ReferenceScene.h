@@ -136,7 +136,7 @@ namespace OloEngine::PathTracing
         // across so the reference traces the same closure the raster path
         // shades. Dispatch lives in PBRClosureBSDF.h. Ignored while
         // LambertianDiffuseOnly is set (that diagnostic overrides everything).
-        PBRModel Model = PBRModel::Legacy;
+        PBRModel Model = PBRModel::ClosureV2;
     };
 
     // -------------------------------------------------------------------------

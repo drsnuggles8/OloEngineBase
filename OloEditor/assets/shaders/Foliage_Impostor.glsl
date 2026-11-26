@@ -240,7 +240,7 @@ void main()
         }
 
         OloSurfaceLighting contrib = calculateLightContributionSplit(
-            u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld, OLO_PBR_MODEL_LEGACY);
+            u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld, OLO_PBR_MODEL_CLOSURE_V2);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);

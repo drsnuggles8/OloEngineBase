@@ -581,7 +581,7 @@ void main()
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
         OloSurfaceLighting fplusLit = fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic, roughness,
-                                                                   fplusViewDepth, OLO_PBR_MODEL_LEGACY,
+                                                                   fplusViewDepth, OLO_PBR_MODEL_CLOSURE_V2,
                                                                    vec2(0.0, 1.0), vec4(0.0));
         Lo += oloSurfaceLightingSum(fplusLit);
         LoDiffuse += fplusLit.Diffuse;
@@ -595,7 +595,7 @@ void main()
         int lightType = int(u_Lights[i].position.w);
 
         OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_LEGACY);
+                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_CLOSURE_V2);
         vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
         // The visibility every branch below multiplies in, tracked alongside
         // so the diffuse twin is gated identically.

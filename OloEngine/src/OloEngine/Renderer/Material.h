@@ -729,7 +729,7 @@ namespace OloEngine
         bool m_EnableIBL = false;                      // Enable IBL
         AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
         f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
-        PBRModel m_PBRModel = PBRModel::Legacy;        // Versioned closure (issue #975)
+        PBRModel m_PBRModel = PBRModel::ClosureV2;        // Versioned closure (issue #975)
         // What the surface IS, as opposed to which closure version evaluates it
         // (issue #1231). Generic keeps every pre-#1231 material bit-identical.
         // Both of these must be added to the hand-written copy constructor and
