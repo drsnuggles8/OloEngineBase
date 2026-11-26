@@ -432,6 +432,22 @@ Both live in `cmake/overlay-ports/`. Keep each a minimal diff against
 | `joltphysics` | `CROSS_PLATFORM_DETERMINISTIC=ON` (one line) | The registry portfile hardcodes it `OFF` as a plain option, not a feature, so it cannot be selected from a manifest. `rtti` *is* a feature and needs no override. |
 | `gamenetworkingsockets` | `USE_CRYPTO=libsodium`, `ice` off by default, explicit `sodium_*` cache seeding | The registry portfile hardcodes `USE_CRYPTO=OpenSSL` and takes an `openssl` dependency. Taking a whole TLS stack into the supply chain to avoid owning a portfile is a bad trade. GNS's bundled `Findsodium.cmake` searches a hand-rolled vendor-SDK layout that a vcpkg install does not have, *and* declares both the debug and release library paths as `REQUIRED_VARS` — so it is fed explicit cache variables instead of being allowed to search. |
 
+## Sanitizer coverage for vcpkg ports
+
+Keep the shared `x64-linux` triplet for Linux ASan, UBSan, and TSan CI. Engine targets are
+instrumented, while compiled vcpkg ports reuse the same binary packages across those jobs. This is
+option 1 from [#782](https://github.com/drsnuggles8/OloEngineBase/issues/782#issuecomment-7174676789).
+
+ASan still intercepts allocation and free across the library boundary. Internal port operations lack
+compiler-inserted ASan and UBSan checks. TSan still sees intercepted synchronization primitives,
+while atomic and lock-free synchronization inside an uninstrumented port can be invisible. Known
+Jolt reports and the scope of their suppressions are documented in
+[`tsan.txt`](../../.github/sanitizer-suppressions/tsan.txt).
+
+For a concrete race crossing the physics or networking boundary, evaluate a TSan configuration
+that instruments Jolt and GameNetworkingSockets before adopting separate triplets for all
+sanitizers. Separate triplets would split the Linux port cache across all three jobs.
+
 ## What did NOT move, and why
 
 The #773 audit called 25 dependencies "clean moves". Six of them were not, and
@@ -441,7 +457,7 @@ the reasons are worth knowing before someone retries one:
 |---|---|---|---|
 | **sol2** | 3.5.0 + a Lua-5.5 patch | newer `develop` pin | Header-only ⇒ no compile to cache, so ~zero benefit; and the `SOL_ALL_INTEGER_VALUES_FIT` u64 contract (issue #643) is load-bearing and hard-won. |
 | **lua** | 5.5.1 | 5.4.7 | A major-ish jump against a sol2 pin tested on 5.4. Pinning 5.4.7 needs a version override, which needs non-shallow registry history. |
-| **stb** | 2024-07-29 | ~2 years newer | `stb_image` is an image **decoder fed untrusted files**. Silently reverting two years of fixes there is not a build-system decision. (vcpkg installs its own stb anyway as an assimp dependency, but flat as `<stb_image.h>`; we include `<stb_image/stb_image.h>`, so they do not collide.) |
+| **stb** | 2026-08-02 (`2c980bb`, baseline `af839a4`) | `6b5799b` | The registry snapshot predates our pin by 351 commits, with changes to `stb_image.h`, `stb_image_write.h`, and `stb_truetype.h` since that snapshot. vcpkg installs its own copy as an assimp dependency under flat paths. We include our newer copy via `<stb_image/stb_image.h>` and the corresponding prefixed paths for the other headers. |
 | **imguizmo** | 1.10 | ~equivalent | The port takes a hard dependency on the **imgui port**. imgui stays in-tree (hand-picked backends + `IMGUI_IMPL_OPENGL_LOADER_GLAD=1`), so moving imguizmo would link two Dear ImGui copies into one binary. |
 
 ### What moved on a second pass, and the version cost of each

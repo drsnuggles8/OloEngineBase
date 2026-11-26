@@ -13,7 +13,8 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
     lint   everything that makes the backlog lie: open issues with no olo-score
            block or no `areas:`, stale tech-tree edges (a `blocked_by` naming a closed issue),
            unresolvable edges, scores older than STALE_DAYS, work merged since
-           the last score, and a Fun >= 8 the user never confirmed.
+           the last score, expired or invalid `not_before` dates, and a Fun >= 8
+           the user never confirmed.
            Exits non-zero on any of them.
     pulse  throughput: task PRs merged and issues opened/closed over the last 7
            and 28 days, work in flight, and the north-star milestone's progress.
@@ -21,6 +22,7 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
     set    re-score one issue: `set 1584 effort=2 confidence=1.0`. Writes the
            given axes and stamps `scored:` with today's date, which is also how
            a stale or merged-work flag is acknowledged (`set N` with no axes).
+           Edits limited to `areas` and `not_before` preserve `scored:`.
     pull   record the USER's Pull decision: `pull 1558 1559` writes
            `fun_by: user` (and raises Fun to 8); `pull --off N` writes
            `fun_by: agent` (declined: Fun stays a tie-break, lint stops asking).
@@ -120,16 +122,16 @@ CLOSE_LABEL = "close-recommended"
 # sweep files renderer issues); the north star is the counterweight.
 NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
 NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
-CHECKLIST_RE = re.compile(r"^\s*[-*]\s+\[( |x|X)\]\s+(.*)$", re.MULTILINE)
+LIST_ITEM_RE = re.compile(r"^([ \t]*(?:[-*+]|[0-9]{1,9}[.)]))([ \t]+)(.*)$")
+CHECKLIST_RE = re.compile(r"^\[( |x|X)\][ \t]+(.*)$")
+MARKDOWN_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
 
 # Fields `render_section` writes in this order; anything else in a block is kept,
 # after these, rather than silently dropped on a rewrite.
-META_FIELDS = ("kano", "blocked_by", "blocks", "areas", "blocked_by_external", "fun_by", "scored")
-# Fields `set` writes without re-stamping `scored:`. Declaring an issue's areas is not a
-# check of its axes against the code; stamping it would clear a real `stale:` flag (and
-# the backfill of every open issue would have cleared all of them at once).
-UNSTAMPED_FIELDS = ("areas",)
+META_FIELDS = ("kano", "blocked_by", "blocks", "areas", "blocked_by_external", "not_before", "fun_by", "scored")
+# These tags can change without re-checking the scoring axes against the code.
+UNSTAMPED_FIELDS = ("areas", "not_before")
 
 BEGIN, END = "<!-- olo-score:begin -->", "<!-- olo-score:end -->"
 SECTION_RE = re.compile(r"\n*" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n*", re.DOTALL)
@@ -185,8 +187,8 @@ def scalar_value(val):
 def parse_north_star(text):
     """{"milestone": str, "items": [(done, text, issue numbers)]} from north-star.md.
 
-    `items` is the "Critical path" checklist: every `- [ ]` line in the file. A line
-    with no `#N` is a capability nobody has filed yet, which `lint` reports.
+    A top-level checklist item can be filed through any descendant list item.
+    Nested checklist items still need issue references on their own lines.
     """
     out = {"milestone": "", "items": []}
     m = NORTH_STAR_RE.search(text or "")
@@ -195,9 +197,55 @@ def parse_north_star(text):
             key, _, val = line.partition(":")
             if key.strip() == "milestone":
                 out["milestone"] = scalar_value(val)
-    for done, item in CHECKLIST_RE.findall(text or ""):
-        out["items"].append((done.lower() == "x", item.strip(),
-                             [int(n) for n in TITLE_NUM_RE.findall(item)]))
+    items = out["items"]
+    root_numbers = None
+    item_columns = []  # content indentation required by each open list item
+    fence, fence_column = None, 0
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue
+        indent = line[:len(line) - len(line.lstrip(" \t"))]
+        column = len(indent.expandtabs(4))
+        marker = MARKDOWN_FENCE_RE.match(line)
+        if fence and column >= fence_column:
+            if (column <= fence_column + 3 and marker and marker[1].startswith(fence)
+                    and not marker[2].strip()):
+                fence = None
+            continue
+        # Dedenting out of a list item closes its fence, even without a delimiter.
+        fence = None
+        while item_columns and column < item_columns[-1]:
+            item_columns.pop()
+        container_column = item_columns[-1] if item_columns else 0
+        if not item_columns:
+            root_numbers = None
+        if column > container_column + 3:
+            continue  # indented code inside the current item or at the document root
+        bullet = LIST_ITEM_RE.match(line)
+        if bullet:
+            prefix, gap, content = bullet.groups()
+            marker_end = len(prefix.expandtabs(4))
+            container_column = len((prefix + gap).expandtabs(4))
+            if container_column > marker_end + 4:
+                item_columns.append(marker_end + 1)  # list item beginning with indented code
+                continue
+            item_columns.append(container_column)
+            marker = MARKDOWN_FENCE_RE.match(content)
+        # A backtick fence cannot have backticks in its info string.
+        if marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence, fence_column = marker[1], container_column
+            continue
+        if not bullet:
+            continue
+        numbers = [int(n) for n in TITLE_NUM_RE.findall(content)]
+        if len(item_columns) > 1 and root_numbers is not None:
+            root_numbers.extend(n for n in numbers if n not in root_numbers)
+        task = CHECKLIST_RE.match(content)
+        if task:
+            if len(item_columns) == 1:
+                root_numbers = numbers
+            done, item = task.groups()
+            items.append((done.lower() == "x", item.strip(), numbers))
     return out
 
 
@@ -286,8 +334,9 @@ def freshness(d, filed, num, index, today):
             "merged": merged_since(num, since, index)}
 
 
-def is_pull(d, states):
-    return d.get("fun", 0) >= PULL_FUN and d.get("fun_by") == "user" and not is_blocked(d, states)
+def is_pull(d, states, today):
+    return (d.get("fun", 0) >= PULL_FUN and d.get("fun_by") == "user"
+            and not is_blocked(d, states, today))
 
 
 def is_unconfirmed_pull(d):
@@ -1017,6 +1066,9 @@ def render_fence(d):
     # absent-means-empty default already reads correctly in parse_block.
     if d.get("blocked_by_external"):
         lines.append(f"blocked_by_external: {json.dumps(d['blocked_by_external'])}")
+    if "not_before" in d:
+        raw = d["not_before"]
+        lines.append(f"not_before: {json.dumps(raw) if isinstance(raw, list) else raw}")
     for k in ("fun_by", "scored"):
         if d.get(k):
             lines.append(f"{k}: {d[k]}")
@@ -1105,7 +1157,22 @@ def apply_discovery(blocks, model, star):
                                    if trailing > 0 and need > -GOAL_LIFT_MARGIN else 0.0)
 
 
-def is_blocked(d, states):
+def not_before_date(d):
+    raw = d.get("not_before")
+    if not isinstance(raw, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", raw):
+        return None
+    try:
+        return dt.date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def active_date_gate(d, today):
+    gate = not_before_date(d)
+    return gate if gate and today < gate else None
+
+
+def is_blocked(d, states, today):
     """Blocked = cannot be started today, whatever holds it up.
 
     `blocked_by` models the in-repo tech tree (issue numbers). `blocked_by_external`
@@ -1135,12 +1202,14 @@ def is_blocked(d, states):
 
     `blocked_by_external` is left blocking unconditionally: it is free text naming
     things outside this repo (#1148), with no state to query.
+
+    `not_before` blocks only up to the named calendar date.
     """
     still_open, unresolved = split_blockers(d, states)
-    return bool(still_open) or bool(unresolved) or bool(d.get("blocked_by_external"))
+    return bool(still_open or unresolved or d.get("blocked_by_external") or active_date_gate(d, today))
 
 
-def row_flags(d, states, floor, fresh=None, labels=(), star=None):
+def row_flags(d, states, floor, today, fresh=None, labels=(), star=None):
     """The `flags` column for one ranked row. `fresh` is freshness(), when known."""
     still_open, unresolved = split_blockers(d, states)
     flags = []
@@ -1148,9 +1217,9 @@ def row_flags(d, states, floor, fresh=None, labels=(), star=None):
         flags.append("close?")
     if star and is_goal(d, star):
         flags.append("goal")
-    if is_pull(d, states):
+    if is_pull(d, states, today):
         flags.append("PULL")
-    elif is_unconfirmed_pull(d) and not is_blocked(d, states):
+    elif is_unconfirmed_pull(d) and not is_blocked(d, states, today):
         flags.append("PULL?")
     if fresh and fresh["merged"]:
         flags.append("merged:" + ",".join(f"#{n}" for n in fresh["merged"]))
@@ -1162,6 +1231,9 @@ def row_flags(d, states, floor, fresh=None, labels=(), star=None):
         flags.append("blocked?:" + ",".join(map(str, unresolved)))
     if d.get("blocked_by_external"):
         flags.append("external")
+    gate = active_date_gate(d, today)
+    if gate:
+        flags.append(f"not-before:{gate.isoformat()}")
     if floor and is_low_value(d):
         flags.append(f"low-value:{cod(d)}")
     if "_disc" in d:  # discovery is on for this rank
@@ -1230,7 +1302,7 @@ def ranked_rows(args, today, discovery=False):
     return rows, states, excluded, unscored, disc
 
 
-def row_group(row, states):
+def row_group(row, states, today):
     """Outermost sort key (§3): 0 Pull, 1 startable, 2 needs triage, 3 blocked.
 
     Needs-triage is work merged since the last score: the issue may be finished, so
@@ -1238,11 +1310,11 @@ def row_group(row, states):
     sweep recommended for closure (CLOSE_LABEL) waits there for the user.
     """
     d, fresh = row[3], row[5]
-    if is_blocked(d, states):
+    if is_blocked(d, states, today):
         return 3
     if fresh["merged"] or CLOSE_LABEL in row[4]:
         return 2
-    return 0 if is_pull(d, states) else 1
+    return 0 if is_pull(d, states, today) else 1
 
 
 POLICY_PATH = NORTH_STAR_PATH.with_name("development-policy.md")
@@ -1354,7 +1426,7 @@ def discovery_banner(disc):
     return lines
 
 
-def rank_key(row, states, floor):
+def rank_key(row, states, floor, today):
     """The full `rank` sort key, outermost first (§3): the row group (Pull, startable,
     needs triage, blocked), then normal-value-before-low-value, then score desc, then
     the documented Learning/Fun tie-break, then issue number as a stable final key.
@@ -1363,7 +1435,7 @@ def rank_key(row, states, floor):
     explicit human "I want this", whereas the floor exists to catch work that floated
     up on arithmetic alone (§3.5)."""
     d = row[3]
-    return (row_group(row, states), floor and is_low_value(d), -row[2],
+    return (row_group(row, states, today), floor and is_low_value(d), -row[2],
             -d.get("learning", 0), -d.get("fun", 0), row[0])
 
 
@@ -1376,7 +1448,7 @@ def cmd_rank(args, *, today=None):
     if disc:
         print("\n".join(discovery_banner(disc)) + "\n")
 
-    rows.sort(key=lambda r: rank_key(r, states, floor))
+    rows.sort(key=lambda r: rank_key(r, states, floor, today))
     if args.freeze:
         print(f"[--freeze active: only {'/'.join(sorted(FREEZE_LABELS))} labels eligible; "
               f"{excluded} feature-only issue(s) excluded]\n")
@@ -1394,7 +1466,7 @@ def cmd_rank(args, *, today=None):
               f"blocker is never assumed delivered.\n"
               f"    Check `gh auth status` / the network, or run "
               f"`issue_scores.py lint` for the per-edge detail.\n")
-    groups = {r[0]: row_group(r, states) for r in rows}
+    groups = {r[0]: row_group(r, states, today) for r in rows}
     triage = [r for r in rows if groups[r[0]] == 2]
     stale = [r for r in rows if r[5]["stale"]]
     if triage or stale:
@@ -1411,7 +1483,7 @@ def cmd_rank(args, *, today=None):
     print(f"phase: {phase} on {today}{preview}; KESTREL-first from {policy[0]}")
     print(f"{'#':>5} {'score':>5} {'flags':<28} title (canonical rank)")
     for num, title, s, d, labels, fresh in rows:
-        flags = row_flags(d, states, floor, fresh, labels, star)
+        flags = row_flags(d, states, floor, today, fresh, labels, star)
         if num in decisions:
             flags.append(f"pick:{decisions[num]}")
         print(f"{num:>5} {s:>5} {' '.join(flags):<28} {title[:60]}")
@@ -1476,8 +1548,9 @@ def cmd_rank(args, *, today=None):
         print("next: none — no eligible issues")
 
 
-def cmd_lint(args):
-    rows, states, _, missing, _ = ranked_rows(args, dt.date.today())
+def cmd_lint(args, *, today=None):
+    today = today or dt.date.today()
+    rows, states, _, missing, _ = ranked_rows(args, today)
 
     # A stale edge no longer hides its issue from `rank` — that is fixed at read
     # time. It is still worth reporting: the body says something untrue, and the
@@ -1498,6 +1571,14 @@ def cmd_lint(args):
     unfiled = [item for done, item, nums in star["items"] if star["milestone"] and not done and not nums]
     no_areas = [r for r in rows if not issue_areas(r[3])]
     wrong_areas = [(r, bad_areas(r[3])) for r in rows if bad_areas(r[3])]
+    invalid_gates, expired_gates = [], []
+    for num, _, _, d, _, _ in rows:
+        if "not_before" in d:
+            gate = not_before_date(d)
+            if gate is None:
+                invalid_gates.append((num, d["not_before"]))
+            elif gate <= today:
+                expired_gates.append((num, gate))
 
     # Informational, never a failure: these wait on the user, not on the sweep.
     awaiting = [r for r in rows if CLOSE_LABEL in r[4]]
@@ -1509,7 +1590,7 @@ def cmd_lint(args):
         print()
 
     if not (missing or stale_edges or unresolved or merged or old or unconfirmed or goal_low
-            or unfiled or no_areas or wrong_areas):
+            or unfiled or no_areas or wrong_areas or invalid_gates or expired_gates):
         print("all open issues have a current olo-score block with `areas:`; no stale edges, "
               "merged work or unconfirmed Pulls.")
         return
@@ -1559,6 +1640,14 @@ def cmd_lint(args):
               f"each in milestone `{star['milestone']}`, then add its `#N` to {NORTH_STAR_PATH.name}:")
         for item in unfiled:
             print(f"  - {item[:80]}")
+    if invalid_gates:
+        print(f"\n{len(invalid_gates)} invalid `not_before` date(s) — use YYYY-MM-DD:")
+        for num, raw in invalid_gates:
+            print(f"  #{num} not_before: {raw!r}")
+    if expired_gates:
+        print(f"\n{len(expired_gates)} expired `not_before` date(s) — remove with `issue_scores.py set N not_before=`:")
+        for num, gate in expired_gates:
+            print(f"  #{num} not_before: {gate.isoformat()}")
     if stale_edges:
         print(f"\n{len(stale_edges)} stale blocker edge(s) — blocker already closed, "
               f"drop it from `blocked_by`:")
@@ -1805,6 +1894,8 @@ def parse_assignment(text):
         bad = bad_areas({"areas": value})
         if bad or not value:
             sys.exit(f"areas must name one or more of {', '.join(AREAS)}; got {bad or value!r}")
+    if key == "not_before" and value != "" and not_before_date({key: value}) is None:
+        sys.exit("not_before must be a calendar date in YYYY-MM-DD format or empty to clear it")
     return key, value
 
 
@@ -1819,6 +1910,8 @@ def cmd_set(args):
         keys.add(key)
     if d.get("blocked_by_external") in ([], ""):
         d.pop("blocked_by_external")
+    if "not_before" in keys and d["not_before"] == "":
+        d.pop("not_before")
     if keys and keys <= set(UNSTAMPED_FIELDS):
         if block is None:
             sys.exit(f"#{args.number} has no olo-score block; score it first (`set "
@@ -1976,6 +2069,33 @@ milestone: "Game: vertical slice"   # comment
 NORTH_STAR_CASES = (
     ("a set milestone, with comment and quotes stripped, and its checklist", _STAR,
      "Game: vertical slice", [(True, [12]), (False, []), (False, [13, 14])]),
+    ("descendant issues file the top-level item, without reaching its sibling",
+     "- [ ] Skiers on screen\n  - [ ] Skier model (#1748)\n  - [x] Crowd (#1749)\n- [ ] Sound",
+     "", [(False, [1748, 1749]), (False, [1748]), (True, [1749]), (False, [])]),
+    ("a nested item with no issue remains unfiled even when its own child has one",
+     "- [ ] Skiers on screen\n  - [ ] Skier model\n    - [ ] Animation (#1748)",
+     "", [(False, [1748]), (False, []), (False, [1748])]),
+    ("one space under a two-column bullet makes a sibling",
+     "- [ ] Unfiled\n - [ ] Filed sibling (#23)", "", [(False, []), (False, [23])]),
+    ("a non-checklist sibling owns the indented item that follows it",
+     "- [ ] Unfiled\n- Other\n  - [ ] Filed under Other (#23)", "", [(False, []), (False, [23])]),
+    ("a heading ends the list and fenced examples are ignored",
+     "- [ ] Unfiled\n\n## Example\n\n```md\n  - [ ] Example (#23)\n```",
+     "", [(False, [])]),
+    ("a fence can open in list content, with the next real item still visible",
+     "- ```md\n  - [ ] Example\n  ```\n- [ ] Real (#23)", "", [(False, [23])]),
+    ("dedenting out of a list ends an unclosed list fence",
+     "- ```md\n  - [ ] Example\n- [ ] Real (#23)", "", [(False, [23])]),
+    ("dedenting to a sibling ends a fence inside a nested item's content",
+     "- [ ] Parent\n  - Example\n\n    ```md\n    sample\n  - [ ] Real (#23)",
+     "", [(False, [23]), (False, [23])]),
+    ("plain descendant bullets can file the parent but are not checklist rows",
+     "- [ ] Parent\n  - Child (#23)\n  1. Another child (#24)\n  - [ ] Unfiled",
+     "", [(False, [23, 24]), (False, [])]),
+    ("an indented code block in a bullet does not file the parent",
+     "- [ ] Parent\n  -     Example (#23)\n  - [ ] Unfiled", "", [(False, []), (False, [])]),
+    ("backticks inside inline code do not start a fence",
+     "- [ ] Parent\n  - ``` inline ``` (#23)\n  - [ ] Unfiled", "", [(False, [23]), (False, [])]),
     ("a quoted milestone keeps its '#', the comment after the quote goes",
      '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
     ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
@@ -2170,7 +2290,7 @@ def _goal_case():
 def _rank_order(numbered_blocks):
     """Issue numbers in `rank` order, through the real sort key (rank_key)."""
     rows = [(num, "t", score(d), d, set(), _FRESH) for num, d in numbered_blocks]
-    return [r[0] for r in sorted(rows, key=lambda r: rank_key(r, {}, True))]
+    return [r[0] for r in sorted(rows, key=lambda r: rank_key(r, {}, True, _SELF_TEST_TODAY))]
 
 
 def _tie_case():
@@ -2318,6 +2438,49 @@ def selection_cases():
 SELECTION_CHECKS = 7
 
 
+DATE_GATE_CASES = (
+    (dt.date(2026, 10, 14), True),
+    (dt.date(2026, 10, 15), False),
+    (dt.date(2026, 10, 16), False),
+)
+DATE_GATE_TRANSITIONS = (_D(2026, 10, 1), _D(2026, 11, 1))
+
+
+def date_gate_passes(today, blocked, transition):
+    from contextlib import redirect_stdout
+    from io import StringIO
+    from unittest.mock import patch
+
+    date = "2026-10-15"
+    body = "```olo-score\nnot_before: " + date + "\n```"
+    shared = {**_D_, "effort": LARGE_EFFORT, "decay": GOAL_DECAY,
+              "areas": ["Tooling"], "_milestone": "Slice"}
+    gated = {**shared, **parse_block(body), "fun": PULL_FUN, "fun_by": "user"}
+    rows = [(1, "Gated", 10, gated, TIER1_LABELS, _FRESH),
+            (2, "Available", 5, shared, TIER1_LABELS, _FRESH)]
+    args = argparse.Namespace(no_discovery=True, no_low_value_floor=False, freeze=False)
+    output = StringIO()
+    with patch(__name__ + ".ranked_rows", return_value=(rows, {}, 0, [], None)), \
+         patch(__name__ + ".north_star", return_value={"milestone": "Slice", "items": []}), \
+         patch(__name__ + ".recent_started_tasks", return_value=([], [])), \
+         patch(__name__ + ".development_policy", return_value=(transition, {1, 2}, set())), \
+         redirect_stdout(output):
+        cmd_rank(args, today=today)
+        rank = output.getvalue()
+        output.seek(0)
+        output.truncate()
+        try:
+            cmd_lint(args, today=today)
+            lint_exit = 0
+        except SystemExit as exc:
+            lint_exit = exc.code
+    issue = 2 if blocked else 1
+    return ((f"not-before:{date}" in rank) == blocked
+            and all(f"\n{slot}: #{issue} " in rank for slot in ("next", "tier-1", "large", "goal"))
+            and lint_exit == (0 if blocked else 1)
+            and ("expired `not_before`" in output.getvalue()) == (not blocked))
+
+
 def self_test():
     """Guard the picker. Returns the failure count."""
     failures = 0
@@ -2331,10 +2494,10 @@ def self_test():
             print(f"SELF-TEST FAILED (sort: {description}):\n"
                   f"  want={want}\n  got ={got}", file=sys.stderr)
     for description, d, want_blocked, want_flags in SELF_TEST_CASES:
-        got_blocked = is_blocked(d, _SELF_TEST_STATES)
+        got_blocked = is_blocked(d, _SELF_TEST_STATES, _SELF_TEST_TODAY)
         # floor=False: the low-value flag is orthogonal and every fragment here
         # has CoD 0, which would add `low-value:0` to all of them.
-        got_flags = row_flags(d, _SELF_TEST_STATES, floor=False)
+        got_flags = row_flags(d, _SELF_TEST_STATES, floor=False, today=_SELF_TEST_TODAY)
         if got_blocked != want_blocked or got_flags != list(want_flags):
             failures += 1
             print(f"SELF-TEST FAILED ({description}):\n"
@@ -2367,7 +2530,7 @@ def self_test():
             failures += 1
             print(f"SELF-TEST FAILED (north star: {description}): got={got}", file=sys.stderr)
     for description, labels, extra, want in GROUP_CASES:
-        got = row_group((1, "t", 1.0, {**_D_, **extra}, labels, _FRESH), {})
+        got = row_group((1, "t", 1.0, {**_D_, **extra}, labels, _FRESH), {}, _SELF_TEST_TODAY)
         if got != want:
             failures += 1
             print(f"SELF-TEST FAILED (group: {description}): want={want} got={got}", file=sys.stderr)
@@ -2381,7 +2544,8 @@ def self_test():
             failures += 1
             print(f"SELF-TEST FAILED (large: {description}): want={want}", file=sys.stderr)
     # A rewrite must keep every field, and replace a marker-less fence in place.
-    block = {"fun": 9, "fun_by": "user", "scored": "2026-10-15", "custom": "kept"}
+    block = {"fun": 9, "fun_by": "user", "scored": "2026-10-15", "custom": "kept",
+             "not_before": "2026-12-20"}
     bare = "text\n```olo-score\nfun: 3\n```\nmore"
     rewritten = splice(bare, block)
     if parse_block(rewritten) != {**{a: 3 for a in ALL_AXES}, **block, "kano": "table-stakes",
@@ -2396,6 +2560,12 @@ def self_test():
         if got != want:
             failures += 1
             print(f"SELF-TEST FAILED (selection: {description}): want={want} got={got}", file=sys.stderr)
+    for transition in DATE_GATE_TRANSITIONS:
+        for today, blocked in DATE_GATE_CASES:
+            if not date_gate_passes(today, blocked, transition):
+                failures += 1
+                print(f"SELF-TEST FAILED (date gate on {today}, blocked={blocked}, transition={transition})",
+                      file=sys.stderr)
     return failures
 
 
@@ -2410,7 +2580,7 @@ def self_test_count():
             + len(DELIVERED_CASES) + len(BACKLOG_CASES) + len(TIER1_CASES) + len(LARGE_CASES)
             + len(NORTH_STAR_CASES) + len(GROUP_CASES) + len(PULSE_CASES) + 1
             + len(AREA_CASES) + len(SEVERITY_CASES) + len(PARSE_YIELD_CASES)
-            + DISCOVERY_SINGLE_CHECKS + SELECTION_CHECKS)
+            + DISCOVERY_SINGLE_CHECKS + SELECTION_CHECKS + len(DATE_GATE_CASES) * len(DATE_GATE_TRANSITIONS))
 
 
 def cmd_selftest(args):
@@ -2454,7 +2624,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--only", type=int, nargs="*", help="limit to these issue numbers")
     ap.set_defaults(func=cmd_apply)
-    sp = sub.add_parser("set", help="re-score one issue and stamp `scored:` with today")
+    sp = sub.add_parser("set", help="re-score one issue, or edit its areas or earliest start date")
     sp.add_argument("number", type=int)
     sp.add_argument("fields", nargs="*", metavar="axis=value")
     sp.add_argument("--dry-run", action="store_true")

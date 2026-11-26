@@ -4598,9 +4598,9 @@ namespace OloEngine
             }
         }
 
-        // ReSTIR DI's targets (issue #1140), declared under one gate so the five
-        // can never exist apart — the pass bails if any is missing rather than
-        // silently skipping a stage.
+        // ReSTIR DI's targets (issue #1140) share an availability gate. Spatial
+        // scratch also follows the configured stage count. The pass requires
+        // every target that its scheduled draws use.
         //
         // Deliberately NOT gated on the TLAS being built or on the engagement
         // criterion: both are per-frame runtime state, and making the GRAPH SHAPE
@@ -4686,7 +4686,7 @@ namespace OloEngine
                 // The reservoir framebuffers. RGBA32F, and the attachment counts
                 // differ per stage: the initial draw also writes the #976 surface
                 // record and the raw un-reused candidate, the temporal draw also
-                // writes the validity verdict, and the two spatial targets carry
+                // writes the validity verdict, and each spatial target carries
                 // the three reservoir planes alone.
                 RGResourceDesc reservoirDesc;
                 reservoirDesc.Kind = RGResourceHandle::Kind::Framebuffer;
@@ -4720,12 +4720,19 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial0;
-                board.Scratch.ReSTIRDISpatial0 =
-                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial0, reservoirDesc);
-                reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial1;
-                board.Scratch.ReSTIRDISpatial1 =
-                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial1, reservoirDesc);
+                const u32 spatialScratchCount = restir.SpatialScratchCount();
+                if (spatialScratchCount >= 1u)
+                {
+                    reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial0;
+                    board.Scratch.ReSTIRDISpatial0 =
+                        declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial0, reservoirDesc);
+                }
+                if (spatialScratchCount >= 2u)
+                {
+                    reservoirDesc.DebugName = ResourceNames::ReSTIRDISpatial1;
+                    board.Scratch.ReSTIRDISpatial1 =
+                        declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial1, reservoirDesc);
+                }
             }
         }
 
@@ -4822,8 +4829,8 @@ namespace OloEngine
                 // The reservoir framebuffers, RGBA32F, with the same per-stage
                 // attachment counts DI's chain uses: the initial draw also writes
                 // the #976 surface record and the raw un-reused candidate, the
-                // temporal draw also writes the validity verdict, and the two
-                // spatial targets carry the three reservoir planes alone.
+                // temporal draw also writes the validity verdict, and each
+                // spatial target carries the three reservoir planes alone.
                 RGResourceDesc giReservoirDesc;
                 giReservoirDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 giReservoirDesc.Format = RGResourceFormat::RGBA32Float;
@@ -4856,12 +4863,19 @@ namespace OloEngine
                     RGResourceFormat::RGBA32Float,
                     RGResourceFormat::RGBA32Float,
                 };
-                giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial0;
-                board.Scratch.ReSTIRGISpatial0 =
-                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial0, giReservoirDesc);
-                giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial1;
-                board.Scratch.ReSTIRGISpatial1 =
-                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial1, giReservoirDesc);
+                const u32 spatialScratchCount = gi.SpatialScratchCount();
+                if (spatialScratchCount >= 1u)
+                {
+                    giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial0;
+                    board.Scratch.ReSTIRGISpatial0 =
+                        declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial0, giReservoirDesc);
+                }
+                if (spatialScratchCount >= 2u)
+                {
+                    giReservoirDesc.DebugName = ResourceNames::ReSTIRGISpatial1;
+                    board.Scratch.ReSTIRGISpatial1 =
+                        declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial1, giReservoirDesc);
+                }
             }
         }
 
