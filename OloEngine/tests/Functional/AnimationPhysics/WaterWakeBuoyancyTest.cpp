@@ -212,6 +212,40 @@ TEST_F(WaterWakeBuoyancyTest, VisualOnlyModeLeavesBuoyancyExactlyAsItWas)
         << "in visual-only mode the buoy must float at the flat waterline; y=" << Y(buoy);
 }
 
+TEST_F(WaterWakeBuoyancyTest, FullFlattenReturnsTheTiltedRestPlaneUnderTheHull)
+{
+    Entity water = SpawnWater(true, true);
+    auto& wc = water.GetComponent<WaterComponent>();
+    wc.m_WaveAmplitude = 0.9f;
+    wc.m_WakeShapeFlattenStrength = 1.0f;
+    Entity rig = GetScene().CreateEntity("Tilted water");
+    rig.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0, glm::radians(25.0f) });
+    water.SetParent(rig);
+    const auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+    ASSERT_EQ(volumes.size(), 1u);
+    const auto& volume = volumes.front();
+    // Pick a displaced crest/trough far from the origin. A hard-coded
+    // horizontal rest height and a wake that fails to flatten both miss it.
+    glm::vec2 column(10.0f, 0.0f);
+    f32 largest = 0.0f;
+    for (i32 x = 10; x <= 30; ++x)
+    {
+        const glm::vec2 candidate(static_cast<f32>(x), 0);
+        const f32 waves = std::abs(WaterProbe::SampleSurfaceY(volume, candidate, 0) - volume.m_Frame.RestHeight(candidate));
+        if (waves > largest)
+        {
+            largest = waves;
+            column = candidate;
+        }
+    }
+    ASSERT_GT(largest, 0.1f);
+    ASSERT_NO_FATAL_FAILURE(PublishHullUnder(column, 0));
+    const auto wake = WaterWake::Evaluate(WaterWakeSystem::GetHullData(), WaterWakeSystem::GetHullCount(), 1, 1, column, 0);
+    ASSERT_FLOAT_EQ(wake.m_Flatten, 1.0f);
+    const f32 restY = std::tan(glm::radians(25.0f)) * column.x;
+    EXPECT_NEAR(WaterProbe::SampleSurfaceY(volume, column, 0), restY + wake.m_Height, 0.015f);
+}
+
 TEST_F(WaterWakeBuoyancyTest, PublishesShoreFoamBoundsAtAVisualWakeTrough)
 {
     constexpr f32 kPlaneY = 1.0f;

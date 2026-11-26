@@ -518,18 +518,9 @@ namespace OloEngine::WaterSurfaceLod
         outParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
         outParams2 = glm::vec4(in.m_HalfExtentX, in.m_HalfExtentZ, 1.0f, 1.0f);
 
-        // The surface plane in the space `m_ViewProjection` maps from: the grid
-        // is built in XZ with +Y up, so the plane normal is the transformed up
-        // axis (column 1) and its centre the translation (column 3) — the same
-        // derivation the planar-reflection plane uses.
-        //
-        // The IN-PLANE axes matter as much as the normal here, and this is the
-        // one place that is true: the vertex stage inverts the model matrix to
-        // clamp a projected vertex into the authored rect, so a transform that
-        // is singular in x or z makes every water vertex NaN. The world-space
-        // grid inverts nothing and just draws a zero-area surface, so its path
-        // has no such guard.
-        const glm::vec3 planeNormal(in.m_Model[1]);
+        // The grid's X/Z tangents define its rest plane under scale and shear.
+        // Their dual basis in WaterVertexStage maps the hit back into the tile.
+        const glm::vec3 planeNormal = glm::cross(glm::vec3(in.m_Model[2]), glm::vec3(in.m_Model[0]));
         const glm::vec3 planePoint(in.m_Model[3]);
         const f32 normalLenSq = glm::dot(planeNormal, planeNormal);
         const f32 axisXLenSq = glm::dot(glm::vec3(in.m_Model[0]), glm::vec3(in.m_Model[0]));

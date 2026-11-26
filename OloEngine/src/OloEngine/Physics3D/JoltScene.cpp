@@ -563,6 +563,21 @@ namespace OloEngine
         return bodyID;
     }
 
+    void JoltScene::MoveTerrainBody(UUID entityID, const glm::vec3& position, const glm::quat& rotation)
+    {
+        if (const auto it = m_TerrainBodies.find(entityID); it != m_TerrainBodies.end())
+            m_JoltSystem->GetBodyInterface().SetPositionAndRotationWhenChanged(it->second, JoltUtils::ToJoltVector(position), JoltUtils::ToJoltQuat(rotation), JPH::EActivation::DontActivate);
+    }
+
+    bool JoltScene::MoveTerrainTileBody(UUID entityID, i32 tileX, i32 tileZ, const glm::vec3& position, const glm::quat& rotation)
+    {
+        const auto it = m_TerrainTileBodies.find(TerrainTileKey{ entityID, tileX, tileZ });
+        if (it == m_TerrainTileBodies.end())
+            return false;
+        m_JoltSystem->GetBodyInterface().SetPositionAndRotationWhenChanged(it->second, JoltUtils::ToJoltVector(position), JoltUtils::ToJoltQuat(rotation), JPH::EActivation::DontActivate);
+        return true;
+    }
+
     void JoltScene::DestroyTerrainBody(UUID entityID)
     {
         auto it = m_TerrainBodies.find(entityID);

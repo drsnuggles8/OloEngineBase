@@ -51,6 +51,7 @@
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -134,6 +135,19 @@ namespace OloEngine::Tests
         [[nodiscard]] bool GoldenRebaseRequested()
         {
             return OloEngine::Tests::Options().GoldenRebase;
+        }
+
+        void WriteWaterEvidence(const std::string& stem, const std::vector<u8>& pixels, u32 width, u32 height)
+        {
+            fs::create_directories("assets/tests/visual");
+            const auto path = fs::path("assets/tests/visual") / (stem + ".png");
+            const auto stride = static_cast<sizet>(width) * 4;
+            std::vector<u8> topDown(pixels.size());
+            for (u32 y = 0; y < height; ++y)
+                std::copy_n(pixels.data() + (height - y - 1u) * stride, stride, topDown.data() + y * stride);
+            ASSERT_NE(stbi_write_png(path.string().c_str(), static_cast<int>(width), static_cast<int>(height),
+                                     4, topDown.data(), static_cast<int>(stride)),
+                      0);
         }
     } // namespace
 
@@ -949,15 +963,7 @@ namespace OloEngine::Tests
                 feature = pose.ShoreControl ? "HullFoamShoreDark" : "HullFoamContactDark";
             const std::string stem = TestRenderBackend::EvidenceName(feature) +
                                      GetParam().Name + (play ? "_Play_" : "_Edit_") + pose.Name;
-            fs::create_directories("assets/tests/visual");
-            const auto path = fs::path("assets/tests/visual") / (stem + ".png");
-            const auto stride = static_cast<sizet>(width) * 4;
-            std::vector<u8> topDown(pixels.size());
-            for (u32 y = 0; y < height; ++y)
-                std::copy_n(pixels.data() + (height - y - 1u) * stride, stride, topDown.data() + y * stride);
-            ASSERT_NE(stbi_write_png(path.string().c_str(), static_cast<int>(width), static_cast<int>(height),
-                                     4, topDown.data(), static_cast<int>(stride)),
-                      0);
+            WriteWaterEvidence(stem, pixels, width, height);
         }
 
         static constexpr u32 kCaptureWidth = 640;
@@ -1079,4 +1085,121 @@ namespace OloEngine::Tests
     INSTANTIATE_TEST_SUITE_P(AllPaths, HullFoamEvidenceTest, ::testing::ValuesIn(kHullFoamCells),
                              [](const ::testing::TestParamInfo<HullFoamCell>& info)
                              { return std::string(info.param.Name); });
+
+    class TiltedWaterEvidenceTest : public RendererAttachedTest
+    {
+      protected:
+        static constexpr u32 kSize = 256;
+        bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            EnableRendering(kSize, kSize);
+            m_Water = GetScene().CreateEntity("Water");
+            auto& water = m_Water.AddComponent<WaterComponent>();
+            water.m_WorldSizeX = 18.0f;
+            water.m_WorldSizeZ = 18.0f;
+            water.m_GridResolutionX = water.m_GridResolutionZ = 96;
+            water.m_WaveAmplitude = 0.4f;
+            water.m_WaveSpeed = 0.0f;
+            m_Rig = GetScene().CreateEntity("Water carrier");
+            auto& carrier = m_Rig.GetComponent<TransformComponent>();
+            carrier.Translation = { 3, 2, -4 };
+            carrier.SetRotationEuler({ 0.18f, -0.15f, 0.35f });
+            auto& sun = GetScene().CreateEntity("Sun").AddComponent<DirectionalLightComponent>();
+            sun.m_Direction = glm::normalize(glm::vec3(-0.3f, -0.9f, -0.2f));
+        }
+
+        void Measure(const char* feature, const char* path, const char* angle, const EditorCamera& camera,
+                     std::vector<f32>& depth)
+        {
+            RunEditorFrames(camera, 3);
+            const auto target = Renderer3D::GetWaterSurfaceDepthTextureID();
+            ASSERT_TRUE(target.IsValid());
+            depth.resize(kSize * kSize);
+            ReadbackDepth32F(target, kSize, kSize, depth);
+            const auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+            ASSERT_EQ(volumes.size(), 1u);
+            const auto invVP = glm::inverse(camera.GetViewProjection());
+            f64 squaredError = 0.0;
+            u32 samples = 0;
+            u32 samplesAboveEye = 0;
+            // Deproject the water-only depth capture. Each sampled pixel has a
+            // real rasterized position independent of the CPU wave inversion.
+            for (u32 y = 2; y < kSize; y += 4)
+            {
+                for (u32 x = 2; x < kSize; x += 4)
+                {
+                    const f32 d = depth[y * kSize + x];
+                    if (!(d < 1.0f))
+                        continue;
+                    const glm::vec4 ndc{ (static_cast<f32>(x) + 0.5f) * 2.0f / kSize - 1.0f,
+                                         (static_cast<f32>(y) + 0.5f) * 2.0f / kSize - 1.0f, d * 2.0f - 1.0f, 1 };
+                    const glm::vec4 h = invVP * ndc;
+                    const glm::vec3 point = glm::vec3(h) / h.w;
+                    if (point.y > camera.GetPosition().y + 0.15f)
+                        ++samplesAboveEye;
+                    const f32 diff = WaterProbe::SampleSurfaceY(volumes.front(), { point.x, point.z }, 0) - point.y;
+                    squaredError += static_cast<f64>(diff) * diff;
+                    ++samples;
+                }
+            }
+            ASSERT_GT(samples, 300u);
+            if (std::string_view(angle) == "Across")
+                EXPECT_GT(samplesAboveEye, 8u) << "the uphill side remains visible above the eye";
+            const f64 rms = std::sqrt(squaredError / samples);
+            EXPECT_LT(rms, 0.035) << "The rasterized water and buoyancy surface disagree";
+            std::vector<u8> pixels;
+            u32 width, height;
+            ASSERT_TRUE(ReadbackComposite(pixels, width, height));
+            ASSERT_EQ(width, kSize);
+            ASSERT_EQ(height, kSize);
+            const std::string name = TestRenderBackend::EvidenceName(feature) + path + "_" + angle;
+            WriteWaterEvidence(name, pixels, width, height);
+            std::cout << "[TiltedWater] " << name << " samples=" << samples << " depth/probe RMS=" << rms << " m\n";
+        }
+
+        Entity m_Water;
+        Entity m_Rig;
+    };
+
+    TEST_F(TiltedWaterEvidenceTest, BuoyancyAndTheDrawnSurfaceCoincideAcrossPaths)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        for (const auto& [path, name] : std::array{
+                 std::pair{ RenderingPath::Forward, "Forward" },
+                 std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+                 std::pair{ RenderingPath::Deferred, "Deferred" } })
+        {
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = path;
+            settings.EditorDebugDrawsEnabled = false;
+            settings.Deferred.MSAASampleCount = 1;
+            Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+            Renderer3D::ApplyRendererSettings();
+            for (const bool overhead : { false, true })
+            {
+                const char* angle = overhead ? "Above" : "Across";
+                EditorCamera camera(50.0f, 1.0f, 0.1f, 100.0f);
+                camera.SetViewportSize(kSize, kSize);
+                camera.SetPose(overhead ? glm::vec3(3, 21, -3) : glm::vec3(3, 3.3f, 10), 0.0f,
+                               overhead ? 1.50f : 0.12f);
+                m_Water.SetParent({});
+                m_Water.GetComponent<TransformComponent>() = m_Rig.GetComponent<TransformComponent>();
+                std::vector<f32> root, child;
+                ASSERT_NO_FATAL_FAILURE(Measure("TiltedWaterOff", name, angle, camera, root));
+                m_Water.SetParent(m_Rig);
+                m_Water.GetComponent<TransformComponent>() = TransformComponent{};
+                ASSERT_NO_FATAL_FAILURE(Measure("TiltedWater", name, angle, camera, child));
+                ASSERT_EQ(root.size(), child.size());
+                f32 maxDelta = 0.0f;
+                for (sizet i = 0; i < root.size(); ++i)
+                    maxDelta = std::max(maxDelta, std::abs(child[i] - root[i]));
+                EXPECT_LT(maxDelta, 1.0e-5f) << name << ' ' << angle;
+            }
+        }
+    }
 } // namespace OloEngine::Tests

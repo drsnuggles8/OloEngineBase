@@ -24,12 +24,8 @@ namespace OloEngine
     /// Heights are the engine's normalised [0, 1] convention, sampled by
     /// TerrainData::SampleHeight, so world Y = `BaseY + h * HeightScale`.
     ///
-    /// Rotation is not represented. A rotated terrain tile would need its own
-    /// inverse transform per texel and every terrain in this engine is authored
-    /// axis-aligned; a rotated one bakes as though it were not, which shows as
-    /// waves shoaling against the wrong coastline rather than as an error. If
-    /// that becomes real, this struct grows a transform — do not paper over it
-    /// at the sampling end.
+    /// The inverse projected basis maps a world column into the local grid.
+    /// A vertical height axis permits yaw, non-uniform scale and a sloping bed.
     struct SeabedTerrain
     {
         glm::vec2 OriginXZ{ 0.0f };           ///< world XZ of the tile's minimum corner
@@ -44,6 +40,8 @@ namespace OloEngine
         /// sample in place, at the same address, so a bake keyed on the pointer
         /// alone would go on shoaling against the coastline the scene loaded with.
         u64 HeightRevision = 0;
+        glm::mat2 WorldXZToLocal{ 1.0f };
+        glm::vec2 BaseHeightGradient{ 0.0f }; ///< change in base Y per local X/Z metre
     };
 
     /// What the scene asks the bake for.
@@ -51,7 +49,8 @@ namespace OloEngine
     {
         glm::vec2 CentreXZ{ 0.0f }; ///< water surface's world-XZ centre
         f32 ExtentMetres = 0.0f;    ///< side length of the square field window
-        f32 WaterPlaneY = 0.0f;     ///< world Y of the undisplaced water plane
+        f32 WaterPlaneY = 0.0f;     ///< rest height at CentreXZ
+        glm::vec2 WaterGradient{ 0.0f };
     };
 
     /// Scene-level shore-wave controls, published each frame from the dominant

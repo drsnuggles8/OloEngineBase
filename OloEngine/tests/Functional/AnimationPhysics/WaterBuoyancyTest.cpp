@@ -22,6 +22,7 @@
 #include "Functional/FunctionalTest.h"
 
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
@@ -29,6 +30,7 @@
 #include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
+#include <array>
 #include <cmath>
 
 using namespace OloEngine;
@@ -76,7 +78,7 @@ class WaterBuoyancyTest : public FunctionalTest
     // rest height can ONLY come from the FFT field — a clean discriminator that
     // BuoyancySystem really took the FFT path. The CPU proxy is built here (no GPU
     // upload) exactly as the renderer's water pass would, at the frozen test time.
-    Entity SpawnFFTWater(f32 planeY, f32 fieldTime)
+    Entity SpawnFFTWater(f32 planeY, f32 fieldTime, f32 choppiness = Ocean::SpectrumParams{}.m_Choppiness)
     {
         Entity water = GetScene().CreateEntity("FFTWater");
         water.GetComponent<TransformComponent>().Translation = { 0.0f, planeY, 0.0f };
@@ -92,6 +94,7 @@ class WaterBuoyancyTest : public FunctionalTest
         sp.m_Resolution = 64u;
         sp.m_PatchSize = 80.0f;
         sp.m_Amplitude = 2.0f;
+        sp.m_Choppiness = choppiness;
         wc.m_OceanField = Ref<Ocean::OceanFFTField>::Create();
         wc.m_OceanField->Update(sp, fieldTime, /*uploadToGpu=*/false);
         return water;
@@ -124,7 +127,79 @@ class WaterBuoyancyTest : public FunctionalTest
     {
         return e.GetComponent<TransformComponent>().Translation.y;
     }
+
+    void CheckTiltedWaterTwins(bool fft)
+    {
+        Entity water = fft ? SpawnFFTWater(0, 0, 0.2f) : SpawnWater(0, 0.45f);
+        auto& wc = water.GetComponent<WaterComponent>();
+        wc.m_WaveSpeed = 0.0f;
+        wc.m_FFTHeightScale = 0.5f;
+        Entity rig = GetScene().CreateEntity("Tilted carrier");
+        auto& parent = rig.GetComponent<TransformComponent>();
+        parent.Translation = { 12, 3, -6 };
+        parent.SetRotationEuler({ 0.12f, 0.18f, 0.29f });
+        const auto model = parent.GetTransform();
+        water.GetComponent<TransformComponent>() = parent;
+        const auto root = WaterProbe::MakeVolume(model, wc);
+        ASSERT_TRUE(root);
+        std::array<Entity, 2> bodies;
+        std::array<glm::vec3, 2> surface;
+        // Forward-map two vertices as the tessellation shader does, then sample
+        // above the resulting columns. This catches evaluating rest Y at the
+        // origin, rotating the waves into tile space or dropping the FFT field.
+        const std::array<glm::vec3, 2> vertices{ glm::vec3(-18, 0, 4), glm::vec3(24, 0, -9) };
+        for (sizet i = 0; i < vertices.size(); ++i)
+        {
+            const glm::vec3 base(model * glm::vec4(vertices[i], 1));
+            const glm::vec2 xz(base.x, base.z);
+            glm::vec3 delta;
+            if (fft)
+            {
+                const auto sample = wc.m_OceanField->SampleCascades(xz);
+                delta = { sample.Horizontal.x, sample.Height * wc.m_FFTHeightScale, sample.Horizontal.y };
+            }
+            else
+            {
+                delta = WaterSurface::SampleDisplacement(root->m_Params, xz, 0);
+            }
+            surface[i] = base + delta;
+            ASSERT_GT(std::abs(surface[i].y - model[3].y), 3.0f);
+            bodies[i] = SpawnBuoyantBox(surface[i] + glm::vec3(0, 2, 0), kFloatingMass);
+            EXPECT_NEAR(WaterProbe::SampleSurfaceY(*root, { surface[i].x, surface[i].z }, 0), surface[i].y, 0.035f);
+        }
+        EnablePhysics3D();
+        TickFor(12);
+        std::array<f32, 2> rootHeights;
+        for (sizet i = 0; i < bodies.size(); ++i)
+        {
+            rootHeights[i] = Y(bodies[i]);
+            EXPECT_NEAR(rootHeights[i], surface[i].y, 0.4f);
+        }
+
+        water.SetParent(rig);
+        water.GetComponent<TransformComponent>() = TransformComponent{};
+        parent.Translation.y += 3.0f;
+        TickFor(12);
+        const auto child = WaterProbe::CollectEnabledVolumes(&GetScene());
+        ASSERT_EQ(child.size(), 1u);
+        for (sizet i = 0; i < bodies.size(); ++i)
+        {
+            const glm::vec2 column(surface[i].x, surface[i].z);
+            EXPECT_NEAR(WaterProbe::SampleSurfaceY(child.front(), column, 0), surface[i].y + 3.0f, 0.035f);
+            EXPECT_NEAR(Y(bodies[i]), rootHeights[i] + 3.0f, 0.15f);
+        }
+    }
 };
+
+TEST_F(WaterBuoyancyTest, GerstnerBuoysFollowTheTiltedCarrierAtTwoDistances)
+{
+    CheckTiltedWaterTwins(false);
+}
+
+TEST_F(WaterBuoyancyTest, FFTBuoysFollowTheTiltedCarrierAtTwoDistances)
+{
+    CheckTiltedWaterTwins(true);
+}
 
 TEST_F(WaterBuoyancyTest, LightBodySettlesAtWaterline)
 {

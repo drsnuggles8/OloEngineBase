@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Terrain/TerrainData.h"
 
 #include <glm/glm.hpp>
 
@@ -10,7 +11,6 @@
 namespace OloEngine
 {
     class Scene;
-    class TerrainData;
 
     // The world height of the terrain surface under (x, z), from the first
     // TerrainComponent whose loaded height field covers that point; nullopt when
@@ -23,9 +23,8 @@ namespace OloEngine
     //
     // The sampler gathers the scene's terrains and their inverse world matrices
     // once, so a caller sampling many points in one tick (a herd) pays one
-    // inversion per terrain rather than one per animal per terrain. It holds
-    // raw pointers into the terrains' height fields: use it within the tick
-    // that built it.
+    // inversion per terrain rather than one per animal per terrain. Streamed
+    // tiles stay resident for the lifetime of the sample batch.
     class TerrainGroundSampler
     {
       public:
@@ -48,6 +47,7 @@ namespace OloEngine
             f32 HeightScale = 1.0f;
         };
         TArray<Terrain> m_Terrains;
+        TArray<Ref<TerrainData>> m_ResidentTiles;
     };
 
     [[nodiscard]] std::optional<f32> SampleTerrainGroundHeight(const Scene& scene, f32 x, f32 z);

@@ -31,6 +31,8 @@ Accumulated gotchas from dialogue/quest, inventory, Jolt joints and ragdolls, De
 25. **A body's position is its entity's origin; ask for the centre of mass by name.** `JoltBody::GetPosition` and `SetPosition` address the origin, `GetCenterOfMassPosition` the centre of mass, and the two differ as soon as a collider has an offset. Place a force with `origin + rotation * localOffset`, the offset in metres (scale an entity-local one first); take a lever or a point velocity from the centre of mass. [Details](notes-gameplay-physics-nav-details.md#16-a-bodys-origin-is-not-its-centre-of-mass)
 26. **Spawn Box2D and Jolt bodies at the composed world pose.** A body keeps simulating in world space when its ordinary parent moves. Writeback converts the body pose into the current parent frame so rendering stays aligned. Use `Scene::AttachEntity` for a kinematic body that follows a carrier. [Details](notes-gameplay-physics-nav-details.md#17-parented-physics-bodies-spawn-at-the-world-pose)
 
+27. **Use the composed pose for world-space consumers and write through the current parent frame.** [Navigation, singular physics parents, terrain and tilted water](notes-gameplay-physics-nav-details.md#reading-and-writing-composed-poses-between-ticks)
+
 ---
 
 Full text, with the failures that taught these rules, the measurements and the derivations:

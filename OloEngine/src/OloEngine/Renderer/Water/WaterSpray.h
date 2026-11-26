@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <numeric>
+#include <limits>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::WaterSpray
@@ -164,7 +165,8 @@ namespace OloEngine::WaterSpray
         /// WaterFoamSettings::m_DriftMetresPerSecond gives.
         glm::vec2 m_WindMetresPerSecond{ 0.0f };
         /// World Y of the water plane the crests sit on.
-        f32 m_WaterPlaneY = 0.0f;
+        WaterSurface::SurfaceFrame m_Frame;
+        glm::vec2 m_HalfExtent{ std::numeric_limits<f32>::max() };
         /// The artist multiplier already applied to the FFT height
         /// (WaterComponent::m_FFTHeightScale), so a spray particle launches
         /// from the crest the SHADER drew rather than from the raw field.
@@ -309,7 +311,6 @@ namespace OloEngine::WaterSpray
                              ? glm::clamp(settings.m_ParticleSize, 0.005f, 2.0f)
                              : 0.25f;
         const f32 heightScale = WaterSurface::ClampFFTHeightScale(settings.m_HeightScale);
-        const f32 planeY = std::isfinite(settings.m_WaterPlaneY) ? settings.m_WaterPlaneY : 0.0f;
         const glm::vec2 wind{ std::isfinite(settings.m_WindMetresPerSecond.x)
                                   ? settings.m_WindMetresPerSecond.x
                                   : 0.0f,
@@ -323,6 +324,11 @@ namespace OloEngine::WaterSpray
             const glm::ivec2 cell = cellMin + glm::ivec2(index % cellsPerAxis, index / cellsPerAxis);
             const glm::vec2 worldXZ = SamplePointForCell(cell);
 
+            if (glm::any(glm::greaterThan(glm::abs(settings.m_Frame.LocalXZ(worldXZ)), settings.m_HalfExtent)))
+                continue;
+            const f32 planeY = settings.m_Frame.RestHeight(worldXZ);
+            if (!std::isfinite(planeY))
+                continue;
             const CrestSample crest = sampleCrest(worldXZ);
             if (!std::isfinite(crest.m_Fold) || !std::isfinite(crest.m_Height) ||
                 !std::isfinite(crest.m_Horizontal.x) || !std::isfinite(crest.m_Horizontal.y))

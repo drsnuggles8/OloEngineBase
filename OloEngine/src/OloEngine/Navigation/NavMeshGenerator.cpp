@@ -21,14 +21,6 @@
 
 namespace OloEngine
 {
-    static glm::mat4 GetWorldTransform(Entity entity)
-    {
-        OLO_PROFILE_FUNCTION();
-
-        const auto& tc = entity.GetComponent<TransformComponent>();
-        return glm::translate(glm::mat4(1.0f), tc.Translation) * glm::toMat4(tc.GetRotation()) * glm::scale(glm::mat4(1.0f), tc.Scale);
-    }
-
     // Append local-space vertices transformed to world-space and return the baseVertex index
     // Geometry that MOVES is not baked (#1559). A navmesh is static: an animated or
     // skinned body, a nav agent, a character controller or a non-static rigid body
@@ -151,7 +143,7 @@ namespace OloEngine
             if (!meshComp.m_MeshSource || IsMovingGeometry(entity))
                 continue;
 
-            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             const auto& vertices = meshComp.m_MeshSource->GetVertices();
             const auto& indices = meshComp.m_MeshSource->GetIndices();
 
@@ -188,7 +180,7 @@ namespace OloEngine
             if (!modelComp.m_Model || IsMovingGeometry(entity))
                 continue;
 
-            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
 
             for (const auto& mesh : modelComp.m_Model->GetMeshes())
             {
@@ -236,7 +228,7 @@ namespace OloEngine
                 continue;
             const auto& box = entity.GetComponent<BoxCollider3DComponent>();
 
-            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             glm::vec3 halfSize = box.m_HalfExtents;
 
             // 8 local corners of the box (around offset)
@@ -290,7 +282,7 @@ namespace OloEngine
 
                 GenerateSphereGeometry(sphere.m_Radius, sphere.m_Offset, kRings, kSegments, localVerts, localTris);
 
-                glm::mat4 worldTransform = GetWorldTransform(entity);
+                glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
                 const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
 
                 for (i32 idx : localTris)
@@ -386,7 +378,7 @@ namespace OloEngine
                     localTris.push_back(lastRow + (s + 1) % kSegments);
                 }
 
-                glm::mat4 worldTransform = GetWorldTransform(entity);
+                glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
                 const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
 
                 for (i32 idx : localTris)
@@ -417,7 +409,7 @@ namespace OloEngine
             const auto& vertices = meshSource->GetVertices();
             const auto& indices = meshSource->GetIndices();
 
-            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             glm::mat4 colliderTransform = glm::translate(glm::mat4(1.0f), mc.m_Offset) * glm::scale(glm::mat4(1.0f), mc.m_Scale);
             glm::mat4 combined = worldTransform * colliderTransform;
 
@@ -467,7 +459,7 @@ namespace OloEngine
                 step *= 2;
 
             u32 gridRes = (resolution - 1) / step + 1;
-            glm::mat4 worldTransform = GetWorldTransform(entity);
+            glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
 

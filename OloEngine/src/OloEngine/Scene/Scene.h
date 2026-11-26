@@ -1185,6 +1185,11 @@ namespace OloEngine
         // For consumers that require a rigid rotation and axis lengths rather
         // than an affine matrix (such as particle emitters and colliders).
         [[nodiscard]] WorldTRS ComputeWorldTRS(entt::entity entity) const;
+        // Game-thread writes between propagation passes. A singular parent leaves the local pose intact.
+        bool TrySetWorldPosition(entt::entity entity, const glm::vec3& position);
+        bool TrySetWorldRotation(entt::entity entity, const glm::quat& rotation);
+        [[nodiscard]] bool HasSingularPhysicsParent(entt::entity entity, bool planar) const;
+
         struct Physics2DPlacement
         {
             glm::vec3 Position;
@@ -1754,6 +1759,16 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+        struct TerrainCollisionPlacement
+        {
+            glm::mat4 Model;
+            glm::mat3 ShapeBasis;
+            bool Streamed;
+        };
+        std::unordered_map<entt::entity, TerrainCollisionPlacement> m_TerrainCollisionFrames;
+        void SyncTerrainCollisionFrames();
+        std::unordered_set<entt::entity> m_RejectedPhysicsWritebacks;
+        void ReportPhysicsWriteback(entt::entity entity, bool rejected);
         bool m_DeserializingStreamedEntities = false;
 
         // PBF fluid solver instances (issue #630), lazily created by

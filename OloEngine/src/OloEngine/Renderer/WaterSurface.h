@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 
 namespace OloEngine::Ocean
 {
@@ -20,6 +21,42 @@ namespace OloEngine::WaterSurface
     {
         return std::isfinite(dimension) ? std::clamp(dimension, 0.1f, 10000.0f) : 100.0f;
     }
+
+    // Vertical-column representation of the grid the renderer draws at local y=0.
+    // The two tangent axes suffice even when the unused local Y scale is zero.
+    struct SurfaceFrame
+    {
+        glm::vec3 Origin{ 0.0f };
+        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
+        glm::mat2 WorldXZToLocal{ 1.0f };
+
+        [[nodiscard]] static std::optional<SurfaceFrame> FromModel(const glm::mat4& model)
+        {
+            const glm::vec3 origin(model[3]);
+            const glm::dvec3 x(model[0]), z(model[2]);
+            const glm::dvec3 normal = glm::cross(z, x);
+            const f64 length = glm::length(normal);
+            if (!std::isfinite(length) || !(std::abs(normal.y) > 1.0e-4 * length) ||
+                !std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z))
+                return std::nullopt;
+            const glm::dmat2 projected(glm::dvec2(x.x, x.z), glm::dvec2(z.x, z.z));
+            const glm::mat2 toLocal(glm::inverse(projected));
+            if (!std::isfinite(toLocal[0].x) || !std::isfinite(toLocal[0].y) ||
+                !std::isfinite(toLocal[1].x) || !std::isfinite(toLocal[1].y))
+                return std::nullopt;
+            return SurfaceFrame{ origin, glm::vec3(normal / std::copysign(length, normal.y)), toLocal };
+        }
+
+        [[nodiscard]] f32 RestHeight(glm::vec2 worldXZ) const
+        {
+            return Origin.y - ((worldXZ.x - Origin.x) * Normal.x + (worldXZ.y - Origin.z) * Normal.z) / Normal.y;
+        }
+
+        [[nodiscard]] glm::vec2 LocalXZ(glm::vec2 worldXZ) const
+        {
+            return WorldXZToLocal * (worldXZ - glm::vec2(Origin.x, Origin.z));
+        }
+    };
 
     // =========================================================================
     // CPU mirror of OloEditor/assets/shaders/include/WaterCommon.glsl.

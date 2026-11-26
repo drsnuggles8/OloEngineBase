@@ -4,6 +4,7 @@
 #include "JoltShapes.h"
 #include "JoltBinaryStream.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
@@ -476,6 +477,58 @@ namespace OloEngine
     bool JoltShapes::IsShapeValid(const JPH::Shape* shape)
     {
         return shape != nullptr;
+    }
+
+    JPH::Ref<JPH::Shape> JoltShapes::CreateTerrainCollisionShape(std::span<const f32> heights, u32 resolution,
+                                                                 f32 sizeX, f32 sizeZ, f32 heightScale,
+                                                                 const glm::mat3& bodyBasis)
+    {
+        const glm::vec3 scale(bodyBasis[0].x, bodyBasis[1].y, bodyBasis[2].z);
+        bool axisAligned = glm::all(glm::greaterThan(scale, glm::vec3(0.0f))) && heightScale > 0.0f;
+        for (glm::length_t i = 0; i < 3 && axisAligned; ++i)
+        {
+            glm::vec3 residual = bodyBasis[i];
+            residual[i] = 0.0f;
+            axisAligned = glm::length(residual) <= 1.0e-5f * scale[i];
+        }
+        if (axisAligned)
+            return CreateTerrainHeightFieldShape(heights, resolution, sizeX, sizeZ, heightScale, scale);
+
+        if (resolution < 2 || heights.size() != static_cast<sizet>(resolution) * resolution ||
+            heights.size() > std::numeric_limits<u32>::max() || !(sizeX > 0.0f && sizeZ > 0.0f))
+            return nullptr;
+
+        JPH::VertexList vertices;
+        JPH::IndexedTriangleList triangles;
+        vertices.reserve(heights.size());
+        triangles.reserve(2 * static_cast<sizet>(resolution - 1) * (resolution - 1));
+        const f32 cells = static_cast<f32>(resolution - 1);
+        const bool mirrored = glm::determinant(bodyBasis) < 0.0f;
+        for (u32 z = 0; z < resolution; ++z)
+        {
+            for (u32 x = 0; x < resolution; ++x)
+            {
+                const u32 index = z * resolution + x;
+                const glm::vec3 vertex = bodyBasis * glm::vec3(x * sizeX / cells, heights[index] * heightScale, z * sizeZ / cells);
+                if (!Math::IsFinite(vertex))
+                    return nullptr;
+                vertices.emplace_back(vertex.x, vertex.y, vertex.z);
+                if (x + 1 < resolution && z + 1 < resolution)
+                {
+                    const u32 right = index + 1, below = index + resolution;
+                    const u32 a = mirrored ? right : below, b = mirrored ? below : right;
+                    triangles.emplace_back(index, a, b, 0);
+                    triangles.emplace_back(b, a, below + 1, 0);
+                }
+            }
+        }
+        auto result = JPH::MeshShapeSettings(std::move(vertices), std::move(triangles)).Create();
+        if (result.HasError())
+        {
+            OLO_CORE_ERROR("Cannot build transformed terrain collision: {}", result.GetError().c_str());
+            return nullptr;
+        }
+        return result.Get();
     }
 
     JPH::Ref<JPH::Shape> JoltShapes::CreateTerrainHeightFieldShape(std::span<const f32> heights, u32 resolution,

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainFrame.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
@@ -864,6 +865,10 @@ namespace OloEngine
             if (!terrain.m_TerrainData || !terrain.m_ChunkManager || !terrain.m_ChunkManager->IsBuilt())
                 continue;
 
+            const auto localHit = TerrainFrame{ m_Context->ComputeWorldTransform(entity) }.ToLocal(hitPos);
+            if (!localHit || localHit->x < 0.0f || localHit->z < 0.0f ||
+                localHit->x > terrain.m_WorldSizeX || localHit->z > terrain.m_WorldSizeZ)
+                continue;
             if (m_EditMode == TerrainEditMode::Sculpt)
             {
                 // Three conditions, and the third is the interesting one. The GPU
@@ -909,7 +914,7 @@ namespace OloEngine
                             m_SculptSettings.Tool == TerrainBrushTool::Level)
                         {
                             m_StrokeTargetHeight = terrain.m_TerrainData->GetHeightAt(
-                                hitPos.x / terrain.m_WorldSizeX, hitPos.z / terrain.m_WorldSizeZ);
+                                localHit->x / terrain.m_WorldSizeX, localHit->z / terrain.m_WorldSizeZ);
                         }
 
                         TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreHeight,
@@ -929,11 +934,11 @@ namespace OloEngine
                 // stays authoritative for the settle-time commit, which is per stroke.
                 auto dirty = useGPU
                                  ? m_GPUBrush.ApplySculpt(
-                                       *terrain.m_TerrainData, m_SculptSettings, hitPos,
+                                       *terrain.m_TerrainData, m_SculptSettings, *localHit,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
                                        deltaTime, m_StrokeTargetHeight)
                                  : TerrainBrush::Apply(
-                                       *terrain.m_TerrainData, m_SculptSettings, hitPos,
+                                       *terrain.m_TerrainData, m_SculptSettings, *localHit,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
                                        deltaTime);
 
@@ -1028,9 +1033,9 @@ namespace OloEngine
                 }
 
                 auto dirty = m_StrokeUsesGPU
-                                 ? m_GPUBrush.ApplyPaint(*terrain.m_Material, m_PaintSettings, hitPos,
+                                 ? m_GPUBrush.ApplyPaint(*terrain.m_Material, m_PaintSettings, *localHit,
                                                          terrain.m_WorldSizeX, terrain.m_WorldSizeZ, deltaTime)
-                                 : TerrainPaintBrush::Apply(*terrain.m_Material, m_PaintSettings, hitPos,
+                                 : TerrainPaintBrush::Apply(*terrain.m_Material, m_PaintSettings, *localHit,
                                                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
                                                             deltaTime);
 

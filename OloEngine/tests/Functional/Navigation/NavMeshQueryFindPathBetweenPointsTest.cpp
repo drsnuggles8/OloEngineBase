@@ -41,7 +41,8 @@ class NavMeshQueryFindPathBetweenPointsTest : public FunctionalTest
     {
         // Thin floor (same recipe as NavAgentReachesTargetTest — thicker
         // boxes confuse Recast's ledge-span filter and produce 0 polys).
-        auto floor = GetScene().CreateEntity("Floor");
+        m_Floor = GetScene().CreateEntity("Floor");
+        Entity floor = m_Floor;
         floor.GetComponent<TransformComponent>().Translation = { 0.0f, -0.05f, 0.0f };
         Rigidbody3DComponent body;
         body.m_Type = BodyType3D::Static;
@@ -61,6 +62,7 @@ class NavMeshQueryFindPathBetweenPointsTest : public FunctionalTest
             << "NavMeshGenerator failed on a thin-floor scene — pre-condition broken.";
         GetScene().SetNavMesh(navMesh);
     }
+    Entity m_Floor;
 };
 
 TEST_F(NavMeshQueryFindPathBetweenPointsTest, DirectFindPathReturnsPolylineConnectingStartAndEnd)
@@ -97,4 +99,28 @@ TEST_F(NavMeshQueryFindPathBetweenPointsTest, DirectFindPathReturnsPolylineConne
         << "last path corner is far from the end query point — the path "
            "terminates somewhere else (poly clamping is broken or the "
            "navmesh has a hole the end falls into).";
+}
+
+TEST_F(NavMeshQueryFindPathBetweenPointsTest, BakeBeforePropagationMatchesRootTwinCorners)
+{
+    std::vector<glm::vec3> rootCorners;
+    ASSERT_EQ(GetScene().GetNavMeshQuery()->FindPath(kStart, kEnd, rootCorners), FindPathResult::Complete);
+
+    Entity parent = GetScene().CreateEntity("Floor rig");
+    auto& carrier = parent.GetComponent<TransformComponent>();
+    carrier.Translation = { 32.0f, 0.0f, -10.0f };
+    carrier.SetRotation(glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 1, 0)));
+    m_Floor.SetParent(parent);
+    auto& floor = m_Floor.GetComponent<TransformComponent>();
+    const glm::quat inverseRotation = glm::inverse(carrier.GetRotation());
+    floor.Translation = inverseRotation * (floor.Translation - carrier.Translation);
+    floor.SetRotation(inverseRotation);
+    auto mesh = NavMeshGenerator::Generate(&GetScene(), NavMeshSettings{}, { -25, -2, -7 }, { 25, 5, 7 });
+    ASSERT_TRUE(mesh && mesh->IsValid());
+    NavMeshQuery fresh(mesh);
+    std::vector<glm::vec3> parentedCorners;
+    ASSERT_EQ(fresh.FindPath(kStart, kEnd, parentedCorners), FindPathResult::Complete);
+    ASSERT_EQ(parentedCorners.size(), rootCorners.size());
+    for (size_t i = 0; i < rootCorners.size(); ++i)
+        EXPECT_NEAR(glm::distance(parentedCorners[i], rootCorners[i]), 0.0f, 1.0e-3f) << i;
 }

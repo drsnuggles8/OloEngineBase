@@ -11,6 +11,7 @@
 namespace OloEngine
 {
     struct NavAgentComponent;
+    class NavMeshQuery;
 
     // Mirrors the terminal states NavigationSystem's manual follower already
     // exposes via NavAgentComponent::m_TargetUnreachable (see FindPathResult),
@@ -37,6 +38,9 @@ namespace OloEngine
         void Shutdown();
 
         i32 AddAgent(const glm::vec3& position, const NavAgentComponent& params);
+        // Carry an active agent along its current corridor. False means the new
+        // placement needs a fresh registration (e.g. a disconnected island).
+        bool MoveAgentOnMesh(i32 agentId, const glm::vec3& position, const NavMeshQuery& query);
         void RemoveAgent(i32 agentId);
         // Returns false if the target is not near any navmesh polygon (no move
         // request was issued at all) — the crowd equivalent of FindPathResult::Failed.

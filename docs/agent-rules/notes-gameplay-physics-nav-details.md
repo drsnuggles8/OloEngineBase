@@ -399,3 +399,36 @@ carrying still moves the kinematic body with its carrier.
 On a streamed region load, deserialize the entire region before starting runtime
 components. Build every rigid body before creating joints, vehicles, or running
 script `OnCreate` callbacks.
+
+### Reading and writing composed poses between ticks
+
+Use `ComputeWorldPosition`, `ComputeWorldTransform` and `ComputeWorldTRS` for
+game-thread queries that can follow an edit to an ancestor in the same tick.
+Detour paths, steering velocities, sight rays, collision queries and spatial-index
+entries all use world coordinates. Use `TrySetWorldPosition` and
+`TrySetWorldRotation` to write movement through the current parent or bone frame.
+Move a registered crowd agent on its corridor before stepping avoidance when its
+composed position changes externally.
+
+A simulated body needs independent parent axes for writeback. A collapsed axis
+leaves the authored local pose at its last representable value while the native
+body continues simulating. Jolt checks the spatial basis. Box2D checks its XY
+projection, which permits zero Z scale. The inspector identifies the affected
+dynamic body and the runtime logs the first rejected write. Restoring the axes
+resumes writeback from the current simulated pose on the next physics tick.
+
+Keep streamed terrain origins, height samples, chunks and foliage in terrain
+space. Transform the camera into that frame for tile selection. Use the full
+tile model for submission and collider placement. Rigid parent motion repositions
+resident colliders. A change in the scaled or sheared basis requires a new shape.
+World-XZ height queries on terrain support sloping height samples, yaw, and
+non-uniform scale when local height points vertically. A pitched height axis can
+put several samples in the same world column. Ground and shoreline lookups omit
+that terrain. Editor picking intersects the ray in terrain space.
+
+Water waves displace the composed grid in world axes. For a world-XZ query,
+invert the horizontal wave displacement, including wake flattening, before adding
+the vertical displacement to the base vertex's rest height. Spray launches from
+the displaced FFT crest within the tile footprint. A nearly vertical grid
+(`abs(normal.y) <= 1e-4` for a unit normal) can be drawn but supplies no water
+column for buoyancy, spray or the underwater lens.

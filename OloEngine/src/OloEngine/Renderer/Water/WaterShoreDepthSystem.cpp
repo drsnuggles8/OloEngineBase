@@ -60,6 +60,8 @@ namespace OloEngine
                              std::isfinite(request.CentreXZ.y) ? request.CentreXZ.y : 0.0f };
             out.ExtentMetres = std::isfinite(request.ExtentMetres) ? request.ExtentMetres : 0.0f;
             out.WaterPlaneY = std::isfinite(request.WaterPlaneY) ? request.WaterPlaneY : 0.0f;
+            out.WaterGradient = { std::isfinite(request.WaterGradient.x) ? request.WaterGradient.x : 0.0f,
+                                  std::isfinite(request.WaterGradient.y) ? request.WaterGradient.y : 0.0f };
             return out;
         }
     } // namespace
@@ -133,12 +135,15 @@ namespace OloEngine
         HashInto(hash, request.CentreXZ);
         HashInto(hash, request.ExtentMetres);
         HashInto(hash, request.WaterPlaneY);
+        HashInto(hash, request.WaterGradient);
         HashInto(hash, terrains.size());
         for (const SeabedTerrain& terrain : terrains)
         {
             HashInto(hash, terrain.OriginXZ);
             HashInto(hash, terrain.SizeXZ);
             HashInto(hash, terrain.BaseY);
+            HashInto(hash, terrain.WorldXZToLocal);
+            HashInto(hash, terrain.BaseHeightGradient);
             HashInto(hash, terrain.HeightScale);
             HashInto(hash, terrain.Resolution);
             // The height field's IDENTITY, not its contents. Hashing 512^2
@@ -176,7 +181,6 @@ namespace OloEngine
         // window the retained one would not have accepted.
         const WaterShoreBakeRequest sane = Sanitize(request);
         const f32 extent = sane.ExtentMetres;
-        const f32 planeY = sane.WaterPlaneY;
         const glm::vec2 centre = sane.CentreXZ;
         if (!(extent > 0.0f))
         {
@@ -198,6 +202,7 @@ namespace OloEngine
                 // uv = (s + 0.5) / N.
                 const glm::vec2 worldXZ = minCorner + (glm::vec2(x, z) + 0.5f) * texelMetres;
 
+                const f32 planeY = sane.WaterPlaneY + glm::dot(worldXZ - centre, sane.WaterGradient);
                 f32 depth = WaterShore::kDeepSentinelMetres;
                 for (const SeabedTerrain& terrain : terrains)
                 {
@@ -206,7 +211,8 @@ namespace OloEngine
                     if (!(terrain.SizeXZ.x > 0.0f) || !(terrain.SizeXZ.y > 0.0f))
                         continue;
 
-                    const glm::vec2 local = (worldXZ - terrain.OriginXZ) / terrain.SizeXZ;
+                    const glm::vec2 metres = terrain.WorldXZToLocal * (worldXZ - terrain.OriginXZ);
+                    const glm::vec2 local = metres / terrain.SizeXZ;
                     if (local.x < 0.0f || local.x > 1.0f || local.y < 0.0f || local.y > 1.0f)
                         continue;
 
@@ -219,7 +225,7 @@ namespace OloEngine
                     if (!std::isfinite(normalized))
                         continue;
 
-                    const f32 seabedY = terrain.BaseY + normalized * terrain.HeightScale;
+                    const f32 seabedY = terrain.BaseY + glm::dot(terrain.BaseHeightGradient, metres) + normalized * terrain.HeightScale;
                     if (!std::isfinite(seabedY))
                         continue;
 

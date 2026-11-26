@@ -55,6 +55,7 @@ namespace OloEngine
         }
 
       private:
+        friend class CrowdManager; // Detour's corridor move needs the mutable query workspace.
         void ComputeQueryExtents(f32 outExtent[3]) const;
 
         dtNavMeshQuery* m_Query = nullptr;

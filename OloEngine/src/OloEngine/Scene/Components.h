@@ -8264,6 +8264,10 @@ namespace OloEngine
         u32 m_CurrentCornerIndex = 0;
         OLO_SERIALIZE(Skip)
         i32 m_CrowdAgentId = -1;
+        // The composed ECS position published after crowd writeback. A changed
+        // position next tick is an external move (including a moving parent).
+        OLO_SERIALIZE(Skip)
+        glm::vec3 m_LastCrowdWorldPosition{};
         // Set by NavigationSystem when the current target can only be reached partially
         // (unreachable / off-navmesh / disconnected). Terminal signal for consumers so
         // they stop re-issuing an impossible target — see BTMoveTo and NavAgentComponent_IsTargetUnreachable.
@@ -8297,6 +8301,7 @@ namespace OloEngine
                 m_PathCorners.Reset();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
+                m_LastCrowdWorldPosition = {};
                 m_TargetUnreachable = false;
             }
             return *this;
@@ -8327,6 +8332,7 @@ namespace OloEngine
                 m_PathCorners.Reset();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
+                m_LastCrowdWorldPosition = {};
                 m_TargetUnreachable = false;
             }
             return *this;

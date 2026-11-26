@@ -36,6 +36,7 @@ layout(location = 2) in vec2 a_TexCoord;
 // would declare a v_InstanceIndex output no later stage consumes (a
 // per-pipeline Vulkan validation interface warning).
 #include "InstanceBlock_Single.glsl"
+#include "WaterTileFrame.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams
@@ -366,12 +367,8 @@ void main()
     if (u_ProjectedGridParams.x > 0.5)
     {
         // The plane this surface's transform describes, in the same
-        // render-relative space u_ViewProjection works in. Column 1 is the
-        // transformed up axis and column 3 the surface centre, which is how the
-        // planar-reflection plane is derived on the C++ side too.
-        vec3 planeNormal = instances[0].Transform[1].xyz;
-        float normalLenSq = dot(planeNormal, planeNormal);
-        planeNormal = (normalLenSq > 1e-12) ? (planeNormal * inversesqrt(normalLenSq)) : vec3(0.0, 1.0, 0.0);
+        // render-relative space u_ViewProjection works in. The grid tangents span its plane even under a sheared parent.
+        vec3 planeNormal = waterGridNormal(instances[0].Transform);
         vec3 planePoint = instances[0].Transform[3].xyz;
 
         // The grid spans the rectangle WaterSurfaceLod::ComputeNdcBounds
@@ -435,11 +432,14 @@ void main()
         // Back into surface-local space and clamp into the authored rect. This
         // is what keeps a finite tile finite; rows that would land past the rect
         // pile onto its edge as zero-area triangles.
-        // Back into surface-local space WITHOUT a per-vertex mat4 inverse:
-        // the instance Normal is transpose(inverse(Transform)), already uploaded per
-        // draw, so its 3x3 transpose is the inverse of the model's linear part
-        // and the translation is undone by subtracting column 3 first.
-        vec3 local = transpose(mat3(instances[0].Normal)) * (hit - instances[0].Transform[3].xyz);
+        // Dual basis of the two grid axes. The unused local Y scale can be zero.
+        vec3 axisX = instances[0].Transform[0].xyz;
+        vec3 axisZ = instances[0].Transform[2].xyz;
+        vec3 offset = hit - planePoint;
+        vec3 dualX = cross(planeNormal, axisZ);
+        vec3 dualZ = cross(axisX, planeNormal);
+        vec3 local = vec3(dot(offset, dualX) / dot(axisX, dualX), 0.0,
+                          dot(offset, dualZ) / dot(axisZ, dualZ));
         local.xz = clamp(local.xz, -u_ProjectedGridParams2.xy, u_ProjectedGridParams2.xy);
         local.y = 0.0;
         gridLocalPos = local;

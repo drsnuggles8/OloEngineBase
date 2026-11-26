@@ -126,14 +126,8 @@ namespace OloEngine
         // `fallbackY` answers for a tile standing on edge, which has no height there.
         [[nodiscard]] inline f32 TilePlaneYAt(const glm::mat4& model, f32 worldX, f32 worldZ, f32 fallbackY) noexcept
         {
-            const glm::vec3 origin(model[3]);
-            // The plane is spanned by the tile's X and Z axes, so their cross product is
-            // its normal whatever scale or shear the matrix carries.
-            const glm::vec3 normal = glm::cross(glm::vec3(model[2]), glm::vec3(model[0]));
-            const f32 lengthSquared = glm::dot(normal, normal);
-            if (!std::isfinite(lengthSquared) || !(normal.y * normal.y > 1e-8f * lengthSquared))
-                return fallbackY;
-            const f32 y = origin.y - (normal.x * (worldX - origin.x) + normal.z * (worldZ - origin.z)) / normal.y;
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            const f32 y = frame ? frame->RestHeight({ worldX, worldZ }) : fallbackY;
             return std::isfinite(y) ? y : fallbackY;
         }
 
@@ -142,47 +136,18 @@ namespace OloEngine
         [[nodiscard]] inline bool TryGetTileFootprintGap(const glm::mat4& model, f32 width, f32 depth,
                                                          const glm::vec3& eye, f32& gap) noexcept
         {
-            const glm::mat4 inverse = glm::inverse(model);
-            f32 surfaceY = TilePlaneYAt(model, eye.x, eye.z, std::numeric_limits<f32>::quiet_NaN());
-            glm::vec4 localPoint;
-            if (std::isfinite(surfaceY))
-            {
-                localPoint = inverse * glm::vec4(eye.x, surfaceY, eye.z, 1.0f);
-            }
-            else
-            {
-                // A nearly vertical plane has no usable height on the ray.
-                // Retain the local-Y projection used for a tile on edge.
-                localPoint = inverse * glm::vec4(eye, 1.0f);
-                surfaceY = (model * glm::vec4(localPoint.x, 0.0f, localPoint.z, 1.0f)).y;
-            }
-            if (!std::isfinite(localPoint.x) || !std::isfinite(localPoint.z) || !std::isfinite(surfaceY))
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            if (!frame)
                 return false;
-
-            const f32 halfX = WaterSurface::SanitizeTileDimension(width) * 0.5f;
-            const f32 halfZ = WaterSurface::SanitizeTileDimension(depth) * 0.5f;
-            if (std::abs(localPoint.x) > halfX || std::abs(localPoint.z) > halfZ)
+            const glm::vec2 worldXZ(eye.x, eye.z);
+            const glm::vec2 local = frame->LocalXZ(worldXZ);
+            const glm::vec2 halfExtent(WaterSurface::SanitizeTileDimension(width) * 0.5f,
+                                       WaterSurface::SanitizeTileDimension(depth) * 0.5f);
+            if (!glm::all(glm::lessThanEqual(glm::abs(local), halfExtent)))
                 return false;
-
-            gap = surfaceY - eye.y;
-            return true;
+            gap = frame->RestHeight(worldXZ) - eye.y;
+            return std::isfinite(gap);
         }
 
-        // The height of the surface DRAWN over the eye: the tile's own plane at the
-        // eye, plus what the waves add there.
-        //
-        // Two sources, because neither has the whole answer. The plane comes from the
-        // tile's transform, which a raised or tilted tile moves; the waves come from
-        // the water probe, which is how physics sees the tile and which measures from
-        // the height of the tile's ORIGIN (`probeRestY`). Taking the probe's sample
-        // whole put a tilted tile's surface at its origin's height wherever the eye
-        // was, so an eye under the raised side read as in the air. A flat tile's plane
-        // is its origin's height, and for it this is the probe's sample unchanged.
-        // A sample that is not finite adds nothing: the still plane stands.
-        [[nodiscard]] inline f32 DrawnSurfaceY(f32 planeYAtEye, f32 probeRestY, f32 probeSurfaceY) noexcept
-        {
-            const f32 waves = probeSurfaceY - probeRestY;
-            return std::isfinite(waves) ? planeYAtEye + waves : planeYAtEye;
-        }
     } // namespace UnderwaterFog
 } // namespace OloEngine

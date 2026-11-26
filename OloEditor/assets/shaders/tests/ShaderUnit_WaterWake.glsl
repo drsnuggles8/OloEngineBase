@@ -49,10 +49,10 @@ void main()
     vec4 header = u_Hulls[0];
 
     vec2 wake = waterWakeEvaluate(header.x, header.y, header.z, query.xy, query.z);
-    float foam = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w));
-    float below = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w - 2.0, header.w));
+    float foam = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w), vec2(0.0));
+    float below = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w - 2.0, header.w), vec2(0.0));
     // One metre is close enough to pass the shallow-column check but is
     // another water plane, so both controls must retain their foam.
-    float otherPlane = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w + 1.0));
+    float otherPlane = waterWakeShoreFoamScale(header.x, query.xy, query.w, vec2(header.w + 1.0), vec2(0.0));
     u_Outputs[idx] = vec4(wake, foam, min(below, otherPlane));
 }

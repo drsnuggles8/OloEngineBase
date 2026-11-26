@@ -132,6 +132,7 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainFrame.h"
 #include "OloEngine/Scene/TerrainGround.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
@@ -843,6 +844,8 @@ namespace OloEngine
         if (!entity || !entity.HasComponent<IDComponent>())
             return;
 
+        m_RejectedPhysicsWritebacks.erase(entity);
+        m_TerrainCollisionFrames.erase(entity);
         // Capture UUID before the Lua callback — the script may re-entrantly
         // destroy this entity, invalidating the handle. Capture the name too, for
         // the diagnostics timeline recorded once the destroy actually completes.
@@ -2037,6 +2040,7 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        m_RejectedPhysicsWritebacks.clear();
         m_LastRenderedRuntimeView.reset();
         TGuardValue<bool> stopping(m_BlockCheckpointLoad, true);
         OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
@@ -2841,7 +2845,7 @@ namespace OloEngine
         m_SpatialIndex.Clear();
         for (auto&& [e, id, transform] : m_Registry.view<IDComponent, TransformComponent>().each())
         {
-            m_SpatialIndex.Insert(id.ID, transform.Translation);
+            m_SpatialIndex.Insert(id.ID, ComputeWorldPosition(e));
         }
     }
 
@@ -3035,11 +3039,26 @@ namespace OloEngine
             return std::isfinite(rotation.w);
         }
 
+        // Test rank independently of the units/scale of each axis. A rotated
+        // collapsed ancestor can leave nonzero, linearly dependent columns.
+        template<typename Basis>
+        bool HasIndependentAxes(const Basis& basis)
+        {
+            Basis directions;
+            for (glm::length_t axis = 0; axis < basis.length(); ++axis)
+            {
+                const auto length = glm::length(basis[axis]);
+                if (!(length > 0.0f) || !std::isfinite(length))
+                    return false;
+                directions[axis] = basis[axis] / length;
+            }
+            return std::abs(glm::determinant(directions)) > 8.0f * std::numeric_limits<f32>::epsilon();
+        }
+
         [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalPhysicsPose(const glm::mat4& parentWorld, const glm::vec3& position,
                                                                         const glm::quat& rotation, const TransformComponent& authored)
         {
-            const f32 determinant = glm::determinant(glm::mat3(parentWorld));
-            if (!std::isfinite(determinant) || std::abs(determinant) <= std::numeric_limits<f32>::min())
+            if (!HasIndependentAxes(glm::mat3(parentWorld)))
                 return std::nullopt;
 
             const glm::mat4 inverse = glm::inverse(parentWorld);
@@ -3071,8 +3090,7 @@ namespace OloEngine
                                                                       const TransformComponent& authored)
         {
             const glm::mat2 planarBasis{ glm::vec2(parentWorld[0]), glm::vec2(parentWorld[1]) };
-            const f32 determinant = glm::determinant(planarBasis);
-            if (!std::isfinite(determinant) || std::abs(determinant) <= std::numeric_limits<f32>::min())
+            if (!HasIndependentAxes(planarBasis))
                 return std::nullopt;
 
             const glm::mat2 inverse = glm::inverse(planarBasis);
@@ -3136,18 +3154,70 @@ namespace OloEngine
         return pose;
     }
 
+    bool Scene::TrySetWorldPosition(entt::entity entity, const glm::vec3& position)
+    {
+        auto& local = m_Registry.get<TransformComponent>(entity);
+        if (ResolveTransformParent(entity) == entt::null)
+        {
+            local.Translation = position;
+            return true;
+        }
+        const glm::mat4 parent = ComputeParentWorldTransform(entity);
+        if (!HasIndependentAxes(glm::mat3(parent)))
+            return false;
+        local.Translation = glm::vec3(glm::inverse(parent) * glm::vec4(position, 1.0f));
+        return true;
+    }
+
+    bool Scene::TrySetWorldRotation(entt::entity entity, const glm::quat& rotation)
+    {
+        auto& local = m_Registry.get<TransformComponent>(entity);
+        if (ResolveTransformParent(entity) == entt::null)
+        {
+            local.SetRotation(rotation);
+            return true;
+        }
+        const glm::mat4 parent = ComputeParentWorldTransform(entity);
+        const auto pose = ToLocalPhysicsPose(parent, glm::vec3(parent[3]), rotation, local);
+        if (pose)
+            local.SetRotation(pose->Rotation);
+        return pose.has_value();
+    }
+
+    bool Scene::HasSingularPhysicsParent(entt::entity entity, bool planar) const
+    {
+        const glm::mat4 parent = ComputeParentWorldTransform(entity);
+        return planar ? !HasIndependentAxes(glm::mat2(parent)) : !HasIndependentAxes(glm::mat3(parent));
+    }
+
+    void Scene::ReportPhysicsWriteback(entt::entity entity, bool rejected)
+    {
+        if (!rejected)
+        {
+            m_RejectedPhysicsWritebacks.erase(entity);
+            return;
+        }
+        if (m_RejectedPhysicsWritebacks.insert(entity).second)
+        {
+            OLO_CORE_ERROR("Physics writeback paused for '{}': its parent transform is singular. Restore independent parent axes to resume.", Entity(entity, this).GetName());
+        }
+    }
+
     void Scene::SetPhysicsWorldPose(entt::entity entity, const glm::vec3& position, const glm::quat& rotation, const JoltScene& physics)
     {
         auto& local = m_Registry.get<TransformComponent>(entity);
         if (ResolveTransformParent(entity) == entt::null)
         {
+            ReportPhysicsWriteback(entity, false);
             local.Translation = position;
             local.SetRotation(rotation);
             return;
         }
 
         const glm::mat4 parentWorld = ComputeParentWorldTransform(entity, &physics);
-        if (const auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local))
+        const auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local);
+        ReportPhysicsWriteback(entity, !pose);
+        if (pose)
         {
             local.Translation = pose->Position;
             local.SetRotation(pose->Rotation);
@@ -4349,6 +4419,7 @@ namespace OloEngine
             DriveClothAttachments(ts.GetSeconds());
             // Carried bodies (issue #1559) follow their carrier into this step.
             m_JoltScene->DriveCarriedBodies(ts.GetSeconds());
+            SyncTerrainCollisionFrames();
             // JoltScene::Simulate runs its OWN fixed-step accumulator at a
             // hardcoded 1/60. This is 1:1 with one gameplay tick only when
             // the canonical fixed dt (Application::GetFixedTimeStep) equals
@@ -4389,6 +4460,7 @@ namespace OloEngine
             DriveClothAttachments(frameSeconds);
             // Carried bodies (issue #1559) follow their carrier into this step.
             m_JoltScene->DriveCarriedBodies(frameSeconds);
+            SyncTerrainCollisionFrames();
             // Contact handlers may grow script/registry access — game thread only.
             m_JoltScene->PreSimulate();
             m_PhysicsStepsThisFrame = m_JoltScene->BeginSteps(frameSeconds);
@@ -4511,7 +4583,9 @@ namespace OloEngine
                 if (ResolveTransformParent(e) != entt::null)
                 {
                     const glm::mat4 parentWorld = ComputeParentWorldTransform(e, m_JoltScene.get());
-                    if (const auto pose = ToLocalBox2DPose(parentWorld, position, rotation, transform))
+                    const auto pose = ToLocalBox2DPose(parentWorld, position, rotation, transform);
+                    ReportPhysicsWriteback(e, !pose);
+                    if (pose)
                     {
                         transform.Translation = pose->Position;
                         transform.SetRotation(pose->Rotation);
@@ -4519,6 +4593,7 @@ namespace OloEngine
                     continue;
                 }
 
+                ReportPhysicsWriteback(e, false);
                 transform.Translation.x = position.x;
                 transform.Translation.y = position.y;
                 {
@@ -4948,15 +5023,17 @@ namespace OloEngine
             // shared channel already orders the two; the After names the contract.
             sched.AddSystem("Navigation", [](Scene& s, Timestep ts)
                             { s.UpdateNavigation(ts); })
+                .Reads(kSkeletonPose)
                 .ReadsWrites(kLocalTransforms)
                 .After("RootMotionApply");
 
-            // Spatial index rebuilds from TransformComponent.Translation — the
+            // Spatial index rebuilds from the composed live transform hierarchy — the
             // read-after-write edge from Navigation (the last transform writer)
             // replaces the old explicit After("Navigation"), and publishes the
             // SpatialIndex channel Perception consumes.
             sched.AddSystem("SpatialIndex", [](Scene& s, Timestep)
                             { s.UpdateSpatialIndex(); })
+                .Reads(kSkeletonPose)
                 .Reads(kLocalTransforms)
                 .Writes(kSpatialIndex);
 
@@ -4966,6 +5043,7 @@ namespace OloEngine
             // the fence.)
             sched.AddSystem("Perception", [](Scene& s, Timestep ts)
                             { s.UpdatePerception(ts); })
+                .Reads(kSkeletonPose)
                 .Reads(kSpatialIndex)
                 .Writes(kPerception);
 
@@ -5117,6 +5195,7 @@ namespace OloEngine
             // per-agent steering forces BoidMovement integrates.
             sched.AddSystem("BoidSteering", [](Scene& s, Timestep ts)
                             { s.UpdateBoidSteering(ts); })
+                .Reads(kSkeletonPose)
                 .Reads(kLocalTransforms)
                 .Writes(kBoidSteering)
                 .Parallelizable();
@@ -5181,6 +5260,7 @@ namespace OloEngine
             // has been joined before any transform is touched.
             sched.AddSystem("BoidMovement", [](Scene& s, Timestep ts)
                             { s.UpdateBoidMovement(ts); })
+                .Reads(kSkeletonPose)
                 .Reads(kBoidSteering)
                 .ReadsWrites(kLocalTransforms);
 
@@ -7878,6 +7958,7 @@ namespace OloEngine
     template<>
     void Scene::OnComponentRemoved<TerrainComponent>(Entity entity, TerrainComponent& component)
     {
+        m_TerrainCollisionFrames.erase(entity);
         if (m_JoltScene)
             m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
         if (m_JoltScene && component.m_RuntimeCollisionBodyToken != 0)
@@ -8532,16 +8613,18 @@ namespace OloEngine
                 return;
             }
 
-            const auto& transform = entity.GetComponent<TransformComponent>();
-            JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
-                heights, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
+            const auto pose = entity.GetScene()->ComputeWorldTRS(entity);
+            const glm::mat4 model = entity.GetScene()->ComputeWorldTransform(entity);
+            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(model);
+            JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainCollisionShape(
+                heights, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, bodyBasis);
             if (!shape)
             {
                 terrain.m_RuntimeCollisionBodyToken = 0;
                 return;
             }
 
-            JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, transform.Translation, transform.GetRotation());
+            JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, pose.Position, pose.Rotation);
             terrain.m_RuntimeCollisionBodyToken = bodyID.IsInvalid() ? 0 : static_cast<u64>(bodyID.GetIndexAndSequenceNumber());
         }
 
@@ -8559,8 +8642,10 @@ namespace OloEngine
         {
             const UUID entityID = entity.GetUUID();
 
-            const auto& transform = entity.GetComponent<TransformComponent>();
-            const glm::quat rotation = transform.GetRotation();
+            const auto pose = entity.GetScene()->ComputeWorldTRS(entity);
+            const glm::mat4 model = entity.GetScene()->ComputeWorldTransform(entity);
+            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(model);
+            const glm::quat rotation = pose.Rotation;
 
             // `readyTiles` is the SAME per-frame snapshot the render submit path uses, taken
             // once by the caller (GetReadyTiles takes a shared lock + copies) — an empty list
@@ -8581,24 +8666,20 @@ namespace OloEngine
                     continue;
                 desired.insert(packKey(tile->GridX, tile->GridZ));
 
-                // Already have a body for this tile — nothing to do (tile heights are
-                // immutable once loaded; a re-loaded tile after eviction gets a fresh body).
-                if (joltScene.HasTerrainTileBody(entityID, tile->GridX, tile->GridZ))
+                const glm::vec3 tilePos = glm::vec3(model * glm::vec4(tile->WorldOrigin, 1.0f));
+                if (joltScene.MoveTerrainTileBody(entityID, tile->GridX, tile->GridZ, tilePos, rotation))
                     continue;
 
                 Ref<TerrainData> data = tile->GetTerrainData();
                 if (!data || data->GetResolution() < 2)
                     continue;
 
-                JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
+                JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainCollisionShape(
                     std::span{ data->GetHeightData().GetData(), static_cast<sizet>(data->GetHeightData().Num()) }, data->GetResolution(),
-                    tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, transform.Scale);
+                    tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, bodyBasis);
                 if (!shape)
                     continue;
 
-                // Body pose that reproduces entityTransform * translate(WorldOrigin) given
-                // the shape already bakes entity scale: T + R*(S ⊙ WorldOrigin), rotation R.
-                const glm::vec3 tilePos = transform.Translation + (rotation * (transform.Scale * tile->WorldOrigin));
                 (void)joltScene.CreateTerrainTileBody(entity, tile->GridX, tile->GridZ, shape, tilePos, rotation);
             }
 
@@ -8760,6 +8841,9 @@ namespace OloEngine
         {
             Entity ent = { entity, this };
             BuildTerrainCollisionBody(*m_JoltScene, ent, ent.GetComponent<TerrainComponent>());
+            const glm::mat4 model = ComputeWorldTransform(entity);
+            const glm::mat3 shapeBasis = glm::transpose(glm::mat3_cast(ComputeWorldTRS(entity).Rotation)) * glm::mat3(model);
+            m_TerrainCollisionFrames[entity] = { model, shapeBasis, ent.GetComponent<TerrainComponent>().m_StreamingEnabled };
         }
 
         // Cloth pass: build a Jolt soft body for every enabled ClothComponent from its
@@ -8804,6 +8888,7 @@ namespace OloEngine
 
     void Scene::OnPhysics3DStop()
     {
+        m_TerrainCollisionFrames.clear();
         // Idempotent: m_JoltScene is a lifetime member (created in the ctor and
         // never nulled), so guard on whether physics is actually *running*, not on
         // the pointer. A second OnPhysics3DStop (e.g. a manual stop followed by a
@@ -8897,6 +8982,63 @@ namespace OloEngine
         m_ClothRuntime.clear();
 
         m_JoltScene->Shutdown();
+    }
+
+    void Scene::SyncTerrainCollisionFrames()
+    {
+        for (const auto e : m_Registry.view<TerrainComponent, TransformComponent>())
+        {
+            auto& terrain = m_Registry.get<TerrainComponent>(e);
+            Entity entity(e, this);
+            if (!terrain.m_CollisionEnabled)
+            {
+                if (m_TerrainCollisionFrames.erase(e))
+                {
+                    m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
+                    m_JoltScene->DestroyTerrainBody(entity.GetUUID());
+                    terrain.m_RuntimeCollisionBodyToken = 0;
+                }
+                continue;
+            }
+            const glm::mat4 world = ComputeWorldTransform(e);
+            const auto previous = m_TerrainCollisionFrames.find(e);
+            if (previous != m_TerrainCollisionFrames.end() && previous->second.Streamed == terrain.m_StreamingEnabled &&
+                Math::BitwiseEqual(previous->second.Model, world))
+                continue;
+            const auto pose = ComputeWorldTRS(e);
+            const glm::mat3 shapeBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(world);
+            bool rebuild = previous == m_TerrainCollisionFrames.end() || previous->second.Streamed != terrain.m_StreamingEnabled;
+            for (glm::length_t i = 0; i < 3 && !rebuild; ++i)
+            {
+                const glm::vec3 baked = previous->second.ShapeBasis[i];
+                rebuild = glm::length(baked - shapeBasis[i]) > 1.0e-5f * glm::length(baked);
+            }
+            if (rebuild)
+            {
+                m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
+                m_JoltScene->DestroyTerrainBody(entity.GetUUID());
+                terrain.m_RuntimeCollisionBodyToken = 0;
+                m_TerrainCollisionFrames[e] = { world, shapeBasis, terrain.m_StreamingEnabled };
+            }
+            else
+                previous->second.Model = world;
+            if (terrain.m_StreamingEnabled)
+            {
+                if (!terrain.m_Streamer)
+                    continue;
+                TArray<Ref<TerrainTile>> ready;
+                terrain.m_Streamer->GetReadyTiles(ready);
+                ReconcileStreamingTerrainCollision(*m_JoltScene, entity, ready);
+            }
+            else if (rebuild)
+            {
+                BuildTerrainCollisionBody(*m_JoltScene, entity, terrain);
+            }
+            else
+            {
+                m_JoltScene->MoveTerrainBody(entity.GetUUID(), pose.Position, pose.Rotation);
+            }
+        }
     }
 
     bool Scene::UpdateTerrainCollisionAfterEdit(Entity terrainEntity, u32 regionX, u32 regionZ,
@@ -14129,20 +14271,9 @@ namespace OloEngine
                         terrain.m_MaterialNeedsRebuild = false;
                     }
 
-                    // Update streamer each frame. Feed it an ENTITY-LOCAL camera
-                    // position (world camera minus the terrain entity's translation)
-                    // so the tile grid — and therefore each tile's WorldOrigin — is
-                    // anchored to the entity, not to world zero (issue #613). The
-                    // draw path re-applies the entity transform (transform.GetTransform()
-                    // * translate(tile->WorldOrigin)), so this keeps render and grid in
-                    // the same frame and makes streamed terrain rebase-free: on a
-                    // floating-origin shift the entity translation and camera both move
-                    // by the same delta, the entity-local camera is invariant, and the
-                    // shifted entity transform carries every tile — nothing here needs
-                    // touching. (Identity entity transform → behaviour is unchanged from
-                    // the old world-anchored feed, plus the un-stacking fix.)
-                    const glm::vec3 terrainTranslation = terrainView.get<TransformComponent>(entity).Translation;
-                    terrain.m_Streamer->Update(cameraPosition - terrainTranslation, m_TerrainFrameCounter);
+                    // Tile coordinates and origins stay terrain-local after a rebase.
+                    if (const auto cameraLocal = TerrainFrame{ GetWorldTransform(entity) }.ToLocal(cameraPosition))
+                        terrain.m_Streamer->Update(*cameraLocal, m_TerrainFrameCounter);
                     // Per-tile collision reconcile shares the render loop's single
                     // GetReadyTiles snapshot — see the terrainRenderView loop below (#469).
                 }
@@ -14324,7 +14455,6 @@ namespace OloEngine
                         // against the height field that was just discarded. It also
                         // owns clearing the feedback buffer, which must happen every
                         // frame whether or not anything was baked.
-                        const auto& vtTransform = terrainView.get<TransformComponent>(entity);
                         TerrainVirtualTexture::FrameInputs vtInputs;
                         vtInputs.m_ViewportWidth = m_ViewportWidth;
                         vtInputs.m_ViewportHeight = m_ViewportHeight;
@@ -14333,7 +14463,7 @@ namespace OloEngine
                         // camera-relative draw (issue #429). The fragment path
                         // reaches the same absolute position by adding
                         // u_RenderOrigin back inside triplanarSample*.
-                        vtInputs.m_Model = vtTransform.GetTransform();
+                        vtInputs.m_Model = GetWorldTransform(entity);
                         vtInputs.m_Material = terrain.m_Material.get();
                         if (terrain.m_TerrainData && terrain.m_TerrainData->GetGPUHeightmap())
                         {
@@ -14359,13 +14489,12 @@ namespace OloEngine
                     // frustum into that local space (precise far from origin, #429).
                     if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
                     {
-                        const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
                         // Culling camera (#726): the quadtree descent is LOD
                         // selection AND frustum culling in one, so both halves
                         // must stay frozen or the terrain silently re-tessellates
                         // around the observer.
                         const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
-                            terrainTransform.GetTransform(), cullCameraPosition, cullViewProjection);
+                            GetWorldTransform(entity), cullCameraPosition, cullViewProjection);
 
                         // GPU descent first (issue #714): it does the whole
                         // selection + seam resolution on the GPU and leaves an
@@ -14548,7 +14677,7 @@ namespace OloEngine
                     // Set every frame, not just on rebuild, so a terrain that moves
                     // takes its foliage with it.
                     foliage.m_Renderer->SetTerrainTransform(
-                        foliageView.get<TransformComponent>(entity).GetTransform());
+                        GetWorldTransform(entity));
 
                     if (terrain.m_TerrainData && foliage.m_Renderer->HasTerrainSourceChanges(
                                                      *terrain.m_TerrainData, terrain.m_Material.get(),
@@ -14714,7 +14843,8 @@ namespace OloEngine
                 auto terrainRenderView = m_Registry.view<TransformComponent, TerrainComponent>();
                 for (auto entity : terrainRenderView)
                 {
-                    const auto& [transform, terrain] = terrainRenderView.get<TransformComponent, TerrainComponent>(entity);
+                    const auto& terrain = terrainRenderView.get<TerrainComponent>(entity);
+                    const TerrainFrame terrainFrame{ GetWorldTransform(entity) };
 
                     bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
 
@@ -14793,7 +14923,7 @@ namespace OloEngine
                         const f32 shadowPixelSizePerMetre =
                             TerrainShadowLod::PixelSizePerMetre(cullViewProjection, static_cast<f32>(m_ViewportHeight));
                         const f32 shadowTargetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
-                        auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
+                        auto submitChunkPackets = [&terrain, &terrainFrame, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
                                                    &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
@@ -14817,8 +14947,7 @@ namespace OloEngine
                             // is fed an entity-local camera above), so post-multiplying
                             // the entity transform places each tile correctly and keeps
                             // it rebase-free. The single-tile path passes vec3(0).
-                            const glm::mat4 tileModel = transform.GetTransform() *
-                                                        glm::translate(glm::mat4(1.0f), tileWorldOrigin);
+                            const glm::mat4 tileModel = terrainFrame.TileModel(tileWorldOrigin);
 
                             // Non-tess cull frustum in THIS tile's local space, so a
                             // tile offset by WorldOrigin is culled against its true
@@ -15249,7 +15378,7 @@ namespace OloEngine
                                     mesh.VAO->GetRHIHandle(), mesh.IndexCount,
                                     voxelShader,
                                     albedoArrayID, normalArrayID, armArrayID,
-                                    transform.GetTransform(), entityID, 0u, voxelSurface);
+                                    terrainFrame.Model, entityID, 0u, voxelSurface);
                                 if (packet)
                                     Renderer3D::SubmitPacket(packet);
 
@@ -15257,8 +15386,8 @@ namespace OloEngine
                                 {
                                     Renderer3D::AddVoxelShadowCaster(
                                         mesh.VAO->GetRHIHandle(), mesh.IndexCount,
-                                        transform.GetTransform(), 0u,
-                                        { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(transform.GetTransform()), 0 });
+                                        terrainFrame.Model, 0u,
+                                        { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(terrainFrame.Model), 0 });
                                 }
                             }
                         }
@@ -15277,7 +15406,7 @@ namespace OloEngine
                                 continue;
                             }
 
-                            const glm::mat4 chunkTransform = transform.GetTransform() * mesh.ChunkTransform;
+                            const glm::mat4 chunkTransform = terrainFrame.Model * mesh.ChunkTransform;
                             auto* packet = Renderer3D::DrawVoxelMesh(
                                 mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
                                 voxelQuadShader,
@@ -15291,7 +15420,7 @@ namespace OloEngine
                                 Renderer3D::AddVoxelShadowCaster(
                                     mesh.VAO->GetRHIHandle(), VoxelQuadMesh::kIndexCount,
                                     chunkTransform, mesh.QuadCount,
-                                    { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(transform.GetTransform()), mesh.GeometryRevision });
+                                    { (casterInstanceKey * 1099511628211ull) ^ ((static_cast<u64>(mesh.VAO->GetRHIHandle().Generation) << 32) | mesh.VAO->GetRHIHandle().Index), mesh.Bounds.Transform(terrainFrame.Model), mesh.GeometryRevision });
                             }
                         }
                     }
@@ -15328,7 +15457,7 @@ namespace OloEngine
                     foliage.m_Renderer->QueueRayTracing(
                         static_cast<u64>(m_Registry.get<IDComponent>(foliageEntity).ID), cameraPosition);
                     i32 entityID = static_cast<i32>(std::to_underlying(foliageEntity));
-                    glm::mat4 modelMat = foliageTransform.GetTransform();
+                    glm::mat4 modelMat = GetWorldTransform(foliageEntity);
 
                     // GPU patch + instance cull for the MAIN view (issue #1235),
                     // dispatched here so the compacted buffers and the indirect
@@ -15518,6 +15647,8 @@ namespace OloEngine
                     i32 entityID = static_cast<i32>(std::to_underlying(entity));
                     const glm::mat4 modelMat = GetWorldTransform(entity);
 
+                    const auto waterFrame = WaterSurface::SurfaceFrame::FromModel(modelMat);
+
                     // Planar reflection: the largest reflective surface wins the
                     // single global reflection plane. Derive the plane from the
                     // FULL water transform so a rotated / scaled water entity
@@ -15644,7 +15775,7 @@ namespace OloEngine
                     if (water.m_ShoreWavesEnabled)
                     {
                         if (const f32 shoreArea = sizeX * sizeZ;
-                            std::isfinite(shoreArea) && shoreArea > bestShoreArea)
+                            waterFrame && std::isfinite(shoreArea) && shoreArea > bestShoreArea)
                         {
                             bestShoreArea = shoreArea;
                             shoreSettings.m_Enabled = true;
@@ -15691,6 +15822,7 @@ namespace OloEngine
                             shoreRequest.CentreXZ = { originWorld.x, originWorld.z };
                             shoreRequest.ExtentMetres = 2.0f * std::max(halfSpan.x, halfSpan.y);
                             shoreRequest.WaterPlaneY = originWorld.y;
+                            shoreRequest.WaterGradient = -glm::vec2(waterFrame->Normal.x, waterFrame->Normal.z) / waterFrame->Normal.y;
                         }
                     }
 
@@ -16041,7 +16173,7 @@ namespace OloEngine
                             if (water.m_SprayEnabled)
                             {
                                 if (const f32 sprayArea = sizeX * sizeZ;
-                                    std::isfinite(sprayArea) && sprayArea > bestSprayArea)
+                                    waterFrame && std::isfinite(sprayArea) && sprayArea > bestSprayArea)
                                 {
                                     bestSprayArea = sprayArea;
                                     sprayField = water.m_OceanField;
@@ -16085,7 +16217,8 @@ namespace OloEngine
                                     // a droplet launched from the raw field
                                     // would spawn below a scaled-down crest and
                                     // above a scaled-up one.
-                                    spraySettings.m_WaterPlaneY = modelMat[3].y;
+                                    spraySettings.m_Frame = *waterFrame;
+                                    spraySettings.m_HalfExtent = glm::vec2(sizeX, sizeZ) * 0.5f;
                                     spraySettings.m_HeightScale =
                                         WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
                                 }
@@ -16245,38 +16378,49 @@ namespace OloEngine
                     // nothing moved (WaterShoreDepthSystem::BuildSignature). The
                     // per-frame cost is this walk over a handful of terrains.
                     TArray<SeabedTerrain> seabed;
-                    auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
-                    for (auto terrainEntity : terrainView)
+                    TArray<Ref<TerrainData>> retained;
+                    const auto addSeabed = [&](const Ref<TerrainData>& data, const TerrainFrame& frame,
+                                               glm::vec2 size, f32 heightScale)
                     {
-                        auto const& [terrainXf, terrain] =
-                            terrainView.get<TransformComponent, TerrainComponent>(terrainEntity);
-                        if (!terrain.m_TerrainData)
-                            continue;
-                        const u32 resolution = terrain.m_TerrainData->GetResolution();
-                        if (resolution == 0)
-                            continue;
-                        const TArray<f32>& heights = terrain.m_TerrainData->GetHeightData();
-                        if (heights.Num() != static_cast<sizet>(resolution) * resolution)
-                            continue;
-
-                        // A terrain entity's translation is its tile's CORNER,
-                        // not its centre (see the Translation note on every
-                        // Drift island). Rotation is not represented — see the
-                        // SeabedTerrain doc comment for why, and for what to do
-                        // rather than papering over it.
+                        if (!data || !frame.SupportsVerticalHeight())
+                            return;
+                        const auto surface = WaterSurface::SurfaceFrame::FromModel(frame.Model);
+                        if (!surface)
+                            return;
+                        const u32 resolution = data->GetResolution();
+                        const TArray<f32>& heights = data->GetHeightData();
+                        if (resolution == 0 || heights.Num() != static_cast<sizet>(resolution) * resolution)
+                            return;
                         SeabedTerrain tile;
-                        tile.OriginXZ = { terrainXf.Translation.x, terrainXf.Translation.z };
-                        tile.SizeXZ = { std::isfinite(terrain.m_WorldSizeX) ? terrain.m_WorldSizeX : 0.0f,
-                                        std::isfinite(terrain.m_WorldSizeZ) ? terrain.m_WorldSizeZ : 0.0f };
-                        tile.BaseY = terrainXf.Translation.y;
-                        tile.HeightScale =
-                            std::isfinite(terrain.m_HeightScale) ? terrain.m_HeightScale : 0.0f;
+                        tile.OriginXZ = { surface->Origin.x, surface->Origin.z };
+                        tile.WorldXZToLocal = surface->WorldXZToLocal;
+                        tile.BaseHeightGradient = { frame.Model[0].y, frame.Model[2].y };
+                        tile.SizeXZ = size;
+                        tile.BaseY = surface->Origin.y;
+                        tile.HeightScale = heightScale * frame.Model[1].y;
                         tile.Resolution = resolution;
                         tile.Heights = &heights;
-                        // GetHeightData() above already synced the mirror, so
-                        // this revision describes the samples just read.
-                        tile.HeightRevision = terrain.m_TerrainData->GetHeightRevision();
+                        tile.HeightRevision = data->GetHeightRevision();
+                        retained.Add(data);
                         seabed.Add(tile);
+                    };
+                    for (const auto e : m_Registry.view<TerrainComponent, TransformComponent>())
+                    {
+                        const auto& terrain = m_Registry.get<TerrainComponent>(e);
+                        const TerrainFrame frame{ GetWorldTransform(e) };
+                        if (!terrain.m_StreamingEnabled)
+                        {
+                            addSeabed(terrain.m_TerrainData, frame, { terrain.m_WorldSizeX, terrain.m_WorldSizeZ }, terrain.m_HeightScale);
+                        }
+                        else if (terrain.m_Streamer)
+                        {
+                            TArray<Ref<TerrainTile>> ready;
+                            terrain.m_Streamer->GetReadyTiles(ready);
+                            for (const auto& tile : ready)
+                                if (tile)
+                                    addSeabed(tile->GetTerrainData(), TerrainFrame{ frame.TileModel(tile->WorldOrigin) },
+                                              { tile->WorldSizeX, tile->WorldSizeZ }, tile->HeightScale);
+                        }
                     }
                     WaterShoreDepthSystem::Rebuild(shoreRequest, std::span<const SeabedTerrain>(seabed.GetData(), static_cast<sizet>(seabed.Num())));
                 }
@@ -16540,11 +16684,7 @@ namespace OloEngine
                         {
                             const f32 surfaceY = WaterProbe::SampleSurfaceY(
                                 *volume, glm::vec2(cameraPosition.x, cameraPosition.z), animationTime);
-                            // The probe measures waves from the height of the tile's
-                            // origin; the plane over the eye is the fog's own answer
-                            // above, which a tilted tile moves.
-                            eyeDepth = UnderwaterFog::DrawnSurfaceY(underwater.WaterSurfaceY, fogWaterModel[3].y, surfaceY) -
-                                       cameraPosition.y;
+                            eyeDepth = surfaceY - cameraPosition.y;
                         }
                     }
                     if (!std::isfinite(eyeDepth))

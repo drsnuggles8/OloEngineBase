@@ -2366,8 +2366,8 @@ namespace OloEngine
                             const auto& terrain = terrainView.get<TerrainComponent>(terrainEntity);
                             if (!terrain.m_VoxelEnabled || !terrain.m_VoxelOverride)
                                 continue;
-                            const auto& transform = terrainView.get<TransformComponent>(terrainEntity);
-                            const glm::mat4 inverseTransform = glm::inverse(transform.GetTransform());
+                            const glm::mat4 model = m_ActiveScene->ComputeWorldTransform(terrainEntity);
+                            const glm::mat4 inverseTransform = glm::inverse(model);
                             const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(mouseRay.Origin, 1.0f));
                             const glm::vec3 localDirectionUnnormalized = glm::vec3(inverseTransform * glm::vec4(mouseRay.Direction, 0.0f));
                             // A degenerate transform (a zero on any scale axis is
@@ -2388,7 +2388,7 @@ namespace OloEngine
                                                          mouseRay.TMax * localDistanceScale));
                             if (voxelHit.Hit)
                             {
-                                voxelHit.Point = glm::vec3(transform.GetTransform() * glm::vec4(voxelHit.Point, 1.0f));
+                                voxelHit.Point = glm::vec3(model * glm::vec4(voxelHit.Point, 1.0f));
                                 voxels = terrain.m_VoxelOverride;
                                 break;
                             }
@@ -2436,15 +2436,19 @@ namespace OloEngine
                         {
                             Entity terrainEntity(*it, m_ActiveScene.get());
                             const auto& tc = terrainEntity.GetComponent<TerrainComponent>();
-                            const auto& tx = terrainEntity.GetComponent<TransformComponent>();
+                            const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
                             if (tc.m_TerrainData && tc.m_WorldSizeX > 0.0f && tc.m_WorldSizeZ > 0.0f)
                             {
-                                const f32 normX = (hitPos.x - tx.Translation.x) / tc.m_WorldSizeX;
-                                const f32 normZ = (hitPos.z - tx.Translation.z) / tc.m_WorldSizeZ;
-                                surfaceNormal = tc.m_TerrainData->GetNormalAt(
-                                    glm::clamp(normX, 0.0f, 1.0f),
-                                    glm::clamp(normZ, 0.0f, 1.0f),
-                                    tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                                const glm::mat4 inverse = glm::inverse(terrainWorld);
+                                const glm::vec3 local(inverse * glm::vec4(hitPos, 1.0f));
+                                if (Math::IsFinite(local))
+                                {
+                                    const glm::vec3 normal = tc.m_TerrainData->GetNormalAt(
+                                        glm::clamp(local.x / tc.m_WorldSizeX, 0.0f, 1.0f),
+                                        glm::clamp(local.z / tc.m_WorldSizeZ, 0.0f, 1.0f),
+                                        tc.m_WorldSizeX, tc.m_WorldSizeZ, tc.m_HeightScale);
+                                    surfaceNormal = glm::normalize(glm::transpose(glm::mat3(inverse)) * normal);
+                                }
                             }
                         }
                     }
@@ -4863,11 +4867,12 @@ namespace OloEngine
             if (framed)
                 continue;
             framed = true;
-            const auto& tf = terrainFrameView.get<TransformComponent>(terrainEntity);
             const auto& tc = terrainFrameView.get<TerrainComponent>(terrainEntity);
-            const glm::vec3 center = tf.Translation +
-                                     glm::vec3(tc.m_WorldSizeX * 0.5f, tc.m_HeightScale * 0.4f, tc.m_WorldSizeZ * 0.5f);
-            const f32 distance = std::max(tc.m_WorldSizeX, tc.m_WorldSizeZ) * 1.1f;
+            const glm::mat4 world = scene->ComputeWorldTransform(terrainEntity);
+            const glm::vec3 center(world * glm::vec4(tc.m_WorldSizeX * 0.5f, tc.m_HeightScale * 0.4f, tc.m_WorldSizeZ * 0.5f, 1.0f));
+            const f32 distance = std::max(glm::length(glm::vec3(world[0])) * tc.m_WorldSizeX,
+                                          glm::length(glm::vec3(world[2])) * tc.m_WorldSizeZ) *
+                                 1.1f;
             // ~37° downward: a top-down-ish overview that shows the terrain's flat
             // (grass) tops rather than a grazing angle full of steep rock faces.
             m_EditorCamera.Focus(center, distance, 0.0f, 0.65f);
@@ -5703,7 +5708,7 @@ namespace OloEngine
         }
 
         auto& tc = terrainEntity.GetComponent<TerrainComponent>();
-        const auto& transform = terrainEntity.GetComponent<TransformComponent>();
+        const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
         if (!tc.m_ChunkManager || !tc.m_ChunkManager->IsBuilt())
         {
             return TerrainPickState::Unavailable;
@@ -5726,7 +5731,7 @@ namespace OloEngine
         // than a translation subtraction: it reduces to the same thing for an
         // unrotated, unscaled terrain (which is every terrain the CPU path ever
         // handled correctly) and is right for the ones it did not.
-        const glm::mat4 invModel = glm::inverse(transform.GetTransform());
+        const glm::mat4 invModel = glm::inverse(terrainWorld);
         const glm::vec3 localOrigin = glm::vec3(invModel * glm::vec4(mouseRay.Origin, 1.0f));
         const glm::vec3 localDir = glm::vec3(invModel * glm::vec4(mouseRay.Direction, 0.0f));
 
@@ -5768,7 +5773,7 @@ namespace OloEngine
         outHit = result.Hit;
         if (result.Hit)
         {
-            outHitPos = glm::vec3(transform.GetTransform() * glm::vec4(result.PositionLocal, 1.0f));
+            outHitPos = glm::vec3(terrainWorld * glm::vec4(result.PositionLocal, 1.0f));
         }
         return TerrainPickState::Answered;
     }
@@ -5796,7 +5801,7 @@ namespace OloEngine
         }
 
         auto& terrain = terrainEntity.GetComponent<TerrainComponent>();
-        const auto& transform = terrainEntity.GetComponent<TransformComponent>();
+        const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
         if (!terrain.m_ChunkManager || !terrain.m_ChunkManager->IsBuilt() ||
             !terrain.m_ChunkManager->GetGPUQuadtree() || !terrain.m_ChunkManager->GetGPUQuadtree()->IsBuilt())
         {
@@ -5832,7 +5837,7 @@ namespace OloEngine
                 maxDistance = 2000.0f;
             }
 
-            const glm::mat4 model = transform.GetTransform();
+            const glm::mat4 model = terrainWorld;
             const glm::mat4 inverseModel = glm::inverse(model);
             const glm::vec3 localOrigin = glm::vec3(inverseModel * glm::vec4(worldRay.Origin, 1.0f));
             const glm::vec3 localDirection = glm::vec3(inverseModel * glm::vec4(worldRay.Direction, 0.0f));
@@ -5911,19 +5916,20 @@ namespace OloEngine
         }
 
         auto const& tc = terrainEntity.GetComponent<TerrainComponent>();
-        auto const& transform = terrainEntity.GetComponent<TransformComponent>();
+        const glm::mat4 terrainWorld = m_ActiveScene->ComputeWorldTransform(terrainEntity);
 
         Ray mouseRay;
         if (!BuildMouseRay(mousePos, viewportSize, mouseRay))
         {
             return false;
         }
-        glm::vec3 rayOrigin = mouseRay.Origin;
-        glm::vec3 rayDir = mouseRay.Direction;
+        const glm::mat4 inverse = glm::inverse(terrainWorld);
+        const glm::vec3 rayOrigin(inverse * glm::vec4(mouseRay.Origin, 1.0f));
+        const glm::vec3 rayDir(inverse * glm::vec4(mouseRay.Direction, 0.0f));
+        if (!Math::IsFinite(rayOrigin) || !Math::IsFinite(rayDir))
+            return false;
 
         // Step along ray to find heightmap intersection
-        // Terrain origin is at entity transform position
-        glm::vec3 terrainOrigin = transform.Translation;
         f32 worldSizeX = tc.m_WorldSizeX;
         f32 worldSizeZ = tc.m_WorldSizeZ;
         f32 heightScale = tc.m_HeightScale;
@@ -5945,8 +5951,8 @@ namespace OloEngine
             glm::vec3 p = rayOrigin + rayDir * t;
 
             // Convert world position to terrain normalized coords [0,1]
-            f32 normX = (p.x - terrainOrigin.x) / worldSizeX;
-            f32 normZ = (p.z - terrainOrigin.z) / worldSizeZ;
+            f32 normX = p.x / worldSizeX;
+            f32 normZ = p.z / worldSizeZ;
 
             // Outside terrain bounds
             if (normX < 0.0f || normX > 1.0f || normZ < 0.0f || normZ > 1.0f)
@@ -5954,7 +5960,7 @@ namespace OloEngine
                 continue;
             }
 
-            f32 terrainHeight = terrainOrigin.y + tc.m_TerrainData->GetHeightAt(normX, normZ) * heightScale;
+            f32 terrainHeight = tc.m_TerrainData->GetHeightAt(normX, normZ) * heightScale;
             bool isAbove = p.y > terrainHeight;
 
             if (!isAbove && wasAbove)
@@ -5966,11 +5972,11 @@ namespace OloEngine
                 {
                     f32 mid = (lo + hi) * 0.5f;
                     glm::vec3 mp = rayOrigin + rayDir * mid;
-                    f32 mnx = (mp.x - terrainOrigin.x) / worldSizeX;
-                    f32 mnz = (mp.z - terrainOrigin.z) / worldSizeZ;
+                    f32 mnx = mp.x / worldSizeX;
+                    f32 mnz = mp.z / worldSizeZ;
                     mnx = glm::clamp(mnx, 0.0f, 1.0f);
                     mnz = glm::clamp(mnz, 0.0f, 1.0f);
-                    f32 th = terrainOrigin.y + tc.m_TerrainData->GetHeightAt(mnx, mnz) * heightScale;
+                    f32 th = tc.m_TerrainData->GetHeightAt(mnx, mnz) * heightScale;
                     if (mp.y > th)
                     {
                         lo = mid;
@@ -5981,7 +5987,7 @@ namespace OloEngine
                     }
                 }
                 glm::vec3 hitP = rayOrigin + rayDir * ((lo + hi) * 0.5f);
-                outHitPos = hitP;
+                outHitPos = glm::vec3(terrainWorld * glm::vec4(hitP, 1.0f));
                 return true;
             }
             wasAbove = isAbove;

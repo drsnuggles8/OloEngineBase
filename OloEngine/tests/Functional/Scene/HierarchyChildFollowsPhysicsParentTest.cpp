@@ -374,6 +374,63 @@ TEST_F(ParentedPhysicsPlacementTest, JoltCapsuleKeepsItsSurvivingYAxisUnderAColl
     EXPECT_NEAR(glm::length(axis - glm::vec3(-1.0f, 0.0f, 0.0f)), 0.0f, 1.0e-4f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlaneThenResumes)
+{
+    Entity parent = GetScene().CreateEntity("Collapsed carrier");
+    auto& carrier = parent.GetComponent<TransformComponent>();
+    carrier.Scale = { 1.0f, 0.0f, 1.0f };
+    Entity capsule = GetScene().CreateEntity("Moving capsule");
+    capsule.SetParent(parent);
+    capsule.AddComponent<CapsuleCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    settings.m_DisableGravity = true;
+    capsule.AddComponent<Rigidbody3DComponent>(settings);
+    auto body = GetScene().GetPhysicsScene()->GetBody(capsule);
+    ASSERT_TRUE(body);
+    ASSERT_TRUE(GetScene().HasSingularPhysicsParent(capsule, false));
+
+    for (const glm::vec3 native : { glm::vec3(4, 0, 2), glm::vec3(4, -3, 2) })
+    {
+        body->SetPosition(native);
+        RunFrames(1);
+        EXPECT_NEAR(glm::distance(body->GetPosition(), native), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(glm::length(GetScene().GetWorldPosition(capsule)), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(glm::length(capsule.GetComponent<TransformComponent>().Translation), 0.0f, 1.0e-4f);
+    }
+    carrier.Scale.y = 2.0f;
+    EXPECT_FALSE(GetScene().HasSingularPhysicsParent(capsule, false));
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
+    const glm::vec3 saved = capsule.GetComponent<TransformComponent>().Translation;
+    EXPECT_NEAR(saved.y, -1.5f, 1.0e-4f);
+    carrier.Scale.y = 0.0f;
+    body->SetPosition({ 7, -4, 3 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(capsule.GetComponent<TransformComponent>().Translation, saved), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), glm::vec3(4, 0, 2)), 0.0f, 1.0e-4f);
+    carrier.Scale.y = 1.0f;
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, Box2DWritebackResumesWithAnInvertibleXYParent)
+{
+    auto& carrier = m_Rig.GetComponent<TransformComponent>();
+    carrier.Scale.y = 0.0f;
+    const glm::vec3 saved = m_2D[0].GetComponent<TransformComponent>().Translation;
+    ASSERT_TRUE(GetScene().HasSingularPhysicsParent(m_2D[0], true));
+    RunFrames(3);
+    EXPECT_NEAR(glm::distance(m_2D[0].GetComponent<TransformComponent>().Translation, saved), 0.0f, 1.0e-5f);
+    carrier.Scale = { 2.0f, 2.0f, 0.0f };
+    EXPECT_FALSE(GetScene().HasSingularPhysicsParent(m_2D[0], true));
+    RunFrames(1);
+    const b2Vec2 native = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    const glm::vec3 world = GetScene().GetWorldPosition(m_2D[0]);
+    EXPECT_NEAR(world.x, native.x, 1.0e-4f);
+    EXPECT_NEAR(world.y, native.y, 1.0e-4f);
+}
+
 class PlanarColliderPlacementTest : public FunctionalTest
 {
   protected:

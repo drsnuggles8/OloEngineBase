@@ -95,7 +95,7 @@ namespace OloEngine
                 const bool coversHull = WaterProbe::IsOverFootprint(water, hullCentre);
                 if (!coversHull && !WaterProbe::IsOverFootprint(water, bodyOrigin))
                     continue;
-                const f32 planeY = water.m_Params.m_PlaneHeight;
+                const f32 planeY = water.m_Frame.RestHeight({ hullCentre.x, hullCentre.z });
                 const auto key = std::tuple{ !coversHull, std::abs(planeY - hullCentre.y), planeY };
                 if (!closest || key < closestKey)
                 {
@@ -217,7 +217,7 @@ namespace OloEngine
             hull.m_ForwardXZ = { forward.x, forward.z };
             hull.m_HalfBeam = half.x;
             hull.m_HalfLength = half.y;
-            hull.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Params.m_PlaneHeight };
+            hull.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Frame.RestHeight(hull.m_CentreXZ) };
             // Authored footprints affect the shoreline term only.
             hull.m_FlattenEnabled = false;
             (void)WaterWakeSystem::SubmitHull(hull);
@@ -368,7 +368,7 @@ namespace OloEngine
             shapeDesc.m_HalfLength = half.y;
             shapeDesc.m_CentreXZ = posXZ;
             const BoundingBox worldBounds = bounds.Transform(pose);
-            shapeDesc.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Params.m_PlaneHeight };
+            shapeDesc.m_ShoreFoam = WaterWakeHullDesc::ShoreFoamMask{ { worldBounds.Min.y, worldBounds.Max.y }, water->m_Frame.RestHeight(shapeDesc.m_CentreXZ) };
             shapeDesc.m_Speed = forwardSpeed;
             shapeDesc.m_Gate = hullGate;
             u32 shapeSampleCount = 0;
