@@ -912,27 +912,6 @@ float closureV2Roughness(float roughness)
     return clamp(roughness, MIN_ROUGHNESS, MAX_ROUGHNESS);
 }
 
-// The TRUE (unclamped) GGX NDF — GLSL twin of ReferenceBRDF.h's vector
-// DistributionGGXSamplingDensity. alpha = roughness^2 per THE ALPHA LEDGER.
-// The denominator floor is a denormal guard, not a value clamp; with the v2
-// alpha floor it never engages. From the VECTORS (issue #1347): sin^2 as
-// |N x H|^2, not 1 - cos^2. The scalar denominator cancels near the peak of a sharp lobe and
-// NdotH has already lost H's tangential components to rounding, so D read
-// +3.5 % over the lobe at roughness 0.04. Twin: ReferenceBRDF.h's vector
-// DistributionGGXSamplingDensity. For unit N, H it is the same function.
-float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float c = dot(N, H);
-    if (c <= 0.0)
-        return a2 * INV_PI;
-    vec3 t = cross(N, H);
-    float denom = dot(t, t) + a2 * c * c;
-    denom = PI * denom * denom;
-    return a2 / max(denom, 1.17549435e-38);
-}
-
 // Where a mu or roughness value lands on the generated energy table's axis.
 // The nodes are node-centred and square-root spaced, value_j = (j / (N - 1))^2
 // (issue #1478; PBRClosureV2Energy.glsl says why), so the coordinate is

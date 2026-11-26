@@ -29,17 +29,7 @@ layout(std430, binding = 1) writeonly buffer Cells   { float u_Cells[]; };
 uniform int u_ThetaSteps;
 uniform int u_PhiSteps;
 
-const float PI = 3.14159265358979;
-// Vector GGX density matches distributionGGXUnclampedNH in PBRCommon.
-float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
-{
-    float alpha = roughness * roughness;
-    float a2 = alpha * alpha;
-    float c = dot(N, H);
-    vec3 t = cross(N, H);
-    float q = dot(t, t) + a2 * c * c;
-    return a2 / (PI * q * q);
-}
+#include "include/MathCommon.glsl"
 
 void main()
 {
