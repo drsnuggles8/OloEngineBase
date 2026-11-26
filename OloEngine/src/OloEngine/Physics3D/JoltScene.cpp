@@ -1449,15 +1449,15 @@ namespace OloEngine
             bodyInterface.SetPosition(bid, bodyInterface.GetPosition(bid) + joltDelta, JPH::EActivation::DontActivate);
         }
 
-        // Static terrain height-field bodies (raw JPH bodies, no JoltBody wrapper).
-        for (auto& [id, bid] : m_TerrainBodies)
+        // Both single and streamed terrain use raw static bodies outside m_Bodies.
+        const auto shiftTerrain = [&](const auto& bodies)
         {
-            if (bid.IsInvalid())
-            {
-                continue;
-            }
-            bodyInterface.SetPosition(bid, bodyInterface.GetPosition(bid) + joltDelta, JPH::EActivation::DontActivate);
-        }
+            for (const auto& [key, id] : bodies)
+                if (!id.IsInvalid())
+                    bodyInterface.SetPosition(id, bodyInterface.GetPosition(id) + joltDelta, JPH::EActivation::DontActivate);
+        };
+        shiftTerrain(m_TerrainBodies);
+        shiftTerrain(m_TerrainTileBodies);
 
         // Cloth soft bodies (issue #613). A JPH soft body IS a JPH::Body whose
         // particle positions are stored RELATIVE to the body's centre of mass

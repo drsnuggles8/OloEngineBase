@@ -133,6 +133,19 @@ TEST_F(TerrainStreamingTileCollisionTest, RaycastHitsStreamedTileFarFromOrigin)
         << "streamed tile collision at the wrong height; hit=" << hit.m_Position.y;
 }
 
+TEST_F(TerrainStreamingTileCollisionTest, RebasingMovesTheResidentTileBody)
+{
+    auto* jolt = GetScene().GetPhysicsScene();
+    jolt->ShiftOrigin({ 512.0f, 0.0f, 0.0f });
+    RayCastInfo ray;
+    ray.m_Origin = { kProbeX + 512.0f, kTileSurfaceY + 8.0f, kProbeZ };
+    ray.m_Direction = { 0.0f, -1.0f, 0.0f };
+    ray.m_MaxDistance = 16.0f;
+    SceneQueryHit hit;
+    ASSERT_TRUE(jolt->CastRay(ray, hit));
+    EXPECT_EQ(hit.m_HitEntity, m_Terrain.GetUUID());
+}
+
 TEST_F(TerrainStreamingTileCollisionTest, EvictingTileBodyRemovesCollision)
 {
     auto* jolt = GetScene().GetPhysicsScene();
