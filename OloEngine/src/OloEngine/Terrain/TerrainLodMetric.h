@@ -48,9 +48,15 @@ namespace OloEngine::TerrainLodMetric
     {
         if (!std::isfinite(viewportHeight) || viewportHeight <= 0.0f)
             return 0.0f;
-        const f32 cotHalfFov = glm::length(glm::vec3(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1]));
-        if (!std::isfinite(cotHalfFov) || cotHalfFov <= 0.0f)
+        f32 verticalScale = glm::length(glm::vec3(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1]));
+        // In a terrain-local VP both clip.y and perspective clip.w contain
+        // the carrier's scale. The local camera distance already accounts for
+        // it. Normalize by the depth row as in the perspective divide.
+        const f32 depthScale = glm::length(glm::vec3(viewProjection[0][3], viewProjection[1][3], viewProjection[2][3]));
+        if (depthScale > 0.0f)
+            verticalScale /= depthScale;
+        if (!std::isfinite(verticalScale) || verticalScale <= 0.0f)
             return 0.0f;
-        return cotHalfFov * viewportHeight * 0.5f / static_cast<f32>(kNodeQuads);
+        return verticalScale * viewportHeight * 0.5f / static_cast<f32>(kNodeQuads);
     }
 } // namespace OloEngine::TerrainLodMetric

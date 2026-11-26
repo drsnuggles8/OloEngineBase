@@ -15052,20 +15052,18 @@ namespace OloEngine
                         // is culled against its true position — see below (#613).
                         // What the shadow casters' level of detail is judged
                         // by: the size of the main view's own terrain triangles.
-                        const f32 shadowPixelSizePerMetre =
-                            TerrainShadowLod::PixelSizePerMetre(cullViewProjection, static_cast<f32>(m_ViewportHeight));
                         const f32 targetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         const f32 viewportHeight = static_cast<f32>(m_ViewportHeight);
                         auto submitChunkPackets = [&terrain, &terrainFrame, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
                                                    &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
-                                                   shadowPixelSizePerMetre, targetTrianglePixels, viewportHeight](TerrainChunkManager& chunkMgr,
-                                                                                                                  const TerrainData* terrainData,
-                                                                                                                  const TerrainMaterial* tileMaterial,
-                                                                                                                  f32 worldSizeX, f32 worldSizeZ,
-                                                                                                                  f32 heightScale,
-                                                                                                                  const glm::vec3& tileWorldOrigin)
+                                                   targetTrianglePixels, viewportHeight](TerrainChunkManager& chunkMgr,
+                                                                                         const TerrainData* terrainData,
+                                                                                         const TerrainMaterial* tileMaterial,
+                                                                                         f32 worldSizeX, f32 worldSizeZ,
+                                                                                         f32 heightScale,
+                                                                                         const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -15335,6 +15333,7 @@ namespace OloEngine
                                 // were drawn at as the camera closed in, and not
                                 // under displacing snow, which is finer than the
                                 // height field.
+                                const f32 shadowPixelSizePerMetre = TerrainShadowLod::PixelSizePerMetre(tileCull.ViewProjection, viewportHeight);
                                 const bool shadowLevels = shadowPixelSizePerMetre > 0.0f && !snowDisplaces &&
                                                           !Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                                 const f32 shadowQuadSize =
@@ -15363,12 +15362,10 @@ namespace OloEngine
                                 bool castFromTileMesh = false;
                                 if (useTess && shadowLevels && sourceRange && chunkMgr.GetShadowTileMesh() && shadowLODs.empty())
                                 {
-                                    const BoundingBox tileBounds =
-                                        BoundingBox(glm::vec3(0.0f, minHeight - snowExtent, 0.0f),
-                                                    glm::vec3(worldSizeX, maxHeight + snowExtent, worldSizeZ))
-                                            .Transform(tileModel);
-                                    const glm::vec3 nearest = glm::clamp(cullCameraPosition, tileBounds.Min, tileBounds.Max);
-                                    if (TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                    const BoundingBox tileBounds(glm::vec3(0.0f, minHeight - snowExtent, 0.0f),
+                                                                 glm::vec3(worldSizeX, maxHeight + snowExtent, worldSizeZ));
+                                    const glm::vec3 nearest = glm::clamp(tileCull.CameraPos, tileBounds.Min, tileBounds.Max);
+                                    if (TerrainShadowLod::Select(glm::distance(tileCull.CameraPos, nearest), shadowQuadSize,
                                                                  shadowPixelSizePerMetre, targetTrianglePixels,
                                                                  shadowCoarsestReceiverQuad) == TerrainShadowLod::kLevelCount - 1u)
                                     {
@@ -15382,7 +15379,7 @@ namespace OloEngine
                                         const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
                                         Renderer3D::AddTerrainShadowCaster(
                                             handle, chunkMgr.GetShadowTileIndexCount(), 3, tileModel, heightmapID, tileUBO,
-                                            { (casterInstanceKey * 1099511628211ull) ^ partKey, tileBounds,
+                                            { (casterInstanceKey * 1099511628211ull) ^ partKey, tileBounds.Transform(tileModel),
                                               terrainData ? terrainData->GetHeightRevision() : 0 });
                                         castFromTileMesh = true;
                                     }
@@ -15412,8 +15409,8 @@ namespace OloEngine
                                     }
                                     else if (shadowLevels)
                                     {
-                                        const glm::vec3 nearest = glm::clamp(cullCameraPosition, worldBounds.Min, worldBounds.Max);
-                                        shadowLevel = TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                        const glm::vec3 nearest = glm::clamp(tileCull.CameraPos, bounds.Min, bounds.Max);
+                                        shadowLevel = TerrainShadowLod::Select(glm::distance(tileCull.CameraPos, nearest), shadowQuadSize,
                                                                                shadowPixelSizePerMetre, targetTrianglePixels,
                                                                                shadowCoarsestReceiverQuad);
                                     }
