@@ -751,6 +751,15 @@ namespace OloEngine::Tests
         EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 1, -1));
         EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
         ASSERT_NO_FATAL_FAILURE(checkShore(target + glm::vec3(0, 2, 0)));
+
+        // A render without a physics step installs the single field before
+        // physics has a chance to reconcile the old resident tiles.
+        terrain.m_StreamingEnabled = false;
+        terrain.m_NeedsRebuild = true;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.0f, 1.0f / 60.0f); });
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_Terrain.GetUUID()));
+        EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
     }
 
     TEST_P(TerrainLayerTextureEvidence, FoliageAndTerrainDrawAtTheRootTwinsPose)

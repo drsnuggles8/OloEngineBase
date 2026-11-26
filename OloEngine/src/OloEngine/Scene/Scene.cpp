@@ -9190,6 +9190,9 @@ namespace OloEngine
 
     void Scene::RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame)
     {
+        // A render-only rebuild can switch modes before the next physics tick.
+        // Retire the old tile bodies before recording a single-tile placement.
+        m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
         BuildTerrainCollisionBody(*m_JoltScene, entity, terrain, frame.ShapeBasis, glm::vec3(frame.Model[3]), frame.Rotation);
         if (m_JoltScene->HasTerrainBody(entity.GetUUID()))
         {
@@ -9281,7 +9284,6 @@ namespace OloEngine
             else if (previous == m_TerrainCollisionFrames.end() || previous->second.Streamed ||
                      TerrainShapeBasisChanged(previous->second.ShapeBasis, shapeBasis))
             {
-                m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
                 RebuildTerrainCollision(entity, terrain, frame);
             }
             else
