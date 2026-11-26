@@ -30,11 +30,12 @@ layout(std140, binding = 83) uniform TerrainBrushParams
     int   u_LayerCount;     // 80 — paint: how many layers participate in normalization
     // THREE SEPARATE INTS, not an ivec3. std140 gives ivec3 a 16-byte base
     // alignment, which would push the pad to offset 96 and make the block 112
-    // bytes against the 96-byte buffer the C++ twin allocates and uploads. Scalars
-    // align to 4, so these land at 84/88/92 and close the block at exactly 96.
+    // bytes before the projection vectors. Three scalars align to 4 bytes.
     int _terrainBrushPad0; // 84
     int _terrainBrushPad1; // 88
     int _terrainBrushPad2; // 92
+    vec4 u_GridAxes;         //  96 — local X and Z projected onto world XZ
+    vec4 u_HeightProjection; // 112 — normalized height scale.xy and hit offset.zw in world XZ
 };
 
 // Falloff curve. Byte-for-byte the CPU TerrainBrushUtils::ComputeFalloff, which
@@ -55,12 +56,12 @@ float terrainBrushFalloff(float dist, float radius, float falloff)
 // measures in WORLD units, not texels — a circular brush on a non-square terrain
 // is an ellipse in texel space, and computing it in the wrong space is exactly
 // the failure docs/agent-rules/cpu-gpu-surface-parity.md is about.
-float terrainBrushDistance(ivec2 texel)
+float terrainBrushDistance(vec2 tileUV, float height)
 {
-    float inv = 1.0 / float(u_Resolution - 1);
-    float dx = (float(texel.x) * inv - u_CenterNorm.x) * u_WorldSize.x;
-    float dz = (float(texel.y) * inv - u_CenterNorm.y) * u_WorldSize.y;
-    return sqrt(dx * dx + dz * dz);
+    float dx = (tileUV.x - u_CenterNorm.x) * u_WorldSize.x;
+    float dz = (tileUV.y - u_CenterNorm.y) * u_WorldSize.y;
+    return length(u_GridAxes.xy * dx + u_GridAxes.zw * dz +
+                  u_HeightProjection.xy * height + u_HeightProjection.zw);
 }
 
 #endif // TERRAIN_BRUSH_PARAMS_GLSL

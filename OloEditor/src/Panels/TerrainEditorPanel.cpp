@@ -865,10 +865,12 @@ namespace OloEngine
             if (!terrain.m_TerrainData || !terrain.m_ChunkManager || !terrain.m_ChunkManager->IsBuilt())
                 continue;
 
-            const auto localHit = TerrainFrame{ m_Context->ComputeWorldTransform(entity) }.ToLocal(hitPos);
+            const TerrainFrame frame{ m_Context->ComputeWorldTransform(entity) };
+            const auto localHit = frame.ToLocal(hitPos);
             if (!localHit || localHit->x < 0.0f || localHit->z < 0.0f ||
                 localHit->x > terrain.m_WorldSizeX || localHit->z > terrain.m_WorldSizeZ)
                 continue;
+            const auto projection = TerrainBrushProjection::FromTerrain(frame.Model, localHit->y, terrain.m_HeightScale, *terrain.m_TerrainData);
             if (m_EditMode == TerrainEditMode::Sculpt)
             {
                 // Three conditions, and the third is the interesting one. The GPU
@@ -936,11 +938,11 @@ namespace OloEngine
                                  ? m_GPUBrush.ApplySculpt(
                                        *terrain.m_TerrainData, m_SculptSettings, *localHit,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
-                                       deltaTime, m_StrokeTargetHeight)
+                                       deltaTime, m_StrokeTargetHeight, projection)
                                  : TerrainBrush::Apply(
                                        *terrain.m_TerrainData, m_SculptSettings, *localHit,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
-                                       deltaTime);
+                                       deltaTime, projection);
 
                 if (dirty.Width > 0 && dirty.Height > 0)
                 {
@@ -1034,10 +1036,10 @@ namespace OloEngine
 
                 auto dirty = m_StrokeUsesGPU
                                  ? m_GPUBrush.ApplyPaint(*terrain.m_Material, m_PaintSettings, *localHit,
-                                                         terrain.m_WorldSizeX, terrain.m_WorldSizeZ, deltaTime)
+                                                         terrain.m_WorldSizeX, terrain.m_WorldSizeZ, deltaTime, projection)
                                  : TerrainPaintBrush::Apply(*terrain.m_Material, m_PaintSettings, *localHit,
                                                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
-                                                            deltaTime);
+                                                            deltaTime, projection);
 
                 if (dirty.Width > 0 && dirty.Height > 0)
                 {

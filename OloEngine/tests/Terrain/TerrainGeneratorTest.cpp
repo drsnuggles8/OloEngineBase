@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 #include "OloEngine/Terrain/TerrainTile.h"
@@ -11,6 +12,7 @@
 #include "TestTempDir.h"
 
 #include <stb_image/stb_image_write.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
@@ -39,6 +41,30 @@
 // =============================================================================
 
 using namespace OloEngine;
+
+TEST(TerrainBrushFootprint, TenWorldMetresOnADoubledXAxisCoversFiveLocalMetres)
+{
+    constexpr u32 res = 65;
+    TArray<f32> heights;
+    heights.Init(0.25f, res * res);
+    auto terrain = TerrainData::FromCPUHeights(res, std::move(heights));
+    const glm::mat4 model = glm::scale(glm::mat4(1.0f), { 2, 1, 1 });
+    const glm::vec3 hit{ 32, 1, 32 };
+    TerrainBrushSettings brush;
+    brush.Radius = 10;
+    brush.Falloff = 0;
+    const auto projection = TerrainBrushProjection::FromTerrain(model, hit.y, 4, *terrain);
+    const auto rect = TerrainBrush::Apply(*terrain, brush, hit, 64, 64, 4, 1, projection);
+    EXPECT_EQ(rect.X, 27u);
+    EXPECT_EQ(rect.Width, 11u);
+    EXPECT_EQ(rect.Y, 22u);
+    EXPECT_EQ(rect.Height, 21u);
+    const auto& result = terrain->GetHeightData();
+    EXPECT_GT(result[32 * res + 36], 0.25f);
+    EXPECT_FLOAT_EQ(result[32 * res + 38], 0.25f); // 12 world metres east
+    EXPECT_GT(result[41 * res + 32], 0.25f);       //  9 world metres north
+    EXPECT_FLOAT_EQ(result[43 * res + 32], 0.25f);
+}
 
 TEST(TerrainTileLoading, UnrepresentableLocalCameraDoesNotQueueAWrappedTile)
 {

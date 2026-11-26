@@ -2135,10 +2135,12 @@ namespace OloEngine
             i32 TargetLayer;      // 76 — paint: layer index [0, 8)
             i32 LayerCount;       // 80 — paint: layers spanned by re-normalisation
             // Three scalars rather than an ivec3 — see the GLSL twin: std140 would
-            // align an ivec3 to 16 and silently disagree with this struct's 96 bytes.
+            // align an ivec3 to 16 and move the projection vectors by one lane.
             i32 Pad0; // 84
             i32 Pad1; // 88
             i32 Pad2; // 92
+            glm::vec4 GridAxes;         // projected terrain X and Z basis vectors
+            glm::vec4 HeightProjection; // normalized height scale.xy and hit offset.zw in world XZ
 
             static constexpr u32 GetSize()
             {
@@ -2147,8 +2149,8 @@ namespace OloEngine
         };
 
         static_assert(sizeof(TerrainBrushUBO) % 16 == 0, "TerrainBrushUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(TerrainBrushUBO) == 96,
-                      "TerrainBrushUBO std140 size drifted from GLSL expectation (96 B)");
+        static_assert(sizeof(TerrainBrushUBO) == 128,
+                      "TerrainBrushUBO std140 size drifted from GLSL expectation (128 B)");
 
         // @brief Forward+ / clustered light-culling dispatch parameters,
         // uploaded at UBO_LIGHT_CULLING (68). GLSL twin: the LightCullingParams

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Terrain/Editor/TerrainBrushUtils.h"
 
 #include <glm/glm.hpp>
 
@@ -30,7 +31,7 @@ namespace OloEngine
     class TerrainBrush
     {
       public:
-        // Apply the brush at a world-space position.
+        // Apply the brush at a terrain-local hit position.
         // Returns the dirty heightmap region (pixel coords) for partial GPU re-upload.
         struct DirtyRegion
         {
@@ -43,9 +44,9 @@ namespace OloEngine
         static DirtyRegion Apply(
             TerrainData& terrainData,
             const TerrainBrushSettings& settings,
-            const glm::vec3& worldPos,
+            const glm::vec3& localHit,
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-            f32 deltaTime);
+            f32 deltaTime, const TerrainBrushProjection& projection = {});
 
         // Rebuild only the chunks affected by the dirty region
         static void RebuildDirtyChunks(

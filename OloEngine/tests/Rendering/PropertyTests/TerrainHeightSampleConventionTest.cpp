@@ -273,10 +273,11 @@ namespace OloEngine::Tests
         };
         // One in the evaluation stages' shared helper, four in the per-pixel
         // normal, and five in the virtual-texture bake (four for the slope, one
-        // for the position).
-        constexpr std::array<File, 3> files{ File{ "include/TerrainHeightSampling.glsl", 1 },
+        // for the position), and one for the paint brush's world-space footprint.
+        constexpr std::array<File, 4> files{ File{ "include/TerrainHeightSampling.glsl", 1 },
                                              File{ "include/TerrainPixelNormal.glsl", 4 },
-                                             File{ "compute/TerrainVTTileBake.comp", 5 } };
+                                             File{ "compute/TerrainVTTileBake.comp", 5 },
+                                             File{ "compute/Terrain_PaintBrush.comp", 1 } };
         const auto count = [](const std::string& text, const std::string& needle)
         {
             u32 n = 0;

@@ -12,9 +12,9 @@ namespace OloEngine
     TerrainPaintBrush::DirtyRegion TerrainPaintBrush::Apply(
         TerrainMaterial& material,
         const TerrainPaintSettings& settings,
-        const glm::vec3& worldPos,
+        const glm::vec3& localHit,
         f32 worldSizeX, f32 worldSizeZ,
-        f32 deltaTime)
+        f32 deltaTime, const TerrainBrushProjection& projection)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -37,12 +37,12 @@ namespace OloEngine
         u32 layerCount = material.GetLayerCount();
 
         // Convert world position to splatmap texel coords
-        f32 normX = worldPos.x / worldSizeX;
-        f32 normZ = worldPos.z / worldSizeZ;
+        f32 normX = localHit.x / worldSizeX;
+        f32 normZ = localHit.z / worldSizeZ;
 
         // Shared with TerrainGPUBrush (issue #716) — see TerrainBrush::Apply.
         const auto rect = TerrainBrushUtils::ComputeBrushRect(res, normX, normZ, settings.Radius,
-                                                              worldSizeX, worldSizeZ);
+                                                              worldSizeX, worldSizeZ, projection, TerrainBrushUtils::Grid::SplatTexels);
         if (rect.Empty())
             return dirty;
 
@@ -57,9 +57,11 @@ namespace OloEngine
         {
             for (i32 x = minX; x <= maxX; ++x)
             {
-                f32 dx = (static_cast<f32>(x) / static_cast<f32>(res - 1) - normX) * worldSizeX;
-                f32 dz = (static_cast<f32>(z) / static_cast<f32>(res - 1) - normZ) * worldSizeZ;
-                f32 dist = std::sqrt(dx * dx + dz * dz);
+                const glm::vec2 uv = (glm::vec2(x, z) + 0.5f) / static_cast<f32>(res);
+                const f32 dx = (uv.x - normX) * worldSizeX;
+                const f32 dz = (uv.y - normZ) * worldSizeZ;
+                const f32 height = projection.UsesHeight() ? projection.Heights->GetHeightAt(uv.x, uv.y) : 0.0f;
+                const f32 dist = projection.Distance({ dx, dz }, height);
 
                 if (dist > settings.Radius)
                     continue;

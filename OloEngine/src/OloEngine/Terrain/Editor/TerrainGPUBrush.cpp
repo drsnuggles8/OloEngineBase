@@ -82,9 +82,9 @@ namespace OloEngine
 
     TerrainBrush::DirtyRegion TerrainGPUBrush::ApplySculpt(TerrainData& terrainData,
                                                            const TerrainBrushSettings& settings,
-                                                           const glm::vec3& worldPos,
+                                                           const glm::vec3& localHit,
                                                            f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                                                           f32 deltaTime, f32 targetHeight)
+                                                           f32 deltaTime, f32 targetHeight, const TerrainBrushProjection& projection)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -107,11 +107,11 @@ namespace OloEngine
             return dirty;
         }
 
-        const f32 normX = worldPos.x / worldSizeX;
-        const f32 normZ = worldPos.z / worldSizeZ;
+        const f32 normX = localHit.x / worldSizeX;
+        const f32 normZ = localHit.z / worldSizeZ;
 
         const auto rect = TerrainBrushUtils::ComputeBrushRect(resolution, normX, normZ, settings.Radius,
-                                                              worldSizeX, worldSizeZ);
+                                                              worldSizeX, worldSizeZ, projection);
         if (rect.Empty())
         {
             return dirty;
@@ -160,6 +160,8 @@ namespace OloEngine
                                     static_cast<i32>(srcW), static_cast<i32>(srcH));
         params.CenterNorm = glm::vec2(normX, normZ);
         params.WorldSize = glm::vec2(worldSizeX, worldSizeZ);
+        params.GridAxes = glm::vec4(projection.GridAxes[0], projection.GridAxes[1]);
+        params.HeightProjection = glm::vec4(projection.HeightAxis, projection.HeightOffset);
         params.Radius = settings.Radius;
         params.StrengthDt = settings.Strength * deltaTime;
         params.Falloff = settings.Falloff;
@@ -219,9 +221,9 @@ namespace OloEngine
 
     TerrainPaintBrush::DirtyRegion TerrainGPUBrush::ApplyPaint(TerrainMaterial& material,
                                                                const TerrainPaintSettings& settings,
-                                                               const glm::vec3& worldPos,
+                                                               const glm::vec3& localHit,
                                                                f32 worldSizeX, f32 worldSizeZ,
-                                                               f32 deltaTime)
+                                                               f32 deltaTime, const TerrainBrushProjection& projection)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -245,17 +247,23 @@ namespace OloEngine
             return dirty;
         }
 
-        const f32 normX = worldPos.x / worldSizeX;
-        const f32 normZ = worldPos.z / worldSizeZ;
+        const f32 normX = localHit.x / worldSizeX;
+        const f32 normZ = localHit.z / worldSizeZ;
 
         const auto rect = TerrainBrushUtils::ComputeBrushRect(resolution, normX, normZ, settings.Radius,
-                                                              worldSizeX, worldSizeZ);
+                                                              worldSizeX, worldSizeZ, projection, TerrainBrushUtils::Grid::SplatTexels);
         if (rect.Empty())
         {
             return dirty;
         }
 
+        const auto heightmap = projection.Heights ? projection.Heights->GetGPUHeightmap() : Ref<Texture2D>{};
+        if (projection.UsesHeight() && !heightmap)
+            return dirty;
         m_PaintShader->Bind();
+        if (heightmap)
+            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, heightmap->GetRHIHandle(),
+                                             RHI::HeapSlotLifetime::Persistent);
 
         if (!m_ParamsUBO)
         {
@@ -269,6 +277,8 @@ namespace OloEngine
         params.SrcRect = glm::ivec4(0);
         params.CenterNorm = glm::vec2(normX, normZ);
         params.WorldSize = glm::vec2(worldSizeX, worldSizeZ);
+        params.GridAxes = glm::vec4(projection.GridAxes[0], projection.GridAxes[1]);
+        params.HeightProjection = glm::vec4(projection.HeightAxis, projection.HeightOffset);
         params.Radius = settings.Radius;
         params.StrengthDt = settings.Strength * deltaTime;
         params.Falloff = settings.Falloff;
@@ -299,6 +309,9 @@ namespace OloEngine
                                        RHI::Format::RGBA8UNorm, RHI::HeapSlotLifetime::Persistent);
         HeapBinding::BindImageOrOffset(1, RHI::NullResource, 0, false, 0, RHI::Access::StorageReadWrite,
                                        RHI::Format::RGBA8UNorm, RHI::HeapSlotLifetime::Persistent);
+        if (heightmap)
+            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, RHI::NullResource,
+                                             RHI::HeapSlotLifetime::Persistent);
         HeapBinding::FlushOffsets();
 
         // Splatmaps are sampled with ordinary filtering, so their chain matters for

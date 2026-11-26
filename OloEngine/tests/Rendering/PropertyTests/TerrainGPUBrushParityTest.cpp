@@ -26,6 +26,7 @@
 #include "OloEngine/Containers/Array.h"
 
 #include "RenderPropertyTest.h"
+#include "RendererAttachedTest.h"
 
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
@@ -38,6 +39,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -144,6 +146,82 @@ namespace
 class TerrainGPUBrushParity : public ::testing::TestWithParam<TerrainBrushTool>
 {
 };
+
+class ParentedTerrainBrush : public RendererAttachedTest
+{
+    void BuildScene() override {}
+    bool RunsInVulkanProcess() const override { return true; }
+};
+
+TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    TerrainGPUBrush brush;
+    ASSERT_TRUE(brush.IsReady());
+    constexpr glm::vec2 size{ kWorldSizeX, kWorldSizeZ };
+    // Local X and Z project non-orthogonally and terrain heights change world XZ.
+    // This defeats independent per-axis radius adjustment as well as a metric
+    // that ignores the height under a paint texel.
+    const glm::mat4 carrier = glm::scale(glm::mat4(1), { 2, 1, 0.65f });
+    const glm::mat4 model = glm::rotate(glm::rotate(carrier, 0.55f, { 0, 1, 0 }), 0.82f, { 1, 0, 0 });
+    auto reference = MakeTerrain();
+    const glm::vec3 hit{ 111.4f, kHeightScale * reference->GetHeightAt(111.4f / size.x, 76.8f / size.y), 76.8f };
+    const auto projection = TerrainBrushProjection::FromTerrain(model, hit.y, kHeightScale, *reference);
+    const glm::vec3 worldHit(model * glm::vec4(hit, 1));
+
+    auto cpuSculpt = MakeTerrain(), gpuSculpt = MakeTerrain();
+    auto cpuPaint = MakeMaterial(2), gpuPaint = MakeMaterial(2);
+    TerrainBrushSettings sculpt;
+    // No sample centre lies within 2 cm of this boundary, including the
+    // splatmap's half-texel offsets and sampler interpolation precision.
+    sculpt.Radius = 18.75f;
+    sculpt.Falloff = 0;
+    TerrainPaintSettings paint;
+    paint.Radius = sculpt.Radius;
+    paint.Falloff = 0;
+    paint.Strength = 1;
+    paint.TargetLayer = 1;
+    TerrainBrush::Apply(*cpuSculpt, sculpt, hit, size.x, size.y, kHeightScale, 1, projection);
+    TerrainPaintBrush::Apply(*cpuPaint, paint, hit, size.x, size.y, 1, projection);
+    RunInFrame([&]
+               {
+                   brush.ApplySculpt(*gpuSculpt, sculpt, hit, size.x, size.y, kHeightScale, 1, 0, projection);
+                   brush.ApplyPaint(*gpuPaint, paint, hit, size.x, size.y, 1, projection);
+               });
+
+    const auto& baseline = reference->GetHeightData();
+    const auto& cpuHeights = cpuSculpt->GetHeightData();
+    const auto& gpuHeights = gpuSculpt->GetHeightData();
+    const auto& cpuWeights = cpuPaint->GetSplatmapData(0);
+    const auto& gpuWeights = gpuPaint->GetSplatmapData(0);
+    u32 expectedSculpt = 0, expectedPaint = 0, wrongSculpt = 0, wrongPaint = 0;
+    const auto insidePreview = [&](glm::vec2 uv, f32 h)
+    {
+        const glm::vec3 world(model * glm::vec4(uv.x * size.x, h * kHeightScale, uv.y * size.y, 1));
+        return std::hypot(world.x - worldHit.x, world.z - worldHit.z) < sculpt.Radius;
+    };
+    for (u32 z = 0; z < kResolution; ++z)
+    {
+        for (u32 x = 0; x < kResolution; ++x)
+        {
+            const auto index = z * kResolution + x;
+            const glm::vec2 sample = glm::vec2(x, z) / static_cast<f32>(kResolution - 1);
+            const glm::vec2 texel = (glm::vec2(x, z) + 0.5f) / static_cast<f32>(kResolution);
+            const bool sculpts = insidePreview(sample, baseline[index]);
+            const bool paints = insidePreview(texel, reference->GetHeightAt(texel.x, texel.y));
+            expectedSculpt += sculpts;
+            expectedPaint += paints;
+            wrongSculpt += (cpuHeights[index] > baseline[index]) != sculpts || (gpuHeights[index] > baseline[index]) != sculpts;
+            wrongPaint += (cpuWeights[index * 4 + 1] > 0) != paints || (gpuWeights[index * 4 + 1] > 0) != paints;
+        }
+    }
+    EXPECT_GT(expectedSculpt, 100u);
+    EXPECT_GT(expectedPaint, 100u);
+    EXPECT_EQ(wrongSculpt, 0u);
+    EXPECT_EQ(wrongPaint, 0u);
+    std::cout << "[ParentedTerrainBrush] " << expectedSculpt << " height samples and " << expectedPaint
+              << " painted texels inside the world circle; wrong masks " << wrongSculpt << ", " << wrongPaint << '\n';
+}
 
 TEST_P(TerrainGPUBrushParity, MatchesTheCpuBrushOnANonSquareTerrain)
 {
