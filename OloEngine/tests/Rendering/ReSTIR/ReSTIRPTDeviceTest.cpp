@@ -225,8 +225,9 @@ namespace OloEngine::Tests
             ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
             ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
             queryCompletion->SubmittedFence = m_Fence;
-            ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs), VK_SUCCESS)
-                << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
+            const VkResult waited = vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs);
+            ASSERT_NE(waited, VK_TIMEOUT) << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
+            ASSERT_EQ(waited, VK_SUCCESS) << "Vulkan submission failed while waiting for its fence";
             queryCompletion->Completed = true;
             VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         }
@@ -242,6 +243,7 @@ namespace OloEngine::Tests
             Ref<StorageBuffer> EmptyEmitter;
             Ref<Shader> Program;
             Ref<UniformBuffer> Params;
+            Ref<UniformBuffer> Atmosphere;
             Ref<VertexArray> Triangle;
             Ref<Framebuffer> Target;
             std::array<Ref<Texture2D>, 5> GBuffer;
@@ -395,6 +397,12 @@ namespace OloEngine::Tests
             ASSERT_TRUE(rig.Program && rig.Program->IsReady()) << "Production PT shader must compile on a capable device";
             rig.Params = UniformBuffer::Create(sizeof(PT::Parameters), ShaderBindingLayout::UBO_RAY_TRACING);
             ASSERT_TRUE(rig.Params);
+            // GBufferRaySurface applies the shipping weather response when it
+            // reconstructs the receiver. This scene and its CPU oracle are dry.
+            const UBOStructures::AtmosphereShadingUBO dryWeather{};
+            rig.Atmosphere = UniformBuffer::Create(sizeof(dryWeather), ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
+            ASSERT_TRUE(rig.Atmosphere);
+            rig.Atmosphere->SetData(&dryWeather, sizeof(dryWeather));
             for (auto& paths : rig.Paths)
             {
                 paths = StorageBuffer::Create(kPixels * sizeof(PT::PathRecord), StorageBuffer::kNoBinding,
@@ -555,6 +563,7 @@ namespace OloEngine::Tests
                 api.DisableCulling();
                 rig.Program->Bind();
                 rig.Params->Bind();
+                rig.Atmosphere->Bind();
                 for (const auto& table : rig.Tables)
                     table->Bind();
                 const std::array<u32, 5> bindings{ 19u, 43u, 44u, 45u, 46u };
