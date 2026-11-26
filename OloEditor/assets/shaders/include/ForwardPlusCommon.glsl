@@ -258,7 +258,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
 
             OloSurfaceLighting contribution = calculateSphereAreaLightContributionSplit(
                 N, V, lightPos, sphereRadius, lightColor, intensity, range,
-                albedo, metallic, roughness, worldPos);
+                albedo, metallic, roughness, worldPos, pbrModel);
 
 #ifdef FPLUS_ATLAS_SHADOWS
             // Sphere-area lights shadow from their centre through the point path

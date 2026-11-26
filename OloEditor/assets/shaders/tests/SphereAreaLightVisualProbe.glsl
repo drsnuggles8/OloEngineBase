@@ -130,7 +130,7 @@ vec3 EvaluatePointLight(vec3 N, vec3 V, vec3 worldPos, float roughness)
     distAtten = distAtten * distAtten / (distance * distance + 1.0);
 
     vec3 radiance = kLightColor * kLightIntensity * distAtten;
-    vec3 brdf = cookTorranceBRDF(N, V, L, kAlbedo, 0.0 /*metallic*/, roughness);
+    vec3 brdf = closureV2Evaluate(N, V, L, kAlbedo, 0.0 /*metallic*/, roughness);
     return brdf * radiance * NdotL;
 }
 

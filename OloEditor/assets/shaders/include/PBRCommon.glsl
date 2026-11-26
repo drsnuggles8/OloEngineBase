@@ -1389,26 +1389,32 @@ ClosureV2Energy closureV2Energy(float NdotV, float NdotL, float roughness, vec3 
     return terms;
 }
 
+// Single-scatter GGX for punctual and finite emitters. The caller supplies
+// the clamped perceptual roughness used by both D and visibility.
+vec3 closureV2SingleScatter(vec3 N, vec3 V, vec3 L, vec3 F0, float r)
+{
+    vec3 H = normalize(V + L);
+    float D = distributionGGXUnclampedNH(N, H, r);
+    float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
+    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    return D * Vis * F;
+}
+
 // v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
 // convention — callers multiply by NdotL.
 OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     float r = closureV2Roughness(roughness);
-    vec3 H = normalize(V + L);
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
 
     vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
-    float D = distributionGGXUnclampedNH(N, H, r);
-    float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
     // The energy lookup takes the AUTHORED roughness per its contract — the
     // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
     // and 0.04 lands on node 3, so the clamped r would read the same value).
     // C++ twin agrees (ClosureV2Evaluate).
     ClosureV2Energy energy = closureV2Energy(NdotV, NdotL, roughness, F0);
-    vec3 specular = D * Vis * F + energy.MultiScatter;
+    vec3 specular = closureV2SingleScatter(N, V, L, F0, r) + energy.MultiScatter;
 
     vec3 kD = energy.DiffuseCoupling * (1.0 - metallic);
     // Split, not summed (issue #1231). The multiple-scattering compensation is
@@ -1718,7 +1724,7 @@ float sphereAreaLightNormalization(float roughness, float distance, float sphere
 // Returns the radiance contribution (radiance * NdotL * BRDF).
 OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
                                                              vec3 lightColor, float lightIntensity, float range,
-                                                             vec3 albedo, float metallic, float roughness, vec3 worldPos)
+                                                             vec3 albedo, float metallic, float roughness, vec3 worldPos, int pbrModel)
 {
     vec3 toLight = lightPos - worldPos;
     float distance = length(toLight);
@@ -1741,6 +1747,25 @@ OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec
     // Representative point for specular. Closer-to-zero radius converges to
     // the centre direction, recovering point-light behaviour.
     vec3 Lspec = calculateSphereAreaLightRepresentativePoint(worldPos, N, V, lightPos, sphereRadius);
+
+    if (pbrModel == OLO_PBR_MODEL_CLOSURE_V2)
+    {
+        float r = closureV2Roughness(roughness);
+        vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+        // The GGX peak is 1/(pi alpha^2). Broadening alpha to alpha' for
+        // the emitter footprint therefore scales its peak by (alpha/alpha')^2.
+        // Keep the material visibility at the representative direction. The
+        // broad multi-scatter and coupled diffuse lobes use the centre cosine
+        // and have no GGX peak to renormalize.
+        float peakRatio = sphereAreaLightNormalization(r, distance, sphereRadius);
+        float NdotLspec = max(dot(N, Lspec), 0.0);
+        ClosureV2Energy energy = closureV2Energy(max(dot(N, V), 0.0), NdotL, roughness, F0);
+        vec3 single = closureV2SingleScatter(N, V, Lspec, F0, r);
+        vec3 diffuse = energy.DiffuseCoupling * (1.0 - metallic) * albedo * INV_PI;
+        vec3 radiance = lightColor * lightIntensity * distAtten;
+        return OloSurfaceLighting(diffuse * NdotL * radiance,
+                                  (single * (NdotLspec * peakRatio) + energy.MultiScatter * NdotL) * radiance);
+    }
 
     // Split BRDF: diffuse uses Ldiff (centre), specular uses Lspec (rep point).
     // We compute diffuse + specular separately to avoid double-counting fresnel
@@ -1785,7 +1810,7 @@ vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float s
                                           vec3 albedo, float metallic, float roughness, vec3 worldPos)
 {
     return oloSurfaceLightingSum(calculateSphereAreaLightContributionSplit(
-        N, V, lightPos, sphereRadius, lightColor, lightIntensity, range, albedo, metallic, roughness, worldPos));
+        N, V, lightPos, sphereRadius, lightColor, lightIntensity, range, albedo, metallic, roughness, worldPos, OLO_PBR_MODEL_CLOSURE_V2));
 }
 
 // =============================================================================
@@ -1874,7 +1899,7 @@ OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3
         float range        = light.attenuationParams.w;
         return calculateSphereAreaLightContributionSplit(N, V, light.position.xyz, sphereRadius,
                                                         lightColor, lightIntensity, range,
-                                                        albedo, metallic, roughness, worldPos);
+                                                        albedo, metallic, roughness, worldPos, pbrModel);
     }
 
     vec3 L;
