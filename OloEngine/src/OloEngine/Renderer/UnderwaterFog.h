@@ -56,16 +56,17 @@ namespace OloEngine
         // MUST match the GLSL `underwaterSegmentLength` in PostProcess_ToneMap.glsl.
         [[nodiscard]] inline f32 UnderwaterSegmentLength(const glm::vec3& camPos,
                                                          const glm::vec3& worldPos,
-                                                         f32 waterSurfaceY) noexcept
+                                                         f32 waterSurfaceY, glm::vec2 surfaceGradient = glm::vec2(0.0f)) noexcept
         {
             const bool camUnder = camPos.y < waterSurfaceY;
-            const bool fragUnder = worldPos.y < waterSurfaceY;
+            const f32 fragmentY = worldPos.y - glm::dot(surfaceGradient, glm::vec2(worldPos.x - camPos.x, worldPos.z - camPos.z));
+            const bool fragUnder = fragmentY < waterSurfaceY;
             if (camUnder && fragUnder)
                 return glm::length(worldPos - camPos);
             if (!camUnder && !fragUnder)
                 return 0.0f;
             // Segment crosses the plane: find the crossing point.
-            const f32 dy = worldPos.y - camPos.y;
+            const f32 dy = fragmentY - camPos.y;
             if (std::abs(dy) < 1e-6f)
                 return 0.0f;                                    // parallel to the plane and not both under (handled above)
             const f32 tCross = (waterSurfaceY - camPos.y) / dy; // in [0,1]

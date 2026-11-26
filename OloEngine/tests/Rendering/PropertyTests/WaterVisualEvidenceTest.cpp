@@ -1086,6 +1086,137 @@ namespace OloEngine::Tests
                              [](const ::testing::TestParamInfo<HullFoamCell>& info)
                              { return std::string(info.param.Name); });
 
+    // The post-process sees the same depth contract for each grid topology.
+    // Reuse the native, multisampled and spatially upscaled plain-grid cells.
+    class TiltedFogEvidenceTest : public HullFoamEvidenceTest
+    {
+    };
+
+    TEST_P(TiltedFogEvidenceTest, OnlyTheWetEyeSeesUnderwaterAbsorptionLookingUphill)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto& cell = GetParam();
+        if (cell.Samples > Renderer3D::GetMaxMSAASamples() && cell.Samples > 1u)
+            GTEST_SKIP() << "Device does not support " << cell.Samples << "x scene MSAA";
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = cell.Path;
+        settings.Deferred.MSAASampleCount = cell.Samples;
+        settings.EditorDebugDrawsEnabled = false;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.Upscale = cell.Upscale;
+        post.Technique = UpscalerTechnique::Spatial;
+        Renderer3D::ApplyRendererSettings();
+
+        struct ResetTime
+        {
+            ~ResetTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const resetTime;
+        Time::SetMockTime(kCaptureTime);
+        Entity rig = GetScene().CreateEntity("Water carrier");
+        constexpr f32 pitch = glm::radians(20.0f);
+        rig.GetComponent<TransformComponent>().SetRotationEuler({ pitch, 0, 0 });
+        m_Ocean.SetParent(rig);
+        auto& water = m_Ocean.GetComponent<WaterComponent>();
+        water.m_UnderwaterFogColor = { 0.85f, 0.03f, 0.35f };
+        water.m_UnderwaterRefractionStrength = 0.0f;
+        water.m_CausticsIntensity = 0.0f;
+        water.m_GodRayIntensity = 0.0f;
+        // The surface rises toward -Z. In the dry pose, uphill fragments
+        // are above eye height even though the entire still plane is viewed
+        // from its dry side. The eye is within the 2 m activation margin.
+        constexpr f32 cameraZ = 8.0f;
+        const f32 restY = -std::tan(pitch) * cameraZ;
+        for (const bool wet : { false, true })
+        {
+            const char* pose = wet ? "Wet" : "DryUphill";
+            const f32 clearance = wet ? -0.8f : 0.6f;
+            const EditorCamera camera = MakeFoamCamera({ pose, { -9.0f, restY + clearance, cameraZ }, 0.0f });
+            std::array<std::vector<u8>, 2> images;
+            std::array<std::string, 2> names;
+            u32 renderWidth = 0;
+            u32 renderHeight = 0;
+            for (u32 arm = 0; arm < images.size(); ++arm)
+            {
+                const f32 density = arm == 0 ? 0.0f : 0.8f;
+                water.m_UnderwaterFogDensity = density;
+                RunEditorFrames(camera, 4);
+                const auto& state = Renderer3D::GetUnderwaterFogState();
+                ASSERT_TRUE(state.Active) << pose;
+                EXPECT_FLOAT_EQ(state.Density, density);
+                EXPECT_NEAR(state.WaterSurfaceY, restY, 1e-4f);
+                const auto buffer = Renderer3D::GetUnderwaterFogUBO();
+                ASSERT_TRUE(buffer);
+                ASSERT_EQ(buffer->GetCachedData().size(), sizeof(UnderwaterFogUBOData));
+                const auto data = buffer->GetData<UnderwaterFogUBOData>();
+                EXPECT_NEAR(data.Flags.w, -clearance, 1e-4f);
+                EXPECT_NEAR(data.SurfaceGradient.y, -std::tan(pitch), 1e-4f);
+                ASSERT_TRUE(Renderer3D::GetWaterSurfaceDepthTextureID().IsValid());
+
+                const auto& resolution = Renderer3D::GetUpscaleResolution();
+                EXPECT_TRUE(resolution.Latched);
+                EXPECT_EQ(resolution.Path, cell.Path);
+                EXPECT_EQ(resolution.SceneSampleCount, cell.Samples);
+                const auto sceneColor = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                ASSERT_TRUE(sceneColor);
+                renderWidth = sceneColor->GetActiveViewportWidth();
+                renderHeight = sceneColor->GetActiveViewportHeight();
+                ASSERT_GT(renderWidth, 0u);
+                ASSERT_GT(renderHeight, 0u);
+                if (cell.Upscale == UpscaleMode::Quality)
+                {
+                    EXPECT_EQ(resolution.Result.Resolved, TemporalUpscalePolicy::ResolvedUpscaler::Spatial);
+                    EXPECT_LT(renderWidth, kCaptureWidth);
+                    EXPECT_LT(renderHeight, kCaptureHeight);
+                }
+                else
+                {
+                    EXPECT_EQ(renderWidth, kCaptureWidth);
+                    EXPECT_EQ(renderHeight, kCaptureHeight);
+                }
+                u32 width = 0;
+                u32 height = 0;
+                ASSERT_TRUE(ReadbackComposite(images[arm], width, height));
+                ASSERT_EQ(width, kCaptureWidth);
+                ASSERT_EQ(height, kCaptureHeight);
+                ASSERT_EQ(images[arm].size(), static_cast<sizet>(width) * height * 4);
+                names[arm] = TestRenderBackend::EvidenceName(arm == 0 ? "TiltedFogOff" : "TiltedFog") + cell.Name + "_" + pose;
+                ASSERT_NO_FATAL_FAILURE(WriteWaterEvidence(names[arm], images[arm], width, height));
+            }
+            u32 changed = 0;
+            i32 largest = 0;
+            for (sizet pixel = 0; pixel < images[0].size(); pixel += 4)
+            {
+                i32 delta = 0;
+                for (sizet c = 0; c < 3; ++c)
+                    delta = std::max(delta, std::abs(static_cast<i32>(images[0][pixel + c]) - images[1][pixel + c]));
+                largest = std::max(largest, delta);
+                if (delta > 5)
+                    ++changed;
+            }
+            constexpr u32 pixels = kCaptureWidth * kCaptureHeight;
+            std::cout << "[TiltedFog] " << names[1] << ".png vs " << names[0] << ".png scene=" << renderWidth << 'x' << renderHeight
+                      << " display=" << kCaptureWidth << 'x' << kCaptureHeight << " samples=" << cell.Samples
+                      << " changed=" << changed << '/' << pixels << " max=" << largest << "/255\n";
+            if (wet)
+                EXPECT_GT(changed, pixels / 8) << "submerged control must show absorption";
+            else
+                EXPECT_LT(changed, pixels / 500) << "uphill water should keep its above-water shading";
+        }
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, TiltedFogEvidenceTest,
+                             ::testing::ValuesIn([]
+                                                 {
+        std::vector<HullFoamCell> cells;
+        std::copy_if(std::begin(kHullFoamCells), std::end(kHullFoamCells), std::back_inserter(cells),
+                     [](const auto& cell) { return cell.Grid == HullFoamGrid::Plain; });
+        return cells; }()),
+                             [](const ::testing::TestParamInfo<HullFoamCell>& info)
+                             { return std::string(info.param.Name); });
+
     class TiltedWaterEvidenceTest : public RendererAttachedTest
     {
       protected:

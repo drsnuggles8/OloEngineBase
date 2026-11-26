@@ -16761,6 +16761,8 @@ namespace OloEngine
                 uwData.ColorAndDensity = glm::vec4(underwater.FogColor, underwater.Density);
                 // Flags.z carries the animation clock for the refraction wobble +
                 // caustic scroll (mirrors the water surface's own wave time).
+                if (const auto frame = WaterSurface::SurfaceFrame::FromModel(fogWaterModel))
+                    uwData.SurfaceGradient = glm::vec4(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y, 0.0f, 0.0f);
                 uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, eyeDepth);
                 uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
                 uwData.RefractionParams = refractionParams;

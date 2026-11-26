@@ -758,9 +758,9 @@ TEST(WaterRendering, UnderwaterFogUBOAlignment)
     // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + vec4 RefractionParams
     // + vec4 CausticParams + vec4 CausticColorAndSun + vec4 GodRayParams
     // + vec4 GodRaySun + vec4 GodRayColor + vec4 GodRayShape + mat4 InvViewProj
-    // = 16 * 10 + 64 = 224 bytes. The §3.3 god-ray params were appended after the
+    // + vec4 SurfaceGradient = 240 bytes. The god-ray params were appended after the
     // caustics block; if this changes, update the GLSL UnderwaterFogBlock layout too.
-    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 224u);
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 240u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
@@ -778,6 +778,7 @@ TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayColor), 128u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayShape), 144u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 160u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceGradient), 224u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
@@ -1284,6 +1285,15 @@ TEST(WaterRendering, SurfacePixelFog_SurvivesGarbageWeights)
     EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, std::numeric_limits<f32>::infinity()), 0.0f);
     EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, 7.0f), 1.0f);
     EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, -7.0f), 0.0f);
+}
+
+TEST(WaterRendering, UphillViewRayOnlyFogsTheSegmentBelowTheTiltedPlane)
+{
+    // The eye is half a metre above y=x. The first ray follows the slope
+    // above the surface. The horizontal ray crosses it at x=0.5.
+    const glm::vec3 eye(0, 0.5f, 0);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(eye, { 2, 2.5f, 0 }, 0.0f, { 1, 0 }), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(eye, { 2, 0.5f, 0 }, 0.0f, { 1, 0 }), 1.5f, 1.0e-5f);
 }
 
 TEST(WaterRendering, DrawnSurface_AFlatTileIsTheProbesSample)

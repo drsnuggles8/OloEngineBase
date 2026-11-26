@@ -133,6 +133,7 @@ layout(std140, binding = 37) uniform UnderwaterFogBlock
     vec4 u_UnderwaterGodRayColor;     // rgb = shaft tint, w = pad
     vec4 u_UnderwaterGodRayShape;     // x = dappleFloor, y = sunFalloff, zw = pad
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
+    vec4 u_UnderwaterSurfaceGradient; // xy = rest-plane dY/dX and dY/dZ
 };
 
 // How much of the full-screen lens (wobble + god rays) an eye sees: none until it
@@ -252,9 +253,10 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
     float dapple = 1.0;
     vec4 farH = u_UnderwaterInvViewProj * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
     vec3 dir = farH.xyz / farH.w - u_UnderwaterCameraPos.xyz;
-    if (dir.y > 1e-4) // ray rises toward the surface above the camera
+    float riseFromPlane = dir.y - dot(u_UnderwaterSurfaceGradient.xy, dir.xz);
+    if (riseFromPlane > 1e-4)
     {
-        float tHit = (u_UnderwaterFlags.y - u_UnderwaterCameraPos.y) / dir.y;
+        float tHit = (u_UnderwaterFlags.y - u_UnderwaterCameraPos.y) / riseFromPlane;
         vec3 hit = u_UnderwaterCameraPos.xyz + dir * tHit;
         float pat = underwaterGodRayDapple(hit.xz, u_UnderwaterFlags.z,
                                            u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
@@ -268,12 +270,13 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
 float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY)
 {
     bool camUnder = camPos.y < waterY;
-    bool fragUnder = worldPos.y < waterY;
+    float fragmentY = worldPos.y - dot(u_UnderwaterSurfaceGradient.xy, worldPos.xz - camPos.xz);
+    bool fragUnder = fragmentY < waterY;
     if (camUnder && fragUnder)
         return length(worldPos - camPos);
     if (!camUnder && !fragUnder)
         return 0.0;
-    float dy = worldPos.y - camPos.y;
+    float dy = fragmentY - camPos.y;
     if (abs(dy) < 1e-6)
         return 0.0;
     float tCross = (waterY - camPos.y) / dy;
@@ -328,18 +331,16 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     vec4 worldH = u_UnderwaterInvViewProj * ndc;
     vec3 worldPos = worldH.xyz / worldH.w;
 
-    // Per-pixel water surface height: where the water pass captured a surface in
-    // front of this pixel, reconstruct its world Y (wave-accurate) and use it as
-    // the local water plane. Otherwise fall back to the flat surface Y. This is
-    // what lets the fog follow the waves and work from any camera height — the
-    // old flat-plane assumption couldn't tell the surface from the seafloor.
+    // Express the sampled surface height at the camera's XZ. A captured
+    // wave offsets the local rest plane; an uncaptured pixel uses the rest plane.
     float surfaceY = u_UnderwaterFlags.y;
     float wDepth = texture(u_WaterSurfaceDepth, uv).r;
     if (!oloDepthIsSky(wDepth))
     {
         vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
-        surfaceY = (sH.xyz / sH.w).y;
+        vec3 surface = sH.xyz / sH.w;
+        surfaceY = surface.y - dot(u_UnderwaterSurfaceGradient.xy, surface.xz - u_UnderwaterCameraPos.xz);
     }
     float share = underwaterSurfacePixelFogShare(u_UnderwaterCameraPos.y, surfaceY, eyeInWater);
 
@@ -355,7 +356,8 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     if (depth < 0.9999 && u_UnderwaterCaustics.x > 0.0)
     {
         float upFacing = max(geoN.y, 0.0);
-        float fade = underwaterCausticDepthFade(surfaceY - worldPos.y, u_UnderwaterCaustics.w);
+        float localSurfaceY = surfaceY + dot(u_UnderwaterSurfaceGradient.xy, worldPos.xz - u_UnderwaterCameraPos.xz);
+        float fade = underwaterCausticDepthFade(localSurfaceY - worldPos.y, u_UnderwaterCaustics.w);
         float pattern = underwaterCausticPattern(worldPos.xz, u_UnderwaterFlags.z,
                                                  u_UnderwaterCaustics.y, u_UnderwaterCaustics.z);
         float caustic = pattern * fade * upFacing * u_UnderwaterCausticColor.w * u_UnderwaterCaustics.x;
