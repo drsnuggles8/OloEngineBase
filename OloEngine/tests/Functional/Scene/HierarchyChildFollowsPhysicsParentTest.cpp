@@ -414,6 +414,22 @@ TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlane
     EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, SmallFullRankParentRetainsFiniteLocalWriteback)
+{
+    // The reciprocal determinant of this basis overflows float; its inverse axes fit.
+    m_Rig.GetComponent<TransformComponent>().Scale = glm::vec3(1.0e-14f);
+    ASSERT_FALSE(GetScene().HasSingularPhysicsParent(m_3D[0], false));
+    auto body = GetScene().GetPhysicsScene()->GetBody(m_3D[0]);
+    ASSERT_TRUE(body);
+    body->SetPosition({ 1, 2, 3 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(m_3D[0]), body->GetPosition()), 0.0f, 1.0e-4f);
+    const b2Vec2 planar = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    const glm::vec3 world = GetScene().ComputeWorldPosition(m_2D[0]);
+    EXPECT_NEAR(world.x, planar.x, 1.0e-4f);
+    EXPECT_NEAR(world.y, planar.y, 1.0e-4f);
+}
+
 TEST_F(ParentedPhysicsPlacementTest, Box2DWritebackResumesWithAnInvertibleXYParent)
 {
     auto& carrier = m_Rig.GetComponent<TransformComponent>();

@@ -3041,28 +3041,36 @@ namespace OloEngine
 
         // Test rank independently of the units/scale of each axis. A rotated
         // collapsed ancestor can leave nonzero, linearly dependent columns.
-        template<typename Basis>
-        bool HasIndependentAxes(const Basis& basis)
+        template<glm::length_t N>
+        [[nodiscard]] std::optional<glm::mat<N, N, f64>> InverseParentBasis(const glm::mat<N, N, f32>& basis)
         {
-            Basis directions;
-            for (glm::length_t axis = 0; axis < basis.length(); ++axis)
+            const glm::mat<N, N, f64> precise(basis);
+            glm::mat<N, N, f64> directions;
+            for (glm::length_t axis = 0; axis < N; ++axis)
             {
-                const auto length = glm::length(basis[axis]);
-                if (!(length > 0.0f) || !std::isfinite(length))
-                    return false;
-                directions[axis] = basis[axis] / length;
+                const f64 length = glm::length(precise[axis]);
+                if (!(length > 0.0) || !std::isfinite(length))
+                    return std::nullopt;
+                directions[axis] = precise[axis] / length;
             }
-            return std::abs(glm::determinant(directions)) > 8.0f * std::numeric_limits<f32>::epsilon();
+            if (std::abs(glm::determinant(directions)) <= 8.0 * std::numeric_limits<f32>::epsilon())
+                return std::nullopt;
+            // A small but full-rank f32 basis can have a determinant whose
+            // reciprocal overflows f32 even when every inverse entry fits.
+            return glm::inverse(precise);
         }
 
         [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalPhysicsPose(const glm::mat4& parentWorld, const glm::vec3& position,
                                                                         const glm::quat& rotation, const TransformComponent& authored)
         {
-            if (!HasIndependentAxes(glm::mat3(parentWorld)))
+            const auto inverse = InverseParentBasis(glm::mat3(parentWorld));
+            if (!inverse)
                 return std::nullopt;
 
-            const glm::mat4 inverse = glm::inverse(parentWorld);
-            Scene::WorldTRS local{ glm::vec3(inverse * glm::vec4(position, 1.0f)), authored.GetRotation(), authored.Scale };
+            const glm::vec3 localPosition(*inverse * (glm::dvec3(position) - glm::dvec3(parentWorld[3])));
+            if (!Math::IsFinite(localPosition))
+                return std::nullopt;
+            Scene::WorldTRS local{ localPosition, authored.GetRotation(), authored.Scale };
             const auto axisSign = [](f32 axis)
             { return std::abs(axis) > 0.0f ? std::copysign(1.0f, axis) : 0.0f; };
             glm::vec3 signs(axisSign(authored.Scale.x), axisSign(authored.Scale.y), axisSign(authored.Scale.z));
@@ -3071,10 +3079,12 @@ namespace OloEngine
             // its column zero and undo the authored signs on the survivors.
             if (!collapsed)
                 signs.z = signs.x * signs.y;
-            const glm::mat4 signedRotation = glm::scale(glm::mat4_cast(rotation), signs);
+            glm::dmat3 localAxes = *inverse * glm::dmat3(glm::mat3_cast(rotation));
+            for (glm::length_t axis = 0; axis < 3; ++axis)
+                localAxes[axis] *= signs[axis] / glm::length(localAxes[axis]);
             glm::vec3 unusedPosition, unusedScale;
             glm::quat localRotation;
-            if (SplitWorldMatrix(inverse * signedRotation, unusedPosition, localRotation, unusedScale, collapsed))
+            if (SplitWorldMatrix(glm::mat4(glm::mat3(localAxes)), unusedPosition, localRotation, unusedScale, collapsed))
                 local.Rotation = localRotation;
             return local;
         }
@@ -3090,12 +3100,14 @@ namespace OloEngine
                                                                       const TransformComponent& authored)
         {
             const glm::mat2 planarBasis{ glm::vec2(parentWorld[0]), glm::vec2(parentWorld[1]) };
-            if (!HasIndependentAxes(planarBasis))
+            const auto inverse = InverseParentBasis(planarBasis);
+            if (!inverse)
                 return std::nullopt;
 
-            const glm::mat2 inverse = glm::inverse(planarBasis);
-            const glm::vec2 origin = glm::vec2(parentWorld[3]) + authored.Translation.z * glm::vec2(parentWorld[2]);
-            const glm::vec2 localPosition = inverse * (glm::vec2(position.x, position.y) - origin);
+            const glm::dvec2 origin = glm::dvec2(parentWorld[3]) + static_cast<f64>(authored.Translation.z) * glm::dvec2(parentWorld[2]);
+            const glm::vec2 localPosition(*inverse * (glm::dvec2(position.x, position.y) - origin));
+            if (!Math::IsFinite(localPosition))
+                return std::nullopt;
             const f32 signX = std::signbit(authored.Scale.x) ? -1.0f : 1.0f;
             const glm::vec2 desiredX = glm::vec2(rotation.c, rotation.s) * signX;
             glm::vec3 euler = authored.GetRotationEuler();
@@ -3132,9 +3144,9 @@ namespace OloEngine
             {
                 // With this tilt the requested direction is unreachable.
                 // Flatten pitch so the body's simulated rotation stays visible.
-                const glm::vec2 localX = inverse * desiredX;
+                const glm::dvec2 localX = *inverse * glm::dvec2(desiredX);
                 euler.y = 0.0f;
-                euler.z = std::atan2(localX.y, localX.x);
+                euler.z = static_cast<f32>(std::atan2(localX.y, localX.x));
             }
             return Scene::WorldTRS{ glm::vec3(localPosition, authored.Translation.z), glm::quat(euler), authored.Scale };
         }
@@ -3163,9 +3175,13 @@ namespace OloEngine
             return true;
         }
         const glm::mat4 parent = ComputeParentWorldTransform(entity);
-        if (!HasIndependentAxes(glm::mat3(parent)))
+        const auto inverse = InverseParentBasis(glm::mat3(parent));
+        if (!inverse)
             return false;
-        local.Translation = glm::vec3(glm::inverse(parent) * glm::vec4(position, 1.0f));
+        const glm::vec3 translation(*inverse * (glm::dvec3(position) - glm::dvec3(parent[3])));
+        if (!Math::IsFinite(translation))
+            return false;
+        local.Translation = translation;
         return true;
     }
 
@@ -3187,7 +3203,7 @@ namespace OloEngine
     bool Scene::HasSingularPhysicsParent(entt::entity entity, bool planar) const
     {
         const glm::mat4 parent = ComputeParentWorldTransform(entity);
-        return planar ? !HasIndependentAxes(glm::mat2(parent)) : !HasIndependentAxes(glm::mat3(parent));
+        return planar ? !InverseParentBasis(glm::mat2(parent)) : !InverseParentBasis(glm::mat3(parent));
     }
 
     void Scene::ReportPhysicsWriteback(entt::entity entity, bool rejected)
