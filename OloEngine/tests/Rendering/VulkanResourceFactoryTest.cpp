@@ -137,6 +137,7 @@ class VulkanResourceFactory : public ::testing::Test
         // test that armed it and did not reach a one-shot would otherwise
         // leave the NEXT test's first submit silently failing.
         VulkanOneShot::SetFailNextSubmitsForTesting(0u);
+        VulkanOneShot::SetFailNextRecordedSubmitsForTesting(0u);
         VulkanOneShot::SetFailNextFenceWaitsForTesting(0u);
         if (!m_Device)
             return;
@@ -207,7 +208,7 @@ TEST_F(VulkanResourceFactory, FactoriesProduceLiveVulkanObjects)
 
 TEST_F(VulkanResourceFactory, CubemapArrayCopiesEveryFaceAndMipWithoutOverwritingItsNeighbor)
 {
-    ScopedVulkanApiSelection vulkanApi;
+    ScopedVulkanRenderCommand renderCommand;
     constexpr u32 resolution = 8u;
     constexpr u32 layers = 2u;
     CubemapSpecification sourceSpec;
@@ -243,6 +244,42 @@ TEST_F(VulkanResourceFactory, CubemapArrayCopiesEveryFaceAndMipWithoutOverwritin
 
     VulkanOneShot::SetFailNextSubmitsForTesting(1u);
     EXPECT_FALSE(array->CopyLayerFromCubemap(1u, *source));
+
+    // A copy settles the array to its sampled layout. A prior transfer
+    // layout on one face therefore exercises the rollback, even when the
+    // remaining faces were already in the sampled layout.
+    const VkImage image = static_cast<const VulkanTextureCubemapArray*>(array.Raw())->GetVkImage();
+    auto& tracker = renderCommand.Get().LayoutTracker();
+    const auto sampled = m_Device->GetSampledImageLayout();
+    const VkImageSubresourceRange probeFace{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 7u, 1u };
+    const VkImageSubresourceRange neighborFace{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    ASSERT_EQ(tracker.CurrentLayout(image, probeFace), sampled);
+    ASSERT_TRUE(VulkanOneShot::Submit("establish mixed cubemap array layout", [&](VkCommandBuffer cmd)
+                                      {
+                                         VkImageMemoryBarrier2 barrier{};
+                                         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                                         barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                                         barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+                                         barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                                         barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                                         barrier.oldLayout = sampled;
+                                         barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                                         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         barrier.image = image;
+                                         barrier.subresourceRange = probeFace;
+                                         VkDependencyInfo dep{};
+                                         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                                         dep.imageMemoryBarrierCount = 1u;
+                                         dep.pImageMemoryBarriers = &barrier;
+                                         vkCmdPipelineBarrier2(cmd, &dep);
+                                         tracker.SetLayout(image, probeFace, barrier.newLayout); }));
+    VulkanOneShot::SetFailNextRecordedSubmitsForTesting(1u);
+    EXPECT_FALSE(array->CopyLayerFromCubemap(1u, *source));
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextRecordedSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, probeFace), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, probeFace), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentLayout(image, neighborFace), sampled);
     ASSERT_TRUE(array->CopyLayerFromCubemap(1u, *source));
     EXPECT_FALSE(array->CopyLayerFromCubemap(layers, *source));
     for (u32 mip = 0; mip < array->GetMipLevelCount(); ++mip)

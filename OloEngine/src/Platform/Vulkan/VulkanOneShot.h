@@ -115,6 +115,11 @@ namespace OloEngine
         void SetFailNextSubmitsForTesting(u32 count);
         [[nodiscard]] u32 GetPendingFailNextSubmitsForTesting();
 
+        // Reject after end-recording and before queue acceptance, so a test
+        // can verify that the caller rolls back speculative recorded layouts.
+        void SetFailNextRecordedSubmitsForTesting(u32 count);
+        [[nodiscard]] u32 GetPendingFailNextRecordedSubmitsForTesting();
+
         // The OTHER half of the fault injection: the next `count` submits are
         // recorded and queued for real, then their fence wait is forced to
         // fail — the VK_TIMEOUT shape. The drain that follows waits for real,

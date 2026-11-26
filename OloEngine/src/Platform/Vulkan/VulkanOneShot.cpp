@@ -22,6 +22,7 @@ namespace OloEngine
             // See the header: test-only fault injection for the layout-desync
             // tenants. Render thread only, like the rest of the backend.
             u32 s_FailNextSubmits = 0;
+            u32 s_FailNextRecordedSubmits = 0;
             u32 s_FailNextFenceWaits = 0;
         } // namespace
 
@@ -33,6 +34,16 @@ namespace OloEngine
         u32 GetPendingFailNextSubmitsForTesting()
         {
             return s_FailNextSubmits;
+        }
+
+        void SetFailNextRecordedSubmitsForTesting(u32 count)
+        {
+            s_FailNextRecordedSubmits = count;
+        }
+
+        u32 GetPendingFailNextRecordedSubmitsForTesting()
+        {
+            return s_FailNextRecordedSubmits;
         }
 
         void SetFailNextFenceWaitsForTesting(u32 count)
@@ -135,6 +146,16 @@ namespace OloEngine
                 freeCmd();
                 return false;
             }
+
+#ifndef OLO_DIST
+            if (s_FailNextRecordedSubmits > 0u)
+            {
+                --s_FailNextRecordedSubmits;
+                OLO_CORE_WARN("VulkanOneShot::Submit({}): rejecting recorded submit by test injection", what);
+                freeCmd();
+                return false;
+            }
+#endif
 
             VkFenceCreateInfo fenceInfo{};
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
