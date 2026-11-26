@@ -63,15 +63,7 @@ void main()
 //   * a uniform environment (plus, optionally, the frame's prefiltered
 //     environment cube) collected at full weight on escape.
 //
-// THE CLOSURE IS SHARED, NOT RE-DERIVED. Every surface shades with ITS OWN
-// closure version: PtEvaluateBRDF / PtBsdfPdf / PtSampleBRDF
-// (include/PathTracerBSDF.glsl) dispatch on the material's ClosureVersion
-// exactly as PBRClosureBSDF.h does for the CPU tracer — the v2 triple from
-// PBRCommon.glsl (ClosureV2GpuParityTest, ClosureV2SampleGpuParityTest), and
-// the Legacy sampler mirrored in PathTracerBSDF.glsl (pinned end to end by
-// GpuPathTracerDevice's Legacy Cornell parity). An earlier revision shaded
-// Legacy as ClosureV2 and counted it; that counter no longer exists because
-// the substitution no longer happens (comment corrected in #1336).
+// The GPU integrator samples the same VNDF and cosine mixture as the CPU tracer.
 //
 // PROGRESSIVE ACCUMULATION. Attachment 1 carries the running radiance SUM with
 // the sample COUNT in alpha, extracted into a registry-owned history every
@@ -185,14 +177,6 @@ layout(std140, binding = 65) uniform RayTracingPathTracerParams
 #define OLO_PT_FLAG_ENVIRONMENT_CUBE 2u
 #define OLO_PT_FLAG_HISTORY_VALID 4u
 #define OLO_PT_FLAG_TEXTURES 8u
-
-// GPUSceneMaterial.ClosureVersion — PBRModel (Legacy 0, ClosureV2 1), pinned
-// by GpuPathTracerContractTest. Each hit is shaded with ITS closure, as the
-// CPU reference dispatches (PBRClosureBSDF.h): ClosureV2 when the version says
-// so, Legacy otherwise — the CPU's default arm, so an unknown version lands
-// on the same closure on both.
-#define OLO_PT_CLOSURE_LEGACY 0u
-#define OLO_PT_CLOSURE_V2 1u
 
 // Debug views — mirror GpuPathTracerDebugView (GpuPathTracerTypes.h).
 #define OLO_PT_VIEW_RADIANCE 0
@@ -315,13 +299,7 @@ float PowerHeuristic(float pdfA, float pdfB)
 }
 
 // ---------------------------------------------------------------------------
-// The Legacy closure's sampler — PBRClosureBSDF.h's Legacy branch, function
-// for function: the frozen cookTorranceBRDF (PBRCommon) evaluated, a
-// one-sample mixture of GGX-NDF importance sampling (ImportanceSampleGGX) and
-// cosine sampling drawn with the same lobe probability the v2 closure uses,
-// and the density that mixture implies. The v2 closure's functions are in
-// PBRCommon.glsl; both are reached through PtEvaluateBRDF / PtBsdfPdf /
-// PtSampleBRDF below, dispatched on the hit's ClosureVersion.
+// The same closure sampler and mixture density serve reference tracing and replay.
 // ---------------------------------------------------------------------------
 #include "include/PathTracerBSDF.glsl"
 

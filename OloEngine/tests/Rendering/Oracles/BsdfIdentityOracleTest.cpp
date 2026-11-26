@@ -22,11 +22,6 @@
 //      the energy-conserving diffuse (#1479) it adds are [KullaConty17] and
 //      the coupled Lambert evaluated on the energy table, and how far the
 //      table's resolution puts them from the model on the true energies.
-//   3. LegacyMatchesItsFrozenConventions — CookTorranceBRDF is the oracle with
-//      the default LegacyConventions: the frozen version (AC 6).
-//   4. LegacyDepartsFromThePhysicalModelByDesign — how far Legacy is from the
-//      physics at near-mirror roughness and at grazing, measured, direction
-//      and size asserted, so a silent "correction" fails.
 //   5. EnergyTableEntriesMatchAnIndependentQuadrature — every stored node of
 //      the generated table (both moments) against quadrature that does not
 //      use the VNDF sampler the table was generated with.
@@ -41,11 +36,10 @@
 //   8. EnergyConservation — metals and dielectrics never reflect more than
 //      they receive beyond the table's predicted error (#1479: a white
 //      dielectric's model albedo is exactly 1).
-//   9. ClosuresAreReciprocal — Helmholtz reciprocity for BOTH closures.
+//   9. ClosureIsReciprocal — Helmholtz reciprocity.
 //  10. PdfNormalisesToTheSamplersAcceptedMass — BSDF::Pdf integrates to the
 //      mass the sampler does not reject, that mass from the oracle.
-//  11. SpecularPdfsMatchTheirOracleDensities — pointwise D_v / (4 v.m) and
-//      D cos / (4 v.m).
+//  11. SpecularPdfMatchesTheOracleDensity — pointwise D_v / (4 v.m).
 //  12. HdrRadianceStaysFiniteAndAccurate — f L cos in f32 at radiance up to
 //      the fp16 maximum, including the near-mirror peak (D ~ 1e5).
 //
@@ -59,9 +53,7 @@
 // whose nodes are there. The oracle is evaluated at the f32-rounded directions
 // the engine received, so input rounding is not charged to the engine; what is
 // left is the engine's f32 arithmetic plus the conditioning of its NDF in the
-// half vector it forms (kVectorNdfConditioning for the vector-form D that
-// ClosureV2Evaluate and both BSDF::Pdf lobes use, kLegacyNdfConditioning for
-// the cos-form D of CookTorranceBRDF).
+// half vector it forms (kVectorNdfConditioning).
 //
 // Classification: L1 (pure CPU math, no GL).
 // =============================================================================
@@ -73,7 +65,6 @@
 #include "Rendering/Oracles/IndependentBsdfOracle.h"
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/GgxEnergyTables.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 
@@ -139,15 +130,6 @@ namespace OloEngine::Tests::Oracle
         // scalar form fail here (it measured +17 % pointwise, +1.3 % on the
         // furnace and +3.5 % on the pdf integral).
         constexpr f64 kVectorNdfConditioning = 16.0 / 16777216.0;
-
-        // Legacy's CookTorranceBRDF still evaluates the SCALAR cos form
-        // (DistributionGGX: B = nDotH^2 (a2 - 1) + 1 on nDotH = dot(n, h)).
-        // nDotH carries ~2.4e-7 absolute from the f32 normalize and dot, B then
-        // ~6e-7 absolute with its own rounding, and D ~ 1/B^2 carries 2 x 6e-7
-        // / B relative. Legacy never sees the a2-sized peak, though: its D is
-        // floored at pi B^2 >= 1e-4, so wherever the floor is inactive
-        // B >= sqrt(1e-4 / pi) = 5.6e-3 and 1.2e-6 / B is at most 2.2e-4.
-        constexpr f64 kLegacyNdfConditioning = 1.2e-6 / 5.6e-3;
 
         // Error of one stored table entry against the true energy (test 5
         // asserts it): half-float rounding, at most half an ulp of the [0.5, 1)
@@ -540,12 +522,6 @@ namespace OloEngine::Tests::Oracle
             return worst;
         }
 
-        [[nodiscard]] BrdfFn OracleLegacy(const MaterialCase& m, const LegacyConventions& c = {})
-        {
-            return [m, c](const glm::dvec3& vIn, const glm::dvec3& lIn)
-            { return LegacyBrdf(AsReceived(vIn), AsReceived(lIn), m.Albedo, m.Metallic, m.Roughness, c); };
-        }
-
         // ---- local engine adapters (not in EngineBsdfAdapters.h) -------------
 
         // PathTracing::ClosureV2Energy exactly as ClosureV2Evaluate calls it:
@@ -590,24 +566,6 @@ namespace OloEngine::Tests::Oracle
             return [full, ms, diffuse](const glm::dvec3& v, const glm::dvec3& l)
             { return full(v, l) - ms(v, l) - diffuse(v, l); };
         }
-
-        // PathTracing::PdfGGX at BSDF::SamplingRoughness, over l — the Legacy
-        // specular density exactly as BSDF::Pdf forms it: the vector overload,
-        // n = +z, h = normalize(v + l) in f32.
-        [[nodiscard]] PdfFn EngineLegacySpecularPdf(f64 roughness)
-        {
-            return [roughness](const glm::dvec3& v, const glm::dvec3& l)
-            {
-                const glm::vec3 vf = Engine::ToF32(v);
-                const glm::vec3 lf = Engine::ToF32(l);
-                if (lf.z <= 0.0f)
-                    return 0.0;
-                const glm::vec3 h = glm::normalize(vf + lf);
-                const f32 rs = PathTracing::BSDF::SamplingRoughness(static_cast<f32>(roughness));
-                return static_cast<f64>(PathTracing::PdfGGX(Engine::kNormal, vf, h, rs));
-            };
-        }
-
         // ---- directional albedo of a term that depends on l only via n.l ----
 
         // 2 pi int_0^1 g(mu_l) mu_l dmu_l, a 2048-point midpoint rule: the
@@ -885,120 +843,6 @@ namespace OloEngine::Tests::Oracle
     }
 
     // =========================================================================
-    // 3. CookTorranceBRDF IS the frozen Legacy version (AC 6): the oracle with
-    //    default LegacyConventions — the 1e-4 NDF floor, the 1e-4 addend, the
-    //    separable Schlick-GGX k = (r+1)^2/8 — reproduces it to f32 precision.
-    //    Nothing here moves Legacy toward the physics; test 4 measures how far
-    //    from it the version is.
-    // =========================================================================
-    TEST(BsdfIdentityOracleTest, LegacyMatchesItsFrozenConventions)
-    {
-        const f64 relTol = kF32Relative + kLegacyNdfConditioning;
-        f64 worst = 0.0;
-        for (const glm::dvec3& albedo : { kGrey, kColoured })
-        {
-            for (f64 roughness : kRoughnessGrid)
-            {
-                for (f64 metallic : kMetallicGrid)
-                {
-                    const MaterialCase m{ albedo, metallic, roughness };
-                    const Verdict verdict =
-                        CheckEvaluationAgainstModel(Engine::LegacyBrdf(m), OracleLegacy(m), relTol, 1.0e-7, Describe(m));
-                    worst = std::max(worst, verdict.WorstMeasured);
-                    EXPECT_TRUE(verdict.Pass) << "CookTorranceBRDF is no longer the frozen Legacy version the oracle "
-                                                 "reproduces (Legacy is versioned behaviour, AC 6 of #1347 — a "
-                                                 "change here is a new version, not a fix): "
-                                              << Report(verdict);
-                }
-            }
-        }
-        std::cout << "[ oracle ] Legacy vs its frozen conventions: worst relative " << worst << " (bound " << relTol
-                  << ")\n";
-    }
-
-    // =========================================================================
-    // 4. How far Legacy is from the physical model, measured — asserted in
-    //    direction and rough size, so a silent "correction" of the frozen
-    //    version fails here as loudly as a regression would.
-    //
-    //   (a) near-mirror collapse: the 1e-4 floor on pi B^2 caps D at
-    //       a2 / 1e-4, so at roughness 0.05 the mirror-peak value is ~1e-6 of
-    //       the model's, and the directional albedo a few tenths of a percent.
-    //   (b) grazing darkening at roughness 1: separable Schlick-GGX with
-    //       k = 0.5 gives G1(0.02)^2 = 0.0016 against a height-correlated G2 of
-    //       0.02 ([Heitz14] eq. 99), so the mirror value at mu = 0.02 is ~7 %
-    //       of the model's; the closed form of that ratio is asserted.
-    //   (c) the 1e-4 addend alone: 4 mu^2 / (4 mu^2 + 1e-4) = 0.941 at
-    //       mu = 0.02, the 6 % the LegacyConventions comment names.
-    // =========================================================================
-    TEST(BsdfIdentityOracleTest, LegacyDepartsFromThePhysicalModelByDesign)
-    {
-        const glm::dvec3 f0(1.0);
-
-        // (a) near-mirror collapse, at the mirror pair where D peaks.
-        for (f64 roughness : { 0.05, 0.15 })
-        {
-            const MaterialCase m{ kWhite, 1.0, roughness };
-            const glm::dvec3 v = AsReceived(Direction(0.7, 0.0));
-            const glm::dvec3 l = AsReceived(Direction(0.7, kPi));
-            const f64 legacy = Engine::LegacyBrdf(m)(v, l).x;
-            const f64 physical = MicrofacetSpecular(v, l, roughness * roughness, f0).x;
-            const f64 ratio = legacy / physical;
-            std::cout << "[ oracle ] Legacy / model at the mirror peak, roughness " << roughness << ", mu 0.7: "
-                      << legacy << " / " << physical << " = " << ratio << "\n";
-            // 1e-4 and 2e-2 sit between the measured 1.1e-6 / 7.0e-3 and any
-            // lobe that stopped collapsing (ratio ~1).
-            EXPECT_LT(ratio, roughness < 0.1 ? 1.0e-4 : 2.0e-2)
-                << "roughness " << roughness << ": Legacy's mirror peak is " << legacy << " against the model's "
-                << physical << ". Legacy's NDF floor collapsing the near-mirror lobe is intentional versioned "
-                << "behaviour (AC 6 of #1347); if it no longer collapses, the frozen Legacy closure was changed.";
-        }
-        {
-            const f64 alpha = 0.05 * 0.05;
-            const Quadrature legacy =
-                Albedo(Engine::LegacyBrdf(MaterialCase{ kWhite, 1.0, 0.05 }), Direction(0.7, 0.0), alpha, 0, 1.0e-4);
-            const Quadrature& model = OracleE(0.7, alpha);
-            std::cout << "[ oracle ] Legacy white-metal albedo at roughness 0.05, mu 0.7: " << legacy.Value
-                      << " (err " << legacy.ErrorEstimate << ") vs model E " << model.Value << "\n";
-            EXPECT_LT(legacy.Value, 0.1 * model.Value)
-                << "Legacy directional albedo " << legacy.Value << " vs model " << model.Value
-                << " at roughness 0.05: the near-mirror collapse is intentional versioned behaviour (AC 6).";
-        }
-
-        // (b) grazing, roughness 1: D agrees (a2 = 1 gives 1/pi in both, the
-        // floor inactive), so the ratio is the closed form of the G's and the
-        // denominators.
-        {
-            const MaterialCase m{ kWhite, 1.0, 1.0 };
-            const glm::dvec3 v = AsReceived(Direction(0.02, 0.0));
-            const glm::dvec3 l = AsReceived(Direction(0.02, kPi));
-            const f64 ratio = Engine::LegacyBrdf(m)(v, l).x / MicrofacetSpecular(v, l, 1.0, f0).x;
-            const f64 g1 = LegacySchlickG1(v.z, 1.0);
-            const f64 expected =
-                (g1 * g1 / (4.0 * v.z * l.z + 1.0e-4)) / (GgxG2HeightCorrelated(v.z, l.z, 1.0) / (4.0 * v.z * l.z));
-            std::cout << "[ oracle ] Legacy / model at the grazing mirror pair, roughness 1, mu 0.02: " << ratio
-                      << " (closed form " << expected << ")\n";
-            EXPECT_NEAR(ratio, expected, 1.0e-4 * expected)
-                << "the grazing Legacy / model ratio is no longer the closed form of its G and denominator";
-            EXPECT_LT(ratio, 1.0) << "Legacy is darker than the model at grazing by design (AC 6)";
-        }
-
-        // (c) the addend's share alone.
-        {
-            const MaterialCase m{ kWhite, 1.0, 0.5 };
-            LegacyConventions noAddend;
-            noAddend.SpecularDenominatorAddend = 0.0;
-            const glm::dvec3 v = Direction(0.02, 0.0);
-            const glm::dvec3 l = Direction(0.02, kPi);
-            const f64 ratio = Engine::LegacyBrdf(m)(v, l).x / OracleLegacy(m, noAddend)(v, l).x;
-            const f64 mu = AsReceived(v).z;
-            const f64 expected = 4.0 * mu * mu / (4.0 * mu * mu + 1.0e-4);
-            std::cout << "[ oracle ] Legacy addend share at mu 0.02: " << ratio << " (closed form " << expected
-                      << ")\n";
-            EXPECT_NEAR(ratio, expected, 1.0e-4)
-                << "the 1e-4 addend no longer dims the grazing lobe by 4 mu^2 / (4 mu^2 + 1e-4)";
-        }
-    }
 
     // =========================================================================
     // 5. Every stored node of the generated table against an independent
@@ -1300,12 +1144,9 @@ namespace OloEngine::Tests::Oracle
         constexpr f64 kFloor = 1.0e-3;
         constexpr f64 kDielectricResolution = 0.012;
         const std::vector<f64> cosines{ 0.02, 0.35, 1.0 };
-        f64 legacyMetalMax = 0.0;
         f64 v2MetalMax = 0.0;
-        f64 legacyDielectricMax = 0.0;
         f64 v2DielectricMax = 0.0;
         f64 v2DielectricMin = 2.0;
-        std::string legacyDielectricWhere;
         std::string v2DielectricWhere;
         for (f64 roughness : kRoughnessGrid)
         {
@@ -1317,12 +1158,6 @@ namespace OloEngine::Tests::Oracle
 
                 // Metals.
                 const MaterialCase metal{ kWhite, 1.0, roughness };
-                const Quadrature legacyMetal = Albedo(Engine::LegacyBrdf(metal), v, alpha, 0, 2.5e-4, 512u);
-                legacyMetalMax = std::max(legacyMetalMax, legacyMetal.Value);
-                EXPECT_LE(legacyMetal.Value, 1.0 + std::max(kFloor, 4.0 * legacyMetal.ErrorEstimate))
-                    << "Legacy white metal, " << where << ": albedo " << legacyMetal.Value << " (error "
-                    << legacyMetal.ErrorEstimate << ") — the closure creates energy";
-
                 const Quadrature v2Metal = Albedo(Engine::ClosureV2Brdf(metal), v, alpha, 0, 2.5e-4, 512u);
                 const FurnacePrediction p = PredictWhiteMetalFurnace(AsReceived(v).z, roughness);
                 const f64 v2Allowance =
@@ -1332,20 +1167,7 @@ namespace OloEngine::Tests::Oracle
                     << "ClosureV2 white metal, " << where << ": albedo " << v2Metal.Value << " (error "
                     << v2Metal.ErrorEstimate << ") exceeds 1 by more than the table predicts (" << p.OnTable << ")";
 
-                // Dielectrics. Legacy: engine against its frozen model.
                 const MaterialCase dielectric{ kWhite, 0.0, roughness };
-                const Quadrature legacyD = Albedo(Engine::LegacyBrdf(dielectric), v, alpha, 0, 2.5e-4, 512u);
-                const Quadrature legacyModel = Albedo(OracleLegacy(dielectric), v, alpha, 0, 2.5e-4, 512u);
-                EXPECT_NEAR(legacyD.Value, legacyModel.Value,
-                            std::max(kFloor, 4.0 * (legacyD.ErrorEstimate + legacyModel.ErrorEstimate)))
-                    << "Legacy white dielectric, " << where << ": engine albedo " << legacyD.Value
-                    << " is not the frozen model's " << legacyModel.Value;
-                if (legacyModel.Value > legacyDielectricMax)
-                {
-                    legacyDielectricMax = legacyModel.Value;
-                    legacyDielectricWhere = where;
-                }
-
                 // ClosureV2: (a) the engine against the model on its table.
                 const Quadrature v2D = Albedo(Engine::ClosureV2Brdf(dielectric), v, alpha, 0, 2.5e-4, 512u);
                 const Quadrature v2M = Albedo(OracleClosureV2OnTable(dielectric), v, alpha, 0, 2.5e-4, 512u);
@@ -1373,32 +1195,19 @@ namespace OloEngine::Tests::Oracle
                     v2DielectricWhere = where;
                 }
                 v2DielectricMin = std::min(v2DielectricMin, v2D.Value);
-                std::cout << "[ oracle ] white albedo " << where << ": Legacy metal " << legacyMetal.Value
-                          << ", v2 metal " << v2Metal.Value << ", Legacy dielectric " << legacyD.Value << " (model "
-                          << legacyModel.Value << "), v2 dielectric " << v2D.Value << " (model on table " << v2M.Value
+                std::cout << "[ oracle ] white albedo " << where << ": metal " << v2Metal.Value << ", dielectric " << v2D.Value
                           << ", closed form " << pd.OnTable << ")\n";
             }
         }
-        std::cout << "[ oracle ] energy conservation: max white-metal albedo Legacy " << legacyMetalMax
-                  << ", ClosureV2 " << v2MetalMax << "; white-dielectric albedo max Legacy (model) "
-                  << legacyDielectricMax << " (" << legacyDielectricWhere << "), ClosureV2 range [" << v2DielectricMin
+        std::cout << "[ oracle ] max white-metal albedo " << v2MetalMax << ", dielectric range [" << v2DielectricMin
                   << ", " << v2DielectricMax << "] (max at " << v2DielectricWhere << "; the model is exactly 1)\n";
     }
 
     // =========================================================================
-    // 9. Helmholtz reciprocity f(v, l) == f(l, v) for BOTH closures.
-    //
-    // Legacy is reciprocal too, which ReferenceBRDF.h's "mildly non-reciprocal"
-    // note on CookTorranceBRDF does not reflect: F is evaluated at the HALF
-    // vector and h.v == h.l for unit v, l, so kD = 1 - F(h.v) is symmetric, and
-    // D(h), the separable G1(v) G1(l) and 4 NdotV NdotL + 1e-4 are symmetric by
-    // inspection. (kD at F(n.v) would not be.) Both are held to the f32 bound;
-    // the only asymmetry left is the rounding of dot(h, v) against dot(h, l).
     // =========================================================================
-    TEST(BsdfIdentityOracleTest, ClosuresAreReciprocal)
+    TEST(BsdfIdentityOracleTest, ClosureIsReciprocal)
     {
         f64 worstV2 = 0.0;
-        f64 worstLegacy = 0.0;
         for (const glm::dvec3& albedo : { kGrey, kColoured })
         {
             for (f64 roughness : kRoughnessGrid)
@@ -1408,17 +1217,12 @@ namespace OloEngine::Tests::Oracle
                     const MaterialCase m{ albedo, metallic, roughness };
                     const Verdict v2 =
                         CheckReciprocity(Engine::ClosureV2Brdf(m), kF32Relative, 1.0e-7, "ClosureV2 " + Describe(m));
-                    const Verdict legacy =
-                        CheckReciprocity(Engine::LegacyBrdf(m), kF32Relative, 1.0e-7, "Legacy " + Describe(m));
                     worstV2 = std::max(worstV2, v2.WorstMeasured);
-                    worstLegacy = std::max(worstLegacy, legacy.WorstMeasured);
                     EXPECT_TRUE(v2.Pass) << "ClosureV2 is not reciprocal: " << Report(v2);
-                    EXPECT_TRUE(legacy.Pass) << "Legacy is not reciprocal: " << Report(legacy);
                 }
             }
         }
-        std::cout << "[ oracle ] reciprocity worst relative asymmetry: ClosureV2 " << worstV2 << ", Legacy "
-                  << worstLegacy << " (bound " << kF32Relative << ")\n";
+        std::cout << "[ oracle ] worst relative asymmetry: " << worstV2 << "\n";
     }
 
     // =========================================================================
@@ -1432,9 +1236,6 @@ namespace OloEngine::Tests::Oracle
     // ORACLE's mass of the specular draws that fail:
     //   * ClosureV2: VNDF draws at alpha = ClosureV2Alpha(r) reflecting below
     //     the horizon — Oracle::VndfBelowHorizonMass;
-    //   * Legacy: D cos draws at SamplingRoughness = clamp(r, 0.04, 1) with
-    //     v.m <= 0 or a reflection below the horizon — the oracle's D cos
-    //     quadrature of that indicator.
     // Bound: max(1e-3, 4 x the estimates) + pS (1 - m_rejected)
     // kVectorNdfConditioning: both models' BSDF::Pdf take the vector-form D.
     // (The scalar cos form's integral bias read +3.5-3.8 % of the specular
@@ -1447,47 +1248,35 @@ namespace OloEngine::Tests::Oracle
         const std::vector<f64> cosines{ 0.02, 0.05, 0.5, 1.0 };
         f64 worst = 0.0;
         f64 worstSpecularExcess = 0.0;
-        for (const PBRModel model : { PBRModel::ClosureV2, PBRModel::Legacy })
+        for (f64 roughness : roughnesses)
         {
-            const char* name = model == PBRModel::ClosureV2 ? "ClosureV2" : "Legacy";
-            for (f64 roughness : roughnesses)
+            const f64 sampling = std::clamp(roughness, 0.04, 1.0);
+            const f64 alpha = sampling * sampling;
+            for (f64 cosV : cosines)
             {
-                const f64 sampling = std::clamp(roughness, 0.04, 1.0);
-                const f64 alpha = sampling * sampling; // ClosureV2Alpha and Legacy's SamplingRoughness agree
-                for (f64 cosV : cosines)
+                const glm::dvec3 v = Direction(cosV, 0.0);
+                const glm::dvec3 vr = AsReceived(v);
+                const Quadrature rejected = VndfBelowHorizonMass(vr, alpha);
+                for (f64 metallic : { 0.0, 1.0 })
                 {
-                    const glm::dvec3 v = Direction(cosV, 0.0);
-                    const glm::dvec3 vr = AsReceived(v);
-                    const Quadrature rejected = model == PBRModel::ClosureV2
-                                                    ? VndfBelowHorizonMass(vr, alpha)
-                                                    : IntegrateOverNdf(alpha, 1024, 256,
-                                                                       [&](const glm::dvec3& mm) -> f64
-                                                                       {
-                                                                           if (glm::dot(vr, mm) <= 0.0)
-                                                                               return 1.0;
-                                                                           return Reflect(vr, mm).z <= 0.0 ? 1.0 : 0.0;
-                                                                       });
-                    for (f64 metallic : { 0.0, 1.0 })
-                    {
-                        const MaterialCase m{ kGrey, metallic, roughness };
-                        const f64 pS = Engine::SpecularProbability(m, model);
-                        const f64 accepted = 1.0 - rejected.Value;
-                        const f64 expected = pS * accepted + (1.0 - pS);
-                        const PdfFn pdf = Engine::BsdfPdf(m, model);
-                        const Quadrature q =
-                            IntegrateMisAdaptive(v, alpha, [&](const glm::dvec3& l)
-                                                 { return pdf(v, l); }, 2.5e-4, 512u);
-                        const f64 err = std::abs(q.Value - expected);
-                        const f64 bound = std::max(kFloor, 4.0 * (q.ErrorEstimate + pS * rejected.ErrorEstimate)) +
-                                          pS * accepted * kVectorNdfConditioning;
-                        worst = std::max(worst, err);
-                        worstSpecularExcess = std::max(worstSpecularExcess, (q.Value - expected) / (pS * accepted));
-                        EXPECT_LE(err, bound) << name << ", " << Describe(m) << ", cos v " << cosV
-                                              << ": int Pdf = " << q.Value << " (quadrature error " << q.ErrorEstimate
-                                              << ") but the sampler accepts " << expected << " = pS " << pS
-                                              << " x (1 - rejected " << rejected.Value << ", error "
-                                              << rejected.ErrorEstimate << ") + (1 - pS)";
-                    }
+                    const MaterialCase m{ kGrey, metallic, roughness };
+                    const f64 pS = Engine::SpecularProbability(m);
+                    const f64 accepted = 1.0 - rejected.Value;
+                    const f64 expected = pS * accepted + (1.0 - pS);
+                    const PdfFn pdf = Engine::BsdfPdf(m);
+                    const Quadrature q =
+                        IntegrateMisAdaptive(v, alpha, [&](const glm::dvec3& l)
+                                             { return pdf(v, l); }, 2.5e-4, 512u);
+                    const f64 err = std::abs(q.Value - expected);
+                    const f64 bound = std::max(kFloor, 4.0 * (q.ErrorEstimate + pS * rejected.ErrorEstimate)) +
+                                      pS * accepted * kVectorNdfConditioning;
+                    worst = std::max(worst, err);
+                    worstSpecularExcess = std::max(worstSpecularExcess, (q.Value - expected) / (pS * accepted));
+                    EXPECT_LE(err, bound) << "ClosureV2, " << Describe(m) << ", cos v " << cosV
+                                          << ": int Pdf = " << q.Value << " (quadrature error " << q.ErrorEstimate
+                                          << ") but the sampler accepts " << expected << " = pS " << pS
+                                          << " x (1 - rejected " << rejected.Value << ", error "
+                                          << rejected.ErrorEstimate << ") + (1 - pS)";
                 }
             }
         }
@@ -1500,21 +1289,16 @@ namespace OloEngine::Tests::Oracle
     // 11. The specular densities, pointwise, against their definitions:
     //   * PdfGGXVNDF = D_v(m) / (4 v.m), D_v of [Heitz18] eq. 1 and the
     //     reflection Jacobian of [Walter07] eq. 14, at alpha = ClosureV2Alpha;
-    //   * PdfGGX at SamplingRoughness = D(m) cos(m) / (4 v.m), the density of a
-    //     D cos half-vector draw reflected about v.
-    // Both are the vector overloads BSDF::Pdf calls, so they carry
     // kVectorNdfConditioning on top of f32.
     // =========================================================================
-    TEST(BsdfIdentityOracleTest, SpecularPdfsMatchTheirOracleDensities)
+    TEST(BsdfIdentityOracleTest, SpecularPdfMatchesTheOracleDensity)
     {
         f64 worstVndf = 0.0;
-        f64 worstGgx = 0.0;
         for (f64 roughness : { 0.0, 0.05, 0.15, 0.3, 0.5, 0.75, 1.0 })
         {
             const f64 sampling = std::clamp(roughness, 0.04, 1.0);
-            const f64 alpha = sampling * sampling; // v2 and Legacy sampling share the 0.04 floor
+            const f64 alpha = sampling * sampling;
             const PdfFn vndf = Engine::VndfPdf(sampling);
-            const PdfFn ggx = EngineLegacySpecularPdf(roughness);
             const f64 tol = kF32Relative + kVectorNdfConditioning;
             for (const auto& [vIn, lIn] : DirectionPairs())
             {
@@ -1522,21 +1306,14 @@ namespace OloEngine::Tests::Oracle
                 const glm::dvec3 l = AsReceived(lIn);
                 const glm::dvec3 m = HalfVector(v, l);
                 const f64 expectedVndf = GgxVisibleNormalDensity(v, m, alpha) * ReflectionJacobian(v, m);
-                const f64 expectedGgx = GgxD(m.z, alpha) * m.z * ReflectionJacobian(v, m);
                 const f64 gotVndf = vndf(vIn, lIn);
-                const f64 gotGgx = ggx(vIn, lIn);
                 const f64 relV = std::abs(gotVndf - expectedVndf) / std::max(expectedVndf, 1.0e-30);
-                const f64 relG = std::abs(gotGgx - expectedGgx) / std::max(expectedGgx, 1.0e-30);
                 worstVndf = std::max(worstVndf, relV);
-                worstGgx = std::max(worstGgx, relG);
                 EXPECT_LE(relV, tol) << "PdfGGXVNDF, roughness " << roughness << ", v " << Describe(v) << ", l "
                                      << Describe(l) << ": " << gotVndf << " vs D_v / (4 v.m) = " << expectedVndf;
-                EXPECT_LE(relG, tol) << "PdfGGX, roughness " << roughness << ", v " << Describe(v) << ", l "
-                                     << Describe(l) << ": " << gotGgx << " vs D cos / (4 v.m) = " << expectedGgx;
             }
         }
-        std::cout << "[ oracle ] specular pdfs pointwise: worst relative VNDF " << worstVndf << ", D cos " << worstGgx
-                  << "\n";
+        std::cout << "[ oracle ] VNDF worst relative PDF error " << worstVndf << "\n";
     }
 
     // =========================================================================

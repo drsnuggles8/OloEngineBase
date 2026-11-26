@@ -243,13 +243,7 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 //           overlay variants (Skybox_GBuffer, InfiniteGrid_GBuffer,
 //           LightCube_GBuffer) use to opt out of PBR shading while still
 //           participating in motion-vector + depth writes. They write a=1.0.
-//   bits 1.. — **PBR closure model** (issues #975, #996): the whole model
-//           index shifted up past the unlit bit, written by every PBR
-//           G-Buffer shader through oloEncodeGBufferPbrFlags (PBRCommon.glsl)
-//           — the ONE executable home for this layout. The field has no width
-//           and the decode below has no mask, so appending a model to
-//           PBRModel.h cannot truncate it to Legacy on this path while Forward
-//           shades it correctly. Legacy materials still write a=0.0.
+//   bits 1..2 carry material kind and bits 3..6 carry the skin profile slot.
 //
 //           The lane is a bitfield and is never averaged: GBuffer::Resolve()
 //           overwrites RT2's alpha with one real sample's flags after the blit
@@ -319,11 +313,6 @@ vec3 ComputeDeferredLitSplit(
         // Under a lighting tap it is emission, so it is the Remainder (#1526).
         return oloLightingTapPassThrough(emissive, u_LightingTap);
     }
-    // PBR closure model selector (issues #975, #996) — see the flag layout
-    // above. No mask: the field is the whole rest of the lane, so a model
-    // appended to PBRModel.h arrives here un-truncated.
-    int pbrModel = oloGBufferFlagsPbrModel(gbFlags);
-
     // Material kind + skin profile (issue #1231). The kind is what the surface
     // IS; the slot names the authored profile whose parameters this pass reads
     // out of u_SkinProfileParams. The slot is ONLY consulted under the Skin
@@ -528,7 +517,7 @@ vec3 ComputeDeferredLitSplit(
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
         Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
-                                                                    roughness, fplusViewDepth, pbrModel,
+                                                                    roughness, fplusViewDepth,
                                                                     skinLobe, skinOralLane));
     }
 
@@ -557,7 +546,7 @@ vec3 ComputeDeferredLitSplit(
         // transport version 3 — it is the identical single-lobe result and
         // evaluates the closure once.
         OloSurfaceLighting lightContrib = oloSkinLightContributionSplit(
-            u_Lights[i], N, V, albedo, metallic, roughness, worldPos, pbrModel, skinLobe);
+            u_Lights[i], N, V, albedo, metallic, roughness, worldPos, skinLobe);
 
         // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1234).
         //

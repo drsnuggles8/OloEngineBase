@@ -383,7 +383,7 @@ namespace OloEngine
     //
     //   carried  BaseColorFactor, EmissiveFactor,
     //            Metallic/Roughness/NormalScale/OcclusionStrength, AlphaCutoff,
-    //            AlphaMode, PBRModel (ClosureVersion), the Use*Map /
+    //            AlphaMode, the Use*Map /
     //            DoubleSided / AlphaMode switches (Flags), and every
     //            material-owned texture as RHI handle + heap offset.
     //   excluded EnableIBL's runtime half, IBLIntensity, ApplyGammaCorrection
@@ -406,8 +406,7 @@ namespace OloEngine
 
         f32 AlphaCutoff = 0.0f;
         u32 AlphaMode = 0;
-        // PBRModel (Renderer/PBRModel.h). A change is an incompatible edit.
-        u32 ClosureVersion = 0;
+        u32 PadClosure = 0;
         u32 Flags = 0;
 
         u32 AlbedoTextureIndex = RHI::ResourceHandle::InvalidIndex;
@@ -431,8 +430,7 @@ namespace OloEngine
         u32 StableIndex = GPUSceneHandle::InvalidIndex;
 
         u32 Generation = 0;
-        // MATERIAL KIND + SKIN PROFILE SLOT (issue #1231), carried for the same
-        // reason ClosureVersion is (#975): PBR_GBuffer.glsl reads the material
+        // PBR_GBuffer.glsl reads kind and profile
         // from the PER-INSTANCE record when one is linked, so an instanced batch
         // can cover several materials in one draw. Left in the per-draw UBO
         // alone, every instance in such a batch would have been tagged with
@@ -553,7 +551,7 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneMaterial, EmissiveFactor) == 16);
     static_assert(offsetof(GPUSceneMaterial, MetallicFactor) == 32);
     static_assert(offsetof(GPUSceneMaterial, AlphaCutoff) == 48);
-    static_assert(offsetof(GPUSceneMaterial, ClosureVersion) == 56);
+    static_assert(offsetof(GPUSceneMaterial, PadClosure) == 56);
     static_assert(offsetof(GPUSceneMaterial, AlbedoTextureIndex) == 64);
     static_assert(offsetof(GPUSceneMaterial, NormalTextureIndex) == 80);
     static_assert(offsetof(GPUSceneMaterial, EmissiveTextureIndex) == 96);
@@ -950,10 +948,6 @@ namespace OloEngine
         f32 m_OcclusionStrength = 1.0f;
         f32 m_AlphaCutoff = 0.5f;
         u32 m_AlphaMode = 0;
-        u32 m_ClosureVersion = 0;
-        // Issue #1231. `m_MaterialKind` is WHAT the surface is; m_ClosureVersion
-        // above is which version of the closure evaluates it. The slot is the
-        // one SkinProfileTable assigned, already resolved by the caller.
         u32 m_MaterialKind = 0;
         u32 m_SkinProfileSlot = kSkinProfileSlotNone;
         // GPUSceneMaterialFlag bits other than Active and the *Map bits, which
@@ -1013,7 +1007,6 @@ namespace OloEngine
         record.OcclusionStrength = input.m_OcclusionStrength;
         record.AlphaCutoff = input.m_AlphaCutoff;
         record.AlphaMode = input.m_AlphaMode;
-        record.ClosureVersion = input.m_ClosureVersion;
         record.MaterialKind = input.m_MaterialKind;
         record.SkinProfileSlot = input.m_SkinProfileSlot;
 
@@ -1070,13 +1063,11 @@ namespace OloEngine
     [[nodiscard]] inline bool IsCompatibleGPUSceneMaterialEdit(const GPUSceneMaterial& previous,
                                                                const GPUSceneMaterial& next)
     {
-        // MaterialKind and SkinProfileSlot are here for the reason ClosureVersion
-        // is (issue #1231): they change what the surface IS, not merely how
-        // bright it is, so an edit that flips one has to advance the slot
+        // Material kind and skin profile select surface transport. An edit that flips one has to advance the slot
         // generation and invalidate the histories keyed on it. Left out, a
         // material re-authored from Generic to Skin — or repointed at another
         // profile — would keep a generation that says nothing changed.
-        return previous.ClosureVersion == next.ClosureVersion && previous.AlphaMode == next.AlphaMode &&
+        return previous.AlphaMode == next.AlphaMode &&
                previous.MaterialKind == next.MaterialKind && previous.SkinProfileSlot == next.SkinProfileSlot &&
                GPUSceneMaterialTextureIdentity(previous) == GPUSceneMaterialTextureIdentity(next);
     }

@@ -78,12 +78,6 @@ vec3 OloGIBounceContribution(OloGBufferSurface surface, OloGISample giSample, ve
     if (!(nDotL > 0.0))
         return vec3(0.0);
 
-    // evaluatePBRClosureSplit is the #975 versioned dispatch — the SAME function
-    // the deferred lighting pass, the ReSTIR DI tier and the path tracer's
-    // PtEvaluateBRDF route through, so the oracle and the tier being validated
-    // against it shade a surface with one BRDF rather than with two plausible
-    // ones.
-    //
     // THE DIFFUSE HALF ONLY (issue #1336). This tier owns INDIRECT DIFFUSE: the
     // deferred pass keeps the prefiltered IBL / reflection-probe specular — and
     // SSR and the ray-traced reflection tier over it — as the owners of
@@ -91,10 +85,9 @@ vec3 OloGIBounceContribution(OloGBufferSurface surface, OloGISample giSample, ve
     // specular lobe at x0 used to be evaluated here as well and then filed into
     // the diffuse half, so a glossy surface received its reflection of the
     // bounce light twice: once from this estimate, once from the reflection
-    // tiers that already answer for that lobe. The Fresnel split is kept — the
-    // diffuse half carries its (1 - F)(1 - metallic) weight — so a metal gets
+    // tiers that already answer for that lobe. The diffuse coupling includes (1 - metallic), so a metal gets
     // no indirect diffuse, exactly as the ambient ladder this tier replaces.
-    OloSurfaceLighting f = evaluatePBRClosureSplit(surface.PbrModel, surface.ShadingNormal, viewDirection, l,
+    OloSurfaceLighting f = closureV2EvaluateSplit(surface.ShadingNormal, viewDirection, l,
                                                    surface.Albedo, surface.Metallic, surface.Roughness);
     return f.Diffuse * giSample.Radiance * nDotL;
 }

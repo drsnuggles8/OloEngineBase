@@ -306,9 +306,9 @@ which agrees to five decimal places) — **paired with an assertion that the
 unweighted form FAILS the same comparison**. Without that second half the test
 passes on the bug it was written for.
 
-**Alpha convention.** These functions use `alpha = roughness²`, matching
-`distributionGGX`. Unbiasedness requires the Λ paired with the *D you sampled*,
-so the VNDF block carries its own `ggxSmithLambda`.
+**Alpha convention.** The PBR closure uses `alpha = clamp(roughness, 0.04, 1)²` in D,
+visible-normal sampling and `ggxSmithLambda`. The specular PDF is the density of the
+reflected VNDF direction. ReSTIR PT replays that same visible-normal chart.
 
 They used to disagree with `geometrySmithHeightCorrelated`, which squared
 roughness only once. That was recorded here as a pre-existing D/G inconsistency

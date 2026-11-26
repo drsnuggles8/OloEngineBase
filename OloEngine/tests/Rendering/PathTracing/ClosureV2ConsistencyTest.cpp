@@ -89,7 +89,6 @@ namespace OloEngine::Tests
             material.BaseColor = albedo;
             material.Metallic = metallic;
             material.Roughness = roughness;
-            material.Model = PBRModel::ClosureV2;
             return material;
         }
 
@@ -488,7 +487,7 @@ namespace OloEngine::Tests
     //    plane converges to the closure's own hemisphere integral.
     //
     // Same construction as PathTracerFurnace.WhiteFurnaceMatchesTheAnalyticIntegral,
-    // but dispatched through Model = ClosureV2: a single convex plane under a
+    // using the shared scene: a single convex plane under a
     // unit environment, viewed along its normal, converges to exactly the
     // directional albedo — so any disagreement is the transport machinery
     // (Sample / Pdf / throughput bookkeeping) and not the BRDF, which cancels
@@ -499,29 +498,6 @@ namespace OloEngine::Tests
     // =========================================================================
     namespace
     {
-        // The furnace plane with a ClosureV2 material. MakeFurnacePlaneScene
-        // has no Model parameter and materials are immutable once added, so
-        // this mirrors it via the same fixture struct + winding-verified quad
-        // helper rather than open-coding a quad (reference-path-tracer.md §6:
-        // the winding decides whether the scene renders black).
-        [[nodiscard]] Fixtures::FurnacePlaneScene MakeClosureV2FurnacePlaneScene(f32 roughness, f32 metallic)
-        {
-            Fixtures::FurnacePlaneScene fixture;
-
-            const ReferenceMaterial material = MakeClosureV2Material(glm::vec3(1.0f), metallic, roughness);
-            fixture.MaterialIndex = fixture.Scene.AddMaterial(material);
-
-            Fixtures::AddFloorQuad(fixture.Scene, 0.0f, -1000.0f, 1000.0f, -1000.0f, 1000.0f,
-                                   fixture.MaterialIndex);
-
-            ReferenceEnvironment environment;
-            environment.Radiance = glm::vec3(1.0f);
-            fixture.Scene.SetEnvironment(environment);
-
-            fixture.Scene.Build();
-            return fixture;
-        }
-
         // Channel-mean of the tracer's own furnace estimate — the same shape
         // as PathTracerFurnaceTest's TracedFurnaceValue.
         [[nodiscard]] f64 TracedClosureV2FurnaceValue(const Fixtures::FurnacePlaneScene& fixture, u32 sampleCount)
@@ -588,7 +564,7 @@ namespace OloEngine::Tests
         for (const FurnaceCase& furnaceCase : kCases)
         {
             const Fixtures::FurnacePlaneScene fixture =
-                MakeClosureV2FurnacePlaneScene(furnaceCase.Roughness, furnaceCase.Metallic);
+                Fixtures::MakeFurnacePlaneScene(furnaceCase.Roughness, furnaceCase.Metallic);
             ASSERT_TRUE(fixture.Scene.IsBuilt());
 
             const ReferenceMaterial material =

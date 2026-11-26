@@ -2691,13 +2691,6 @@ namespace OloEngine
                     {
                         mat.SetRoughnessFactor(matNode["Roughness"].as<f32>());
                     }
-                    // Versioned PBR closure (issue #975): a discriminated
-                    // value — out-of-range REJECTS to Legacy, same idiom as
-                    // the MaterialComponent block.
-                    if (const int model = matNode["PBRModel"].as<int>(0); model >= 0 && model < kPBRModelCount)
-                    {
-                        mat.SetPBRModel(static_cast<PBRModel>(model));
-                    }
                     // Material kind + skin profile (issue #1231). The SECOND
                     // full-Material site, read here for exactly the reason the
                     // save-game serializer carries them at its own second site:
@@ -2861,18 +2854,7 @@ namespace OloEngine
                 SanitizeFloat(scale, 0.0f, 16.0f, 1.0f);
                 matc.m_Material.SetNormalScale(scale);
             }
-            // Versioned PBR closure (issue #975): a discriminated value, so an
-            // out-of-range index REJECTS to the constructor default (Legacy)
-            // rather than saturating to a different valid model.
-            if (const int model = materialComponent["PBRModel"].as<int>(0); model >= 0 && model < kPBRModelCount)
-            {
-                matc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
-            }
-            // Material kind + skin profile (issue #1231). A SEPARATE key from
-            // PBRModel above, and read separately, because they answer separate
-            // questions: what the surface is, versus which version of the
-            // closure evaluates it (ADR 0024). Same discriminated-value idiom —
-            // an out-of-range kind REJECTS to Generic rather than saturating
+            // An out-of-range kind REJECTS to Generic rather than saturating
             // onto a valid neighbour, and says so, because a scene naming a
             // kind this build does not have is a file from the future, not a
             // rounding problem.
@@ -4879,11 +4861,6 @@ namespace OloEngine
                 out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
                 out << YAML::Key << "Metallic" << YAML::Value << mat.GetMetallicFactor();
                 out << YAML::Key << "Roughness" << YAML::Value << mat.GetRoughnessFactor();
-                // Versioned PBR closure (issue #975) — same omit-Legacy /
-                // reject-on-read idiom as the MaterialComponent block, so
-                // existing scenes stay byte-identical.
-                if (mat.GetPBRModel() != PBRModel::Legacy)
-                    out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(mat.GetPBRModel());
                 // Material kind + skin profile (issue #1231), omitted at their
                 // defaults so existing tile scenes re-serialize byte-identical.
                 if (mat.GetMaterialKind() != MaterialKind::Generic)
@@ -4963,16 +4940,6 @@ namespace OloEngine
             {
                 out << YAML::Key << "NormalScale" << YAML::Value << normalScale;
             }
-            // Versioned PBR closure (issue #975). Legacy (0) is omitted so
-            // existing scenes stay byte-identical; the numbering is on disk —
-            // append, never renumber (see PBRModel.h).
-            if (matComponent.m_Material.GetPBRModel() != PBRModel::Legacy)
-                out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(matComponent.m_Material.GetPBRModel());
-
-            // Material kind + skin profile (issue #1231). Omitted at their
-            // defaults — Generic and "no profile" — for the same reason
-            // PBRModel is: every scene that predates the feature re-serializes
-            // byte-identical.
             if (matComponent.m_Material.GetMaterialKind() != MaterialKind::Generic)
                 out << YAML::Key << "MaterialKind" << YAML::Value << static_cast<int>(matComponent.m_Material.GetMaterialKind());
             if (const AssetHandle skinProfile = matComponent.m_Material.GetSkinProfileHandle(); skinProfile != 0)
@@ -4980,7 +4947,7 @@ namespace OloEngine
 
             // Physical glTF material extensions (issue #970). Each key is
             // OMITTED AT ITS DEFAULT, exactly like Emissive / NormalScale /
-            // PBRModel above, so every scene that predates the feature
+            // the material kind, so every scene that predates the feature
             // re-serializes byte-identical.
             if (const f32 transmission = matComponent.m_Material.GetTransmissionFactor(); transmission > 0.0f)
                 out << YAML::Key << "TransmissionFactor" << YAML::Value << transmission;

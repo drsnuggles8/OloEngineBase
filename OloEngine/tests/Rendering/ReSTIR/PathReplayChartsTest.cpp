@@ -16,7 +16,7 @@ namespace OloEngine::Tests
     {
         std::mt19937 rng(1211u);
         std::uniform_real_distribution<f32> uniform(0.025f, 0.975f);
-        for (const auto chart : { Charts::Chart::Cosine, Charts::Chart::LegacyGGX, Charts::Chart::VisibleGGX })
+        for (const auto chart : { Charts::Chart::Cosine, Charts::Chart::VisibleGGX })
         {
             u32 accepted = 0;
             for (u32 i = 0; i < 1000u; ++i)
@@ -34,9 +34,6 @@ namespace OloEngine::Tests
                 {
                     case Charts::Chart::Cosine:
                         oracle = PathTracing::CosineSampleHemisphere(xi, normal);
-                        break;
-                    case Charts::Chart::LegacyGGX:
-                        oracle = glm::reflect(-view, PathTracing::ImportanceSampleGGX(xi, normal, frame.Roughness));
                         break;
                     case Charts::Chart::VisibleGGX:
                         oracle = glm::reflect(-view, PathTracing::SampleGGXVNDF(normal, view, frame.Roughness, xi));
@@ -64,35 +61,13 @@ namespace OloEngine::Tests
     {
         const glm::vec3 normal = glm::normalize(glm::vec3(0.3f, -0.2f, 1.0f));
         const Charts::Frame frame{ normal, glm::normalize(normal + glm::vec3(0.1f, 0.1f, 0.0f)), 0.0f };
-        for (const auto chart : { Charts::Chart::LegacyGGX, Charts::Chart::VisibleGGX })
-        {
-            const auto sample = Charts::Forward(chart, frame, glm::vec2(0.45f, 0.62f));
-            ASSERT_TRUE(sample);
-            Charts::Frame floored = frame;
-            floored.Roughness = PathTracing::kMinRoughness;
-            const auto reference = Charts::Forward(chart, floored, glm::vec2(0.45f, 0.62f));
-            ASSERT_TRUE(reference);
-            EXPECT_LT(glm::length(*sample - *reference), 1.0e-7f);
-        }
-    }
-
-    TEST(PathReplayCharts, LegacyNearPoleUniformsKeepTheirAzimuth)
-    {
-        Charts::Frame frame;
-        frame.Roughness = 0.0f;
-        // Before issue #1347 ImportanceSampleGGX took sin(theta) as
-        // sqrt(1 - cos^2) in f32: here cos^2 rounded to 1, sin to exactly 0,
-        // and these two azimuths collapsed onto the normal with no inverse.
-        // sin is now sqrt(a^2 xi / (1 + (a^2 - 1) xi)), so the two draws stay
-        // distinct directions.
-        // Raw replay still uses the retained uniforms (a near-pole direction is
-        // quantised in f32), so the inverse is not asserted here.
-        const auto first = Charts::Forward(Charts::Chart::LegacyGGX, frame, glm::vec2(0.2f, 0.001f));
-        const auto second = Charts::Forward(Charts::Chart::LegacyGGX, frame, glm::vec2(0.7f, 0.001f));
-        ASSERT_TRUE(first);
-        ASSERT_TRUE(second);
-        // Measured 2.0e-4 apart after the fix, exactly 0 before it.
-        EXPECT_GT(glm::length(*first - *second), 1.0e-5f);
+        const auto sample = Charts::Forward(Charts::Chart::VisibleGGX, frame, glm::vec2(0.45f, 0.62f));
+        ASSERT_TRUE(sample);
+        Charts::Frame floored = frame;
+        floored.Roughness = PathTracing::kMinRoughness;
+        const auto reference = Charts::Forward(Charts::Chart::VisibleGGX, floored, glm::vec2(0.45f, 0.62f));
+        ASSERT_TRUE(reference);
+        EXPECT_LT(glm::length(*sample - *reference), 1.0e-7f);
     }
 
     TEST(PathReplayCharts, ChangedLobeProbabilityPreservesRawUniformAndChangesResidual)
@@ -143,7 +118,7 @@ namespace OloEngine::Tests
     TEST(PathReplayCharts, InvalidDomainsDoNotProduceCoordinates)
     {
         const Charts::Frame frame{};
-        for (const auto chart : { Charts::Chart::Cosine, Charts::Chart::LegacyGGX, Charts::Chart::VisibleGGX })
+        for (const auto chart : { Charts::Chart::Cosine, Charts::Chart::VisibleGGX })
         {
             EXPECT_FALSE(Charts::Forward(chart, frame, glm::vec2(0.0f, 0.3f)));
             EXPECT_FALSE(Charts::Forward(chart, frame, glm::vec2(0.3f, 1.0f)));

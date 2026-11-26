@@ -28,7 +28,7 @@
 // DDGI's radiance cache is DIFFUSE-ONLY by design: a probe hit point has no
 // view direction, so DDGI_Relight.glsl shades it as a bare Lambertian
 // `min(albedo, clamp)/PI * (directE + bounceE)` and never calls
-// cookTorranceBRDF. The reference normally shades with cookTorranceBRDF —
+// ClosureV2. The reference normally shades with ClosureV2 —
 // which for the same albedo is DARKER in diffuse (it carries the `1 - F`
 // energy split) and adds a specular lobe.
 //
@@ -40,7 +40,7 @@
 //     isolates DDGI's TRANSPORT: is the probe field solving the right light
 //     transport, given the material model it chose? That is the assertion.
 //
-//   * cookTorranceBRDF — the lit passes' model. The gap between the two
+//   * ClosureV2 — the lit passes' model. The gap between the two
 //     references is the PHOTOMETRIC DIVERGENCE between DDGI's probe cache and
 //     the rest of the renderer. It is measured and reported here rather than
 //     asserted, and documented in docs/agent-rules/reference-path-tracer.md.
@@ -781,12 +781,12 @@ namespace OloEngine::Tests
     // The photometric divergence, MEASURED rather than asserted.
     //
     // DDGI's probe cache shades Lambertian; the lit passes shade
-    // cookTorranceBRDF. This test quantifies the resulting difference in
+    // ClosureV2. This test quantifies the resulting difference in
     // probe irradiance and prints it. It fails only if the gap is large enough
     // to matter for a GI comparison — the number itself is the deliverable, and
     // it is recorded in docs/agent-rules/reference-path-tracer.md.
     // =========================================================================
-    TEST_F(DDGIReferenceParityTest, LambertianVersusCookTorranceDivergenceIsBounded)
+    TEST_F(DDGIReferenceParityTest, LambertianVersusClosureV2DivergenceIsBounded)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -794,29 +794,27 @@ namespace OloEngine::Tests
 
         ReferenceScene lambertian;
         BuildReferenceRoom(lambertian, /*lambertian*/ true);
-        ReferenceScene cookTorrance;
-        BuildReferenceRoom(cookTorrance, /*lambertian*/ false);
+        ReferenceScene closure;
+        BuildReferenceRoom(closure, /*lambertian*/ false);
 
         ProbeIrradiance ignored;
         glm::vec3 probePosition(0.0f);
         ASSERT_TRUE(ReadProbeIrradiance({ 1, 1, 1 }, ignored, probePosition));
 
         const ProbeIrradiance lambertianTruth = TraceProbeIrradiance(lambertian, probePosition, 256, 0x70cu);
-        const ProbeIrradiance cookTorranceTruth = TraceProbeIrradiance(cookTorrance, probePosition, 256, 0x70cu);
+        const ProbeIrradiance closureTruth = TraceProbeIrradiance(closure, probePosition, 256, 0x70cu);
 
         const f32 lambertianMean = MeanChannel(lambertianTruth.Mean);
-        const f32 cookTorranceMean = MeanChannel(cookTorranceTruth.Mean);
+        const f32 closureMean = MeanChannel(closureTruth.Mean);
         ASSERT_GT(lambertianMean, 1e-4f);
 
-        const f32 ratio = cookTorranceMean / lambertianMean;
-        std::cout << "[ddgi-parity] photometric divergence at probe (1,1,1): cookTorranceBRDF " << cookTorranceMean
+        const f32 ratio = closureMean / lambertianMean;
+        std::cout << "[ddgi-parity] photometric divergence at probe (1,1,1): ClosureV2 " << closureMean
                   << " vs Lambertian " << lambertianMean << "  (ratio " << ratio << ")\n"
                   << "[ddgi-parity] this is the gap between DDGI's diffuse-only probe cache "
-                     "(DDGI_Relight.glsl) and the lit passes' cookTorranceBRDF.\n";
+                     "(DDGI_Relight.glsl) and the lit passes' ClosureV2.\n";
 
-        // The two models differ by construction: cookTorrance's diffuse carries
-        // the `1 - F` energy split (darker) and adds a specular lobe
-        // (brighter). They should land close for rough dielectrics — if they
+        // The full closure couples its diffuse term to specular energy and adds both specular lobes. They should land close for rough dielectrics — if they
         // do not, DDGI's bounce light is a materially different colour and
         // brightness from the direct lighting it sits next to, which is a
         // visible artefact and a real bug worth filing.

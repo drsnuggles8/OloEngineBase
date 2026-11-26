@@ -161,8 +161,7 @@ OloReSTIRSurface LoadNeighbourSurface(vec2 uv)
     const int gbFlags = oloDecodeGBufferFlags(packedEmissive.a);
     if (oloDepthIsSky(depth) || oloGBufferFlagsAreUnlit(gbFlags))
         return OloReSTIRInvalidSurface();
-    return OloReSTIRLoadSurface(uv, depth, OLO_RESTIR_FETCH(u_GBufferNormal, uv), OLO_RESTIR_FETCH(u_GBufferAlbedo, uv),
-                                oloGBufferFlagsPbrModel(gbFlags));
+    return OloReSTIRLoadSurface(uv, depth, OLO_RESTIR_FETCH(u_GBufferNormal, uv), OLO_RESTIR_FETCH(u_GBufferAlbedo, uv));
 }
 
 // The reservoir and surface at one UV. Valid is false for a sky or unlit pixel,

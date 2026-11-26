@@ -55,7 +55,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;
-    int u_PBRModel;
+    int _pbrClosurePad;
     float u_TransmissionFactor;
     float u_IOR;
     float u_ThicknessFactor;

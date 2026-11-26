@@ -14,12 +14,8 @@
 //     default and produces a similarly-sized texture.
 //   - Shutdown is idempotent.
 //
-// We deliberately do NOT assert anything about pixel contents — the math
-// in `MaterialPreview.glsl` is exercised separately by the PBR property
-// tests (Fresnel, NDF, geometry), which is the right granularity. This
-// fixture's job is to catch "did we wire the pipeline back together at
-// all" regressions: shader path drift, framebuffer attachment mismatches,
-// texture-format incompatibilities in the FB → Texture2D copy step, etc.
+// The material thumbnail is read back at two roughnesses to verify that the
+// shared closure reaches the content-browser texture through its preview rig.
 //
 // Skips when no GL context is available (CI without a GPU).
 // =============================================================================
@@ -38,6 +34,12 @@
 #include "OloEngine/Renderer/Texture.h"
 
 #include <gtest/gtest.h>
+#include <stb_image/stb_image_write.h>
+
+#include <cmath>
+#include <cstring>
+#include <filesystem>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -106,11 +108,47 @@ namespace OloEngine::Tests
         Ref<MaterialAsset> material = MakeTestMaterial();
         ASSERT_TRUE(material);
 
-        Ref<Texture2D> thumbnail = AssetPreviewRenderer::RenderMaterialPreview(material);
-        ASSERT_TRUE(thumbnail);
-        EXPECT_EQ(thumbnail->GetWidth(), AssetPreviewRenderer::kThumbnailSize);
-        EXPECT_EQ(thumbnail->GetHeight(), AssetPreviewRenderer::kThumbnailSize);
-        EXPECT_NE(thumbnail->GetRendererID(), 0u);
+        constexpr u32 size = AssetPreviewRenderer::kThumbnailSize;
+        const auto directory = std::filesystem::path("assets/tests/visual");
+        std::filesystem::create_directories(directory);
+        const auto capture = [&](f32 roughness, const char* name, std::vector<u8>& pixels)
+        {
+            material->SetRoughness(roughness);
+            const Ref<Texture2D> thumbnail = AssetPreviewRenderer::RenderMaterialPreview(material);
+            ASSERT_TRUE(thumbnail);
+            ASSERT_EQ(thumbnail->GetWidth(), size);
+            ASSERT_EQ(thumbnail->GetHeight(), size);
+            EXPECT_NE(thumbnail->GetRendererID(), 0u);
+            ReadbackRgba8(thumbnail->GetRHIHandle(), size, size, pixels);
+            ASSERT_EQ(pixels.size(), size * size * 4u);
+            ASSERT_NE(stbi_write_png((directory / name).string().c_str(), size, size, 4, pixels.data(), size * 4), 0);
+        };
+
+        std::vector<u8> smooth;
+        std::vector<u8> rough;
+        ASSERT_NO_FATAL_FAILURE(capture(0.12f, "MaterialPreviewSmooth_OpenGL_Thumbnail.png", smooth));
+        ASSERT_NO_FATAL_FAILURE(capture(0.85f, "MaterialPreviewRough_OpenGL_Thumbnail.png", rough));
+        // The unit sphere should fill about 60% of the frame. A positive size
+        // and a visible highlight alone both pass for a cropped thumbnail.
+        u32 silhouetteWidth = 0;
+        for (u32 x = 0; x < size; ++x)
+        {
+            const sizet middlePixel = (size / 2 * size + x) * 4;
+            if (std::memcmp(&smooth[middlePixel], smooth.data(), 3) != 0)
+                ++silhouetteWidth;
+        }
+        RecordProperty("SilhouetteWidth", silhouetteWidth);
+        EXPECT_GT(silhouetteWidth, size / 2);
+        EXPECT_LT(silhouetteWidth, size * 7 / 10);
+
+        u32 changed = 0;
+        for (sizet i = 0; i < smooth.size(); i += 4)
+        {
+            if (std::abs(static_cast<int>(smooth[i]) - rough[i]) >= 4)
+                ++changed;
+        }
+        RecordProperty("ChangedRedPixels", changed);
+        EXPECT_GT(changed, size * size / 100u) << "material roughness must change the rendered thumbnail";
     }
 
     TEST(AssetPreviewRendererTest, RenderMaterialPreviewWithNullMaterialReturnsNull)

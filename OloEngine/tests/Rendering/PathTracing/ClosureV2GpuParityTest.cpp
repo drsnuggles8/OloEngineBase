@@ -25,10 +25,7 @@
 // the C++ closure's mathematical properties — furnace, reciprocity,
 // Sample/Pdf agreement). Neither subsumes the other: this test cannot tell
 // you the mixture density is the wrong measure, and those cannot tell you the
-// two languages have diverged. Unlike the Legacy probe
-// (ReferenceBRDFGpuParityTest), this one pins the DENSITY across the language
-// boundary too — Legacy GLSL has no PDF, so that drift axis simply could not
-// be guarded before v2.
+// two implementations diverged.
 //
 // SKIPs cleanly without a GL 4.6 context, like every other GPU test here.
 //
@@ -48,7 +45,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
@@ -173,7 +169,6 @@ namespace OloEngine::Tests
             material.BaseColor = glm::vec3(0.9f, 0.6f, 0.3f);
             material.Metallic = point.Metallic;
             material.Roughness = point.Roughness;
-            material.Model = PBRModel::ClosureV2;
             return material;
         }
     } // namespace
@@ -273,10 +268,7 @@ namespace OloEngine::Tests
     // Jacobian, the clamped roughness) OR the lobe mixture
     // (SpecularLobeProbability vs closureV2SpecularProbability) fails here.
     //
-    // This pins the DENSITY across the language boundary, which the Legacy
-    // probe never could: Legacy GLSL has no PDF at all, so a GPU sampler had
-    // nothing to agree with. v2's whole contract is that Evaluate, Sample and
-    // Pdf share one D — this test is the cross-language half of that promise
+    // The shader and reference sampler share one D.
     // (the headless tests pin Sample()'s reported Pdf == Pdf() on the C++
     // side; GLSL's closureV2SampleBRDF calls closureV2Pdf directly, so pinning
     // closureV2Pdf pins the sampler's density too).

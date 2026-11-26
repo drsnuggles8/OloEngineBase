@@ -54,7 +54,6 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -381,7 +380,6 @@ namespace OloEngine::Tests::CrossPath
             glm::vec3 Albedo{ 0.8f };
             f32 Metallic = 0.0f;
             f32 Roughness = 1.0f;
-            PBRModel Model = PBRModel::Legacy;
             glm::vec3 Emissive{ 0.0f };
         };
 
@@ -399,7 +397,6 @@ namespace OloEngine::Tests::CrossPath
             mat.m_Material.SetBaseColorFactor(glm::vec4(tile.Albedo, 1.0f));
             mat.m_Material.SetMetallicFactor(tile.Metallic);
             mat.m_Material.SetRoughnessFactor(tile.Roughness);
-            mat.m_Material.SetPBRModel(tile.Model);
             mat.m_Material.SetEmissiveFactor(glm::vec4(tile.Emissive, 1.0f));
             return e;
         }
@@ -462,15 +459,15 @@ namespace OloEngine::Tests::CrossPath
         // hemisphere quadrature, minutes per frame in a Debug build.
         struct EnergyCurve
         {
-            std::vector<f64> E; // E((i) / (N - 1))
-            f64 EAvg = 1.0;
+            std::vector<glm::dvec2> Moments; // directional albedo and Schlick moment
+            glm::dvec2 Average{ 0.0 };
 
-            [[nodiscard]] f64 At(f64 mu) const
+            [[nodiscard]] glm::dvec2 At(f64 mu) const
             {
-                const f64 x = std::clamp(mu, 0.0, 1.0) * static_cast<f64>(E.size() - 1u);
-                const auto i = std::min(static_cast<sizet>(x), E.size() - 2u);
+                const f64 x = std::clamp(mu, 0.0, 1.0) * static_cast<f64>(Moments.size() - 1u);
+                const auto i = std::min(static_cast<sizet>(x), Moments.size() - 2u);
                 const f64 f = x - static_cast<f64>(i);
-                return E[i] * (1.0 - f) + E[i + 1u] * f;
+                return glm::mix(Moments[i], Moments[i + 1u], f);
             }
         };
 
@@ -478,21 +475,22 @@ namespace OloEngine::Tests::CrossPath
         {
             auto curve = std::make_shared<EnergyCurve>();
             constexpr u32 kNodes = 129;
-            curve->E.resize(kNodes);
-            // mu = 0 exactly is the tangent view, where E -> 0; start a hair above.
+            curve->Moments.resize(kNodes);
             for (u32 i = 0; i < kNodes; ++i)
-                curve->E[i] = Oracle::GgxDirectionalAlbedo(std::max(1.0e-3, static_cast<f64>(i) / (kNodes - 1u)),
-                                                           alpha, 256, 64)
-                                  .Value;
-            // E_avg = 2 int E(mu) mu dmu, by the trapezoid rule on the same nodes.
-            f64 sum = 0.0;
+            {
+                const f64 mu = std::max(1.0e-3, static_cast<f64>(i) / (kNodes - 1u));
+                curve->Moments[i] = { Oracle::GgxDirectionalAlbedo(mu, alpha, 256, 64).Value,
+                                      Oracle::GgxDirectionalSchlickMoment(mu, alpha, 256, 64).Value };
+            }
+            // Cosine-weighted averages of both moments, from the same nodes.
+            glm::dvec2 sum{ 0.0 };
             for (u32 i = 0; i + 1u < kNodes; ++i)
             {
                 const f64 m0 = static_cast<f64>(i) / (kNodes - 1u);
                 const f64 m1 = static_cast<f64>(i + 1u) / (kNodes - 1u);
-                sum += 0.5 * (curve->E[i] * m0 + curve->E[i + 1u] * m1) * (m1 - m0);
+                sum += 0.5 * (curve->Moments[i] * m0 + curve->Moments[i + 1u] * m1) * (m1 - m0);
             }
-            curve->EAvg = 2.0 * sum;
+            curve->Average = 2.0 * sum;
             return curve;
         }
 
@@ -510,13 +508,9 @@ namespace OloEngine::Tests::CrossPath
             return [tile, towardLight, radiance, lazy](const glm::dvec3& p,
                                                        const glm::dvec3& eye) -> std::optional<glm::dvec3>
             {
-                std::shared_ptr<const EnergyCurve> energy;
-                if (tile.Model == PBRModel::ClosureV2)
-                {
-                    std::call_once(lazy->Once, [&]
-                                   { lazy->Curve = MakeEnergyCurve(Oracle::ClosureV2Alpha(tile.Roughness)); });
-                    energy = lazy->Curve;
-                }
+                std::call_once(lazy->Once, [&]
+                               { lazy->Curve = MakeEnergyCurve(Oracle::ClosureV2Alpha(tile.Roughness)); });
+                const auto& energy = lazy->Curve;
                 auto toLocal = [](const glm::dvec3& w)
                 { return glm::dvec3(w.x, -w.z, w.y); };
                 const glm::dvec3 v = toLocal(glm::normalize(eye - p));
@@ -524,16 +518,11 @@ namespace OloEngine::Tests::CrossPath
                 if (l.z <= 0.0 || v.z <= 0.0)
                     return glm::dvec3(0.0);
                 const glm::dvec3 albedo(tile.Albedo);
-                glm::dvec3 f;
-                if (energy)
-                {
-                    const Oracle::ClosureV2Energies energies{ energy->At(v.z), energy->At(l.z), energy->EAvg };
-                    f = Oracle::ClosureV2Brdf(v, l, albedo, tile.Metallic, tile.Roughness, energies);
-                }
-                else
-                {
-                    f = Oracle::LegacyBrdf(v, l, albedo, tile.Metallic, tile.Roughness);
-                }
+                const glm::dvec2 view = energy->At(v.z);
+                const glm::dvec2 light = energy->At(l.z);
+                const Oracle::ClosureV2Energies energies{ view.x, light.x, energy->Average.x,
+                                                          view.y, light.y, energy->Average.y };
+                const auto f = Oracle::ClosureV2Brdf(v, l, albedo, tile.Metallic, tile.Roughness, energies);
                 return f * radiance * l.z;
             };
         }
@@ -546,18 +535,17 @@ namespace OloEngine::Tests::CrossPath
 
         // ---- rows -------------------------------------------------------------
 
-        // Six tiles, three per row of the frame: Legacy on the top row, ClosureV2
-        // on the bottom; white-rough (mostly diffuse), black dielectric (pure
+        // Rough dielectric, glossy black and metal tiles at two roughnesses.
         // specular: no diffuse term at all), coloured metal.
         const std::vector<TileSpec>& MaterialTiles()
         {
             static const std::vector<TileSpec> tiles = {
-                { "LegacyWhiteRough", { -3.6, -1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 1.0f, PBRModel::Legacy },
-                { "LegacyBlackGloss", { 0.0, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.35f, PBRModel::Legacy },
-                { "LegacyGoldMetal", { 3.6, -1.9 }, 3.0, { 1.0f, 0.78f, 0.34f }, 1.0f, 0.5f, PBRModel::Legacy },
-                { "V2WhiteRough", { -3.6, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 0.6f, PBRModel::ClosureV2 },
-                { "V2BlackGloss", { 0.0, 1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.3f, PBRModel::ClosureV2 },
-                { "V2CopperMetal", { 3.6, 1.9 }, 3.0, { 0.95f, 0.64f, 0.54f }, 1.0f, 0.4f, PBRModel::ClosureV2 },
+                { "WhiteMatte", { -3.6, -1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 1.0f },
+                { "BlackGloss", { 0.0, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.35f },
+                { "GoldMetal", { 3.6, -1.9 }, 3.0, { 1.0f, 0.78f, 0.34f }, 1.0f, 0.5f },
+                { "V2WhiteRough", { -3.6, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 0.6f },
+                { "V2BlackGloss", { 0.0, 1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.3f },
+                { "V2CopperMetal", { 3.6, 1.9 }, 3.0, { 0.95f, 0.64f, 0.54f }, 1.0f, 0.4f },
             };
             return tiles;
         }
@@ -646,12 +634,12 @@ namespace OloEngine::Tests::CrossPath
         const std::vector<TileSpec>& OwnershipTiles()
         {
             static const std::vector<TileSpec> tiles = {
-                { "OwnEmitDim", { -3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, glm::vec3(0.2f) },
-                { "OwnEmitWarm", { 0.0, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, { 4.0f, 1.0f, 0.25f } },
-                { "OwnEmitHdr", { 3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::ClosureV2, glm::vec3(20.0f) },
-                { "OwnLegacyWhite", { -3.6, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 1.0f, PBRModel::Legacy },
-                { "OwnV2White", { 0.0, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 0.6f, PBRModel::ClosureV2 },
-                { "OwnV2Copper", { 3.6, 1.9 }, 3.0, { 0.95f, 0.64f, 0.54f }, 1.0f, 0.4f, PBRModel::ClosureV2 },
+                { "OwnEmitDim", { -3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, glm::vec3(0.2f) },
+                { "OwnEmitWarm", { 0.0, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, { 4.0f, 1.0f, 0.25f } },
+                { "OwnEmitHdr", { 3.6, -1.9 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, glm::vec3(20.0f) },
+                { "OwnWhiteMatte", { -3.6, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 1.0f },
+                { "OwnV2White", { 0.0, 1.9 }, 3.0, glm::vec3(0.8f), 0.0f, 0.6f },
+                { "OwnV2Copper", { 3.6, 1.9 }, 3.0, { 0.95f, 0.64f, 0.54f }, 1.0f, 0.4f },
             };
             return tiles;
         }
@@ -747,9 +735,9 @@ namespace OloEngine::Tests::CrossPath
                 row.Name = "Emission";
                 row.Motivation = "#1336: emission is added once, and no visibility term applies to it";
                 static const std::vector<TileSpec> tiles = {
-                    { "EmitDim", { -3.6, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, glm::vec3(0.2f) },
-                    { "EmitWarm", { 0.0, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::Legacy, { 4.0f, 1.0f, 0.25f } },
-                    { "EmitHdr", { 3.6, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, PBRModel::ClosureV2, glm::vec3(20.0f) },
+                    { "EmitDim", { -3.6, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, glm::vec3(0.2f) },
+                    { "EmitWarm", { 0.0, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, { 4.0f, 1.0f, 0.25f } },
+                    { "EmitHdr", { 3.6, 0.0 }, 3.0, glm::vec3(0.0f), 0.0f, 0.8f, glm::vec3(20.0f) },
                 };
                 row.Build = [](Scene& scene)
                 {
@@ -786,9 +774,9 @@ namespace OloEngine::Tests::CrossPath
                 row.Name = "AmbientFlatFill";
                 row.Motivation = "#1336 ambient ladder, bottom rung: no lightmap, probe or IBL in the scene";
                 static const std::vector<TileSpec> tiles = {
-                    { "AmbientWhite", { -3.6, 0.0 }, 3.0, glm::vec3(0.9f), 0.0f, 1.0f, PBRModel::Legacy },
-                    { "AmbientRed", { 0.0, 0.0 }, 3.0, { 0.9f, 0.1f, 0.05f }, 0.0f, 0.7f, PBRModel::Legacy },
-                    { "AmbientV2", { 3.6, 0.0 }, 3.0, glm::vec3(0.5f), 0.0f, 0.5f, PBRModel::ClosureV2 },
+                    { "AmbientWhite", { -3.6, 0.0 }, 3.0, glm::vec3(0.9f), 0.0f, 1.0f },
+                    { "AmbientRed", { 0.0, 0.0 }, 3.0, { 0.9f, 0.1f, 0.05f }, 0.0f, 0.7f },
+                    { "AmbientV2", { 3.6, 0.0 }, 3.0, glm::vec3(0.5f), 0.0f, 0.5f },
                 };
                 row.Build = [](Scene& scene)
                 {
@@ -907,8 +895,8 @@ namespace OloEngine::Tests::CrossPath
                 row.Name = "ScreenSpaceAO";
                 row.Motivation = "#1452: AO multiplies the ambient term on every path";
                 static const std::vector<TileSpec> tiles = {
-                    { "AOFloorLeft", { -2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f, PBRModel::Legacy },
-                    { "AOFloorRight", { 2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f, PBRModel::Legacy },
+                    { "AOFloorLeft", { -2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f },
+                    { "AOFloorRight", { 2.5, 0.0 }, 5.0, glm::vec3(0.9f), 0.0f, 1.0f },
                 };
                 // A KERB, not a wall: the camera looks straight down, so GTAO
                 // sees only the occluder's top face, and every sample on it is
@@ -948,7 +936,7 @@ namespace OloEngine::Tests::CrossPath
                 row.Motivation = "#1336: SSGI answers for indirect diffuse over the directions it resolves";
                 row.Requires = SsgiToggle();
                 static const std::vector<TileSpec> tiles = {
-                    { "SSGIFloor", { 0.0, 0.0 }, 8.0, glm::vec3(0.8f), 0.0f, 1.0f, PBRModel::Legacy },
+                    { "SSGIFloor", { 0.0, 0.0 }, 8.0, glm::vec3(0.8f), 0.0f, 1.0f },
                 };
                 row.Build = [](Scene& scene)
                 {
@@ -1029,7 +1017,7 @@ namespace OloEngine::Tests::CrossPath
                     const glm::dvec3 l = -glm::dvec3(kSunDirection);
                     const glm::dvec3 v(-l.x, l.y, -l.z);
                     const f64 t = kEyeHeight / v.y;
-                    TileSpec tile{ "MirrorMetal", { -v.x * t, -v.z * t }, 1.4, { 0.95f, 0.93f, 0.88f }, 1.0f, 0.0f, PBRModel::ClosureV2 };
+                    TileSpec tile{ "MirrorMetal", { -v.x * t, -v.z * t }, 1.4, { 0.95f, 0.93f, 0.88f }, 1.0f, 0.0f };
                     return tile;
                 }();
                 row.Build = [](Scene& scene)

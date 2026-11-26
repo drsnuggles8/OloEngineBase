@@ -43,7 +43,6 @@ namespace OloEngine
           // fields and the copy silently kept compiling. Adding a member here means adding it to
           // operator= below as well.
           m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff),
-          m_PBRModel(other.m_PBRModel),
           // Material kind + skin profile (issue #1231), in for the same reason.
           m_MaterialKind(other.m_MaterialKind), m_SkinProfileHandle(other.m_SkinProfileHandle),
           // The expression stamp (issue #1243) was missing here, and every
@@ -103,7 +102,6 @@ namespace OloEngine
             // Missing here too — see the copy constructor above (issue #629).
             m_AlphaMode = other.m_AlphaMode;
             m_AlphaCutoff = other.m_AlphaCutoff;
-            m_PBRModel = other.m_PBRModel;
             // Material kind + skin profile (issue #1231).
             m_MaterialKind = other.m_MaterialKind;
             m_SkinProfileHandle = other.m_SkinProfileHandle;

@@ -5,7 +5,6 @@
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -30,10 +29,6 @@ namespace OloEngine
         TwoSided = 1u << 2,
         DisableShadowCasting = 1u << 3
     };
-
-    // PBRModel (the versioned closure selector, issue #975) lives in
-    // Renderer/PBRModel.h — included above — so the GL-free reference path
-    // tracer can name it without pulling in Material's renderer dependencies.
 
     // Matches glTF 2.0 spec alphaMode. Encoded as i32 in shader UBOs.
     enum class AlphaMode : i32
@@ -124,22 +119,6 @@ namespace OloEngine
             return m_Name;
         }
 
-        // The versioned PBR closure this material shades with (issue #975).
-        // Legacy by default; ClosureV2 is an explicit opt-in. See PBRModel.h.
-        void SetPBRModel(PBRModel model)
-        {
-            m_PBRModel = model;
-        }
-        PBRModel GetPBRModel() const
-        {
-            return m_PBRModel;
-        }
-
-        // WHAT this surface is (issue #1231) — orthogonal to GetPBRModel()
-        // above, which is the VERSION of the closure that evaluates it. Generic
-        // by default; every material that predates #1231 deserializes to it and
-        // shades exactly as before. See MaterialKind.h and
-        // docs/adr/0024-material-kind-is-not-the-closure-version.md.
         void SetMaterialKind(MaterialKind kind)
         {
             m_MaterialKind = kind;
@@ -729,11 +708,6 @@ namespace OloEngine
         bool m_EnableIBL = false;                      // Enable IBL
         AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
         f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
-        PBRModel m_PBRModel = PBRModel::Legacy;        // Versioned closure (issue #975)
-        // What the surface IS, as opposed to which closure version evaluates it
-        // (issue #1231). Generic keeps every pre-#1231 material bit-identical.
-        // Both of these must be added to the hand-written copy constructor and
-        // operator= in Material.cpp — see the warning below.
         MaterialKind m_MaterialKind = MaterialKind::Generic;
         AssetHandle m_SkinProfileHandle = 0; // SkinProfile asset; 0 = none assigned
         // Runtime only, never serialized — see SetSkinExpressionDetail.

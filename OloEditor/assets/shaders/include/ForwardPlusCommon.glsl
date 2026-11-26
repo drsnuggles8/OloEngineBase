@@ -172,7 +172,7 @@ uvec2 fplusGetTileData(float viewDepth)
 // Forward+ cluster.
 OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
                                                 vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, int pbrModel, vec2 skinLobe,
+                                                float viewDepth, vec2 skinLobe,
                                                 vec4 skinOral)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
@@ -243,7 +243,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             // it by one number — which is what makes the coat's partition hold
             // per light on this path too.
             OloSurfaceLighting contribution = oloSurfaceLightingScale(
-                oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+                oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe), radiance);
             contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
             Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
@@ -334,7 +334,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             // it by one number — which is what makes the coat's partition hold
             // per light on this path too.
             OloSurfaceLighting contribution = oloSurfaceLightingScale(
-                oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+                oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe), radiance);
             contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
             Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
@@ -343,28 +343,16 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
     return Lo;
 }
 
-// The combined spelling with an explicit closure model: the Split evaluator
-// summed, for a caller that shades neither skin nor an oral surface and does
-// not need the two halves.
+// Combined lighting for surfaces that consume one colour output.
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                              vec3 albedo, float metallic, float roughness,
-                             float viewDepth, int pbrModel)
+                             float viewDepth)
 {
     return oloSurfaceLightingSum(fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
-                                                              roughness, viewDepth, pbrModel,
+                                                              roughness, viewDepth,
                                                               vec2(0.0, 1.0), vec4(0.0)));
 }
 
-// Legacy-model convenience overload: a call site with no material model. The
-// sphere-area branch above deliberately stays on the Legacy representative-point
-// evaluator for every model — see PBR CLOSURE V2 in PBRCommon.glsl.
-vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
-                              vec3 albedo, float metallic, float roughness,
-                              float viewDepth)
-{
-    return fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness,
-                                   viewDepth, OLO_PBR_MODEL_LEGACY);
-}
 #endif // FPLUS_DATA_ONLY
 
 #endif // FORWARD_PLUS_COMMON_GLSL

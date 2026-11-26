@@ -45,7 +45,6 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 
 #include <glm/gtc/constants.hpp>
 
@@ -208,7 +207,6 @@ namespace OloEngine
                 surface.Material.m_RoughnessFactor = layer.LeafRoughness;
                 surface.Material.m_AlphaMode = std::to_underlying(AlphaMode::Mask);
                 surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
-                surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
                 surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
                 surface.Material.m_Flags = GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
                 const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;

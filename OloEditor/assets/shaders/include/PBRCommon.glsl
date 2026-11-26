@@ -40,27 +40,10 @@
 #define MAX_ROUGHNESS 1.0
 
 // =============================================================================
-// PBR CLOSURE MODEL SELECTOR (issue #975)
-// =============================================================================
-// Mirrors PBRModel in Renderer/PBRModel.h and the u_PBRModel lane of
-// PBRMaterialProperties (UBO binding 2). Legacy is the default: existing
-// materials keep the exact closure they shipped with, bit for bit; ClosureV2
-// is an explicit per-material opt-in. See PBR CLOSURE V2 below.
-#define OLO_PBR_MODEL_LEGACY 0
-#define OLO_PBR_MODEL_CLOSURE_V2 1
-
-// =============================================================================
 // MATERIAL KIND (issue #1231)
 // =============================================================================
 // WHAT a surface is, mirroring MaterialKind in Renderer/MaterialKind.h and the
 // u_MaterialKind lane of PBRMaterialProperties (UBO binding 2).
-//
-// DELIBERATELY NOT THE SAME AXIS AS OLO_PBR_MODEL_* ABOVE. That selector is the
-// VERSION of the closure a material shades with, bumped when the maths is
-// corrected; this one is the category of the surface, which does not change
-// when a BRDF is fixed. A Skin material can shade with either closure version,
-// and correcting the GGX denominator must not turn skin into something else.
-// See docs/adr/0024-material-kind-is-not-the-closure-version.md.
 #define OLO_MATERIAL_KIND_GENERIC 0
 #define OLO_MATERIAL_KIND_SNOW 1
 #define OLO_MATERIAL_KIND_SKIN 2
@@ -155,10 +138,7 @@
 //
 //   bit 0      - unlit (the overlay shaders write a literal 1.0; PBR writers 0)
 //   bits 1..2  - MATERIAL KIND (issue #1231), a FIXED-WIDTH two-bit field.
-//                Fixed width because it sits below an open-ended field, and
-//                because MaterialKind.h static_asserts against exactly this
-//                ceiling, so a fifth kind is a deliberate re-encoding rather
-//                than an enumerator that silently aliases onto a fourth.
+//                MaterialKind.h checks the representable range.
 //   bits 3..6  - SKIN PROFILE SLOT (issue #1231), four bits since #1393 (it
 //                was three, and one complete face used all seven slots),
 //                15 == "names no profile". Only meaningful when the kind is Skin, and only read
@@ -166,62 +146,20 @@
 //                function (Terrain, Foliage, Water) write a literal 0.0 lane,
 //                whose slot field reads as 0, and gating every read on the kind
 //                is what stops that being mistaken for "profile 0".
-//   bits 7..n  - PBR closure model, carried as a WHOLE integer shifted up past
-//                the three fields below it. There is still no field width and
-//                no mask: PBRModel.h's numbering is append-only and the decode
-//                is a plain `>> 7`, so appending a model needs no edit here and
-//                can never truncate to Legacy.
-//
-// THE CEILING MOVED, AND IT MOVED ON PURPOSE (issue #1231). The only limit on
-// the model field is exact integer representation in RGBA16F - half is exact to
-// 2048 - so before #1231 the model index shifted up by one and the ceiling was
-// 1023. Giving the kind and the profile slot five bits below it lowered that to
-// 31 (31 * 64 + 63 == 2047), and the slot's fourth bit (#1393) to 15
-// (15 * 128 + 127 == 2047) -- against the 2 models that exist. PBRModel.h static_asserts against the new number,
-// which is where a hypothetical 32nd closure model is rejected loudly instead of
-// silently remapped, and the fix at that point is the one it always was: a wider
-// lane or a dedicated integer attachment, not a constant bump.
-//
-// WHY THE TWO NEW FIELDS SIT BELOW THE MODEL AND NOT ABOVE IT. Above it they
-// would have forced the model field to have a width - and the whole point of the
-// open-ended encoding is that appending a closure model is a one-line change in
-// one file. Below it they cost headroom that is measured and documented; above
-// it they would have cost the property.
-//
 // AVERAGE-SAFETY (issue #996). The lane is a bitfield, so it must never be
 // averaged. In the resolved-MSAA deferred mode (MSAA > 1 with per-sample
 // lighting off) `GBuffer::Resolve()` average-blits every colour attachment and
 // then runs `GBufferFlagsResolve.glsl`, which overwrites RT2's alpha alone with
 // the flags ONE REAL SAMPLE wrote - the first lit sample if the pixel has one,
 // sample 0 otherwise. A `texelFetch` at a fixed sample index is exact and fully
-// defined on both backends and every vendor, unlike an averaged bitfield whose
-// half-way cases (a ClosureV2 over Legacy averaging onto the unlit code; a lit
-// value over sky averaging to a half-way case whose GLSL round() tie-break is
-// implementation-defined) mis-decoded at every silhouette. So every reader of
+// defined on both backends. Averaging kind bits can set the unlit bit at silhouettes. Every reader of
 // this lane - both deferred lighting variants - sees a value some sample
 // actually wrote, and a pixel a real surface covers is never read as unlit.
-float oloEncodeGBufferPbrFlagsEx(int pbrModel, int materialKind, int skinProfileSlot)
+float oloEncodeGBufferPbrFlagsEx(int materialKind, int skinProfileSlot)
 {
-    // Multiply rather than shift: every field is non-negative by construction
-    // (Material / scene YAML / save-games / Lua all reject out-of-range values,
-    // and the slot comes from SkinProfileTable) and `*N` says "shift up past the
-    // fields below" without inheriting <<'s signed-overflow rules.
-    //
-    // The two new fields ARE clamped on the way in, unlike the model. They are
-    // fixed-width, so a value that overflowed its width would carry into the
-    // model field above it - silently turning a Legacy skin surface into closure
-    // model 1. Clamping here is cheap and makes that impossible.
     int kind = clamp(materialKind, 0, 3);
     int slot = clamp(skinProfileSlot, 0, OLO_SKIN_PROFILE_SLOT_NONE);
-    return float(pbrModel * 128 + slot * 8 + kind * 2);
-}
-
-// The generic-material spelling, kept because most G-Buffer writers have no
-// material kind to speak of and should not have to spell out "Generic, no
-// profile" in order to say so.
-float oloEncodeGBufferPbrFlags(int pbrModel)
-{
-    return oloEncodeGBufferPbrFlagsEx(pbrModel, OLO_MATERIAL_KIND_GENERIC, OLO_SKIN_PROFILE_SLOT_NONE);
+    return float(slot * 8 + kind * 2);
 }
 
 // The matching DECODE, kept here beside the encode so the layout has one
@@ -253,14 +191,6 @@ int oloGBufferFlagsMaterialKind(int gbFlags)
 int oloGBufferFlagsSkinProfileSlot(int gbFlags)
 {
     return (gbFlags >> 3) & 15;
-}
-
-int oloGBufferFlagsPbrModel(int gbFlags)
-{
-    // No mask: the model field is the whole rest of the lane, so a model
-    // appended to PBRModel.h arrives un-truncated rather than aliasing to
-    // Legacy on the deferred path only.
-    return gbFlags >> 7;
 }
 
 // =============================================================================
@@ -370,157 +300,8 @@ vec2 oloEnvBRDF(sampler2D brdfLut, float NdotV, float roughness)
 //  exp2 costs more than five MULs — so it was removed rather than kept as dead
 //  code. See issue #262 — shader performance review.)
 
-// =============================================================================
-// DISTRIBUTION FUNCTIONS
-// =============================================================================
-
-// GGX/Trowbridge-Reitz normal distribution function.
-// alpha = roughness^2 (`a`), and `a2` is alpha^2. This is the reference
-// convention THE ALPHA LEDGER below records; every G in this file is stated
-// relative to it.
-float distributionGGX(vec3 N, vec3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return num / max(denom, EPSILON);
-}
-
-// Anisotropic GGX distribution.
-// Takes ALPHAS, not roughnesses, despite the parameter names: `a2` here is
-// alphaX * alphaY. Callers must square the roughness themselves. Deliberate
-// exception to THE ALPHA LEDGER below; currently unreferenced.
-float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughnessX, float roughnessY)
-{
-    float TdotH = dot(T, H);
-    float BdotH = dot(B, H);
-    float NdotH = dot(N, H);
-
-    float a2 = roughnessX * roughnessY;
-    vec3 v = vec3(roughnessY * TdotH, roughnessX * BdotH, a2 * NdotH);
-    float v2 = dot(v, v);
-    float w2 = a2 / v2;
-
-    return a2 * w2 * w2 * INV_PI;
-}
-
-// =============================================================================
-// GEOMETRY FUNCTIONS
-// =============================================================================
-//
-// -----------------------------------------------------------------------------
-// THE ALPHA LEDGER — read before touching any D or G in this file (issue #904)
-// -----------------------------------------------------------------------------
-// GGX is parameterised by `alpha`, the microfacet slope distribution width.
-// This engine's authoring parameter is `roughness`, and the mapping every
-// function here agrees on is Burley's:
-//
-//     alpha = roughness * roughness
-//
-// A `D` and a `G` evaluated at DIFFERENT alphas describe two different
-// surfaces. The result is plausible rather than obviously broken — no NaN, no
-// black pixel, just a highlight subtly shaped for a surface nobody authored —
-// which is exactly how the mismatch this ledger exists to prevent survived
-// unnoticed. So every function below states its convention, and the two
-// deliberate exceptions state WHY they differ instead of quietly differing:
-//
-//   distributionGGX                alpha = roughness^2   (a  = alpha, a2 = alpha^2)
-//   distributionGGXUnclampedNH     alpha = roughness^2   (v2 closure + sampling
-//                                  densities; NO denominator value clamp — the
-//                                  v2 closure clamps ROUGHNESS instead, see the
-//                                  PBR CLOSURE V2 section)
-//   visibilitySmithGGXCorrelated   alpha = roughness^2   (a2 = alpha^2)
-//   ggxSmithLambda / ggxVNDFWeight alpha = roughness^2   (see A NOTE ON ALPHA below)
-//
-//   geometrySchlickGGX / geometrySmith — DELIBERATE EXCEPTION.
-//       Karis 2013's UE4 direct-lighting remap, k = (roughness + 1)^2 / 8.
-//       This is NOT a third alpha convention: it is a closed-form
-//       APPROXIMATION of the Smith G for the same alpha = roughness^2 surface,
-//       with Disney's "reduce the hotness of direct lighting" adjustment folded
-//       into the remap. Left as-is on purpose: `cookTorranceBRDF` — the BRDF
-//       every shipping lit pass actually calls — uses it, it is mirrored in
-//       Renderer/PathTracing/ReferenceBRDF.h so the offline reference tracer
-//       integrates the same thing, and replacing it would move every lit golden
-//       in the suite. That is a separate, deliberate decision, not part of #904.
-//
-//   distributionGGXAnisotropic — DELIBERATE EXCEPTION.
-//       Takes ALPHAS directly despite its parameter names: its
-//       `a2 = roughnessX * roughnessY` is alphaX * alphaY, so callers must pass
-//       roughness^2 themselves. Currently has no callers.
-// -----------------------------------------------------------------------------
-
-// Smith's method for masking-shadowing function (single direction).
-// Schlick-GGX with the UE4 direct-lighting k remap — a deliberate exception to
-// the alpha ledger above; see it before "fixing" this.
-float geometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-
-    float num = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return num / max(denom, EPSILON);
-}
-
-// Smith's method considering both geometry obstruction and geometry shadowing.
-// Separable (not height-correlated) form, built on the UE4 k remap above — the
-// same deliberate exception to the alpha ledger.
-float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2 = geometrySchlickGGX(NdotV, roughness);
-    float ggx1 = geometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
-}
-
-// Height-correlated Smith VISIBILITY term for GGX (Heitz 2014, "Understanding
-// the Masking-Shadowing Function", in the algebraic form Filament ships as
-// V_SmithGGXCorrelated).
-//
-// Two things this returns that its old name `geometrySmithHeightCorrelated`
-// did not say — both fixed under issue #904:
-//
-//  1. IT IS V, NOT G.  V = G2 / (4 * NdotV * NdotL): the 4*NdotV*NdotL from the
-//     Cook-Torrance denominator is already folded in, and cancels analytically
-//     against the sqrt terms. That cancellation is the entire point of the V
-//     form — it removes the 0/0 at grazing incidence. A caller must therefore
-//     write  D * V * F,  and must NOT divide by 4*NdotV*NdotL again. The old
-//     name read as a G, and its one caller (cookTorranceBRDFEnhanced) duly
-//     divided a second time.
-//
-//  2. alpha = roughness^2, matching distributionGGX. The previous version set
-//     `a2 = roughness * roughness`, squaring roughness ONCE where the formula
-//     wants alpha^2 = roughness^4.
-//
-//     Which direction that errs in is worth stating, because issue #904 states
-//     it BACKWARDS and the wrong version is the intuitive one. `a2 = r^2`
-//     means an effective alpha of r, while the correct alpha is r^2 — and
-//     r > r^2 for every r in (0, 1). So the old G modelled a ROUGHER surface
-//     than D did and masked MORE, not less. Correcting it makes those pixels
-//     BRIGHTER.
-//
-//     The error is also not largest on rough surfaces. It scales with the
-//     ratio r / r^2 = 1/r, so it peaks at LOW-to-mid roughness at grazing
-//     angles: measured over a (roughness x NdotV x NdotL) sweep, the worst G2
-//     discrepancy is 78% relative at roughness ~0.15 with both cosines near
-//     grazing, against ~14% at roughness 0.8 head-on.
-//
-// Pinned two ways, because neither catches the other's failure:
-//   * ReferenceBRDFTest.HeightCorrelatedVisibilityMatchesTheVndfLambda — an
-//     exact algebraic identity against ggxSmithLambda (the Lambda the VNDF path
-//     pairs with D). It holds for alpha = roughness^2 and no other convention,
-//     so reintroducing the single-square fails it at every roughness.
-//   * ReferenceBRDFGpuParity — this compiled GLSL against the C++ mirror in
-//     Renderer/PathTracing/ReferenceBRDF.h, so the two cannot drift.
+// Height-correlated Smith visibility includes the microfacet denominator.
+// Both visibility and distribution use alpha = roughness squared.
 float visibilitySmithGGXCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
@@ -745,76 +526,6 @@ float oloSkinScatteringMask(int materialKind, float metallic)
     if (materialKind != OLO_MATERIAL_KIND_SKIN)
         return 0.0;
     return clamp(1.0 - metallic, 0.0, 1.0);
-}
-
-// =============================================================================
-// BRDF CALCULATIONS
-// =============================================================================
-
-// Cook-Torrance BRDF implementation, diffuse and specular kept apart
-// (issue #1231). This is the REAL body; cookTorranceBRDF below sums it.
-OloSurfaceLighting cookTorranceBRDFSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
-{
-    vec3 H = normalize(V + L);
-
-    // Calculate F0 based on metallic workflow
-    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
-    F0 = mix(F0, albedo, metallic);
-
-    // Calculate the three components of the BRDF
-    float NDF = distributionGGX(N, H, roughness);
-    float G = geometrySmith(N, V, L, roughness);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    // Calculate specular BRDF
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + EPSILON;
-    vec3 specular = numerator / denominator;
-
-    // Calculate diffuse contribution
-    vec3 kS = F; // Energy of light that gets reflected
-    vec3 kD = vec3(1.0) - kS; // Remaining energy for refraction
-    kD *= 1.0 - metallic; // Metallic materials don't refract light
-
-    return OloSurfaceLighting(kD * albedo * INV_PI, specular);
-}
-
-// The combined spelling, unchanged for every caller: the same expression, in
-// the same order, as the body it replaced.
-vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
-{
-    return oloSurfaceLightingSum(cookTorranceBRDFSplit(N, V, L, albedo, metallic, roughness));
-}
-
-// Enhanced BRDF using the height-correlated Smith visibility term.
-//
-// NOTE: currently has no callers — its only caller,
-// calculateLightContributionEnhanced below, is itself unreferenced. The
-// shipping lit passes all call cookTorranceBRDF above. Kept (and made correct)
-// rather than deleted so that wiring it up is a one-line change that does not
-// also have to re-derive the math; that wiring is deliberately NOT part of
-// issue #904, because it would move every lit golden in the suite.
-vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
-{
-    vec3 H = normalize(V + L);
-
-    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
-    F0 = mix(F0, albedo, metallic);
-
-    float NDF = distributionGGX(N, H, roughness);
-    // Vis is the VISIBILITY term: G2 / (4 * NdotV * NdotL), with the
-    // Cook-Torrance denominator already folded in. Multiply, do not divide
-    // again — see visibilitySmithGGXCorrelated.
-    float Vis = visibilitySmithGGXCorrelated(N, V, L, roughness);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    vec3 specular = NDF * Vis * F;
-
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - metallic;
-
-    return kD * albedo * INV_PI + specular;
 }
 
 // =============================================================================
@@ -1067,23 +778,11 @@ vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
 }
 
 // =============================================================================
-// SAMPLING UTILITIES
-// =============================================================================
-
-// camelCase aliases over the shared MathCommon primitives, kept so existing
-// call sites (e.g. calculateIBLImportanceSampled) compile unchanged. The
-// canonical bodies — bitwise radical inverse and the branchless orthonormal
-// basis — now live in MathCommon.glsl, so they can't drift from the bake path.
-float vanDerCorputSequence(uint bits)               { return RadicalInverse_VdC(bits); }
-vec2  hammersleySequence(uint i, uint N)            { return Hammersley(i, N); }
-vec3  importanceSampleGGX(vec2 Xi, vec3 N, float r) { return ImportanceSampleGGX(Xi, N, r); }
-
-// =============================================================================
 // GGX VNDF IMPORTANCE SAMPLING (issue #706)
 //
 // Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018.
 //
-// importanceSampleGGX above samples the FULL normal distribution D. At grazing
+// MathCommon.glsl's ImportanceSampleGGX samples the FULL normal distribution D. At grazing
 // angles most of the microfacets it draws are backfacing or masked, so their
 // contribution is thrown away — the sample is wasted and the variance stays
 // high exactly where a rough surface is most visible. Sampling the VISIBLE
@@ -1190,61 +889,8 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 // =============================================================================
 // PBR CLOSURE V2 (issue #975)
 // =============================================================================
-//
-// A VERSIONED closure. cookTorranceBRDF above is the Legacy model and is
-// frozen: every existing material, scene and golden keeps it bit for bit.
-// ClosureV2 is the explicit opt-in (Material::SetPBRModel, the u_PBRModel UBO
-// lane, ReferenceMaterial::Model) and differs from Legacy in exactly five
-// documented ways:
-//
-//   1. ONE geometry term. The specular lobe is D * V * F with the
-//      height-correlated Smith VISIBILITY term (visibilitySmithGGXCorrelated).
-//      The Schlick-GGX k remap stays reachable only through Legacy.
-//   2. Near-mirror handling clamps ALPHA, not the denominator.
-//      closureV2Roughness floors perceptual roughness at MIN_ROUGHNESS, so
-//      alpha >= MIN_ROUGHNESS^2 and the unclamped NDF is finite everywhere.
-//      The lobe NARROWS and BRIGHTENS toward a mirror as authored roughness
-//      approaches 0, instead of collapsing toward black the way Legacy's
-//      max(denom, EPSILON) makes it (ReferenceBRDF.h's DistributionGGX notes
-//      quantify that collapse).
-//   3. Multiple-scattering energy compensation (Kulla & Conty 2017), driven
-//      by the generated tables in PBRClosureV2Energy.glsl. Reciprocal by
-//      construction, and closes the white furnace exactly for F0 = 1.
-//   4. Because evaluation alpha is clamped and the denominator is not, ONE D
-//      serves Evaluate, Sample and Pdf. The three cannot disagree about the
-//      lobe — the property a path tracer / ReSTIR estimator depends on, and
-//      the reason Legacy needed two Ds (see DistributionGGXSamplingDensity in
-//      ReferenceBRDF.h: a PDF describes the SAMPLER, never the integrand).
-//   5. An energy-conserving diffuse weight (issue #1479). The Lambert term is
-//      weighted by (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) / (1 - E_spec_avg),
-//      E_spec being the whole specular lobe's Fresnel-aware directional albedo
-//      from the same generated tables, instead of Legacy's (1 - F(H)). A
-//      white dielectric then reflects exactly what it receives, and the
-//      weight is symmetric in V/L, so the closure stays reciprocal.
-//
-// v2 is not frozen: it changes in place (ADR 0016 §1) while it is not the
-// default, and even then only under the repo's no-legacy rule.
-//
-// The Evaluate / Sample / Pdf triple is mirrored in C++ and pinned:
-//   Renderer/PathTracing/ReferenceBRDF.h   — function-for-function twins
-//   Renderer/PathTracing/PBRClosureBSDF.h  — the versioned dispatch the
-//                                            reference path tracer integrates
-//   ReferenceBRDFGpuParityTest (GPU) and the ClosureV2 tests (headless).
-//
-// Deliberate approximations, recorded so they are decisions rather than
-// surprises (each keeps Legacy behaviour on that sub-path, not a regression):
-//   * Sphere-AREA lights shade v2 materials through the Legacy
-//     representative-point evaluator — the Karis normalization rescales D in
-//     a way that has no v2 derivation yet.
-//   * IBL / ambient stays on the split-sum LUT with no multi-scatter term;
-//     energy compensation applies to punctual direct lighting and the CPU
-//     reference tracer in this slice.
-//   * The diffuse lobe is still SAMPLED cosine-weighted and selected with
-//     the F0-vs-albedo luminance split (closureV2SpecularProbability). Both
-//     are variance choices, unbiased for any value; the coupling's weight is
-//     ~1 at normal incidence, where that split is measured, so it did not
-//     move with it (ADR 0016 §5).
-
+// Height-correlated GGX with a common roughness floor for evaluation, sampling and
+// density. The energy table couples diffuse and specular and restores multiple scattering.
 #include "PBRClosureV2Energy.glsl"
 
 // v2 perceptual-roughness clamp — the ONLY roughness guard in the v2 closure.
@@ -1252,27 +898,6 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 float closureV2Roughness(float roughness)
 {
     return clamp(roughness, MIN_ROUGHNESS, MAX_ROUGHNESS);
-}
-
-// The TRUE (unclamped) GGX NDF — GLSL twin of ReferenceBRDF.h's vector
-// DistributionGGXSamplingDensity. alpha = roughness^2 per THE ALPHA LEDGER.
-// The denominator floor is a denormal guard, not a value clamp; with the v2
-// alpha floor it never engages. From the VECTORS (issue #1347): sin^2 as
-// |N x H|^2, not 1 - cos^2. The scalar denominator cancels near the peak of a sharp lobe and
-// NdotH has already lost H's tangential components to rounding, so D read
-// +3.5 % over the lobe at roughness 0.04. Twin: ReferenceBRDF.h's vector
-// DistributionGGXSamplingDensity. For unit N, H it is the same function.
-float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float c = dot(N, H);
-    if (c <= 0.0)
-        return a2 * INV_PI;
-    vec3 t = cross(N, H);
-    float denom = dot(t, t) + a2 * c * c;
-    denom = PI * denom * denom;
-    return a2 / max(denom, 1.17549435e-38);
 }
 
 // Where a mu or roughness value lands on the generated energy table's axis.
@@ -1389,26 +1014,32 @@ ClosureV2Energy closureV2Energy(float NdotV, float NdotL, float roughness, vec3 
     return terms;
 }
 
+// Single-scatter GGX for punctual and finite emitters. The caller supplies
+// the clamped perceptual roughness used by both D and visibility.
+vec3 closureV2SingleScatter(vec3 N, vec3 V, vec3 L, vec3 F0, float r)
+{
+    vec3 H = normalize(V + L);
+    float D = distributionGGXUnclampedNH(N, H, r);
+    float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
+    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    return D * Vis * F;
+}
+
 // v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
 // convention — callers multiply by NdotL.
 OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     float r = closureV2Roughness(roughness);
-    vec3 H = normalize(V + L);
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
 
     vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
-    float D = distributionGGXUnclampedNH(N, H, r);
-    float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
     // The energy lookup takes the AUTHORED roughness per its contract — the
     // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
     // and 0.04 lands on node 3, so the clamped r would read the same value).
     // C++ twin agrees (ClosureV2Evaluate).
     ClosureV2Energy energy = closureV2Energy(NdotV, NdotL, roughness, F0);
-    vec3 specular = D * Vis * F + energy.MultiScatter;
+    vec3 specular = closureV2SingleScatter(N, V, L, F0, r) + energy.MultiScatter;
 
     vec3 kD = energy.DiffuseCoupling * (1.0 - metallic);
     // Split, not summed (issue #1231). The multiple-scattering compensation is
@@ -1421,22 +1052,6 @@ OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, f
 vec3 closureV2Evaluate(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     return oloSurfaceLightingSum(closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness));
-}
-
-// The versioned dispatch every model-aware call site routes through. Legacy
-// materials take the EXACT cookTorranceBRDF path — the branch is on a
-// per-draw uniform, so existing pixels cannot move.
-OloSurfaceLighting evaluatePBRClosureSplit(int pbrModel, vec3 N, vec3 V, vec3 L,
-                                           vec3 albedo, float metallic, float roughness)
-{
-    if (pbrModel == OLO_PBR_MODEL_CLOSURE_V2)
-        return closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
-    return cookTorranceBRDFSplit(N, V, L, albedo, metallic, roughness);
-}
-
-vec3 evaluatePBRClosure(int pbrModel, vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
-{
-    return oloSurfaceLightingSum(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness));
 }
 
 // ---------------------------------------------------------------------------
@@ -1494,31 +1109,33 @@ vec3 closureV2CosineSampleHemisphere(vec2 Xi, vec3 N)
     return normalize(tangent * x + bitangent * y + N * z);
 }
 
+// Conditional density of the visible-normal specular draw, shared with the
+// replay chart. Directions here already passed the positive NdotL check.
+float closureV2SpecularPdf(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = dot(N, V);
+    if (NdotV <= 0.0)
+        return 0.0;
+    float r = closureV2Roughness(roughness);
+    float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, r * r));
+    return G1V * distributionGGXUnclampedNH(N, normalize(V + L), r) / (4.0 * NdotV);
+}
+
+
 // v2 Pdf: the density of closureV2SampleBRDF below, and nothing else. The
 // specular term is the VNDF density through the reflection Jacobian,
 //     pdf(L) = G1(NdotV) * D(NdotH) / (4 * NdotV),
 // on the SAME clamped-alpha D that Evaluate uses. Directions below the
-// horizon report 0, matching the Legacy BsdfPdf convention.
+// horizon report 0.
 float closureV2Pdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     float NdotL = dot(N, L);
     if (NdotL <= 0.0)
         return 0.0;
 
-    float r = closureV2Roughness(roughness);
-    float alpha = r * r;
     float pSpecular = closureV2SpecularProbability(albedo, metallic);
     float pdfDiffuse = NdotL * INV_PI;
-
-    float pdfSpecular = 0.0;
-    float NdotV = dot(N, V);
-    if (NdotV > 0.0)
-    {
-        vec3 H = normalize(V + L);
-        float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, alpha));
-        pdfSpecular = G1V * distributionGGXUnclampedNH(N, H, r) / (4.0 * NdotV);
-    }
-
+    float pdfSpecular = closureV2SpecularPdf(N, V, L, roughness);
     return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
 }
 
@@ -1609,14 +1226,6 @@ float calculateAttenuation(vec3 lightPos, vec3 fragPos, vec4 attenuationParams)
     return attenuation * falloff * falloff;
 }
 
-// Epic Games' physically-based attenuation
-float calculateAttenuationEpic(vec3 lightPos, vec3 fragPos, float lightRadius)
-{
-    float distance = length(lightPos - fragPos);
-    float falloff = SQUARE(SATURATE(1.0 - SQUARE(SQUARE(distance / lightRadius))));
-    return falloff / (SQUARE(distance) + 1.0);
-}
-
 // =============================================================================
 // SPOT LIGHT FUNCTIONS
 // =============================================================================
@@ -1633,49 +1242,6 @@ float calculateSpotIntensity(vec3 lightDir, vec3 spotDir, vec4 spotParams)
 
     // Smooth falloff function
     return intensity * intensity;
-}
-
-// Advanced spot light with custom falloff curve
-float calculateSpotIntensityAdvanced(vec3 lightDir, vec3 spotDir, vec4 spotParams)
-{
-    float innerCutoff = spotParams.x;
-    float outerCutoff = spotParams.y;
-    float falloffExponent = spotParams.z;
-
-    float theta = dot(lightDir, normalize(-spotDir));
-
-    if (theta > innerCutoff)
-        return 1.0;
-    else if (theta > outerCutoff)
-    {
-        float t = (theta - outerCutoff) / (innerCutoff - outerCutoff);
-        return pow(t, falloffExponent);
-    }
-
-    return 0.0;
-}
-
-// =============================================================================
-// AREA LIGHT FUNCTIONS
-// =============================================================================
-
-// Representative point technique for area lights
-vec3 calculateAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, vec3 lightSize,
-                                   vec3 albedo, float metallic, float roughness, vec3 worldPos)
-{
-    vec3 centerToRay = dot(lightPos - worldPos, N) * N - (lightPos - worldPos);
-    vec3 closestPoint = lightPos + centerToRay * SATURATE(length(centerToRay) / lightSize.x);
-
-    vec3 L = normalize(closestPoint - worldPos);
-    float distance = length(closestPoint - worldPos);
-
-    // Use standard BRDF calculation
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-
-    // Area light attenuation
-    float attenuation = 1.0 / (distance * distance + 1.0);
-
-    return brdf * attenuation;
 }
 
 // =============================================================================
@@ -1742,44 +1308,23 @@ OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec
     // the centre direction, recovering point-light behaviour.
     vec3 Lspec = calculateSphereAreaLightRepresentativePoint(worldPos, N, V, lightPos, sphereRadius);
 
-    // Split BRDF: diffuse uses Ldiff (centre), specular uses Lspec (rep point).
-    // We compute diffuse + specular separately to avoid double-counting fresnel
-    // off the wrong half-vector.
-    vec3 H = normalize(V + Lspec);
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotLspec = max(dot(N, Lspec), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    float VdotH = max(dot(V, H), 0.0);
-
+    float r = closureV2Roughness(roughness);
     vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
-    float D = distributionGGX(N, H, roughness);
-    float G = geometrySmith(N, V, Lspec, roughness);
-    vec3  F = fresnelSchlick(VdotH, F0);
-
-    // Energy-conservation rescale (Karis eq. 14).
-    float normFactor = sphereAreaLightNormalization(roughness, distance, sphereRadius);
-    D *= normFactor;
-
-    vec3 specular = (D * G * F) / max(4.0 * NdotV * NdotLspec, EPSILON);
-
-    // Diffuse uses the centre direction; energy lost to specular is removed.
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    vec3 diffuse = kD * albedo * INV_PI;
-
+    // The GGX peak is 1/(pi alpha^2). Broadening alpha to alpha' for
+    // the emitter footprint therefore scales its peak by (alpha/alpha')^2.
+    // Keep the material visibility at the representative direction. The
+    // broad multi-scatter and coupled diffuse lobes use the centre cosine
+    // and have no GGX peak to renormalize.
+    float peakRatio = sphereAreaLightNormalization(r, distance, sphereRadius);
+    float NdotLspec = max(dot(N, Lspec), 0.0);
+    ClosureV2Energy energy = closureV2Energy(max(dot(N, V), 0.0), NdotL, roughness, F0);
+    vec3 single = closureV2SingleScatter(N, V, Lspec, F0, r);
+    vec3 diffuse = energy.DiffuseCoupling * (1.0 - metallic) * albedo * INV_PI;
     vec3 radiance = lightColor * lightIntensity * distAtten;
-    // Diffuse term scales by NdotL (Lambertian); specular by NdotLspec. The two
-    // already travelled separately through this function -- issue #1231 only
-    // stops them being added at the end.
-    return OloSurfaceLighting(diffuse * NdotL * radiance, specular * NdotLspec * radiance);
+    return OloSurfaceLighting(diffuse * NdotL * radiance,
+                              (single * (NdotLspec * peakRatio) + energy.MultiScatter * NdotL) * radiance);
 }
 
-// The combined spelling. NOTE this is a REGROUPING of the old expression
-// `(diffuse * NdotL + specular * NdotLspec) * radiance`, not the identical
-// float expression: each half now multiplies by `radiance` before the sum.
-// Floating-point addition is not distributive, so a pixel here may move by an
-// ulp. That is deliberate and is the one place in this change where it happens;
-// the alternative was keeping a second copy of a 40-line body.
 vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
                                           vec3 lightColor, float lightIntensity, float range,
                                           vec3 albedo, float metallic, float roughness, vec3 worldPos)
@@ -1851,15 +1396,9 @@ bool oloLightSample(LightData light, vec3 worldPos, out vec3 L, out vec3 radianc
     return true;
 }
 
-// Calculate contribution from a single light. THIS split overload is the real
-// body (issue #1231); the two vec3 spellings below sum it. The trailing selector
-// routes the punctual-light BRDF through evaluatePBRClosureSplit (Legacy pixels
-// are bit-identical — the Legacy branch IS cookTorranceBRDF). Sphere-area lights
-// deliberately keep the Legacy representative-point evaluator for every model —
-// see PBR CLOSURE V2.
+// Split direct lighting into the diffuse and specular outputs consumed by the frame graph.
 OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
-                                                   float metallic, float roughness, vec3 worldPos,
-                                                   int pbrModel)
+                                                   float metallic, float roughness, vec3 worldPos)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
@@ -1884,83 +1423,17 @@ OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3
 
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= EPSILON) return oloSurfaceLightingZero();
-    OloSurfaceLighting brdf = evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness);
+    OloSurfaceLighting brdf = closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
 
     return oloSurfaceLightingScale(brdf, radiance * NdotL);
 }
 
-// The combined spelling, for every call site that does not care about the two
-// halves. `brdf * radiance * NdotL` distributed over the split is the same
-// per-component product in the same order, so a Legacy pixel is bit-identical.
+// Combined direct lighting for surfaces that use a single colour output.
 vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
-                                float metallic, float roughness, vec3 worldPos,
-                                int pbrModel)
+                                float metallic, float roughness, vec3 worldPos)
 {
     return oloSurfaceLightingSum(
-        calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos, pbrModel));
-}
-
-// Legacy-model convenience overload: call sites with no material model (the
-// terrain and voxel shaders) keep their existing signature and closure.
-vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
-                               float metallic, float roughness, vec3 worldPos)
-{
-    return calculateLightContribution(light, N, V, albedo, metallic, roughness, worldPos,
-                                      OLO_PBR_MODEL_LEGACY);
-}
-
-// Enhanced light contribution with better energy conservation
-vec3 calculateLightContributionEnhanced(LightData light, vec3 N, vec3 V, vec3 albedo,
-                                       float metallic, float roughness, vec3 worldPos)
-{
-    int lightType = int(light.position.w);
-    vec3 lightColor = light.color.rgb;
-    float lightIntensity = light.color.w;
-
-    // Sphere area lights split the BRDF differently; use the dedicated evaluator.
-    if (lightType == SPHERE_AREA_LIGHT)
-    {
-        float sphereRadius = light.spotParams.z;
-        float range        = light.attenuationParams.w;
-        return calculateSphereAreaLightContribution(N, V, light.position.xyz, sphereRadius,
-                                                    lightColor, lightIntensity, range,
-                                                    albedo, metallic, roughness, worldPos);
-    }
-
-    vec3 L;
-    float attenuation = 1.0;
-
-    if (lightType == DIRECTIONAL_LIGHT)
-    {
-        L = normalize(-light.direction.xyz);
-    }
-    else if (lightType == POINT_LIGHT)
-    {
-        L = normalize(light.position.xyz - worldPos);
-        attenuation = calculateAttenuationEpic(light.position.xyz, worldPos, light.attenuationParams.w);
-    }
-    else if (lightType == SPOT_LIGHT)
-    {
-        L = normalize(light.position.xyz - worldPos);
-        attenuation = calculateAttenuationEpic(light.position.xyz, worldPos, light.attenuationParams.w);
-        float spotIntensity = calculateSpotIntensityAdvanced(L, light.direction.xyz, light.spotParams);
-        attenuation *= spotIntensity;
-    }
-    else
-    {
-        return vec3(0.0);
-    }
-
-    if (attenuation <= EPSILON) return vec3(0.0);
-
-    float NdotL = max(dot(N, L), 0.0);
-    if (NdotL <= EPSILON) return vec3(0.0);
-
-    // Use enhanced BRDF with height-correlated Smith G function
-    vec3 radiance = lightColor * lightIntensity * attenuation;
-    vec3 brdf = cookTorranceBRDFEnhanced(N, V, L, albedo, metallic, roughness);
-
-    return brdf * radiance * NdotL;
+        calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos));
 }
 
 // =============================================================================
@@ -2467,32 +1940,6 @@ float calculateAtlasEntryShadow(vec3 worldPos, vec3 normal, mat4 entryMatrix, ve
 // IBL LIGHTING FUNCTIONS
 // =============================================================================
 
-// Calculate ambient lighting using IBL
-vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                  samplerCube irradianceMap, samplerCube prefilterMap, sampler2D brdfLUT)
-{
-    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
-    F0 = mix(F0, albedo, metallic);
-
-    vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-
-    vec3 kS = F;
-    vec3 kD = 1.0 - kS;
-    kD *= 1.0 - metallic;
-
-    // Diffuse IBL
-    vec3 irradiance = texture(irradianceMap, N).rgb;
-    vec3 diffuse = irradiance * albedo;
-
-    // Specular IBL
-    vec3 R = reflect(-V, N);
-    vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 envBRDF = oloEnvBRDF(brdfLUT, max(dot(N, V), 0.0), roughness);
-    vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
-
-    return kD * diffuse + specular;
-}
-
 // calculateIBL with the specular prefilter fetch hoisted out: the caller
 // resolves `prefilteredColor` itself (global prefilter map, or the
 // distance-impostor probe blend from include/ReflectionProbes.glsl — issue
@@ -2545,49 +1992,6 @@ OloSurfaceLighting calculateSimpleAmbientSplit(vec3 albedo, float metallic, floa
     return OloSurfaceLighting(calculateSimpleAmbient(albedo, metallic, ao), vec3(0.0));
 }
 
-// Enhanced IBL with importance sampling (for real-time global illumination)
-vec3 calculateIBLImportanceSampled(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                                  samplerCube environmentMap, int sampleCount)
-{
-    vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
-    F0 = mix(F0, albedo, metallic);
-
-    vec3 color = vec3(0.0);
-    float totalWeight = 0.0;
-
-    // Sample environment using importance sampling
-    for (int i = 0; i < sampleCount; ++i)
-    {
-        vec2 Xi = hammersleySequence(uint(i), uint(sampleCount));
-        vec3 H = importanceSampleGGX(Xi, N, roughness);
-        vec3 L = normalize(2.0 * dot(V, H) * H - V);
-
-        float NdotL = max(dot(N, L), 0.0);
-        if (NdotL > 0.0)
-        {
-            vec3 sampleColor = texture(environmentMap, L).rgb;
-
-            float NdotH = max(dot(N, H), 0.0);
-            float VdotH = max(dot(V, H), 0.0);
-
-            float D = distributionGGX(N, H, roughness);
-            float G = geometrySmith(N, V, L, roughness);
-            vec3 F = fresnelSchlick(VdotH, F0);
-
-            vec3 numerator = D * G * F;
-            float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + EPSILON;
-            vec3 specular = numerator / denominator;
-
-            color += sampleColor * specular * NdotL;
-            totalWeight += NdotL;
-        }
-    }
-
-    return color / max(totalWeight, EPSILON);
-}
-
-// =============================================================================
-// LIGHT PROBE AMBIENT FUNCTIONS
 // =============================================================================
 
 // THE ONE IRRADIANCE CONVERSION OF THE AMBIENT LADDER (issue #1336).
@@ -2844,61 +2248,6 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
     return vec4(lighting.Diffuse * clamp(scatteringMask, 0.0, 1.0),
                 oloSkinDiffusionEncodeSlot(skinProfileSlot));
 }
-
-
-// =============================================================================
-// SHADER-SPECIFIC LIGHT CALCULATIONS
-// =============================================================================
-
-// Calculate directional light contribution using shader uniform
-vec3 calculateDirectionalLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                                     vec3 lightDirection, vec3 lightDiffuse)
-{
-    vec3 L = normalize(-lightDirection);
-    vec3 radiance = lightDiffuse;
-
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-
-    return brdf * radiance * NdotL;
-}
-
-// Calculate point light contribution using shader uniform
-vec3 calculatePointLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                               vec3 worldPos, vec3 lightPosition, vec3 lightDiffuse, vec4 attParams)
-{
-    vec3 L = normalize(lightPosition - worldPos);
-    float distance = length(lightPosition - worldPos);
-    float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
-    vec3 radiance = lightDiffuse * attenuation;
-
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-
-    return brdf * radiance * NdotL;
-}
-
-// Calculate spot light contribution using shader uniform
-vec3 calculateSpotLightUniform(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                              vec3 worldPos, vec3 lightPosition, vec3 lightDirection,
-                              vec3 lightDiffuse, vec4 attParams, vec4 spotParams)
-{
-    vec3 L = normalize(lightPosition - worldPos);
-    float distance = length(lightPosition - worldPos);
-    float attenuation = 1.0 / (attParams.x + attParams.y * distance + attParams.z * distance * distance);
-
-    float theta = dot(L, normalize(-lightDirection));
-    float epsilon = spotParams.x - spotParams.y;
-    float intensity = clamp((theta - spotParams.y) / epsilon, 0.0, 1.0);
-
-    vec3 radiance = lightDiffuse * attenuation * intensity;
-
-    float NdotL = max(dot(N, L), 0.0);
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
-
-    return brdf * radiance * NdotL;
-}
-
 // =============================================================================
 // MATERIAL SAMPLING FUNCTIONS
 //

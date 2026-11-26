@@ -151,8 +151,7 @@ void main()
     OloGBufferSurface surface = OloInvalidGBufferSurface();
     if (shadeable)
     {
-        surface = OloLoadGBufferSurface(v_TexCoord, depth, packedNormal, packedAlbedo,
-                                        oloGBufferFlagsPbrModel(gbFlags));
+        surface = OloLoadGBufferSurface(v_TexCoord, depth, packedNormal, packedAlbedo);
         // The #976 record for this pixel, written whether or not any candidate
         // survives: next frame's temporal draw needs the SURFACE both to judge
         // validity and to reconstruct the previous shading point, and a pixel

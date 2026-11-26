@@ -7,7 +7,6 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -368,18 +367,6 @@ namespace OloEngine
                               "of {} and do not light the traced image",
                               m_Stats.PunctualLightsBeyondShaderBound, kGpuPathTracerMaxLights);
             }
-        }
-
-        const u32 instanceSlots = m_GPUScene->GetInstanceSlotCount();
-        for (u32 slot = 0; slot < instanceSlots; ++slot)
-        {
-            const GPUSceneInstance* instance = m_GPUScene->GetLiveInstanceRecordBySlot(slot);
-            if (instance == nullptr)
-                continue;
-            const GPUSceneMaterial* material =
-                m_GPUScene->GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration);
-            if (material != nullptr && material->ClosureVersion == std::to_underlying(PBRModel::Legacy))
-                ++m_Stats.LegacyMaterials;
         }
 
         if (m_EmissiveTable != nullptr)

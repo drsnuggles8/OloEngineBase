@@ -7,7 +7,7 @@
 // operation for operation, and SkinLayeredSpecularParityTest drives this file
 // against that one so the two cannot drift.
 //
-// INCLUDED BY include/PBRCommon.glsl, after evaluatePBRClosureSplit, so every
+// INCLUDED BY include/PBRCommon.glsl, after closureV2EvaluateSplit, so every
 // shader that can shade skin gets the same arithmetic: the forward paths
 // (PBR_MultiLight{,_Skinned}.glsl), the G-Buffer writers
 // (PBR_GBuffer{,_Skinned}.glsl) and the deferred lighting pass
@@ -194,13 +194,7 @@ vec3 oloSkinSpecularMix(vec3 narrow, vec3 broad, float broadWeight)
     return narrow + broadWeight * (broad - narrow);
 }
 
-// The layered closure: the versioned PBR closure evaluated at two roughnesses
-// and mixed, DIFFUSE TAKEN FROM THE NARROW ARM.
-//
-// Taking the diffuse from one arm is exact for Legacy and a stated
-// approximation for ClosureV2. Legacy's diffuse half is `kD * albedo / PI` with
-// kD built from the half-vector Fresnel, which does not depend on roughness, so
-// both arms' diffuse values are identical. ClosureV2's Lambert is weighted by
+// The specular layers use two roughnesses. The diffuse weight uses
 // the energy-conserving coupling of issue #1479, which subtracts the specular
 // lobe's directional albedo E_spec — and that DOES depend on roughness, so the
 // broad arm's diffuse differs from the narrow arm's.
@@ -220,16 +214,16 @@ vec3 oloSkinSpecularMix(vec3 narrow, vec3 broad, float broadWeight)
 // x <= 0 returns the single-lobe result without evaluating anything twice, so a
 // non-skin surface and a skin surface whose author left the mixture at zero both
 // cost exactly what they cost before this feature existed.
-OloSurfaceLighting oloSkinLayeredClosureSplit(int pbrModel, vec3 N, vec3 V, vec3 L,
+OloSurfaceLighting oloSkinLayeredClosureSplit(vec3 N, vec3 V, vec3 L,
                                               vec3 albedo, float metallic, float roughness,
                                               vec2 skinLobe)
 {
-    OloSurfaceLighting narrow = evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness);
+    OloSurfaceLighting narrow = closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
     if (skinLobe.x <= 0.0)
         return narrow;
 
     float broadRoughness = oloSkinBroadRoughness(roughness, skinLobe.y);
-    OloSurfaceLighting broad = evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, broadRoughness);
+    OloSurfaceLighting broad = closureV2EvaluateSplit(N, V, L, albedo, metallic, broadRoughness);
     return OloSurfaceLighting(narrow.Diffuse,
                               oloSkinSpecularMix(narrow.Specular, broad.Specular, skinLobe.x));
 }
@@ -253,13 +247,13 @@ OloSurfaceLighting oloSkinLayeredClosureSplit(int pbrModel, vec3 N, vec3 V, vec3
 // lobe. Stated here because the alternative is someone "fixing" it later.
 OloSurfaceLighting oloSkinLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
                                                  float metallic, float roughness, vec3 worldPos,
-                                                 int pbrModel, vec2 skinLobe)
+                                                 vec2 skinLobe)
 {
     int lightType = int(light.position.w);
 
     if (lightType == SPHERE_AREA_LIGHT)
     {
-        return calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos, pbrModel);
+        return calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos);
     }
 
     vec3 L;
@@ -271,7 +265,7 @@ OloSurfaceLighting oloSkinLightContributionSplit(LightData light, vec3 N, vec3 V
     if (NdotL <= EPSILON)
         return oloSurfaceLightingZero();
 
-    OloSurfaceLighting brdf = oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe);
+    OloSurfaceLighting brdf = oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe);
     return oloSurfaceLightingScale(brdf, radiance * NdotL);
 }
 

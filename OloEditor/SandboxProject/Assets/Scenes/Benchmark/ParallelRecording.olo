@@ -42,7 +42,6 @@ Entities:
       AlbedoColor: [0.42, 0.42, 0.42]
       Metallic: 0
       Roughness: 0.9
-      PBRModel: 1
   - Entity: 1013000001000003
     TagComponent:
       Tag: Sun

@@ -121,7 +121,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;    // Enable light probe indirect diffuse
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
-    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    int _pbrClosurePad;
     // Physical transmission / IOR / volume (issue #970). MUST mirror the
     // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
     // lanes so those stay last. Declared unconditionally -- unlike the heap
@@ -145,8 +145,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // relayout the heap offsets by 16 B and every texture would sample the
     // wrong descriptor.
     //
-    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
-    // of the closure evaluates it. Two fields because they are two questions --
+
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
     int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (15) == names no profile

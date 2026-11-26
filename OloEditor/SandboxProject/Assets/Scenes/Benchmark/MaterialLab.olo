@@ -6,7 +6,7 @@ Version: 2
 #
 # A neutral studio for reading material response numerically:
 #
-#   * 10x10 sphere sweep centred on the origin (ClosureV2, PBRModel: 1).
+#   * 10x10 sphere sweep centred on the origin (ClosureV2).
 #     Roughness runs along +X (columns, 0 at x=-6.75 .. 1 at x=+6.75),
 #     metallic along +Z (rows, 0 at z=-6.75 far .. 1 at z=+6.75 near the
 #     camera). Values are index/9 so both axes REACH 0 and 1; tags are
@@ -127,7 +127,6 @@ Entities:
       AlbedoColor: [0.3, 0.3, 0.32]
       Metallic: 0
       Roughness: 0.9
-      PBRModel: 1
   # -- 10x10 sweep: roughness along +X, metallic along +Z (ClosureV2) --
   - Entity: 974000001000100
     TagComponent:
@@ -142,7 +141,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000101
     TagComponent:
       Tag: Sweep_M0_R0.1111
@@ -156,7 +154,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000102
     TagComponent:
       Tag: Sweep_M0_R0.2222
@@ -170,7 +167,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000103
     TagComponent:
       Tag: Sweep_M0_R0.3333
@@ -184,7 +180,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000104
     TagComponent:
       Tag: Sweep_M0_R0.4444
@@ -198,7 +193,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000105
     TagComponent:
       Tag: Sweep_M0_R0.5556
@@ -212,7 +206,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000106
     TagComponent:
       Tag: Sweep_M0_R0.6667
@@ -226,7 +219,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000107
     TagComponent:
       Tag: Sweep_M0_R0.7778
@@ -240,7 +232,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000108
     TagComponent:
       Tag: Sweep_M0_R0.8889
@@ -254,7 +245,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000109
     TagComponent:
       Tag: Sweep_M0_R1
@@ -268,7 +258,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000110
     TagComponent:
       Tag: Sweep_M0.1111_R0
@@ -282,7 +271,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000111
     TagComponent:
       Tag: Sweep_M0.1111_R0.1111
@@ -296,7 +284,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000112
     TagComponent:
       Tag: Sweep_M0.1111_R0.2222
@@ -310,7 +297,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000113
     TagComponent:
       Tag: Sweep_M0.1111_R0.3333
@@ -324,7 +310,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000114
     TagComponent:
       Tag: Sweep_M0.1111_R0.4444
@@ -338,7 +323,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000115
     TagComponent:
       Tag: Sweep_M0.1111_R0.5556
@@ -352,7 +336,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000116
     TagComponent:
       Tag: Sweep_M0.1111_R0.6667
@@ -366,7 +349,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000117
     TagComponent:
       Tag: Sweep_M0.1111_R0.7778
@@ -380,7 +362,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000118
     TagComponent:
       Tag: Sweep_M0.1111_R0.8889
@@ -394,7 +375,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000119
     TagComponent:
       Tag: Sweep_M0.1111_R1
@@ -408,7 +388,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.1111
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000120
     TagComponent:
       Tag: Sweep_M0.2222_R0
@@ -422,7 +401,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000121
     TagComponent:
       Tag: Sweep_M0.2222_R0.1111
@@ -436,7 +414,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000122
     TagComponent:
       Tag: Sweep_M0.2222_R0.2222
@@ -450,7 +427,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000123
     TagComponent:
       Tag: Sweep_M0.2222_R0.3333
@@ -464,7 +440,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000124
     TagComponent:
       Tag: Sweep_M0.2222_R0.4444
@@ -478,7 +453,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000125
     TagComponent:
       Tag: Sweep_M0.2222_R0.5556
@@ -492,7 +466,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000126
     TagComponent:
       Tag: Sweep_M0.2222_R0.6667
@@ -506,7 +479,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000127
     TagComponent:
       Tag: Sweep_M0.2222_R0.7778
@@ -520,7 +492,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000128
     TagComponent:
       Tag: Sweep_M0.2222_R0.8889
@@ -534,7 +505,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000129
     TagComponent:
       Tag: Sweep_M0.2222_R1
@@ -548,7 +518,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.2222
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000130
     TagComponent:
       Tag: Sweep_M0.3333_R0
@@ -562,7 +531,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000131
     TagComponent:
       Tag: Sweep_M0.3333_R0.1111
@@ -576,7 +544,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000132
     TagComponent:
       Tag: Sweep_M0.3333_R0.2222
@@ -590,7 +557,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000133
     TagComponent:
       Tag: Sweep_M0.3333_R0.3333
@@ -604,7 +570,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000134
     TagComponent:
       Tag: Sweep_M0.3333_R0.4444
@@ -618,7 +583,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000135
     TagComponent:
       Tag: Sweep_M0.3333_R0.5556
@@ -632,7 +596,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000136
     TagComponent:
       Tag: Sweep_M0.3333_R0.6667
@@ -646,7 +609,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000137
     TagComponent:
       Tag: Sweep_M0.3333_R0.7778
@@ -660,7 +622,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000138
     TagComponent:
       Tag: Sweep_M0.3333_R0.8889
@@ -674,7 +635,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000139
     TagComponent:
       Tag: Sweep_M0.3333_R1
@@ -688,7 +648,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.3333
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000140
     TagComponent:
       Tag: Sweep_M0.4444_R0
@@ -702,7 +661,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000141
     TagComponent:
       Tag: Sweep_M0.4444_R0.1111
@@ -716,7 +674,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000142
     TagComponent:
       Tag: Sweep_M0.4444_R0.2222
@@ -730,7 +687,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000143
     TagComponent:
       Tag: Sweep_M0.4444_R0.3333
@@ -744,7 +700,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000144
     TagComponent:
       Tag: Sweep_M0.4444_R0.4444
@@ -758,7 +713,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000145
     TagComponent:
       Tag: Sweep_M0.4444_R0.5556
@@ -772,7 +726,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000146
     TagComponent:
       Tag: Sweep_M0.4444_R0.6667
@@ -786,7 +739,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000147
     TagComponent:
       Tag: Sweep_M0.4444_R0.7778
@@ -800,7 +752,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000148
     TagComponent:
       Tag: Sweep_M0.4444_R0.8889
@@ -814,7 +765,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000149
     TagComponent:
       Tag: Sweep_M0.4444_R1
@@ -828,7 +778,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.4444
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000150
     TagComponent:
       Tag: Sweep_M0.5556_R0
@@ -842,7 +791,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000151
     TagComponent:
       Tag: Sweep_M0.5556_R0.1111
@@ -856,7 +804,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000152
     TagComponent:
       Tag: Sweep_M0.5556_R0.2222
@@ -870,7 +817,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000153
     TagComponent:
       Tag: Sweep_M0.5556_R0.3333
@@ -884,7 +830,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000154
     TagComponent:
       Tag: Sweep_M0.5556_R0.4444
@@ -898,7 +843,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000155
     TagComponent:
       Tag: Sweep_M0.5556_R0.5556
@@ -912,7 +856,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000156
     TagComponent:
       Tag: Sweep_M0.5556_R0.6667
@@ -926,7 +869,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000157
     TagComponent:
       Tag: Sweep_M0.5556_R0.7778
@@ -940,7 +882,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000158
     TagComponent:
       Tag: Sweep_M0.5556_R0.8889
@@ -954,7 +895,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000159
     TagComponent:
       Tag: Sweep_M0.5556_R1
@@ -968,7 +908,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.5556
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000160
     TagComponent:
       Tag: Sweep_M0.6667_R0
@@ -982,7 +921,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000161
     TagComponent:
       Tag: Sweep_M0.6667_R0.1111
@@ -996,7 +934,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000162
     TagComponent:
       Tag: Sweep_M0.6667_R0.2222
@@ -1010,7 +947,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000163
     TagComponent:
       Tag: Sweep_M0.6667_R0.3333
@@ -1024,7 +960,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000164
     TagComponent:
       Tag: Sweep_M0.6667_R0.4444
@@ -1038,7 +973,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000165
     TagComponent:
       Tag: Sweep_M0.6667_R0.5556
@@ -1052,7 +986,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000166
     TagComponent:
       Tag: Sweep_M0.6667_R0.6667
@@ -1066,7 +999,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000167
     TagComponent:
       Tag: Sweep_M0.6667_R0.7778
@@ -1080,7 +1012,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000168
     TagComponent:
       Tag: Sweep_M0.6667_R0.8889
@@ -1094,7 +1025,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000169
     TagComponent:
       Tag: Sweep_M0.6667_R1
@@ -1108,7 +1038,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.6667
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000170
     TagComponent:
       Tag: Sweep_M0.7778_R0
@@ -1122,7 +1051,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000171
     TagComponent:
       Tag: Sweep_M0.7778_R0.1111
@@ -1136,7 +1064,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000172
     TagComponent:
       Tag: Sweep_M0.7778_R0.2222
@@ -1150,7 +1077,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000173
     TagComponent:
       Tag: Sweep_M0.7778_R0.3333
@@ -1164,7 +1090,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000174
     TagComponent:
       Tag: Sweep_M0.7778_R0.4444
@@ -1178,7 +1103,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000175
     TagComponent:
       Tag: Sweep_M0.7778_R0.5556
@@ -1192,7 +1116,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000176
     TagComponent:
       Tag: Sweep_M0.7778_R0.6667
@@ -1206,7 +1129,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000177
     TagComponent:
       Tag: Sweep_M0.7778_R0.7778
@@ -1220,7 +1142,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000178
     TagComponent:
       Tag: Sweep_M0.7778_R0.8889
@@ -1234,7 +1155,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000179
     TagComponent:
       Tag: Sweep_M0.7778_R1
@@ -1248,7 +1168,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.7778
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000180
     TagComponent:
       Tag: Sweep_M0.8889_R0
@@ -1262,7 +1181,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000181
     TagComponent:
       Tag: Sweep_M0.8889_R0.1111
@@ -1276,7 +1194,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000182
     TagComponent:
       Tag: Sweep_M0.8889_R0.2222
@@ -1290,7 +1207,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000183
     TagComponent:
       Tag: Sweep_M0.8889_R0.3333
@@ -1304,7 +1220,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000184
     TagComponent:
       Tag: Sweep_M0.8889_R0.4444
@@ -1318,7 +1233,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000185
     TagComponent:
       Tag: Sweep_M0.8889_R0.5556
@@ -1332,7 +1246,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000186
     TagComponent:
       Tag: Sweep_M0.8889_R0.6667
@@ -1346,7 +1259,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000187
     TagComponent:
       Tag: Sweep_M0.8889_R0.7778
@@ -1360,7 +1272,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000188
     TagComponent:
       Tag: Sweep_M0.8889_R0.8889
@@ -1374,7 +1285,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000189
     TagComponent:
       Tag: Sweep_M0.8889_R1
@@ -1388,7 +1298,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 0.8889
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000190
     TagComponent:
       Tag: Sweep_M1_R0
@@ -1402,7 +1311,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0
-      PBRModel: 1
   - Entity: 974000001000191
     TagComponent:
       Tag: Sweep_M1_R0.1111
@@ -1416,7 +1324,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.1111
-      PBRModel: 1
   - Entity: 974000001000192
     TagComponent:
       Tag: Sweep_M1_R0.2222
@@ -1430,7 +1337,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.2222
-      PBRModel: 1
   - Entity: 974000001000193
     TagComponent:
       Tag: Sweep_M1_R0.3333
@@ -1444,7 +1350,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.3333
-      PBRModel: 1
   - Entity: 974000001000194
     TagComponent:
       Tag: Sweep_M1_R0.4444
@@ -1458,7 +1363,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.4444
-      PBRModel: 1
   - Entity: 974000001000195
     TagComponent:
       Tag: Sweep_M1_R0.5556
@@ -1472,7 +1376,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.5556
-      PBRModel: 1
   - Entity: 974000001000196
     TagComponent:
       Tag: Sweep_M1_R0.6667
@@ -1486,7 +1389,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.6667
-      PBRModel: 1
   - Entity: 974000001000197
     TagComponent:
       Tag: Sweep_M1_R0.7778
@@ -1500,7 +1402,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.7778
-      PBRModel: 1
   - Entity: 974000001000198
     TagComponent:
       Tag: Sweep_M1_R0.8889
@@ -1514,7 +1415,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 0.8889
-      PBRModel: 1
   - Entity: 974000001000199
     TagComponent:
       Tag: Sweep_M1_R1
@@ -1528,7 +1428,6 @@ Entities:
       AlbedoColor: [0.85, 0.85, 0.85]
       Metallic: 1
       Roughness: 1
-      PBRModel: 1
   # -- Reference patch strip (thin cubes, tops at y = 0.08) --
   - Entity: 974000001000200
     TagComponent:
@@ -1543,7 +1442,6 @@ Entities:
       AlbedoColor: [0.02, 0.02, 0.02]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   - Entity: 974000001000201
     TagComponent:
       Tag: Gray18
@@ -1557,7 +1455,6 @@ Entities:
       AlbedoColor: [0.18, 0.18, 0.18]
       Metallic: 0
       Roughness: 1
-      PBRModel: 1
   - Entity: 974000001000202
     TagComponent:
       Tag: PatchGray50
@@ -1571,7 +1468,6 @@ Entities:
       AlbedoColor: [0.5, 0.5, 0.5]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   - Entity: 974000001000203
     TagComponent:
       Tag: PatchWhite
@@ -1585,7 +1481,6 @@ Entities:
       AlbedoColor: [1, 1, 1]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   - Entity: 974000001000204
     TagComponent:
       Tag: PatchRed
@@ -1599,7 +1494,6 @@ Entities:
       AlbedoColor: [1, 0, 0]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   - Entity: 974000001000205
     TagComponent:
       Tag: PatchGreen
@@ -1613,7 +1507,6 @@ Entities:
       AlbedoColor: [0, 1, 0]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   - Entity: 974000001000206
     TagComponent:
       Tag: PatchBlue
@@ -1627,7 +1520,6 @@ Entities:
       AlbedoColor: [0, 0, 1]
       Metallic: 0
       Roughness: 0.95
-      PBRModel: 1
   # -- Emissive row (dark dielectric base; Emissive_Ref = control) --
   - Entity: 974000001000300
     TagComponent:
@@ -1642,7 +1534,6 @@ Entities:
       AlbedoColor: [0.1, 0.1, 0.1]
       Metallic: 0
       Roughness: 0.6
-      PBRModel: 1
   - Entity: 974000001000301
     TagComponent:
       Tag: Emissive_1x
@@ -1657,7 +1548,6 @@ Entities:
       Metallic: 0
       Roughness: 0.6
       Emissive: [1, 1, 1]
-      PBRModel: 1
   - Entity: 974000001000302
     TagComponent:
       Tag: Emissive_Colored
@@ -1672,7 +1562,6 @@ Entities:
       Metallic: 0
       Roughness: 0.6
       Emissive: [4, 2, 0.5]
-      PBRModel: 1
   - Entity: 974000001000303
     TagComponent:
       Tag: Emissive_Green8
@@ -1687,7 +1576,6 @@ Entities:
       Metallic: 0
       Roughness: 0.6
       Emissive: [0, 8, 0]
-      PBRModel: 1
   - Entity: 974000001000304
     TagComponent:
       Tag: Emissive_16x
@@ -1702,7 +1590,6 @@ Entities:
       Metallic: 0
       Roughness: 0.6
       Emissive: [16, 16, 16]
-      PBRModel: 1
   # -- Normal-mapped reference spheres (editor-tree pbr texture sets) --
   - Entity: 974000001000400
     TagComponent:
@@ -1719,7 +1606,6 @@ Entities:
       Roughness: 0.4
       AlbedoMapPath: assets/textures/pbr/rusted_iron/albedo.png
       NormalMapPath: assets/textures/pbr/rusted_iron/normal.png
-      PBRModel: 1
   - Entity: 974000001000401
     TagComponent:
       Tag: NormalMap_Wall
@@ -1735,7 +1621,6 @@ Entities:
       Roughness: 0.9
       AlbedoMapPath: assets/textures/pbr/wall/albedo.png
       NormalMapPath: assets/textures/pbr/wall/normal.png
-      PBRModel: 1
   - Entity: 974000001000402
     TagComponent:
       Tag: NormalMap_Gold
@@ -1751,4 +1636,3 @@ Entities:
       Roughness: 0.3
       AlbedoMapPath: assets/textures/pbr/gold/albedo.png
       NormalMapPath: assets/textures/pbr/gold/normal.png
-      PBRModel: 1

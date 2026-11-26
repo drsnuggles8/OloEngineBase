@@ -168,7 +168,7 @@ namespace OloEngine::Tests
             EnableRendering(kWidth, kHeight);
             // Use the exact geometry and materials of the CPU/device parity fixture,
             // through scene extraction and the production acceleration-structure pass.
-            const auto fixture = PathTracingFixtures::MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+            const auto fixture = PathTracingFixtures::MakeCornellBoxScene(18.0f);
             RunInFrame([this, &fixture]
                        { AddSurfaces(fixture); });
         }
@@ -197,7 +197,6 @@ namespace OloEngine::Tests
                 surface.SetEmissiveFactor(glm::vec4(material.Emissive, 0.0f));
                 surface.SetMetallicFactor(material.Metallic);
                 surface.SetRoughnessFactor(material.Roughness);
-                surface.SetPBRModel(material.Model);
             }
         }
     };
