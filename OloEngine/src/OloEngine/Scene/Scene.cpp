@@ -844,6 +844,7 @@ namespace OloEngine
         if (!entity || !entity.HasComponent<IDComponent>())
             return;
 
+        m_Pending2DShapes.erase(entity);
         m_RejectedPhysicsWritebacks.erase(entity);
         m_TerrainCollisionFrames.erase(entity);
         // Capture UUID before the Lua callback — the script may re-entrantly
@@ -4394,6 +4395,7 @@ namespace OloEngine
         // in to 2D physics.
         if (b2World_IsValid(m_PhysicsWorld))
         {
+            RetryPending2DShapes();
             b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DSubSteps);
         }
 
@@ -4460,6 +4462,7 @@ namespace OloEngine
 
     void Scene::KickPhysicsStep(Timestep const ts)
     {
+        RetryPending2DShapes();
         const f32 frameSeconds = ts.GetSeconds();
 
         if (m_JoltScene)
@@ -8444,7 +8447,38 @@ namespace OloEngine
             b2Body_SetAngularVelocity(body, rb2d.AngularVelocity);
         }
 
-        if (entity.HasComponent<BoxCollider2DComponent>())
+        Pending2DShapes pending{ entity.HasComponent<BoxCollider2DComponent>(), entity.HasComponent<CircleCollider2DComponent>() };
+        CreateValid2DShapes(entity, pose, pending);
+        if (pending.Box || pending.Circle)
+            m_Pending2DShapes[entity] = pending;
+    }
+
+    void Scene::RetryPending2DShapes()
+    {
+        for (auto it = m_Pending2DShapes.begin(); it != m_Pending2DShapes.end();)
+        {
+            Entity entity(it->first, this);
+            auto& pending = it->second;
+            if (m_Registry.valid(it->first) && entity.HasComponent<Rigidbody2DComponent>() &&
+                b2Body_IsValid(entity.GetComponent<Rigidbody2DComponent>().RuntimeBody))
+            {
+                pending.Box &= entity.HasComponent<BoxCollider2DComponent>();
+                pending.Circle &= entity.HasComponent<CircleCollider2DComponent>();
+                CreateValid2DShapes(entity, GetPhysics2DPlacement(entity), pending);
+            }
+            else
+                pending = {};
+            if (pending.Box || pending.Circle)
+                ++it;
+            else
+                it = m_Pending2DShapes.erase(it);
+        }
+    }
+
+    void Scene::CreateValid2DShapes(Entity entity, const Physics2DPlacement& pose, Pending2DShapes& pending)
+    {
+        const b2BodyId body = entity.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+        if (pending.Box)
         {
             auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
 
@@ -8454,12 +8488,19 @@ namespace OloEngine
             shapeDef.material.restitution = bc2d.Restitution;
 
             const glm::vec2 offset = pose.OffsetToBody * bc2d.Offset;
-            b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * pose.Scale.x, bc2d.Size.y * pose.Scale.y,
-                                                { offset.x, offset.y }, b2MakeRot(0.0f));
-            b2CreatePolygonShape(body, &shapeDef, &polygon);
+            const glm::vec2 half = bc2d.Size * pose.Scale;
+            // Polygon mass requires a finite positive area. A collapsed
+            // carrier still has a native body and may recover on a later tick.
+            if (Math::IsFinite(half) && Math::IsFinite(offset) && half.x > 0.0f && half.y > 0.0f &&
+                4.0 * half.x * half.y > std::numeric_limits<f32>::epsilon())
+            {
+                const b2Polygon polygon = b2MakeOffsetBox(half.x, half.y, { offset.x, offset.y }, b2MakeRot(0.0f));
+                b2CreatePolygonShape(body, &shapeDef, &polygon);
+                pending.Box = false;
+            }
         }
 
-        if (entity.HasComponent<CircleCollider2DComponent>())
+        if (pending.Circle)
         {
             auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
 
@@ -8469,8 +8510,13 @@ namespace OloEngine
             shapeDef.material.restitution = cc2d.Restitution;
 
             const glm::vec2 offset = pose.OffsetToBody * cc2d.Offset;
-            b2Circle circle = { b2Vec2(offset.x, offset.y), pose.Scale.x * cc2d.Radius };
-            b2CreateCircleShape(body, &shapeDef, &circle);
+            const f32 radius = pose.Scale.x * cc2d.Radius;
+            if (std::isfinite(radius) && radius > 0.0f && Math::IsFinite(offset))
+            {
+                const b2Circle circle{ { offset.x, offset.y }, radius };
+                b2CreateCircleShape(body, &shapeDef, &circle);
+                pending.Circle = false;
+            }
         }
     }
 
@@ -8583,6 +8629,7 @@ namespace OloEngine
 
     void Scene::OnPhysics2DStop()
     {
+        m_Pending2DShapes.clear();
         if (b2World_IsValid(m_PhysicsWorld))
         {
             b2DestroyWorld(m_PhysicsWorld);
@@ -19142,8 +19189,9 @@ namespace OloEngine
     // the Box2D world must release the body. Without this hook, the body
     // leaks and the per-tick sync loop later reads a stale b2BodyId.
     template<>
-    void Scene::OnComponentRemoved<Rigidbody2DComponent>(Entity, Rigidbody2DComponent& component)
+    void Scene::OnComponentRemoved<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& component)
     {
+        m_Pending2DShapes.erase(entity);
         if (b2World_IsValid(m_PhysicsWorld) && b2Body_IsValid(component.RuntimeBody))
         {
             b2DestroyBody(component.RuntimeBody);

@@ -453,6 +453,27 @@ class PlanarColliderPlacementTest : public FunctionalTest
     void BuildScene() override {}
 };
 
+TEST_F(PlanarColliderPlacementTest, BoxStartingOnCollapsedCarrierGainsItsShapeOnRecovery)
+{
+    Entity rig = GetScene().CreateEntity("Collapsed rig");
+    rig.GetComponent<TransformComponent>().Scale = { 1, 0, 1 };
+    Entity child = GetScene().CreateEntity("Box");
+    child.SetParent(rig);
+    child.AddComponent<BoxCollider2DComponent>();
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    RunFrames(4);
+    EXPECT_LT(b2Body_GetPosition(native).y, 0.0f);
+    EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, 0.0f, 1.0e-5f);
+    rig.GetComponent<TransformComponent>().Scale.y = 2;
+    RunFrames(2);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 1);
+    EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, b2Body_GetPosition(native).y, 1.0e-5f);
+}
+
 TEST_F(PlanarColliderPlacementTest, BoxAndCircleCentersFollowScaleAndMirrorWithZeroZ)
 {
     Entity rig = GetScene().CreateEntity("Planar Mirrored Rig");

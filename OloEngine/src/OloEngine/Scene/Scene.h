@@ -2465,6 +2465,14 @@ namespace OloEngine
         [[nodiscard]] glm::mat4 GetAttachmentBasis(entt::entity entity, entt::entity parent) const;
         [[nodiscard]] std::pair<glm::vec3, f32> GetReflectionProbePlacement(entt::entity entity) const;
         void CreatePhysics2DBody(Entity entity);
+        struct Pending2DShapes
+        {
+            bool Box = false;
+            bool Circle = false;
+        };
+        std::unordered_map<entt::entity, Pending2DShapes> m_Pending2DShapes;
+        void CreateValid2DShapes(Entity entity, const Physics2DPlacement& pose, Pending2DShapes& pending);
+        void RetryPending2DShapes();
         // One entity's world matrix from its local transform and its already
         // composed parent, following its BoneAttachmentComponent when
         // `boneAttached` and it resolves (warning once per (entity, reason) when
