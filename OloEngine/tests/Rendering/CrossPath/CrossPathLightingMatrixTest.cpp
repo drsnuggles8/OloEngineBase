@@ -462,15 +462,15 @@ namespace OloEngine::Tests::CrossPath
         // hemisphere quadrature, minutes per frame in a Debug build.
         struct EnergyCurve
         {
-            std::vector<f64> E; // E((i) / (N - 1))
-            f64 EAvg = 1.0;
+            std::vector<glm::dvec2> Moments; // directional albedo and Schlick moment
+            glm::dvec2 Average{ 0.0 };
 
-            [[nodiscard]] f64 At(f64 mu) const
+            [[nodiscard]] glm::dvec2 At(f64 mu) const
             {
-                const f64 x = std::clamp(mu, 0.0, 1.0) * static_cast<f64>(E.size() - 1u);
-                const auto i = std::min(static_cast<sizet>(x), E.size() - 2u);
+                const f64 x = std::clamp(mu, 0.0, 1.0) * static_cast<f64>(Moments.size() - 1u);
+                const auto i = std::min(static_cast<sizet>(x), Moments.size() - 2u);
                 const f64 f = x - static_cast<f64>(i);
-                return E[i] * (1.0 - f) + E[i + 1u] * f;
+                return glm::mix(Moments[i], Moments[i + 1u], f);
             }
         };
 
@@ -478,21 +478,22 @@ namespace OloEngine::Tests::CrossPath
         {
             auto curve = std::make_shared<EnergyCurve>();
             constexpr u32 kNodes = 129;
-            curve->E.resize(kNodes);
-            // mu = 0 exactly is the tangent view, where E -> 0; start a hair above.
+            curve->Moments.resize(kNodes);
             for (u32 i = 0; i < kNodes; ++i)
-                curve->E[i] = Oracle::GgxDirectionalAlbedo(std::max(1.0e-3, static_cast<f64>(i) / (kNodes - 1u)),
-                                                           alpha, 256, 64)
-                                  .Value;
-            // E_avg = 2 int E(mu) mu dmu, by the trapezoid rule on the same nodes.
-            f64 sum = 0.0;
+            {
+                const f64 mu = std::max(1.0e-3, static_cast<f64>(i) / (kNodes - 1u));
+                curve->Moments[i] = { Oracle::GgxDirectionalAlbedo(mu, alpha, 256, 64).Value,
+                                      Oracle::GgxDirectionalSchlickMoment(mu, alpha, 256, 64).Value };
+            }
+            // Cosine-weighted averages of both moments, from the same nodes.
+            glm::dvec2 sum{ 0.0 };
             for (u32 i = 0; i + 1u < kNodes; ++i)
             {
                 const f64 m0 = static_cast<f64>(i) / (kNodes - 1u);
                 const f64 m1 = static_cast<f64>(i + 1u) / (kNodes - 1u);
-                sum += 0.5 * (curve->E[i] * m0 + curve->E[i + 1u] * m1) * (m1 - m0);
+                sum += 0.5 * (curve->Moments[i] * m0 + curve->Moments[i + 1u] * m1) * (m1 - m0);
             }
-            curve->EAvg = 2.0 * sum;
+            curve->Average = 2.0 * sum;
             return curve;
         }
 
@@ -527,7 +528,10 @@ namespace OloEngine::Tests::CrossPath
                 glm::dvec3 f;
                 if (energy)
                 {
-                    const Oracle::ClosureV2Energies energies{ energy->At(v.z), energy->At(l.z), energy->EAvg };
+                    const glm::dvec2 view = energy->At(v.z);
+                    const glm::dvec2 light = energy->At(l.z);
+                    const Oracle::ClosureV2Energies energies{ view.x, light.x, energy->Average.x,
+                                                              view.y, light.y, energy->Average.y };
                     f = Oracle::ClosureV2Brdf(v, l, albedo, tile.Metallic, tile.Roughness, energies);
                 }
                 else
