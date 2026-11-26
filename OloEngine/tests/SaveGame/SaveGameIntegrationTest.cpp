@@ -73,6 +73,37 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreEmptyScene)
     EXPECT_TRUE(SaveGameSerializer::RestoreSceneState(*newScene, data));
 }
 
+TEST_F(SaveGameIntegrationTest, CurrentFormatRetainsStandardAndTileMaterials)
+{
+    auto actor = m_Scene->CreateEntity("Surfaces");
+    const UUID actorId = actor.GetUUID();
+    auto& material = actor.AddComponent<MaterialComponent>().m_Material;
+    material.SetRoughnessFactor(0.64f);
+    material.SetMaterialKind(MaterialKind::Snow);
+
+    auto& tiles = actor.AddComponent<TileRendererComponent>();
+    tiles.Materials[0].SetRoughnessFactor(0.21f);
+    auto& skin = tiles.Materials.Emplace_GetRef();
+    skin.SetMaterialKind(MaterialKind::Skin);
+    skin.SetSkinProfileHandle(328u);
+    tiles.MaterialIDs[0] = 1;
+
+    const auto data = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    Ref<Scene> loaded = Ref<Scene>::Create();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, data));
+    auto entity = loaded->GetEntityByUUID(actorId);
+    ASSERT_TRUE(entity);
+    const auto& restored = entity.GetComponent<MaterialComponent>().m_Material;
+    EXPECT_EQ(restored.GetMaterialKind(), MaterialKind::Snow);
+    EXPECT_FLOAT_EQ(restored.GetRoughnessFactor(), 0.64f);
+    const auto& restoredTiles = entity.GetComponent<TileRendererComponent>();
+    ASSERT_EQ(restoredTiles.Materials.Num(), 2);
+    EXPECT_FLOAT_EQ(restoredTiles.Materials[0].GetRoughnessFactor(), 0.21f);
+    EXPECT_EQ(restoredTiles.Materials[1].GetMaterialKind(), MaterialKind::Skin);
+    EXPECT_EQ(static_cast<u64>(restoredTiles.Materials[1].GetSkinProfileHandle()), 328u);
+    EXPECT_EQ(restoredTiles.MaterialIDs[0], 1u);
+}
+
 TEST_F(SaveGameIntegrationTest, ContinueRetainsTheLoadedGeometryForMatchingAuthoredEntities)
 {
     auto tower = m_Scene->CreateEntity("Tower");
