@@ -531,7 +531,14 @@ namespace
             api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &depthRead, 1u });
             stats.Bind();
             RGCommandContext commandContext;
+            constexpr const char* kMarkerShader = "VSM_MarkRequiredPages";
+            const auto before = api.GetComputeDispatchCensus()[kMarkerShader];
             mark.Record(commandContext);
+            const auto after = api.GetComputeDispatchCensus()[kMarkerShader];
+            EXPECT_EQ(after.Recorded, before.Recorded + 1u);
+            EXPECT_EQ(after.Dropped, before.Dropped);
+            EXPECT_EQ(after.NoShader, before.NoShader);
+            EXPECT_EQ(after.NoBracket, before.NoBracket);
         }
 
         CopyVsmMarkInputs(mark, api.CurrentCommandBuffer(), readback, frame);
