@@ -778,23 +778,11 @@ vec3 postProcessColor(vec3 hdrColor, int tonemapOperator, bool applyGamma)
 }
 
 // =============================================================================
-// SAMPLING UTILITIES
-// =============================================================================
-
-// camelCase aliases over the shared MathCommon primitives, kept so existing
-// call sites (e.g. calculateIBLImportanceSampled) compile unchanged. The
-// canonical bodies — bitwise radical inverse and the branchless orthonormal
-// basis — now live in MathCommon.glsl, so they can't drift from the bake path.
-float vanDerCorputSequence(uint bits)               { return RadicalInverse_VdC(bits); }
-vec2  hammersleySequence(uint i, uint N)            { return Hammersley(i, N); }
-vec3  importanceSampleGGX(vec2 Xi, vec3 N, float r) { return ImportanceSampleGGX(Xi, N, r); }
-
-// =============================================================================
 // GGX VNDF IMPORTANCE SAMPLING (issue #706)
 //
 // Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018.
 //
-// importanceSampleGGX above samples the FULL normal distribution D. At grazing
+// MathCommon.glsl's ImportanceSampleGGX samples the FULL normal distribution D. At grazing
 // angles most of the microfacets it draws are backfacing or masked, so their
 // contribution is thrown away — the sample is wasted and the variance stays
 // high exactly where a rough surface is most visible. Sampling the VISIBLE
@@ -1238,14 +1226,6 @@ float calculateAttenuation(vec3 lightPos, vec3 fragPos, vec4 attenuationParams)
     return attenuation * falloff * falloff;
 }
 
-// Epic Games' physically-based attenuation
-float calculateAttenuationEpic(vec3 lightPos, vec3 fragPos, float lightRadius)
-{
-    float distance = length(lightPos - fragPos);
-    float falloff = SQUARE(SATURATE(1.0 - SQUARE(SQUARE(distance / lightRadius))));
-    return falloff / (SQUARE(distance) + 1.0);
-}
-
 // =============================================================================
 // SPOT LIGHT FUNCTIONS
 // =============================================================================
@@ -1262,26 +1242,6 @@ float calculateSpotIntensity(vec3 lightDir, vec3 spotDir, vec4 spotParams)
 
     // Smooth falloff function
     return intensity * intensity;
-}
-
-// Advanced spot light with custom falloff curve
-float calculateSpotIntensityAdvanced(vec3 lightDir, vec3 spotDir, vec4 spotParams)
-{
-    float innerCutoff = spotParams.x;
-    float outerCutoff = spotParams.y;
-    float falloffExponent = spotParams.z;
-
-    float theta = dot(lightDir, normalize(-spotDir));
-
-    if (theta > innerCutoff)
-        return 1.0;
-    else if (theta > outerCutoff)
-    {
-        float t = (theta - outerCutoff) / (innerCutoff - outerCutoff);
-        return pow(t, falloffExponent);
-    }
-
-    return 0.0;
 }
 
 // =============================================================================
