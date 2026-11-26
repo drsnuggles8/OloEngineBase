@@ -37,16 +37,22 @@ TEST(VulkanAsyncCompute, SkipsWhenNotCompiledIn)
 
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStatsRegistry.h"
 #include "OloEngine/Renderer/GraphicsContext.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TransientPool.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 
@@ -55,8 +61,11 @@ TEST(VulkanAsyncCompute, SkipsWhenNotCompiledIn)
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <functional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -448,6 +457,91 @@ namespace
         SetupFn m_Setup;
         ExecuteFn m_Execute;
     };
+
+    struct VsmMarkInputs
+    {
+        u32 Invalidate = 0;
+        f32 CameraX = 0.0f;
+    };
+
+    void CopyVsmMarkInputs(const RGPreparedPass& mark, VkCommandBuffer cmd, VkBuffer readback, u32 frame)
+    {
+        const VulkanStorageBuffer* localLights = nullptr;
+        VulkanUniformBuffer* globals = nullptr;
+        for (const auto& use : mark.Resources)
+        {
+            const auto* entry = VulkanRootObjectRegistry::Get().Lookup(use.Resource);
+            if (entry == nullptr || use.Write)
+                continue;
+            if (entry->Kind == VulkanRootObjectKind::UniformBuffer)
+            {
+                auto* buffer = static_cast<VulkanUniformBuffer*>(entry->Object);
+                if (buffer->GetBinding() == ShaderBindingLayout::UBO_VIRTUAL_SHADOW)
+                    globals = buffer;
+            }
+            else if (entry->Kind == VulkanRootObjectKind::StorageBuffer)
+            {
+                const auto* buffer = static_cast<const VulkanStorageBuffer*>(entry->Object);
+                if (buffer->GetBinding() == ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS)
+                    localLights = buffer;
+            }
+        }
+        ASSERT_NE(localLights, nullptr);
+        ASSERT_NE(globals, nullptr);
+        VkBuffer globalsBuffer = VK_NULL_HANDLE;
+        u64 globalsOffset = 0;
+        ASSERT_TRUE(VulkanFrameArena::Get().ResolveAddress(globals->GetRootDataAddress(), globalsBuffer, globalsOffset));
+
+        // The local-light buffer's invalidation words follow its raster-mip
+        // table and head table. Read this word alongside the marker's camera.
+        constexpr VkDeviceSize kLayer0Invalidate = 2u * VSM::kMaxLocalLayers * sizeof(u32);
+        const VkDeviceSize resultOffset = frame * sizeof(VsmMarkInputs);
+        const VkBufferCopy invalidate{ kLayer0Invalidate, resultOffset + offsetof(VsmMarkInputs, Invalidate), sizeof(u32) };
+        vkCmdCopyBuffer(cmd, localLights->GetVkBuffer(), readback, 1, &invalidate);
+        const VkBufferCopy cameraX{ globalsOffset + offsetof(VSM::GlobalsUBO, CameraPosition),
+                                    resultOffset + offsetof(VsmMarkInputs, CameraX), sizeof(f32) };
+        vkCmdCopyBuffer(cmd, globalsBuffer, readback, 1, &cameraX);
+    }
+
+    void RecordVsmMarkFrame(VulkanContext& context, VirtualShadowMap& vsm, const Texture2D& depth,
+                            const StorageBuffer& stats, const VirtualShadowMap::LocalLightDesc& light,
+                            VkBuffer readback, u32 frame)
+    {
+        // Keeping the same light on frame 2 rewrites the invalidation word
+        // from 1 (new layer) to 0 (retained layer), at the same buffer address.
+        const glm::vec3 camera{ frame == 0u ? 1.0f : 3.0f, 0.0f, 0.0f };
+        vsm.BeginLocalLights();
+        ASSERT_EQ(vsm.RegisterLocalLight(light), 0);
+        vsm.EndLocalLights();
+        vsm.BeginFrame({ 0.0f, -1.0f, 0.0f }, camera, glm::vec3(0.0f));
+        const auto depthHandle = depth.GetRHIHandle();
+        auto mark = vsm.PreparePageMarking(depthHandle, depth.GetWidth(), depth.GetHeight(), glm::mat4(1.0f), camera);
+        ASSERT_TRUE(mark.Record);
+
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        if (frame == 0u)
+        {
+            api.ClearTextureFloat(depthHandle, 0, glm::vec4(0.5f));
+            ASSERT_TRUE(context.BeginAsyncComputeSegment(0u)) << context.GetAsyncComputeDeclineReason();
+            RHI::Barrier depthRead;
+            depthRead.Resource = depthHandle;
+            depthRead.Range = { RHI::TextureAspect::Color, 0u, 1u, 0u, 1u };
+            depthRead.Before = RHI::Access::TransferWrite;
+            depthRead.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &depthRead, 1u });
+            stats.Bind();
+            RGCommandContext commandContext;
+            mark.Record(commandContext);
+        }
+
+        CopyVsmMarkInputs(mark, api.CurrentCommandBuffer(), readback, frame);
+        if (frame == 0u)
+        {
+            // Close the segment even if the readback probe raised a failure.
+            EXPECT_TRUE(context.EndAsyncComputeSegment(0u));
+            mark.Publish();
+        }
+    }
 } // namespace
 
 TEST(VulkanAsyncComputeDevice, AnAsyncBatchCrossesToTheComputeQueueAndBack)
@@ -613,6 +707,149 @@ TEST(VulkanAsyncComputeDevice, AnAsyncBatchCrossesToTheComputeQueueAndBack)
 
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
         << "queue-family ownership transfers and the cross-queue submits must be validation-clean";
+}
+
+TEST(VulkanAsyncComputeDevice, VsmMarkInputsSurviveTheNextFrameUploads)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanContext context(VulkanContext::OffscreenTarget{ 32u, 32u });
+    try
+    {
+        context.Init();
+    }
+    catch (const std::exception& e)
+    {
+        GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+    }
+    auto* device = VulkanDevice::Get();
+    ASSERT_NE(device, nullptr);
+    if (!device->HasAsyncComputeQueue())
+        GTEST_SKIP() << VulkanQueueSelection::Describe(device->GetAsyncComputeUnavailableReason());
+    RenderCommand::Init();
+    VulkanDevice::ResetValidationErrorCount();
+
+    VirtualShadowMapSettings settings;
+    settings.Enabled = true;
+    settings.PhysicalResolution = 1024;
+    VirtualShadowMap vsm;
+    vsm.Init(settings);
+    ASSERT_TRUE(vsm.AreLocalLightsActive());
+
+    TextureSpecification depthSpec;
+    depthSpec.Width = 32u;
+    depthSpec.Height = 32u;
+    depthSpec.Format = ImageFormat::R32F;
+    const auto depth = Texture2D::Create(depthSpec);
+    ASSERT_TRUE(depth);
+
+    // Supply the renderer's disabled stats block in this standalone context.
+    // The marker reads the flags even when instrumentation is off.
+    constexpr u32 kStatsBytes = static_cast<u32>((4u + kGPUStatCounterSlots) * sizeof(u32));
+    auto stats = StorageBuffer::Create(kStatsBytes, ShaderBindingLayout::SSBO_GPU_STATS, StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(stats);
+    stats->ClearData();
+
+    const auto readback = StorageBuffer::Create(2u * sizeof(VsmMarkInputs), StorageBuffer::kNoBinding,
+                                                StorageBufferUsage::DynamicCopy);
+    ASSERT_TRUE(readback);
+    const VkBuffer readbackBuffer = static_cast<const VulkanStorageBuffer*>(readback.Raw())->GetVkBuffer();
+    const VkDevice vkDevice = device->GetDevice();
+
+    // A host-signalled gate ahead of the compute batch leaves the graphics
+    // queue free to run. Unblock and join on every exit, including assertions.
+    struct SubmissionGate
+    {
+        explicit SubmissionGate(VkDevice device)
+            : Device(device)
+        {
+        }
+        SubmissionGate(const SubmissionGate&) = delete;
+        SubmissionGate& operator=(const SubmissionGate&) = delete;
+        SubmissionGate(SubmissionGate&&) = delete;
+        SubmissionGate& operator=(SubmissionGate&&) = delete;
+
+        VkDevice Device;
+        VkSemaphore Semaphore = VK_NULL_HANDLE;
+        VkFence LaterGraphics = VK_NULL_HANDLE;
+        bool Held = false;
+
+        VkResult Release()
+        {
+            VkSemaphoreSignalInfo signal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO };
+            signal.semaphore = Semaphore;
+            signal.value = 1u;
+            const VkResult result = vkSignalSemaphore(Device, &signal);
+            if (result == VK_SUCCESS)
+                Held = false;
+            return result;
+        }
+
+        ~SubmissionGate()
+        {
+            if (Held)
+                (void)Release();
+            vkDeviceWaitIdle(Device);
+            if (LaterGraphics != VK_NULL_HANDLE)
+                vkDestroyFence(Device, LaterGraphics, nullptr);
+            if (Semaphore != VK_NULL_HANDLE)
+                vkDestroySemaphore(Device, Semaphore, nullptr);
+        }
+    } gate{ vkDevice };
+    VkSemaphoreTypeCreateInfo timeline{ VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
+    timeline.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    semaphoreInfo.pNext = &timeline;
+    ASSERT_EQ(vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &gate.Semaphore), VK_SUCCESS);
+    const VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    ASSERT_EQ(vkCreateFence(vkDevice, &fenceInfo, nullptr, &gate.LaterGraphics), VK_SUCCESS);
+
+    VkSemaphoreSubmitInfo wait{ VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+    wait.semaphore = gate.Semaphore;
+    wait.value = 1u;
+    wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkSubmitInfo2 hold{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    hold.waitSemaphoreInfoCount = 1;
+    hold.pWaitSemaphoreInfos = &wait;
+    ASSERT_EQ(vkQueueSubmit2(device->GetAsyncComputeQueue(), 1, &hold, VK_NULL_HANDLE), VK_SUCCESS);
+    gate.Held = true;
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubHitsBefore = api.GetUnimplementedStubHitCount();
+    VirtualShadowMap::LocalLightDesc light;
+    light.LightId = 1u;
+    light.Range = 8.0f;
+    light.IsPoint = false;
+    light.OuterCutoffDegrees = 35.0f;
+
+    for (const u32 frame : { 0u, 1u })
+    {
+        context.SetFrameRenderCallback([&, frame](const auto&)
+                                       {
+                                           RecordVsmMarkFrame(context, vsm, *depth, *stats, light, readbackBuffer, frame);
+                                           return false; });
+        context.SwapBuffers();
+        ASSERT_FALSE(HasFatalFailure());
+        if (frame == 0u)
+            ASSERT_EQ(context.GetAsyncComputeSubmitCountThisFrame(), 1u);
+    }
+    context.SetFrameRenderCallback({});
+    const VkSubmitInfo2 observe{ VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+    ASSERT_EQ(vkQueueSubmit2(device->GetQueue(), 1, &observe, gate.LaterGraphics), VK_SUCCESS);
+    constexpr u64 kObservationNs = 1'000'000'000u;
+    EXPECT_EQ(vkWaitForFences(vkDevice, 1, &gate.LaterGraphics, VK_TRUE, kObservationNs), VK_TIMEOUT)
+        << "the next graphics frame ran while the old VSM mark was held";
+    ASSERT_EQ(gate.Release(), VK_SUCCESS);
+    ASSERT_EQ(vkWaitForFences(vkDevice, 1, &gate.LaterGraphics, VK_TRUE, 10'000'000'000u), VK_SUCCESS);
+
+    std::array<VsmMarkInputs, 2> captured{};
+    ASSERT_TRUE(readback->GetData(captured.data(), sizeof(captured)));
+    EXPECT_EQ(captured[1].Invalidate, 0u);
+    EXPECT_FLOAT_EQ(captured[1].CameraX, 3.0f);
+    EXPECT_EQ(captured[0].Invalidate, 1u);
+    EXPECT_FLOAT_EQ(captured[0].CameraX, 1.0f);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubHitsBefore);
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
 #endif // OLO_WITH_VULKAN
