@@ -178,7 +178,7 @@ namespace OloEngine
                                                 {
                                                     if (!IsValidMaterialKind(kind))
                                                     {
-                                                        OLO_CORE_WARN("[Lua] MaterialComponent.materialKind rejects {} (valid: 0=Generic, 1=Snow, 2=Skin)", kind);
+                                                        OLO_CORE_WARN("[Lua] MaterialComponent.materialKind rejects {} (valid: 0=Generic, 1=Snow, 2=Skin, 3=Foliage)", kind);
                                                         return;
                                                     }
                                                     mc.m_Material.SetMaterialKind(static_cast<MaterialKind>(kind));
