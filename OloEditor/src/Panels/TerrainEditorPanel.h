@@ -39,6 +39,7 @@ namespace OloEngine
                 SettleEdits();
                 m_Context = scene;
                 m_HasBrushHit = false;
+                m_PaintTarget = entt::null;
             }
         }
         void SetCommandHistory(CommandHistory* history)
@@ -110,6 +111,7 @@ namespace OloEngine
         {
             return m_HasBrushHit;
         }
+        [[nodiscard]] const TerrainMaterial* GetPaintMaterial() const;
 
         bool Visible = true;
 
@@ -186,6 +188,8 @@ namespace OloEngine
         // Brush hit state (from viewport raycast)
         glm::vec3 m_BrushWorldPos{ 0.0f };
         bool m_HasBrushHit = false;
+        // Retain the last picked terrain while the user moves onto the panel.
+        entt::entity m_PaintTarget = entt::null;
 
         // Stroke tracking for undo
         bool m_StrokeActive = false;

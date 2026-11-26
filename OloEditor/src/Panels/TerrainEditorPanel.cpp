@@ -331,42 +331,32 @@ namespace OloEngine
         }
     }
 
+    const TerrainMaterial* TerrainEditorPanel::GetPaintMaterial() const
+    {
+        if (m_StrokeMaterial)
+            return m_StrokeMaterial.Raw();
+        if (!m_Context)
+            return nullptr;
+        const auto terrains = m_Context->GetAllEntitiesWith<TerrainComponent>();
+        return terrains.contains(m_PaintTarget) ? terrains.get<TerrainComponent>(m_PaintTarget).m_Material.Raw() : nullptr;
+    }
+
     void TerrainEditorPanel::DrawPaintUI()
     {
         ImGui::Text("Paint Tool");
 
-        // Find first terrain with material to get layer names
-        auto terrainView = m_Context->GetAllEntitiesWith<TerrainComponent>();
-        u32 maxLayers = 0;
-        for (auto entity : terrainView)
+        const auto* material = GetPaintMaterial();
+        if (!material || material->GetLayerCount() == 0)
         {
-            auto& tc = terrainView.get<TerrainComponent>(entity);
-            if (tc.m_Material)
-            {
-                maxLayers = tc.m_Material->GetLayerCount();
-                break;
-            }
+            ImGui::TextDisabled(material ? "The picked terrain has no material layers." : "Hover a terrain with a material to select its paint layers.");
         }
-
-        if (maxLayers == 0)
+        else
         {
-            ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "No material layers. Add layers in the component panel first.");
-            return;
-        }
-
-        if (int targetLayer = static_cast<int>(m_PaintSettings.TargetLayer); ImGui::SliderInt("Target Layer", &targetLayer, 0, static_cast<int>(maxLayers - 1)))
-            m_PaintSettings.TargetLayer = static_cast<u32>(targetLayer);
-
-        // Show layer name
-        for (auto entity : terrainView)
-        {
-            auto& tc = terrainView.get<TerrainComponent>(entity);
-            if (tc.m_Material && m_PaintSettings.TargetLayer < tc.m_Material->GetLayerCount())
-            {
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%s)", tc.m_Material->GetLayer(m_PaintSettings.TargetLayer).Name.GetData());
-                break;
-            }
+            m_PaintSettings.TargetLayer = std::min(m_PaintSettings.TargetLayer, material->GetLayerCount() - 1);
+            if (int layer = static_cast<int>(m_PaintSettings.TargetLayer); ImGui::SliderInt("Target Layer", &layer, 0, static_cast<int>(material->GetLayerCount() - 1)))
+                m_PaintSettings.TargetLayer = static_cast<u32>(layer);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", material->GetLayer(m_PaintSettings.TargetLayer).Name.GetData());
         }
 
         ImGui::DragFloat("Radius", &m_PaintSettings.Radius, 0.5f, 0.5f, 200.0f, "%.1f");
@@ -862,6 +852,8 @@ namespace OloEngine
         m_HasBrushHit = hitTerrain && hitTerrain.GetScene() == m_Context.Raw() &&
                         hitTerrain.HasComponent<TerrainComponent>() &&
                         (!m_StrokeActive || m_StrokeEntity == static_cast<entt::entity>(hitTerrain));
+        if (m_HasBrushHit && m_EditMode == TerrainEditMode::Paint)
+            m_PaintTarget = hitTerrain;
         if (m_HasBrushHit && mouseDown)
         {
             auto& terrain = hitTerrain.GetComponent<TerrainComponent>();
@@ -978,8 +970,9 @@ namespace OloEngine
             }
             else if (m_EditMode == TerrainEditMode::Paint)
             {
-                if (!terrain.m_Material)
+                if (!terrain.m_Material || terrain.m_Material->GetLayerCount() == 0)
                     return;
+                m_PaintSettings.TargetLayer = std::min(m_PaintSettings.TargetLayer, terrain.m_Material->GetLayerCount() - 1);
 
                 // Initialize CPU splatmaps if not done yet
                 if (!terrain.m_Material->HasCPUSplatmaps())

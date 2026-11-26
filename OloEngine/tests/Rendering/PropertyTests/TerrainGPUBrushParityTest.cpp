@@ -166,7 +166,7 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
     Entity upper = GetScene().CreateEntity("Picked upper field");
     Entity lower = GetScene().CreateEntity("Lower field");
     upper.GetComponent<TransformComponent>().Translation.y = 2;
-    auto prepare = [](Entity e, u32 resolution, bool tessellates)
+    auto prepare = [](Entity e, u32 resolution, bool tessellates, u32 layerCount)
     {
         auto& terrain = e.AddComponent<TerrainComponent>();
         terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 64;
@@ -177,8 +177,8 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
         terrain.m_ChunkManager = Ref<TerrainChunkManager>::Create();
         terrain.m_ChunkManager->GenerateAllChunks(*terrain.m_TerrainData, 64, 64, 8);
         terrain.m_Material = Ref<TerrainMaterial>::Create();
-        terrain.m_Material->AddLayer(TerrainLayer{});
-        terrain.m_Material->AddLayer(TerrainLayer{});
+        for (u32 layer = 0; layer < layerCount; ++layer)
+            terrain.m_Material->AddLayer(TerrainLayer{});
         terrain.m_Material->InitializeCPUSplatmaps(resolution);
         auto& splat = terrain.m_Material->GetSplatmapData(0);
         for (i32 i = 0; i < splat.Num(); i += 4)
@@ -189,7 +189,7 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
         terrain.m_Material->UploadSplatmapRegion(0, 0, 0, resolution, resolution);
     };
     RunInFrame([&]
-               { prepare(upper, 65, false); prepare(lower, 129, true); });
+               { prepare(upper, 65, false, 2); prepare(lower, 129, true, 6); });
     auto& upperTile = upper.GetComponent<TerrainComponent>();
     auto& lowerTile = lower.GetComponent<TerrainComponent>();
     const auto beforeUpper = upperTile.m_TerrainData->GetHeightData();
@@ -223,10 +223,15 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
     const auto beforeUpperPaint = upperTile.m_Material->GetSplatmapData(0);
     const auto beforeLowerPaint = lowerTile.m_Material->GetSplatmapData(0);
     panel.SetEditMode(TerrainEditMode::Paint);
+    panel.OnUpdate(0, upper, { 32, 4, 32 }, false);
+    ASSERT_EQ(panel.GetPaintMaterial(), upperTile.m_Material.Raw());
+    EXPECT_EQ(panel.GetPaintMaterial()->GetLayerCount(), 2u);
     RunInFrame([&]
                {
                    panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
                    panel.OnUpdate(1, upper, { 48, 4, 48 }, true);
+                   ASSERT_EQ(panel.GetPaintMaterial(), lowerTile.m_Material.Raw());
+                   EXPECT_EQ(panel.GetPaintMaterial()->GetLayerCount(), 6u);
                    panel.OnUpdate(0, {}, {}, false); });
     ASSERT_TRUE(history.CanUndo());
     EXPECT_TRUE(upperTile.m_Material->GetSplatmapData(0) == beforeUpperPaint);
