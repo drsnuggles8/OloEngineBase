@@ -605,6 +605,8 @@ namespace OloEngine::Tests
         SceneQueryHit before, after;
         ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, before));
         ASSERT_EQ(before.m_HitEntity, m_Terrain.GetUUID());
+        const f32 localHeight = terrain.m_TerrainData->GetHeightAt(20.0f / kWorldSize, 32.0f / kWorldSize) * kHeightScale;
+        EXPECT_NEAR(before.m_Position.y, GetScene().ComputeWorldPosition(m_Terrain).y + localHeight, 0.02f);
         // No new tick. Rebuild while RenderRuntime temporarily applies the
         // halfway pose, then inspect the native surface after ECS restoration.
         terrain.m_NeedsRebuild = true;

@@ -4656,6 +4656,18 @@ namespace OloEngine
                 }
             }
         }
+        // Advance retry delays once per step, regardless of how many times
+        // presentation and physics query the terrain in that interval.
+        for (auto it = m_TerrainCollisionRetryTicks.begin(); it != m_TerrainCollisionRetryTicks.end();)
+        {
+            if (--it->second == 0)
+                it = m_TerrainCollisionRetryTicks.erase(it);
+            else
+                ++it;
+        }
+        // A simulated carrier now has this tick's native pose. Scene queries
+        // and interpolated render rebuilds need its terrain at the same pose.
+        SyncTerrainCollisionFrames();
     }
 
     // Named resource channels for the gameplay schedule below — constants, not
@@ -9150,12 +9162,10 @@ namespace OloEngine
                 }
                 continue;
             }
-            if (const auto retry = m_TerrainCollisionRetryTicks.find(e); retry != m_TerrainCollisionRetryTicks.end())
-            {
-                if (--retry->second != 0 && !terrain.m_StreamingEnabled)
-                    continue;
-                m_TerrainCollisionRetryTicks.erase(retry);
-            }
+            if (terrain.m_StreamingEnabled)
+                m_TerrainCollisionRetryTicks.erase(e);
+            else if (m_TerrainCollisionRetryTicks.contains(e))
+                continue;
             const glm::mat4 world = ComputeWorldTransform(e);
             const auto previous = m_TerrainCollisionFrames.find(e);
             if (previous != m_TerrainCollisionFrames.end() && previous->second.Streamed == terrain.m_StreamingEnabled &&
