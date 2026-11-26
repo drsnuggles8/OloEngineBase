@@ -386,20 +386,21 @@ namespace OloEngine
 
     void TerrainEditorPanel::OnFrameTick(bool editingAllowed, bool mouseDown)
     {
-        if (!editingAllowed || !mouseDown)
-            EndStroke();
         if (!editingAllowed)
         {
-            // Not a reason to return early: an in-flight session must still settle,
-            // or its undo entry is never pushed and it keeps the terrain alive.
-            if (m_ErosionSessionActive)
-            {
-                EndContinuousErosionSession();
-            }
+            SettleEdits();
             return;
         }
-
+        if (!mouseDown)
+            EndStroke();
         UpdateContinuousErosion();
+    }
+
+    void TerrainEditorPanel::SettleEdits()
+    {
+        EndStroke();
+        if (m_ErosionSessionActive)
+            EndContinuousErosionSession();
     }
 
     TerrainTextureUndoStack& TerrainEditorPanel::EnsureUndoStack()

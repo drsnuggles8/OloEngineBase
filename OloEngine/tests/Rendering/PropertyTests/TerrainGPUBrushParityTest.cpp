@@ -197,6 +197,8 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
 
     CommandHistory history;
     TerrainEditorPanel panel;
+    history.BeforeUndoRedo = [&]
+    { panel.SettleEdits(); };
     panel.SetContext(GetSceneRef());
     panel.SetCommandHistory(&history);
     panel.SetEditMode(TerrainEditMode::Sculpt);
@@ -232,6 +234,16 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
     RunInFrame([&]
                { history.Undo(); });
     EXPECT_FALSE(history.CanUndo());
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+
+    // A stroke can still be held when the user or automation navigates
+    // history. Publishing that new stroke invalidates the previous redo.
+    ASSERT_TRUE(history.CanRedo());
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   EXPECT_FALSE(history.Redo());
+                   EXPECT_TRUE(history.Undo()); });
     EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
 }
 
