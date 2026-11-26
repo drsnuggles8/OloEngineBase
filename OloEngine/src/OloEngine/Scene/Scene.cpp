@@ -16872,15 +16872,16 @@ namespace OloEngine
                     eyeDepth = underwater.WaterSurfaceY - cameraPosition.y;
                     if (std::optional<WaterProbe::Volume> volume = fogWater ? WaterProbe::MakeVolume(fogWaterModel, *fogWater) : std::nullopt)
                     {
-                        // The probe is how PHYSICS sees the tile. Three places it can
-                        // differ from what is on screen, and here the screen decides:
+                        // The probe starts with the tile's physics settings.
+                        // Use the wave model and shared fields from the water draw:
                         //  * the shader draws the FFT sea only once its textures exist
                         //    (fftActive above) and Gerstner waves until then;
                         //  * an FFT sea drawn with no CPU proxy to sample has no height
                         //    to offer, and the still plane stands;
                         //  * the wake shapes every drawn tile alike, whether or not
                         //    buoyancy rides it: one set of tunables, the largest
-                        //    wake-enabled tile's, published above for this frame.
+                        //    wake-enabled tile's, published above for this frame;
+                        //  * every tile draws the winning shore field and breaker index.
                         const bool hasProxy = volume->m_OceanField != nullptr;
                         if (!fogWaterDrawsFFT)
                             volume->m_OceanField = nullptr;
@@ -16888,6 +16889,8 @@ namespace OloEngine
                         volume->m_WakeAffectsPhysics = drawnWake.m_Enabled;
                         volume->m_WakeHeightScale = drawnWake.m_Enabled ? drawnWake.m_HeightScale : 0.0f;
                         volume->m_WakeFlattenStrength = drawnWake.m_FlattenStrength;
+                        volume->m_Params.m_ShoreEnabled = WaterShoreDepthSystem::GetShaderParams().w > 0.0f;
+                        volume->m_Params.m_ShoreBreakerIndex = WaterShoreDepthSystem::GetShaderParams2().x;
                         if (!fogWaterDrawsFFT || hasProxy)
                         {
                             const f32 surfaceY = WaterProbe::SampleSurfaceY(

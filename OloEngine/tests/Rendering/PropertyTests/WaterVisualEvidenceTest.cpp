@@ -61,7 +61,9 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Entity.h"
@@ -1299,6 +1301,94 @@ namespace OloEngine::Tests
         Entity m_Water;
         Entity m_Rig;
     };
+
+    TEST_F(TiltedWaterEvidenceTest, FogEyeDepthUsesTheShoreFieldDrawnAcrossOverlappingFFTTiles)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ResetTime
+        {
+            ~ResetTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const resetTime;
+        Time::SetMockTime(kCaptureTime);
+
+        Entity largeTile = GetScene().CreateEntity("Shore settings owner");
+        largeTile.GetComponent<TransformComponent>().Translation.y = -2.0f;
+        auto& large = largeTile.AddComponent<WaterComponent>();
+        auto& local = m_Water.GetComponent<WaterComponent>();
+        for (auto* water : { &large, &local })
+        {
+            water->m_UseFFT = true;
+            water->m_FFTUseGpuCompute = false; // upload the same deterministic field we can read below
+            water->m_FFTCascades = Ocean::kSingleCascadeCount;
+            water->m_FFTResolution = 32;
+            water->m_FFTPatchSize = 16.0f;
+            water->m_FFTAmplitude = 6.0f;
+            water->m_FFTChoppiness = 0.0f; // the query column is the undisplaced parameter
+            water->m_FFTHeightScale = 1.0f;
+            water->m_GridResolutionX = water->m_GridResolutionZ = 32;
+        }
+        large.m_WorldSizeX = large.m_WorldSizeZ = 64.0f;
+        large.m_ShoreWavesEnabled = true;
+        large.m_ShoreBreakerIndex = 0.10f;
+        local.m_ShoreWavesEnabled = false;
+        local.m_ShoreBreakerIndex = 0.02f;
+        Entity bed = GetScene().CreateEntity("Flat seabed");
+        bed.GetComponent<TransformComponent>().Translation = { -32, -3, -32 };
+        auto& terrain = bed.AddComponent<TerrainComponent>();
+        terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 64.0f;
+        terrain.m_ProceduralEnabled = false;
+        terrain.m_CollisionEnabled = false;
+
+        EditorCamera camera(60.0f, 1.0f, 0.05f, 100.0f);
+        camera.SetViewportSize(kSize, kSize);
+        camera.SetPose({ 0, 0.25f, 0 }, 0, 0.1f);
+        RunEditorFrames(camera, 2);
+        ASSERT_TRUE(local.m_OceanField && local.m_OceanField->GetDisplacementTextureHandle().IsValid());
+        ASSERT_TRUE(local.m_OceanField->GetDerivativesTextureHandle().IsValid());
+        // Select a crest tall enough for the two breaker settings to place
+        // the eye on opposite sides of the visible waterline.
+        glm::vec2 crestXZ(0.0f);
+        f32 crest = 0.0f;
+        for (i32 z = -7; z <= 7; ++z)
+            for (i32 x = -7; x <= 7; ++x)
+            {
+                const glm::vec2 column(x, z);
+                const f32 h = local.m_OceanField->SampleCascades(column).Height;
+                if (h > crest)
+                {
+                    crest = h;
+                    crestXZ = column;
+                }
+            }
+        ASSERT_GT(crest, 0.5f);
+        constexpr f32 eyeY = 0.25f;
+        camera.SetPose({ crestXZ.x, eyeY, crestXZ.y }, 0, 0.1f);
+        for (const bool localShore : { false, true })
+        {
+            local.m_ShoreWavesEnabled = localShore;
+            large.m_ShoreBreakerIndex = localShore ? 2.0f : 0.10f;
+            RunEditorFrames(camera, 2);
+            const auto waterUBO = Renderer3D::GetWaterUBO();
+            const auto fogUBO = Renderer3D::GetUnderwaterFogUBO();
+            ASSERT_TRUE(waterUBO && fogUBO);
+            ASSERT_EQ(waterUBO->GetCachedData().size(), sizeof(ShaderBindingLayout::WaterUBO));
+            ASSERT_EQ(fogUBO->GetCachedData().size(), sizeof(UnderwaterFogUBOData));
+            const auto drawn = waterUBO->GetData<ShaderBindingLayout::WaterUBO>();
+            const auto fog = fogUBO->GetData<UnderwaterFogUBOData>();
+            ASSERT_GT(drawn.ShoreParams.w, 0.0f);
+            ASSERT_FLOAT_EQ(drawn.ShoreParams2.x, large.m_ShoreBreakerIndex);
+            ASSERT_GT(fog.Flags.x, 0.0f);
+            ASSERT_NEAR(fog.Flags.y, 0.0f, 1e-5f) << "the nearest tile owns the fog";
+            const auto shore = WaterShoreDepthSystem::SampleWorld(crestXZ);
+            ASSERT_TRUE(shore.Enabled);
+            ASSERT_NEAR(shore.Depth, 1.0f, 1e-4f);
+            const f32 drawnCrest = std::min(crest, drawn.ShoreParams2.x * shore.Depth);
+            EXPECT_NEAR(fog.Flags.w, drawnCrest - eyeY, 1e-4f);
+        }
+    }
 
     TEST_F(TiltedWaterEvidenceTest, BuoyancyAndTheDrawnSurfaceCoincideAcrossPaths)
     {
