@@ -36,7 +36,9 @@ namespace OloEngine
         {
             if (m_Context != scene)
             {
-                SettleEdits();
+                EndStroke();
+                if (m_ErosionSessionActive)
+                    EndContinuousErosionSession();
                 m_Context = scene;
                 m_HasBrushHit = false;
                 m_PaintTarget = entt::null;
@@ -47,8 +49,6 @@ namespace OloEngine
             m_CommandHistory = history;
         }
         void OnImGuiRender();
-        void SettleEdits();
-        void SetContinuousErosion(bool enabled);
 
         // Called from EditorLayer each frame with terrain hit info. Only runs while
         // the VIEWPORT is hovered, which is correct for a brush stroke and wrong for
@@ -81,7 +81,7 @@ namespace OloEngine
         {
             if (mode != m_EditMode)
             {
-                SettleEdits();
+                EndStroke();
                 m_EditMode = mode;
             }
         }

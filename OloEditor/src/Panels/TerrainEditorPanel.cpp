@@ -376,27 +376,20 @@ namespace OloEngine
 
     void TerrainEditorPanel::OnFrameTick(bool editingAllowed, bool mouseDown)
     {
+        if (!editingAllowed || !mouseDown)
+            EndStroke();
         if (!editingAllowed)
         {
-            SettleEdits();
+            // Not a reason to return early: an in-flight session must still settle,
+            // or its undo entry is never pushed and it keeps the terrain alive.
+            if (m_ErosionSessionActive)
+            {
+                EndContinuousErosionSession();
+            }
             return;
         }
-        if (!mouseDown)
-            EndStroke();
+
         UpdateContinuousErosion();
-    }
-
-    void TerrainEditorPanel::SettleEdits()
-    {
-        EndStroke();
-        SetContinuousErosion(false);
-    }
-
-    void TerrainEditorPanel::SetContinuousErosion(bool enabled)
-    {
-        m_ErosionContinuous = enabled && m_EditMode == TerrainEditMode::Erosion;
-        if (!m_ErosionContinuous && m_ErosionSessionActive)
-            EndContinuousErosionSession();
     }
 
     TerrainTextureUndoStack& TerrainEditorPanel::EnsureUndoStack()
@@ -1186,8 +1179,7 @@ namespace OloEngine
                 // old per-iteration GetData this was a whole-map GPU->CPU stall per
                 // frame. Undo is grouped per SESSION: one entry when the box is
                 // unticked, not one per frame.
-                if (bool continuous = m_ErosionContinuous; ImGui::Checkbox("Continuous", &continuous))
-                    SetContinuousErosion(continuous);
+                ImGui::Checkbox("Continuous", &m_ErosionContinuous);
                 ImGui::SetItemTooltip("Erode every frame so the surface converges live. "
                                       "Unticking commits one undo entry for the whole session.");
 

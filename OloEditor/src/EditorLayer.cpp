@@ -592,8 +592,6 @@ namespace OloEngine
                 Automation::Events::PublishSceneDirty(m_EditorScene ? m_EditorScene->GetName() : std::string{},
                                                       dirty);
             };
-            m_CommandHistory.BeforeUndoRedo = [this]()
-            { m_TerrainEditorPanel.SettleEdits(); };
             mcpContext.GetCommandHistory = [this]() -> CommandHistory*
             {
                 // Only expose the undo stack in Edit mode. In Play / Simulate the
@@ -5392,9 +5390,6 @@ namespace OloEngine
         // BEFORE the swap: a dirty outgoing document becomes clean here, and the
         // `scene_dirty` edge that publishes (#1131) must name the scene that had
         // the unsaved changes, not the one arriving.
-        // Finish the departing terrain edit while its document and undo stack
-        // still match. A clear also settles a stroke if the scene is reinstalled.
-        m_TerrainEditorPanel.SettleEdits();
         if (clearHistory)
             m_CommandHistory.Clear();
 

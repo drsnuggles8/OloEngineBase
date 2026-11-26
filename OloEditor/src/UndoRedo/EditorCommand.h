@@ -160,10 +160,6 @@ namespace OloEngine
         // a hook that cannot report a scene edit).
         std::function<void(bool dirty)> OnDirtyChanged;
 
-        // A live brush publishes its undo record only when the stroke ends.
-        // Settle it before choosing an entry, while both stacks can still change.
-        std::function<void()> BeforeUndoRedo;
-
         // Document operations (new/save) establish a checkpoint that belongs to
         // their resulting document. Undo restores the outgoing document's exact
         // checkpoint; ordinary edits retain the existing save-point semantics.
@@ -224,14 +220,12 @@ namespace OloEngine
             }
         }
 
-        bool Undo()
+        void Undo()
         {
             RefuseInsideTransaction("Undo");
-            if (BeforeUndoRedo)
-                BeforeUndoRedo();
             if (m_UndoStack.empty())
             {
-                return false;
+                return;
             }
             const DirtyEdge edge(*this);
 
@@ -248,17 +242,14 @@ namespace OloEngine
             }
             m_RedoStack.push_back(std::move(entry));
             TrimSavePoint();
-            return true;
         }
 
-        bool Redo()
+        void Redo()
         {
             RefuseInsideTransaction("Redo");
-            if (BeforeUndoRedo)
-                BeforeUndoRedo();
             if (m_RedoStack.empty())
             {
-                return false;
+                return;
             }
             const DirtyEdge edge(*this);
 
@@ -269,7 +260,6 @@ namespace OloEngine
             if (entry.PreviousSavePoint)
                 MarkSavedInternal();
             m_UndoStack.push_back(std::move(entry));
-            return true;
         }
 
         [[nodiscard]] bool CanUndo() const
