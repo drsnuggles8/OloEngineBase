@@ -19,6 +19,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <utility>
+
 namespace OloEngine
 {
     // Append local-space vertices transformed to world-space and return the baseVertex index
@@ -62,6 +64,17 @@ namespace OloEngine
             outVerts.push_back(wp.z);
         }
         return baseVertex;
+    }
+
+    // Recast classifies slopes from ordered world-space vertices. Reflection
+    // reverses winding, so restore the authored side of each transformed face.
+    static void PreserveWinding(const glm::mat4& frame, sizet firstIndex, std::vector<i32>& triangles)
+    {
+        if (glm::determinant(glm::mat3(frame)) < 0.0f)
+        {
+            for (sizet index = firstIndex, end = triangles.size(); index < end; index += 3)
+                std::swap(triangles[index + 1], triangles[index + 2]);
+        }
     }
 
     // Generate a UV-sphere approximation with given rings/segments
@@ -143,6 +156,7 @@ namespace OloEngine
             if (!meshComp.m_MeshSource || IsMovingGeometry(entity))
                 continue;
 
+            const auto firstIndex = outTris.size();
             glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             const auto& vertices = meshComp.m_MeshSource->GetVertices();
             const auto& indices = meshComp.m_MeshSource->GetIndices();
@@ -169,6 +183,7 @@ namespace OloEngine
                 outTris.push_back(baseVertex + i1);
                 outTris.push_back(baseVertex + i2);
             }
+            PreserveWinding(worldTransform, firstIndex, outTris);
         }
 
         // Collect from ModelComponent entities
@@ -180,6 +195,7 @@ namespace OloEngine
             if (!modelComp.m_Model || IsMovingGeometry(entity))
                 continue;
 
+            const auto firstIndex = outTris.size();
             glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
 
             for (const auto& mesh : modelComp.m_Model->GetMeshes())
@@ -217,6 +233,7 @@ namespace OloEngine
                     outTris.push_back(baseVertex + i2);
                 }
             }
+            PreserveWinding(worldTransform, firstIndex, outTris);
         }
 
         // Collect from BoxCollider3DComponent (approximate as 12 triangles)
@@ -228,6 +245,7 @@ namespace OloEngine
                 continue;
             const auto& box = entity.GetComponent<BoxCollider3DComponent>();
 
+            const auto firstIndex = outTris.size();
             glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             glm::vec3 halfSize = box.m_HalfExtents;
 
@@ -254,15 +272,16 @@ namespace OloEngine
 
             // 12 triangles (2 per face)
             static constexpr i32 boxIndices[] = {
-                0, 1, 2, 0, 2, 3, // front
-                4, 6, 5, 4, 7, 6, // back
-                0, 4, 5, 0, 5, 1, // bottom
-                2, 6, 7, 2, 7, 3, // top
-                0, 7, 4, 0, 3, 7, // left
-                1, 5, 6, 1, 6, 2  // right
+                0, 2, 1, 0, 3, 2, // -Z
+                4, 5, 6, 4, 6, 7, // +Z
+                0, 5, 4, 0, 1, 5, // bottom
+                2, 7, 6, 2, 3, 7, // top
+                0, 4, 7, 0, 7, 3, // left
+                1, 6, 5, 1, 2, 6  // right
             };
             for (i32 idx : boxIndices)
                 outTris.push_back(baseVertex + idx);
+            PreserveWinding(worldTransform, firstIndex, outTris);
         }
 
         // Collect from SphereCollider3DComponent (UV-sphere approximation)
@@ -282,11 +301,13 @@ namespace OloEngine
 
                 GenerateSphereGeometry(sphere.m_Radius, sphere.m_Offset, kRings, kSegments, localVerts, localTris);
 
+                const auto firstIndex = outTris.size();
                 glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
                 const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
 
                 for (i32 idx : localTris)
                     outTris.push_back(base + idx);
+                PreserveWinding(worldTransform, firstIndex, outTris);
             }
         }
 
@@ -378,11 +399,13 @@ namespace OloEngine
                     localTris.push_back(lastRow + (s + 1) % kSegments);
                 }
 
+                const auto firstIndex = outTris.size();
                 glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
                 const auto base = AppendTransformedVerts(worldTransform, localVerts.data(), static_cast<i32>(localVerts.size()), outVerts);
 
                 for (i32 idx : localTris)
                     outTris.push_back(base + idx);
+                PreserveWinding(worldTransform, firstIndex, outTris);
             }
         }
 
@@ -409,6 +432,7 @@ namespace OloEngine
             const auto& vertices = meshSource->GetVertices();
             const auto& indices = meshSource->GetIndices();
 
+            const auto firstIndex = outTris.size();
             glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
             glm::mat4 colliderTransform = glm::translate(glm::mat4(1.0f), mc.m_Offset) * glm::scale(glm::mat4(1.0f), mc.m_Scale);
             glm::mat4 combined = worldTransform * colliderTransform;
@@ -434,6 +458,7 @@ namespace OloEngine
                 outTris.push_back(baseVertex + i1);
                 outTris.push_back(baseVertex + i2);
             }
+            PreserveWinding(combined, firstIndex, outTris);
         }
 
         // Collect from TerrainComponent (grid tessellation from heightmap)
@@ -459,6 +484,7 @@ namespace OloEngine
                 step *= 2;
 
             u32 gridRes = (resolution - 1) / step + 1;
+            const auto firstIndex = outTris.size();
             glm::mat4 worldTransform = scene->ComputeWorldTransform(entity);
 
             const auto baseVertex = static_cast<i32>(outVerts.size() / 3);
@@ -501,6 +527,7 @@ namespace OloEngine
                     outTris.push_back(bottomRight);
                 }
             }
+            PreserveWinding(worldTransform, firstIndex, outTris);
         }
     }
 
