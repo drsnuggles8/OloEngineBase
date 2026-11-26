@@ -3126,6 +3126,11 @@ layout per subresource — the layout after all *submitted* work:
 - `CommitRecordedToExecuted()` at the end of `EndRecording` (and after a
   successful mid-frame flush) advances it: the bracket closing is what puts the
   recording on the queue.
+- `RevertRecordedToExecuted()` is its opposite, for a mid-frame flush whose end,
+  fence or submit failed. The command-buffer reset throws those commands away, so
+  their transitions never happen and every recorded layout returns to the
+  executed one. A flush the queue accepted but whose wait failed keeps its
+  recorded layouts: the GPU may still run that work.
 - `VulkanImageLayoutTracker::ImmediateExecutionScope`, opened by
   `VulkanOneShot::Submit` around its record callback, makes writes inside it
   advance **both** — that work reaches the queue as it is recorded. This is what

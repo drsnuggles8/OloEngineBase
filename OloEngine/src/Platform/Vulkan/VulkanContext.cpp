@@ -1050,6 +1050,21 @@ namespace OloEngine
         return true;
     }
 
+    namespace
+    {
+        u32 s_FailNextFlushSubmits = 0u;
+    } // namespace
+
+    void VulkanContext::SetFailNextFlushSubmitsForTesting(const u32 count)
+    {
+        s_FailNextFlushSubmits = count;
+    }
+
+    u32 VulkanContext::GetPendingFailNextFlushSubmitsForTesting()
+    {
+        return s_FailNextFlushSubmits;
+    }
+
     bool VulkanContext::FlushFrameRecordingAndWait()
     {
         if (m_AsyncComputeSegmentOpen)
@@ -1099,6 +1114,9 @@ namespace OloEngine
         // re-opened, so the caller can fall back to the one-shot
         // (previous-frame) read on false and the frame can continue.
         bool ok = true;
+        // Whether the queue took the recording. Until it does, the reset below
+        // discards every transition it holds.
+        bool accepted = false;
         VkResult result = vkEndCommandBuffer(cmd);
         if (result != VK_SUCCESS)
         {
@@ -1118,6 +1136,12 @@ namespace OloEngine
                 fence = VK_NULL_HANDLE;
                 ok = false;
             }
+        }
+        if (ok && s_FailNextFlushSubmits > 0u)
+        {
+            --s_FailNextFlushSubmits;
+            OLO_CORE_WARN("[Vulkan] flush: rejecting the submit by test injection");
+            ok = false;
         }
         if (ok)
         {
@@ -1159,6 +1183,7 @@ namespace OloEngine
             }
             else
             {
+                accepted = true;
                 constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — a flush slower than this is a hang
                 result = vkWaitForFences(device, 1, &fence, VK_TRUE, kTimeoutNs);
                 if (result == VK_TIMEOUT)
@@ -1211,6 +1236,12 @@ namespace OloEngine
         {
             vkDestroyFence(device, fence, nullptr);
         }
+        // The reset below throws away commands that never reached the queue.
+        // Their layout transitions never happen, so the next barrier must start
+        // from the executed layouts. An accepted submit whose wait failed keeps
+        // its recorded layouts: the GPU may still run that work.
+        if (!accepted)
+            api.LayoutTracker().RevertRecordedToExecuted();
 
         // A successful flush proves the old segment's queries completed. A
         // discarded segment must never inherit the final submission's proof.

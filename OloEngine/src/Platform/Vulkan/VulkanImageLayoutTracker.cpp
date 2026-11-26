@@ -353,6 +353,16 @@ namespace OloEngine
             entry.second.Executed = entry.second.Layouts;
     }
 
+    void VulkanImageLayoutTracker::RevertRecordedToExecuted()
+    {
+        OLO_CORE_ASSERT(m_Base == nullptr, "RevertRecordedToExecuted on a layout overlay");
+        if (m_Base != nullptr)
+            return;
+        for (auto& entry : m_Images)
+            if (entry.second.Executed.size() == entry.second.Layouts.size())
+                entry.second.Layouts = entry.second.Executed;
+    }
+
     VkImageLayout VulkanImageLayoutTracker::CurrentExecutedLayout(const VkImage image,
                                                                   const VkImageSubresourceRange& range) const
     {

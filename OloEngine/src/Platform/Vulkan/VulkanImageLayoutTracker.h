@@ -193,6 +193,12 @@ namespace OloEngine
         // it for the work recorded inside, but only once that work has really
         // reached the queue (see ImmediateExecutionScope::MarkSubmitted).
         void CommitRecordedToExecuted();
+        // The opposite, for a recording that is thrown away before it reaches
+        // the queue (a mid-frame flush whose end or submit failed): its
+        // transitions never happen, so every recorded layout returns to the
+        // executed one. Not for work the queue accepted but did not retire:
+        // the GPU may still run it, and its recorded layouts describe that.
+        void RevertRecordedToExecuted();
         [[nodiscard]] VkImageLayout CurrentExecutedLayout(VkImage image, const VkImageSubresourceRange& range) const;
 
         // RAII, opened by VulkanOneShot::Submit. It must span the WHOLE

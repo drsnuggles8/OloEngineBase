@@ -1167,6 +1167,14 @@ TEST_F(VulkanResourceFactory, TwoDMipRegenerationPublishesTheExecutedLayoutOnQue
     EXPECT_EQ(tracker.CurrentLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     EXPECT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
+    // Rejected after the callback recorded the chain: a tracker write made
+    // while recording, outside Submit's execution scope, would show here.
+    VulkanOneShot::SetFailNextRecordedSubmitsForTesting(1u);
+    texture->RegenerateMips();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextRecordedSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
     texture->RegenerateMips();
     const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, texture->GetMipLevelCount(), 0u, 1u };
     EXPECT_EQ(tracker.CurrentLayout(image, whole), resting);
