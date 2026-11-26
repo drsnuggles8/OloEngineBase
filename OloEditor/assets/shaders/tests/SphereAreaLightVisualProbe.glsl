@@ -1,32 +1,11 @@
 // =============================================================================
 // SphereAreaLightVisualProbe.glsl
 //
-// Test-only probe that ray-casts a row of analytical PBR spheres and shades
-// each one twice: once with calculateSphereAreaLightContribution (top row)
-// and once with the point-light path used by calculateLightContribution
-// (bottom row). Same light position, color, intensity, range — only the
-// emitter radius differs. The resulting RGBA8 frame is the side-by-side
-// visual evidence asked for in #231 (soft / broad highlight on smooth
-// spheres for the area light vs. the hard specular dot of a point light).
-//
-// Layout (image is 1024 x 512, sphere cells 256 x 256):
-//
-//   +-----------+-----------+-----------+-----------+
-//   | r=0.05    | r=0.25    | r=0.5     | r=0.85    |   <- top row: SphereAreaLight (radius=1.0)
-//   +-----------+-----------+-----------+-----------+
-//   | r=0.05    | r=0.25    | r=0.5     | r=0.85    |   <- bottom row: PointLight reference
-//   +-----------+-----------+-----------+-----------+
-//
-// The ray-cast happens analytically in the fragment shader against a unit
-// sphere centred in each cell; no mesh / camera UBO machinery needed. The
-// shading then invokes the same `calculateSphereAreaLightContribution`
-// helper PR #238 routed from the MultiLight path and the Forward+ path.
-//
-// Both rows use exactly the same light position, intensity, and range —
-// the only difference is which evaluator is dispatched. That makes the
-// two rows directly comparable: if the area-light normalisation drifts
-// off energy-conservation, the top row's brightness changes relative to
-// the bottom row, visible as a global tint shift.
+// Four roughness columns under three light evaluators: raster representative
+// point, punctual control, and solid-angle quadrature over the sphere emitter.
+// The quadrature uses the emitter view, sampler, density and BRDF shared by
+// ReSTIR DI and the GPU reference tracer. It runs without ray queries because
+// the analytical scene has no occluders.
 // =============================================================================
 
 #type vertex
@@ -51,6 +30,7 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/PBRCommon.glsl"
+#include "include/SphereLightSampling.glsl"
 
 // Image layout constants — must match the C++ harness in
 // SphereAreaLightVisualTest.cpp. Total image is kColumns x 2 cells.
@@ -134,17 +114,49 @@ vec3 EvaluatePointLight(vec3 N, vec3 V, vec3 worldPos, float roughness)
     return brdf * radiance * NdotL;
 }
 
+vec3 IntegrateSphereEmitter(vec3 N, vec3 V, vec3 worldPos, float roughness)
+{
+    GPUSceneLight light;
+    light.PositionAndRange = vec4(kLightPos, kLightRange);
+    light.ColorAndIntensity = vec4(kLightColor, kLightIntensity);
+    light.DirectionAndRadius = vec4(0.0, 0.0, 0.0, kAreaLightRadius);
+    OloSphereLightView view = OloViewSphereLight(light, worldPos);
+    if (!view.Valid)
+        return vec3(0.0);
+
+    // Balance the cone samples against BSDF samples, as the reference tracer
+    // does. Cone sampling alone misses the near-mirror lobe at this budget.
+    const uint samples = 256u;
+    float emitterPdf = OloSphereConePdf(view.CosThetaMax);
+    vec3 centre = normalize(kLightPos - worldPos);
+    vec3 sum = vec3(0.0);
+    for (uint i = 0u; i < samples; ++i)
+    {
+        vec2 xi = Hammersley(i, samples);
+        vec3 L = OloSampleSphereLightDirection(light, view, worldPos, xi);
+        float bsdfPdf = closureV2Pdf(N, V, L, kAlbedo, 0.0, roughness);
+        sum += closureV2Evaluate(N, V, L, kAlbedo, 0.0, roughness)
+               * (max(dot(N, L), 0.0) / (emitterPdf + bsdfPdf));
+
+        // Separate the discrete lobe choice from the angular coordinates.
+        float lobe = fract((float(i) + 0.5) * 0.61803398875);
+        ClosureV2Sample bsdf = closureV2SampleBRDF(N, V, kAlbedo, 0.0, roughness, lobe, xi);
+        if (bsdf.Pdf > 0.0 && dot(bsdf.L, centre) >= view.CosThetaMax)
+            sum += bsdf.Value * (max(dot(N, bsdf.L), 0.0) / (emitterPdf + bsdf.Pdf));
+    }
+    return view.Radiance * sum / float(samples);
+}
+
 void main()
 {
     // Map v_TexCoord ([0,1] x [0,1]) into a (col, row, localUv) tuple.
     // row 0 = top half (area light), row 1 = bottom half (point light).
     float colF = v_TexCoord.x * float(kColumns);
     int col = clamp(int(floor(colF)), 0, kColumns - 1);
-    int row = v_TexCoord.y < 0.5 ? 0 : 1;
+    int row = clamp(int(floor(v_TexCoord.y * 3.0)), 0, 2);
 
     // Cell-local NDC in [-1, 1] x [-1, 1].
-    vec2 cellUv = vec2(fract(colF), v_TexCoord.y < 0.5 ? v_TexCoord.y * 2.0
-                                                       : (v_TexCoord.y - 0.5) * 2.0);
+    vec2 cellUv = vec2(fract(colF), fract(v_TexCoord.y * 3.0));
     vec2 ndc = cellUv * 2.0 - 1.0;
 
     // Squeeze the FOV so the sphere comfortably fills the cell without
@@ -179,10 +191,14 @@ void main()
             kLightColor, kLightIntensity, kLightRange,
             kAlbedo, 0.0 /*metallic*/, roughness, hitPos);
     }
+    else if (row == 1)
+    {
+        // Middle row: point-light reference, same colour / intensity / range.
+        Lo = EvaluatePointLight(N, V, hitPos, roughness);
+    }
     else
     {
-        // Bottom row: point-light reference, same colour / intensity / range.
-        Lo = EvaluatePointLight(N, V, hitPos, roughness);
+        Lo = IntegrateSphereEmitter(N, V, hitPos, roughness);
     }
 
     // Soft ambient so the dark side of the sphere is not pure black —

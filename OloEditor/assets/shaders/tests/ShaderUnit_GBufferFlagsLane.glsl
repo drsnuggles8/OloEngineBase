@@ -48,7 +48,7 @@ void main()
     int gbFlags = oloDecodeGBufferFlags(lane);
 
     o_Color = vec4(lane,
-                   float(gbFlags & 1),
+                   float(oloGBufferFlagsAreUnlit(gbFlags)),
                    float(oloGBufferFlagsMaterialKind(gbFlags)),
                    float(oloGBufferFlagsSkinProfileSlot(gbFlags)));
 }

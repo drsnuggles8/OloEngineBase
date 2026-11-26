@@ -5,23 +5,9 @@
 // closure's Evaluate and density, exactly as the driver compiles them — over a
 // deterministic parameter grid, so the C++ twins
 // (OloEngine/Renderer/PathTracing/ReferenceBRDF.h's ClosureV2Evaluate and
-// PBRClosureBSDF.h's BSDF::Pdf with Model == ClosureV2) can be compared
+// PBRClosureBSDF.h's BSDF::Pdf) can be compared
 // against the REAL COMPILED SHADER texel for texel (issue #975).
 //
-// This is the v2 sibling of PbrBrdfParityProbe.glsl and the anti-drift guard
-// for the versioned closure contract. The v2 promise — one D serving Evaluate,
-// Sample and Pdf, mirrored function-for-function in C++ — only holds while the
-// two languages agree; if the PBR CLOSURE V2 section is edited and the C++
-// twins are not, the reference tracer silently integrates a closure the raster
-// path no longer shades. ClosureV2GpuParityTest fails the moment that happens.
-// Unlike the Legacy probe, this one can pin the DENSITY too: Legacy GLSL has
-// no PDF, but closureV2Pdf exists precisely so a GPU sampler and the CPU
-// reference draw from the same mixture.
-//
-// Like the Legacy probe this computes NO estimator and asserts no invariant.
-// It is a pure function dump: the C++ side reproduces the same grid and diffs.
-// Keep it that way — any cleverness added here has to be mirrored exactly on
-// the C++ side, which defeats the purpose.
 //
 // Parameterisation (pixel-centre sampling, so no sample lands exactly on a
 // degenerate endpoint):

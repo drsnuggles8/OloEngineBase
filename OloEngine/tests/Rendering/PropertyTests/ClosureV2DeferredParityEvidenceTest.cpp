@@ -1,46 +1,5 @@
 // OLO_TEST_LAYER: L8
-// =============================================================================
-// ClosureV2DeferredParityEvidenceTest.cpp — the PBRModel selector must be LIVE
-// on BOTH raster paths (issue #975).
-//
-// This test exists because live-editor verification caught exactly the bug it
-// pins: the deferred path decoded the closure-model bit out of the G-Buffer
-// flags lane and then never passed it into the lighting calls, so every
-// ClosureV2 material silently shaded Legacy on Deferred while Forward looked
-// perfect — and the whole headless suite stayed green, because nothing
-// compared the selector across the two paths. The model's journey differs
-// completely per path (Forward: material UBO -> u_PBRModel parameter;
-// Deferred: u_PBRModel * 2 -> G-Buffer RT2 alpha bit 1 -> ComputeDeferredLit
-// decode), so each hop is its own silent-failure opportunity.
-//
-// Scene: two IDENTICAL near-mirror metal spheres, differing ONLY in
-// Material::PBRModel, under one directional light. Near-mirror metal is the
-// maximally discriminating material: the Legacy closure's EPSILON-clamped NDF
-// collapses its specular to ~nothing (documented in ReferenceBRDF.h), while
-// ClosureV2's alpha-clamped lobe puts a bright highlight somewhere on a sphere
-// for ANY camera/light pair. On each path the v2 sphere's peak luminance must
-// beat the Legacy sphere's by a wide margin — the lane-dead regression makes
-// the two spheres identical and fails the assertion on that path.
-//
-// SCOPE, and where the rest of the lane is covered (issue #996). This test
-// compares the two paths for the models that EXIST, which is what a scene can
-// author. Two neighbouring properties of the same journey are pinned where they
-// can actually be exercised:
-//   * every ENCODABLE model index (not just the two that exist today) survives
-//     the G-Buffer flags lane un-truncated — GBufferFlagsLaneTest in
-//     PbrPropertyTests.cpp, which drives the production encode/decode helpers
-//     through the real fp16 quantisation;
-//   * the lane survives an MSAA resolve, so a ClosureV2 silhouette is not
-//     misclassified as unlit — GBufferFlagsResolveEvidenceTest.cpp.
-//
-// Evidence PNGs (written before any assertion):
-//   OloEditor/assets/tests/visual/ClosureV2Parity_Forward.png
-//   OloEditor/assets/tests/visual/ClosureV2Parity_Deferred.png
-//
-// Classification: L8 (full Scene pipeline on both raster paths, RGBA8
-// readback + PNG; SKIPs cleanly without a GL 4.6 context).
-// =============================================================================
-
+// Forward and deferred must both render the sharp silver highlight beside its dark control.
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
@@ -126,19 +85,17 @@ namespace OloEngine::Tests
             dirLight.m_CastShadows = false;
 
             const Ref<Mesh> sphere = MeshPrimitives::CreateSphere(1.0f, 32);
-
-            // LEFT: Legacy near-mirror metal (constructor-default model).
+            // Black metal is the dark control for the bright mirror.
             {
-                Entity entity = GetScene().CreateEntity("LegacyMirror");
+                Entity entity = GetScene().CreateEntity("DarkMetal");
                 entity.AddComponent<MeshComponent>(sphere->GetMeshSource());
                 entity.GetComponent<TransformComponent>().Translation = { -1.4f, 0.0f, 0.0f };
                 auto& materialComp = entity.AddComponent<MaterialComponent>();
-                materialComp.m_Material.SetBaseColorFactor(glm::vec4(0.95f, 0.93f, 0.9f, 1.0f));
+                materialComp.m_Material.SetBaseColorFactor(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
                 materialComp.m_Material.SetMetallicFactor(1.0f);
                 materialComp.m_Material.SetRoughnessFactor(0.02f);
             }
-
-            // RIGHT: the identical material, opted into ClosureV2.
+            // Same roughness and metalness, with a silver reflectance.
             {
                 Entity entity = GetScene().CreateEntity("ClosureV2Mirror");
                 entity.AddComponent<MeshComponent>(sphere->GetMeshSource());
@@ -147,16 +104,12 @@ namespace OloEngine::Tests
                 materialComp.m_Material.SetBaseColorFactor(glm::vec4(0.95f, 0.93f, 0.9f, 1.0f));
                 materialComp.m_Material.SetMetallicFactor(1.0f);
                 materialComp.m_Material.SetRoughnessFactor(0.02f);
-                materialComp.m_Material.SetPBRModel(PBRModel::ClosureV2);
             }
 
             EnableRendering(kSize, kSize);
         }
 
-        // Renders the scene on the given path and asserts the v2 sphere's
-        // specular peak dwarfs the Legacy one's. The fixture's TearDown
-        // restores RendererSettings, so the path switch cannot leak.
-        void ExpectV2BeatsLegacyOnPath(RenderingPath path, const char* pathName)
+        void ExpectMirrorHighlight(RenderingPath path, const char* pathName)
         {
             Renderer3D::GetRendererSettings().Path = path;
             Renderer3D::ApplyRendererSettings();
@@ -176,36 +129,17 @@ namespace OloEngine::Tests
                                                4, px.data(), static_cast<int>(width) * 4);
             EXPECT_NE(wrote, 0) << "failed to write " << out.string();
 
-            const f32 legacyPeak = PeakLuminanceInHalf(px, width, height, /*rightHalf=*/false);
+            const f32 darkPeak = PeakLuminanceInHalf(px, width, height, /*rightHalf=*/false);
             const f32 v2Peak = PeakLuminanceInHalf(px, width, height, /*rightHalf=*/true);
 
-            // Non-vacuity: something rendered on both halves (the spheres are
-            // lit dielectric-grey at worst; an empty half reads background).
-            EXPECT_GT(legacyPeak, 0.02f) << pathName << ": left half looks empty; see " << out.string();
-            EXPECT_GT(v2Peak, 0.02f) << pathName << ": right half looks empty; see " << out.string();
-
-            // The discriminator. Measured: the v2 near-mirror highlight
-            // saturates toward luminance ~1.0 while the Legacy collapsed lobe
-            // leaves that sphere at ambient-only levels. 0.15 of headroom
-            // separates "the selector reached this path's closure" from
-            // tone-mapping wobble; the lane-dead regression (both spheres
-            // Legacy) puts the two peaks within noise of each other and fails
-            // by a wide margin.
-            EXPECT_GT(v2Peak, legacyPeak + 0.15f)
-                << pathName << ": the ClosureV2 sphere's specular peak (" << v2Peak
-                << ") does not beat the Legacy sphere's (" << legacyPeak
-                << ") — the PBRModel selector is dead on this path (see the header comment "
-                << "for the exact regression this pins); evidence: " << out.string();
+            EXPECT_GT(v2Peak, 0.75f) << pathName << ": missing near-mirror highlight in " << out.string();
+            EXPECT_GT(v2Peak, darkPeak + 0.15f) << pathName << ": mirror and dark control peaks " << v2Peak << ", " << darkPeak;
         }
     };
 
-    TEST_F(ClosureV2DeferredParityScene, ModelSelectorIsLiveOnBothRasterPaths)
+    TEST_F(ClosureV2DeferredParityScene, NearMirrorMetalRetainsItsPeakOnBothRasterPaths)
     {
-        // Forward first (the material-UBO parameter journey) ...
-        ExpectV2BeatsLegacyOnPath(RenderingPath::Forward, "Forward");
-        // ... then Deferred (the G-Buffer flags-lane journey). Order matters
-        // for neither correctness nor cleanup (TearDown restores settings);
-        // Deferred second just makes a Deferred-only failure read last.
-        ExpectV2BeatsLegacyOnPath(RenderingPath::Deferred, "Deferred");
+        ExpectMirrorHighlight(RenderingPath::Forward, "Forward");
+        ExpectMirrorHighlight(RenderingPath::Deferred, "Deferred");
     }
 } // namespace OloEngine::Tests

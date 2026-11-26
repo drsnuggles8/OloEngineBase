@@ -52,7 +52,6 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
@@ -324,7 +323,6 @@ namespace OloEngine::Tests
                 record.NormalScale = material.NormalScale;
                 record.AlphaCutoff = material.AlphaCutoff;
                 record.AlphaMode = static_cast<u32>(material.AlphaMask ? AlphaMode::Mask : AlphaMode::Opaque);
-                record.ClosureVersion = static_cast<u32>(material.Model);
                 record.Flags = GPUSceneMaterialFlagActive | (material.TwoSidedEmission ? GPUSceneMaterialFlagTwoSided : 0u);
                 MaterialTextureRecord textures;
                 const bool hasMaps = material.AlbedoMap || material.MetallicRoughnessMap || material.NormalMap ||
@@ -664,7 +662,6 @@ namespace OloEngine::Tests
             Plain,
             Textured,
             SphereLight,
-            LegacyClosure,
         };
 
         [[nodiscard]] bool BuildRig(Rig& rig, RigScene which = RigScene::Plain)
@@ -677,11 +674,8 @@ namespace OloEngine::Tests
                 case RigScene::SphereLight:
                     rig.Fixture = MakeSphereLightCornellBoxScene();
                     break;
-                case RigScene::LegacyClosure:
-                    rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::Legacy);
-                    break;
                 case RigScene::Plain:
-                    rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+                    rig.Fixture = MakeCornellBoxScene(18.0f);
                     break;
             }
             // The GPU tracer's environment is a single uniform radiance
@@ -1076,30 +1070,6 @@ namespace OloEngine::Tests
         EXPECT_NEAR(backWall.r, kWhite, 1e-3f) << "another instance of the same material keeps the material's colour";
         EXPECT_NEAR(backWall.g, kWhite, 1e-3f);
         EXPECT_NEAR(backWall.b, kWhite, 1e-3f);
-    }
-
-    // The Legacy closure: the same box with every material on PBRModel::Legacy,
-    // so the hits are shaded with cookTorranceBRDF and sampled by the Legacy
-    // mixture on both tracers. The regions are the plain box's.
-    TEST_F(GpuPathTracerDevice, LegacyClosureCornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
-    {
-        ScopedVulkanRenderCommandSelection vulkanBackend;
-        VulkanFrameArena::Get().BeginFrame(0);
-        Rig rig;
-        ASSERT_TRUE(BuildRig(rig, RigScene::LegacyClosure));
-        for (const GPUSceneMaterial& material : rig.Twin.Materials)
-            ASSERT_EQ(material.ClosureVersion, static_cast<u32>(PBRModel::Legacy));
-
-        const ParityRegion regions[] = {
-            { "floor by the red wall", glm::vec3(-0.75f, -0.99f, 0.2f) },
-            { "floor by the green wall", glm::vec3(0.75f, -0.99f, 0.2f) },
-            { "back wall", glm::vec3(0.5f, 0.3f, -0.99f) },
-            { "block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
-            { "ceiling (indirect only)", glm::vec3(0.6f, 0.99f, -0.2f) },
-            { "emitter", glm::vec3(0.0f, 0.98f, 0.0f) },
-        };
-        const TracedFrame gpu = RunParity(*this, rig, "GpuPathTracer_CornellBoxLegacy", regions);
-        ASSERT_FALSE(gpu.Accum.empty());
     }
 
     // A sphere-area light: the one light kind the tracers model as an area

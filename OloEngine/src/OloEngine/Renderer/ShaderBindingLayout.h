@@ -184,7 +184,7 @@ namespace OloEngine
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
-            i32 PBRModel = 0;            // 0=Legacy, 1=ClosureV2 (matches PBRModel enum, issue #975)
+            i32 PadClosure = 0;
 
             // PHYSICAL TRANSMISSION / IOR / VOLUME (issue #970).
             //
@@ -217,12 +217,6 @@ namespace OloEngine
             // block's two spare lanes -- which is what spare lanes are for, and
             // keeps the addition to 16 bytes rather than 32.
             //
-            // MaterialKind is WHAT the surface is (MaterialKind.h); PBRModel
-            // above is which VERSION of the closure evaluates it. They are
-            // separate fields because they are separate questions -- see
-            // docs/adr/0024-material-kind-is-not-the-closure-version.md. Both
-            // are neutral at 0/none, so a material that never touches the new
-            // setters uploads the bytes it uploaded before.
             i32 MaterialKind = 0;     // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
             i32 SkinProfileSlot = 15; // kSkinProfileSlotNone -- "this material names no profile"
 
@@ -3067,10 +3061,7 @@ namespace OloEngine
     // INSERTED in front of the heap offsets, never appended after them, for the
     // reason the HeapOffsets assert below states.
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 336, "PBRMaterialUBO unexpected size — update GLSL layout");
-    // The physical block sits exactly where the shaders expect it: right after
-    // the PBRModel selector at 92 and immediately before the heap offsets.
-    // offsetof rather than a comment, so a reordering fails the build instead
-    // of quietly relayouting every bindless material read.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, PadClosure) == 92);
     static_assert(offsetof(UBOStructures::PBRMaterialUBO, TransmissionFactor) == 96,
                   "PBRMaterialUBO transmission block must start at 96 B — GLSL mirrors assume it");
     // The #1231 material-kind / skin-profile group sits between the physical
@@ -5108,7 +5099,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;
-    int u_PBRModel;
+    int _pbrClosurePad;
     float u_TransmissionFactor;
     float u_IOR;
     float u_ThicknessFactor;

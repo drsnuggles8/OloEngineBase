@@ -44,7 +44,6 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
@@ -126,27 +125,13 @@ namespace
 
 namespace OloEngine::Tests
 {
-    // =========================================================================
-    // The kind / algorithm-version separation (ADR 0024)
-    // =========================================================================
-
-    // The design claim the whole issue rests on, asserted rather than left in a
-    // comment: the two selectors are independent, so every combination is
-    // representable. A future refactor that folded skin into PBRModel would
-    // make this fail to compile, which is the point.
-    TEST(SkinMaterialKindTest, KindAndClosureVersionAreIndependentAxes)
+    TEST(SkinMaterialKindTest, GenericAndSkinKindsRoundTrip)
     {
         Material material;
         EXPECT_EQ(material.GetMaterialKind(), MaterialKind::Generic);
-        EXPECT_EQ(material.GetPBRModel(), PBRModel::Legacy);
 
         material.SetMaterialKind(MaterialKind::Skin);
-        EXPECT_EQ(material.GetPBRModel(), PBRModel::Legacy)
-            << "setting the kind changed the closure version — the two axes are not independent";
-
-        material.SetPBRModel(PBRModel::ClosureV2);
-        EXPECT_EQ(material.GetMaterialKind(), MaterialKind::Skin)
-            << "setting the closure version changed the kind — the two axes are not independent";
+        EXPECT_EQ(material.GetMaterialKind(), MaterialKind::Skin);
     }
 
     // The two-bit G-Buffer field is the hard ceiling on the kind enum, and

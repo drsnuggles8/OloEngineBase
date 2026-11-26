@@ -122,11 +122,7 @@ vec3 OloReSTIRUnshadowedContribution(OloReSTIRSurface surface, OloLightSample li
         }
     }
 
-    // evaluatePBRClosure is the #975 versioned dispatch — the SAME function the
-    // deferred lighting pass and the path tracer's PtEvaluateBRDF route
-    // through, so the oracle and the tier being validated against it shade a
-    // surface with one BRDF rather than with two plausible ones.
-    vec3 f = evaluatePBRClosure(surface.PbrModel, surface.ShadingNormal, viewDirection, l, surface.Albedo,
+    vec3 f = closureV2Evaluate(surface.ShadingNormal, viewDirection, l, surface.Albedo,
                                 surface.Metallic, surface.Roughness);
     return f * radiance * nDotL;
 }

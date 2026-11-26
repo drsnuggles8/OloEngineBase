@@ -170,7 +170,6 @@ layout(location = 3) out vec4 o_Velocity;
 // into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
 layout(location = 4) out vec4 o_SkinDiffuse;
 
-
 vec2 octEncode(vec3 n)
 {
     n /= (abs(n.x) + abs(n.y) + abs(n.z));
@@ -274,7 +273,7 @@ void main()
     {
         // calculateLightContribution is the sum of this split, evaluated once.
         OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                        roughness, v_WorldPos, OLO_PBR_MODEL_CLOSURE_V2);
+                                                                        roughness, v_WorldPos);
         vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
         float lightVisibility = 1.0;
 

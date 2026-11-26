@@ -18,7 +18,7 @@ struct PTVertex
 {
     vec4 PositionRoughness;
     vec4 GeometricNormalMetallic;
-    vec4 ShadingNormalClosure;
+    vec4 ShadingNormal;
     vec4 Albedo;
     vec4 Incoming;
     vec4 Randoms;
@@ -104,7 +104,7 @@ PTVertex PTEmptyVertex()
     PTVertex v;
     v.PositionRoughness = vec4(0);
     v.GeometricNormalMetallic = vec4(0);
-    v.ShadingNormalClosure = vec4(0);
+    v.ShadingNormal = vec4(0);
     v.Albedo = vec4(0);
     v.Incoming = vec4(0);
     v.Randoms = vec4(0);

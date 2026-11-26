@@ -3,7 +3,7 @@
 //
 // Visual evidence (PNG) for issue #231 sphere area lights:
 //   - Compiles the production SphereAreaLightVisualProbe.glsl shader.
-//   - Renders 8 cells (4 roughness columns x 2 light-type rows) into an
+//   - Renders 12 cells (raster sphere, punctual control and solid-angle reference) into an
 //     RGBA8 framebuffer via the standard PropertyTests harness.
 //   - Writes the readback frame to
 //       OloEditor/assets/tests/visual/SphereAreaLight_VisualEvidence.png
@@ -60,6 +60,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -78,7 +79,7 @@ namespace OloEngine::Tests
         constexpr u32 kColumns = 4;
         constexpr u32 kCellSize = 256;
         constexpr u32 kWidth = kColumns * kCellSize; // 1024
-        constexpr u32 kHeight = 2 * kCellSize;       // 512
+        constexpr u32 kHeight = 3 * kCellSize;       // 768
 
         struct VisualHarness
         {
@@ -279,6 +280,22 @@ namespace OloEngine::Tests
             << "Karis normalisation factor may have stopped reducing D "
             << "(peakArea=" << peakArea << ", peakPoint=" << peakPoint
             << "); written PNG: " << out.string();
+
+        // Both glossy finishes must approach the integral over the emitter.
+        // Compare peak radiance in display space, where one code is 1/255.
+        // Include the near-mirror column: sampling only the light under-resolves
+        // its narrow specular lobe; the reference uses both light and BSDF samples.
+        for (u32 col : { 0u, kHighlightCol })
+        {
+            const f32 raster = PeakLuminanceInCell(px, col, 0);
+            const f32 punctual = PeakLuminanceInCell(px, col, 1);
+            const f32 integral = PeakLuminanceInCell(px, col, 2);
+            EXPECT_LT(std::abs(raster - integral), 0.04f)
+                << "column=" << col << " raster peak=" << raster << " sampled-emitter peak=" << integral;
+            EXPECT_LT(std::abs(raster - integral), std::abs(punctual - integral));
+            RecordProperty("RasterPeak" + std::to_string(col), std::to_string(raster));
+            RecordProperty("IntegratedPeak" + std::to_string(col), std::to_string(integral));
+        }
 
         // Belt-and-braces: also check the spread. With the threshold set
         // to 80% of the AREA-LIGHT peak, the area light should land more

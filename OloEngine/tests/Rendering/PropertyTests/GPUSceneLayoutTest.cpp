@@ -73,7 +73,7 @@ namespace OloEngine::Tests
             { "OcclusionStrength", offsetof(GPUSceneMaterial, OcclusionStrength) },
             { "AlphaCutoff", offsetof(GPUSceneMaterial, AlphaCutoff) },
             { "AlphaMode", offsetof(GPUSceneMaterial, AlphaMode) },
-            { "ClosureVersion", offsetof(GPUSceneMaterial, ClosureVersion) },
+            { "PadClosure", offsetof(GPUSceneMaterial, PadClosure) },
             { "Flags", offsetof(GPUSceneMaterial, Flags) },
             { "AlbedoTextureIndex", offsetof(GPUSceneMaterial, AlbedoTextureIndex) },
             { "AlbedoTextureGeneration", offsetof(GPUSceneMaterial, AlbedoTextureGeneration) },

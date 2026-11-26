@@ -398,7 +398,7 @@ void main()
         const float NdotL = dot(hitNormal, L);
         if (NdotL > 0.0 && dot(geometricNormal, L) > 0.0 && SunVisible(hitPos, geometricNormal))
         {
-            const vec3 brdf = evaluatePBRClosure(int(material.ClosureVersion), hitNormal, -R, L,
+            const vec3 brdf = closureV2Evaluate(hitNormal, -R, L,
                                                  albedo, metallic, hitRoughness);
             hitRadiance += brdf * u_SunColor.rgb * NdotL;
         }

@@ -75,7 +75,7 @@ layout(binding = 11) uniform samplerCube u_EnvironmentCube;
 #define OLO_RT_HIT_TEXTURES_REQUESTED ((u_EmissiveTable.w & OLO_RESTIR_PT_FLAG_TEXTURES) != 0u)
 #include "include/RayTracedSurfaceHit.glsl"
 #define PtHit OloRtHit
-#define OLO_PT_CLOSURE_V2 OLO_RT_CLOSURE_V2
+
 #include "include/PathTracerBSDF.glsl"
 #include "include/GBufferRaySurface.glsl"
 #include "include/ReSTIRPTCharts.glsl"
@@ -87,7 +87,7 @@ PTVertex PTPrimary(OloGBufferSurface s, uint pixel)
     PTVertex v = PTEmptyVertex();
     v.PositionRoughness = vec4(s.Position, s.Roughness);
     v.GeometricNormalMetallic = vec4(s.GeometricNormal, s.Metallic);
-    v.ShadingNormalClosure = vec4(s.ShadingNormal, float(s.PbrModel));
+    v.ShadingNormal = vec4(s.ShadingNormal, 0.0);
     v.Albedo = vec4(s.Albedo, 1);
     v.Incoming = vec4(normalize(u_InvView[3].xyz - s.Position), 0);
     // GBuffer has no triangle identity. Primary identity denotes the source
@@ -128,7 +128,7 @@ void main()
         if (!oloDepthIsSky(depth) && !oloGBufferFlagsAreUnlit(flags))
         {
             OloGBufferSurface surface = OloLoadGBufferSurface(v_TexCoord, depth, texture(u_GBufferNormal, v_TexCoord),
-                                                              texture(u_GBufferAlbedo, v_TexCoord), oloGBufferFlagsPbrModel(flags));
+                                                              texture(u_GBufferAlbedo, v_TexCoord));
             if (surface.Valid && PTFinite3(surface.Position))
                 result = PTInitial(PTPrimary(surface, index), index, pathSampler);
         }

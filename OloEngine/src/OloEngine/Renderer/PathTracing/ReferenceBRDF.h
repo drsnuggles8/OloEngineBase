@@ -15,26 +15,6 @@
 // below. If you change PBRCommon.glsl's BRDF, that test fails until you change
 // this file too. That is the whole point.
 //
-// Deliberate fidelity notes — these are ports of the engine's math, not of
-// textbook math, so the quirks are reproduced on purpose:
-//
-//   * `DistributionGGX` clamps its denominator with max(denom, EPSILON) where
-//     EPSILON is 1e-4, NOT a smaller float epsilon. At roughness -> 0 that
-//     clamp is what bounds the NDF spike; a "cleaner" 1e-8 here would make the
-//     reference brighter than the renderer at mirror roughness.
-//   * `GeometrySmith` uses the Schlick-GGX k = (r+1)^2/8 remap (the UE4 direct-
-//     lighting form), not the height-correlated Smith. PBRCommon has BOTH
-//     (`visibilitySmithGGXCorrelated`, mirrored below as
-//     `VisibilitySmithGGXCorrelated`); `cookTorranceBRDF` — the function the
-//     lit passes actually call — uses this one. See THE ALPHA LEDGER in
-//     PBRCommon.glsl's GEOMETRY FUNCTIONS section for why the two differ and
-//     why that difference is deliberate rather than the #904 bug.
-//   * `CookTorranceBRDF` computes kD = 1 - F with F evaluated at the HALF
-//     vector. It is what ships, so it is what the reference integrates. That
-//     formulation IS reciprocal: dot(h, v) == dot(h, l), and every other factor
-//     is symmetric in (v, l) — BsdfIdentityOracleTest.ClosuresAreReciprocal
-//     measures a worst asymmetry of 5e-7 (issue #1347).
-//
 // Everything here is header-only, allocation-free and GL-independent so the
 // tracer and its contract tests run headless (ADR 0002).
 // =============================================================================
@@ -59,8 +39,6 @@ namespace OloEngine::PathTracing
     inline constexpr f32 kTwoPi = 6.28318530718f;
     inline constexpr f32 kInvPi = 0.31830988618f;
 
-    // GLSL `EPSILON`. Load-bearing: it is the denominator clamp in
-    // distributionGGX / geometrySchlickGGX / the specular divide.
     inline constexpr f32 kEpsilon = 0.0001f;
 
     // GLSL `DEFAULT_DIELECTRIC_F0` / `MIN_ROUGHNESS`.
@@ -103,49 +81,6 @@ namespace OloEngine::PathTracing
         return f0 + (glm::vec3(1.0f) - f0) * Pow5(Saturate(1.0f - cosTheta));
     }
 
-    // -------------------------------------------------------------------------
-    // Normal distribution (GLSL: distributionGGX)
-    // -------------------------------------------------------------------------
-    [[nodiscard]] inline f32 DistributionGGX(const glm::vec3& n, const glm::vec3& h, f32 roughness) noexcept
-    {
-        const f32 a = roughness * roughness;
-        const f32 a2 = a * a;
-        const f32 nDotH = std::max(glm::dot(n, h), 0.0f);
-        const f32 nDotH2 = nDotH * nDotH;
-
-        const f32 num = a2;
-        f32 denom = (nDotH2 * (a2 - 1.0f) + 1.0f);
-        denom = kPi * denom * denom;
-
-        return num / std::max(denom, kEpsilon);
-    }
-
-    // The TRUE (unclamped) GGX NDF, on a cosine rather than a pair of vectors.
-    //
-    // This is NOT the function the renderer evaluates — `DistributionGGX`
-    // above is, complete with its 1e-4 denominator clamp — and the difference
-    // is deliberate and load-bearing. This one exists solely to express the
-    // density of `ImportanceSampleGGX`, and that sampler draws from the
-    // STANDARD, unclamped GGX distribution: its inversion
-    // `cosTheta = sqrt((1 - xi) / (1 + (a^2 - 1) xi))` is derived from the
-    // unclamped NDF and knows nothing about EPSILON.
-    //
-    // Using the clamped form as the PDF is a silent, catastrophic bias. Below
-    // roughness ~0.27 the clamp caps D near the peak, so a clamped PDF
-    // UNDER-reports the true sampling density exactly where the sampler
-    // concentrates its samples — and f / pdf explodes. Measured on the white
-    // furnace: the directional albedo comes out 2.18 instead of 0.96 at
-    // roughness 0.1 (metallic 0), and 1.00 instead of 0.035 at roughness 0.1
-    // (metallic 1) — a reference that CREATES energy, which would have blessed
-    // every too-bright specular bug it exists to catch. With the true density
-    // both match the analytic hemisphere integral to five decimals.
-    //
-    // The lesson generalises: a PDF describes the SAMPLER, never the
-    // integrand. Reusing an evaluation-side numerical guard in a density is
-    // always wrong, and it is invisible — the image just converges brighter.
-    // The denominator guard here is a denormal floor, not a value clamp;
-    // `SamplingRoughness` floors alpha well above where it could engage.
-    //
     // COSINE-ONLY CALLERS. This scalar form cancels near the peak of a sharp
     // lobe (see the vector overload below): every caller that holds n and h
     // uses that one. It stays for callers that only hold a cosine — a chart
@@ -183,68 +118,6 @@ namespace OloEngine::PathTracing
         denom = kPi * denom * denom;
         return a2 / std::max(denom, std::numeric_limits<f32>::min());
     }
-
-    // -------------------------------------------------------------------------
-    // Geometry / masking-shadowing (GLSL: geometrySchlickGGX, geometrySmith)
-    // -------------------------------------------------------------------------
-    [[nodiscard]] inline f32 GeometrySchlickGGX(f32 nDotV, f32 roughness) noexcept
-    {
-        const f32 r = (roughness + 1.0f);
-        const f32 k = (r * r) / 8.0f;
-
-        const f32 num = nDotV;
-        const f32 denom = nDotV * (1.0f - k) + k;
-
-        return num / std::max(denom, kEpsilon);
-    }
-
-    [[nodiscard]] inline f32 GeometrySmith(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l, f32 roughness) noexcept
-    {
-        const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
-        const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
-        const f32 ggx2 = GeometrySchlickGGX(nDotV, roughness);
-        const f32 ggx1 = GeometrySchlickGGX(nDotL, roughness);
-
-        return ggx1 * ggx2;
-    }
-
-    // -------------------------------------------------------------------------
-    // The BRDF the lit passes evaluate (GLSL: cookTorranceBRDF)
-    //
-    // Returns f(l, v) — diffuse + specular, WITHOUT the cosine term. Callers
-    // multiply by (n · l) themselves, exactly as the GLSL call sites do.
-    // -------------------------------------------------------------------------
-    [[nodiscard]] inline glm::vec3 CookTorranceBRDF(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
-                                                    const glm::vec3& albedo, f32 metallic, f32 roughness) noexcept
-    {
-        const glm::vec3 h = glm::normalize(v + l);
-
-        glm::vec3 f0 = glm::vec3(kDefaultDielectricF0);
-        f0 = glm::mix(f0, albedo, metallic);
-
-        const f32 ndf = DistributionGGX(n, h, roughness);
-        const f32 g = GeometrySmith(n, v, l, roughness);
-        const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
-
-        const glm::vec3 numerator = ndf * g * f;
-        const f32 denominator = 4.0f * std::max(glm::dot(n, v), 0.0f) * std::max(glm::dot(n, l), 0.0f) + kEpsilon;
-        const glm::vec3 specular = numerator / denominator;
-
-        glm::vec3 kD = glm::vec3(1.0f) - f;
-        kD *= 1.0f - metallic;
-
-        return kD * albedo * kInvPi + specular;
-    }
-
-    // -------------------------------------------------------------------------
-    // Height-correlated Smith, and the Lambda it must agree with (issue #904)
-    //
-    // These two are NOT on the shipping lit path — `CookTorranceBRDF` above is,
-    // and it uses the UE4 k remap. They are mirrored here because they are the
-    // pair whose alpha convention #904 was about, and because ReferenceBRDF.h
-    // is where this repo pins GLSL functions against C++: an unmirrored GLSL
-    // function is one nothing can detect drift in.
-    // -------------------------------------------------------------------------
 
     // Smith's Lambda for GGX from the cosine with the macrosurface normal
     // (GLSL: ggxSmithLambda). Takes ALPHA, not roughness — matching the GLSL,
@@ -315,54 +188,6 @@ namespace OloEngine::PathTracing
         outBitangent = glm::vec3(c, s + n.y * n.y * a, -n.y);
     }
 
-    // GGX half-vector importance sample (GLSL: ImportanceSampleGGX).
-    [[nodiscard]] inline glm::vec3 ImportanceSampleGGX(const glm::vec2& xi, const glm::vec3& n, f32 roughness) noexcept
-    {
-        const f32 a = roughness * roughness;
-
-        const f32 phi = 2.0f * kPi * xi.x;
-        // cos^2 and sin^2 from the one denominator (1 + (a^2 - 1) xi) >= a^2 > 0.
-        // sin is NOT sqrt(1 - cos^2): near the pole cos^2 rounds to 1.0f in f32
-        // and that form puts a fraction 2^-25 / (a^2 + 2^-25) of all draws
-        // exactly on the normal — 1.2 % at the 0.04 sampling floor (issue #1347,
-        // BsdfSamplingDistributionTest). a^2 xi / denom has no cancellation.
-        const f32 denom = 1.0f + (a * a - 1.0f) * xi.y;
-        const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / denom));
-        const f32 sinTheta = std::sqrt(std::max(0.0f, a * a * xi.y / denom));
-
-        const glm::vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-
-        glm::vec3 tangent;
-        glm::vec3 bitangent;
-        OrthonormalBasis(n, tangent, bitangent);
-        return glm::normalize(tangent * h.x + bitangent * h.y + n * h.z);
-    }
-
-    // Solid-angle PDF of a direction produced by reflecting `v` about a
-    // half-vector drawn from ImportanceSampleGGX. The NDF sample has density
-    // D(h) * (n·h) over half-vectors; the Jacobian of the reflection is
-    // 1 / (4 (v·h)). No GLSL counterpart — the shaders importance-sample but
-    // never need the density (they use the NdotL-weighted-average estimator);
-    // an unbiased integrator does.
-    // Cosine-only form (the cos-form D cancels at low roughness); shading paths use
-    // the vector overload below.
-    [[nodiscard]] inline f32 PdfGGX(f32 nDotH, f32 vDotH, f32 roughness) noexcept
-    {
-        if (vDotH <= 0.0f)
-            return 0.0f;
-        return DistributionGGXSamplingDensity(nDotH, roughness) * std::max(nDotH, 0.0f) / (4.0f * vDotH);
-    }
-
-    // PdfGGX from the vectors, with the cancellation-free D (see the vector
-    // DistributionGGXSamplingDensity). BSDF::Pdf uses this one.
-    [[nodiscard]] inline f32 PdfGGX(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h, f32 roughness) noexcept
-    {
-        const f32 vDotH = glm::dot(v, h);
-        if (vDotH <= 0.0f)
-            return 0.0f;
-        return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f) / (4.0f * vDotH);
-    }
-
     // Cosine-weighted hemisphere sample about `n` (Malley's method).
     [[nodiscard]] inline glm::vec3 CosineSampleHemisphere(const glm::vec2& xi, const glm::vec3& n) noexcept
     {
@@ -412,7 +237,7 @@ namespace OloEngine::PathTracing
     // Lobe selection probability for one-sample BSDF sampling.
     //
     // The integrator draws from ONE of the two lobes per bounce but always
-    // evaluates the FULL CookTorranceBRDF and divides by the COMBINED density
+    // evaluates the full closure and divides by the COMBINED density
     //     pdf = pSpecular * pdfGGX + (1 - pSpecular) * pdfCosine
     // which is the standard one-sample MIS estimator over a lobe mixture — it
     // is unbiased for any pSpecular in (0, 1). The value below is only a
@@ -435,10 +260,7 @@ namespace OloEngine::PathTracing
 
     // =========================================================================
     // PBR CLOSURE V2 (issue #975) — twins of the PBR CLOSURE V2 section in
-    // PBRCommon.glsl, in the same order. The Legacy functions above are frozen;
-    // these are the versioned opt-in closure the reference tracer dispatches to
-    // through PBRClosureBSDF.h when ReferenceMaterial::Model == ClosureV2.
-    // Pinned by ReferenceBRDFGpuParityTest's v2 probe channels.
+    // PBRCommon.glsl. ClosureV2GpuParityTest compares the two implementations.
     // =========================================================================
 
     // GLSL: closureV2Roughness. The ONLY roughness guard in the v2 closure —
@@ -589,7 +411,7 @@ namespace OloEngine::PathTracing
     }
 
     // GLSL: closureV2Evaluate — the v2 Evaluate: f(v, l) WITHOUT the cosine,
-    // matching CookTorranceBRDF's convention. One geometry term
+    // matching the raster convention. One geometry term
     // (height-correlated Smith visibility), alpha-clamped unclamped-denominator
     // D, Kulla-Conty compensation, and a Lambert diffuse weighted by the
     // energy-conserving coupling (1 - metallic) w_d of ClosureV2Energy.

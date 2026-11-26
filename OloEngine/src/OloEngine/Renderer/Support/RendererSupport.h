@@ -2,7 +2,6 @@
 
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 
 #include <array>
 #include <string_view>
@@ -153,7 +152,6 @@ namespace OloEngine::RendererSupport
         Geometry GeometryFamily = Geometry::StaticMesh;
         MaterialFamily SurfaceCategory = MaterialFamily::Standard;
         OloEngine::MaterialKind AuthoredKind = OloEngine::MaterialKind::Generic;
-        PBRModel ClosureModel = PBRModel::ClosureV2;
         Closure SurfaceClosure = Closure::Opaque;
         bool ThinTransmission = false;
         Technique LightingTechnique = Technique::Raster;

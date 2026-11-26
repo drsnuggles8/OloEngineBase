@@ -2,13 +2,6 @@
 // =============================================================================
 // ClosureV2Test.cpp — contract tests for PBR closure v2 (issue #975, ADR 0016).
 //
-// The v2 closure's whole pitch is three properties Legacy structurally cannot
-// have: ONE D serving Evaluate/Sample/Pdf (alpha clamp instead of denominator
-// clamp), a near-mirror lobe that narrows and brightens instead of collapsing,
-// and Kulla-Conty multiple-scattering energy compensation that closes the white
-// furnace. Each is pinned here, headless, with its PAIRED NEGATIVE where the
-// acceptance criterion demands one ("a furnace test that fails without the
-// compensation", "a near-mirror test that fails against today's code").
 //
 // This file is also the "ClosureV2EnergyTableTest" the generated table pair
 // refers to (GgxEnergyTables.h / include/PBRClosureV2Energy.glsl): the first
@@ -29,7 +22,6 @@
 
 #include "Rendering/ShaderHarness.h"
 
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/GgxEnergyTables.h"
 #include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
@@ -117,33 +109,6 @@ namespace OloEngine::Tests
         [[nodiscard]] f32 NodeValue(u32 node)
         {
             return GgxEnergyNodeValue(node);
-        }
-
-        // Uniform-hemisphere Monte Carlo estimate of the LEGACY directional
-        // albedo — the same estimator ReferenceBRDFTest's FurnaceIntegral runs
-        // (and PbrFurnaceProbe.glsl on the GPU), generalised to an off-normal
-        // view direction so it can be compared against the v2 estimate at the
-        // same mu_o.
-        [[nodiscard]] f64 LegacyFurnaceIntegral(f32 roughness, f32 metallic, const glm::vec3& albedo, f32 muO,
-                                                u32 sampleCount)
-        {
-            const glm::vec3 n(0.0f, 0.0f, 1.0f);
-            const f32 sinO = std::sqrt(std::max(0.0f, 1.0f - muO * muO));
-            const glm::vec3 v(sinO, 0.0f, muO);
-
-            f64 sum = 0.0;
-            for (u32 i = 0; i < sampleCount; ++i)
-            {
-                const glm::vec2 xi = Hammersley(i, sampleCount);
-                const f32 cosTheta = xi.x;
-                const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-                const f32 phi = kTwoPi * xi.y;
-                const glm::vec3 l(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-
-                const glm::vec3 f = CookTorranceBRDF(n, v, l, albedo, metallic, roughness);
-                sum += static_cast<f64>((f.x + f.y + f.z) / 3.0f) * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
-            }
-            return sum / static_cast<f64>(sampleCount);
         }
 
         // Pull the `0x????????u` hex words out of a GLSL packed-table
@@ -387,18 +352,6 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // 4. The near-mirror lobe no longer collapses — the second issue-#975
-    //    acceptance criterion, with the "fails against today's code" negative.
-    //
-    // (a) energy: v2's directional albedo at roughness 0.05 stays ~1, while
-    //     the Legacy closure at the SAME configuration collapses (the docs
-    //     measured 0.035 at roughness 0.1, metallic 1 — the EPSILON denominator
-    //     clamp caps D over the whole lobe).
-    // (b) shape: the v2 sampling-density D at the peak is a narrow bright spike
-    //     even at AUTHORED roughness 0, while the Legacy D is capped at
-    //     a2^2 / EPSILON. ReferenceBRDF.GgxNdfPeakIsEpsilonClampedAtLowRoughness
-    //     is the sibling pin asserting that Legacy clamp is PRESERVED; this
-    //     test asserts the CONTRAST — v2 must not inherit it.
     // =========================================================================
     TEST(ClosureV2, NearMirrorLobeNoLongerCollapses)
     {
@@ -417,19 +370,6 @@ namespace OloEngine::Tests
             << "the v2 near-mirror specular lobe went dark again — the exact defect ClosureV2 exists "
                "to fix (an alpha clamp must bound the lobe, never a denominator clamp)";
 
-        // PAIRED NEGATIVE — this half FAILS against today's Legacy closure by
-        // construction: same estimator family, same roughness/metallic/mu_o,
-        // Legacy CookTorranceBRDF instead of the v2 closure.
-        const f64 legacyAlbedo = LegacyFurnaceIntegral(kRoughness, 1.0f, glm::vec3(1.0f), kMuO, kSamples);
-        // 0.2 separates the EPSILON-clamped Legacy collapse (~0.03 measured)
-        // from anything resembling a preserved mirror lobe; if this fires the
-        // Legacy closure changed, which the bit-identical render pins forbid.
-        EXPECT_LT(legacyAlbedo, 0.2)
-            << "the LEGACY closure no longer collapses at near-mirror roughness — Legacy is frozen "
-               "(PathTracerCornellBoxTest pins its renders bit-for-bit), so something rewrote it";
-        EXPECT_GT(v2Albedo, legacyAlbedo)
-            << "v2 must carry MORE energy than the collapsed Legacy lobe at near-mirror roughness";
-
         // (b) peak NDF contrast at the SAME configuration (n = h = +Z).
         const f32 v2Peak = DistributionGGXSamplingDensity(1.0f, ClosureV2Roughness(0.0f));
         // 1e4 separates the true unclamped peak at the v2 roughness floor
@@ -437,17 +377,6 @@ namespace OloEngine::Tests
         EXPECT_GT(v2Peak, 1.0e4f)
             << "the v2 D no longer spikes at authored roughness 0 — the alpha clamp "
                "(ClosureV2Roughness) was replaced or a denominator clamp crept back in";
-
-        const glm::vec3 n(0.0f, 0.0f, 1.0f);
-        const glm::vec3 h(0.0f, 0.0f, 1.0f);
-        const f32 legacyPeak = DistributionGGX(n, h, 0.04f);
-        // 100 separates the EPSILON-capped Legacy peak (a2^2 / 1e-4 ~ 0.026)
-        // from the unclamped ~1.2e5 — the same fact
-        // ReferenceBRDF.GgxNdfPeakIsEpsilonClampedAtLowRoughness pins as an
-        // identity; here it is the negative half of the contrast.
-        EXPECT_LT(legacyPeak, 100.0f)
-            << "the Legacy D lost its EPSILON clamp — that clamp is shipped behaviour and the "
-               "reference must reproduce it (see ReferenceBRDF.h's fidelity notes)";
     }
 
     // =========================================================================
@@ -459,10 +388,6 @@ namespace OloEngine::Tests
     // (NdotV, NdotL); the Kulla-Conty term is symmetric by construction
     // (lossV * lossL); and the diffuse coupling is a product of one factor
     // per direction, (1 - E_spec(NdotV)) (1 - E_spec(NdotL)) (issue #1479).
-    // ADR 0016 §5 records reciprocity as a v2 design property. Legacy has it
-    // too, because its (1 - F(h)) diffuse weight sits at the half vector; the
-    // independent check of
-    // both is BsdfIdentityOracleTest.ClosuresAreReciprocal (issue #1347).
     // =========================================================================
     TEST(ClosureV2, ClosureV2IsReciprocal)
     {
@@ -586,7 +511,6 @@ namespace OloEngine::Tests
                     material.BaseColor = albedo;
                     material.Metallic = metallic;
                     material.Roughness = roughness;
-                    material.Model = PBRModel::ClosureV2;
                     const f32 pdf = BSDF::Pdf(material, n, config.V, config.L);
                     // The density the integrator divides by and MIS weights
                     // with: a NaN here corrupts every estimator downstream, a
@@ -601,98 +525,4 @@ namespace OloEngine::Tests
         }
     }
 
-    // =========================================================================
-    // 7. The Legacy dispatch is untouched, and the v2 dispatch is live.
-    //
-    // The #975 contract froze Legacy bit-for-bit (the Cornell-box render pins
-    // depend on the float sequence not changing), so BSDF::Evaluate on a Legacy
-    // material — explicit OR default-constructed, since Legacy IS the
-    // constructor default per ADR 0016 §1 — must be the exact same computation
-    // as a direct CookTorranceBRDF call. And a ClosureV2 material must actually
-    // reach the other branch, or the whole feature is a dead enum.
-    // =========================================================================
-    TEST(ClosureV2, LegacyDispatchIsUntouched)
-    {
-        const glm::vec3 n(0.0f, 0.0f, 1.0f);
-        const glm::vec3 albedo(0.7f, 0.5f, 0.3f);
-        constexpr f32 kMetallic = 0.25f;
-        constexpr f32 kRoughness = 0.45f;
-
-        ReferenceMaterial explicitLegacy;
-        explicitLegacy.BaseColor = albedo;
-        explicitLegacy.Metallic = kMetallic;
-        explicitLegacy.Roughness = kRoughness;
-        explicitLegacy.Model = PBRModel::Legacy;
-
-        ReferenceMaterial defaulted;
-        defaulted.BaseColor = albedo;
-        defaulted.Metallic = kMetallic;
-        defaulted.Roughness = kRoughness;
-        // Model deliberately untouched: the constructor default must BE Legacy
-        // (ADR 0016 §1 — flipping any default is a separate, deliberate
-        // decision with a golden rebake attached, never a drive-by).
-
-        struct DirPair
-        {
-            f32 CosV;
-            f32 PhiV;
-            f32 CosL;
-            f32 PhiL;
-        };
-        constexpr DirPair kPairs[] = {
-            { 0.9f, 0.0f, 0.4f, 2.0f },
-            { 0.3f, 1.5f, 0.75f, 4.2f },
-            { 0.55f, 3.0f, 0.55f, 0.7f },
-        };
-
-        for (const auto& pair : kPairs)
-        {
-            const glm::vec3 v = DirectionFrom(pair.CosV, pair.PhiV);
-            const glm::vec3 l = DirectionFrom(pair.CosL, pair.PhiL);
-
-            const glm::vec3 direct = CookTorranceBRDF(n, v, l, albedo, kMetallic, kRoughness);
-            const glm::vec3 viaExplicit = BSDF::Evaluate(explicitLegacy, n, v, l);
-            const glm::vec3 viaDefault = BSDF::Evaluate(defaulted, n, v, l);
-
-            for (glm::length_t c = 0; c < 3; ++c)
-            {
-                // EXACT float equality ON PURPOSE (the other place float == is
-                // the point): bit-identity — not closeness — is what the frozen
-                // Legacy contract promises; ANY drift here moves the pinned
-                // Cornell-box render hashes.
-                EXPECT_EQ(viaExplicit[c], direct[c])
-                    << "channel " << c << ": BSDF::Evaluate(Model = Legacy) is no longer the verbatim "
-                    << "CookTorranceBRDF — the Legacy float sequence is pinned by "
-                    << "PathTracerCornellBoxTest.RendersAreBitIdentical and must not change";
-                EXPECT_EQ(viaDefault[c], direct[c])
-                    << "channel " << c << ": a default-constructed ReferenceMaterial no longer shades "
-                    << "Legacy — the engine-wide default silently flipped (ADR 0016 forbids that "
-                    << "without a deliberate decision)";
-            }
-        }
-
-        // The dispatch is LIVE: a ClosureV2 material at near-mirror roughness
-        // must produce a very different value (v2's unclamped-D peak vs
-        // Legacy's EPSILON-clamped one). Float != is fine here for the same
-        // reason == was above; the 100x gap is the assertion with teeth.
-        ReferenceMaterial v2Material;
-        v2Material.BaseColor = glm::vec3(1.0f);
-        v2Material.Metallic = 1.0f;
-        v2Material.Roughness = 0.05f;
-        v2Material.Model = PBRModel::ClosureV2;
-
-        // Head-on (v = l = n): nDotH == 1, where the two models' D treatment
-        // differs the most.
-        const glm::vec3 v2Value = BSDF::Evaluate(v2Material, n, n, n);
-        const glm::vec3 legacyValue = CookTorranceBRDF(n, n, n, glm::vec3(1.0f), 1.0f, 0.05f);
-        EXPECT_NE(v2Value.x, legacyValue.x)
-            << "a ClosureV2 material evaluates identically to Legacy — the Model dispatch in "
-               "PBRClosureBSDF.h is not reaching the v2 branch";
-        // 100x separates "took the v2 branch" (head-on near-mirror: ~1.3e4 vs
-        // ~1.6e-2, nearly six orders apart) from any plausible same-branch
-        // numeric wobble.
-        EXPECT_GT(v2Value.x, 100.0f * legacyValue.x)
-            << "the v2 near-mirror value no longer dwarfs the clamped Legacy one — either the "
-               "dispatch is dead or the v2 lobe collapsed (see NearMirrorLobeNoLongerCollapses)";
-    }
 } // namespace OloEngine::Tests

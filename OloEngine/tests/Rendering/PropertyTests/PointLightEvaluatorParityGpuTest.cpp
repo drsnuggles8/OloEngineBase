@@ -58,7 +58,7 @@ namespace OloEngine::Tests
         {
             glm::vec4 PositionAndRoughness;
             glm::vec4 NormalAndMetallic;
-            glm::vec4 CameraAndModel;
+            glm::vec4 CameraPosition;
             glm::vec4 Albedo;
         };
 
@@ -69,9 +69,6 @@ namespace OloEngine::Tests
             ProbeSurface Surface;
             bool ExpectLit;
         };
-
-        constexpr f32 kLegacy = 0.0f;
-        constexpr f32 kClosureV2 = 1.0f;
 
         GPUSceneLightInput PointLight(const glm::vec3& position, const glm::vec3& color, f32 intensity, f32 range,
                                       f32 attenuation)
@@ -87,9 +84,9 @@ namespace OloEngine::Tests
         }
 
         ProbeSurface Surface(const glm::vec3& position, const glm::vec3& normal, const glm::vec3& camera,
-                             const glm::vec3& albedo, f32 roughness, f32 metallic, f32 model)
+                             const glm::vec3& albedo, f32 roughness, f32 metallic)
         {
-            return ProbeSurface{ glm::vec4(position, roughness), glm::vec4(normal, metallic), glm::vec4(camera, model),
+            return ProbeSurface{ glm::vec4(position, roughness), glm::vec4(normal, metallic), glm::vec4(camera, 0.0f),
                                  glm::vec4(albedo, 1.0f) };
         }
 
@@ -100,44 +97,44 @@ namespace OloEngine::Tests
                 // DDGITest.olo's red point light on its floor, seen from the scene camera.
                 { "DDGITest red light on the floor",
                   PointLight({ -5.0f, 3.0f, 0.0f }, { 1.0f, 0.2f, 0.1f }, 8.0f, 15.0f, 1.0f),
-                  Surface({ -3.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 5.0f, 15.0f }, grey, 0.9f, 0.0f, kLegacy),
+                  Surface({ -3.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 5.0f, 15.0f }, grey, 0.9f, 0.0f),
                   true },
                 { "default attenuation, grazing wall",
                   PointLight({ 0.0f, 1.0f, 0.3f }, { 1.0f, 1.0f, 1.0f }, 12.0f, 10.0f, 2.0f),
                   Surface({ 2.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.5f, 6.0f }, { 0.8f, 0.7f, 0.6f }, 0.5f,
-                          0.0f, kLegacy),
+                          0.0f),
                   true },
                 { "just inside the range window",
                   PointLight({ 0.0f, 2.0f, 0.0f }, { 0.3f, 0.6f, 1.0f }, 20.0f, 5.0f, 1.0f),
-                  Surface({ 4.8f, 2.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 2.0f, 3.0f, 4.0f }, grey, 0.6f, 0.0f, kLegacy),
+                  Surface({ 4.8f, 2.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 2.0f, 3.0f, 4.0f }, grey, 0.6f, 0.0f),
                   true },
                 { "just outside the range window",
                   PointLight({ 0.0f, 2.0f, 0.0f }, { 0.3f, 0.6f, 1.0f }, 20.0f, 5.0f, 1.0f),
-                  Surface({ 5.2f, 2.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 2.0f, 3.0f, 4.0f }, grey, 0.6f, 0.0f, kLegacy),
+                  Surface({ 5.2f, 2.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 2.0f, 3.0f, 4.0f }, grey, 0.6f, 0.0f),
                   false },
                 { "surface facing away",
                   PointLight({ 0.0f, 3.0f, 0.0f }, { 1.0f, 1.0f, 1.0f }, 10.0f, 10.0f, 2.0f),
-                  Surface({ 0.0f, 0.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, -2.0f, 3.0f }, grey, 0.5f, 0.0f, kLegacy),
+                  Surface({ 0.0f, 0.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, -2.0f, 3.0f }, grey, 0.5f, 0.0f),
                   false },
                 { "glossy highlight in the mirror direction",
                   PointLight({ -2.0f, 2.0f, 0.0f }, { 1.0f, 0.9f, 0.8f }, 15.0f, 12.0f, 2.0f),
                   Surface({ 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 2.0f, 2.0f, 0.0f }, { 0.2f, 0.2f, 0.25f }, 0.15f,
-                          0.0f, kLegacy),
+                          0.0f),
                   true },
                 { "metal",
                   PointLight({ 1.0f, 2.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, 9.0f, 8.0f, 2.0f),
                   Surface({ 0.0f, 0.0f, 0.0f }, { 0.2f, 1.0f, 0.1f }, { -1.0f, 2.0f, 2.0f }, { 1.0f, 0.78f, 0.34f }, 0.35f,
-                          1.0f, kLegacy),
+                          1.0f),
                   true },
-                { "closure V2",
+                { "warm dielectric",
                   PointLight({ -1.0f, 2.5f, 1.5f }, { 0.9f, 1.0f, 0.8f }, 11.0f, 9.0f, 2.0f),
                   Surface({ 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.5f, 2.0f, 3.0f }, { 0.6f, 0.4f, 0.3f }, 0.4f,
-                          0.0f, kClosureV2),
+                          0.0f),
                   true },
                 // NEGATIVE CONTROL — packed below with a different SSBO attenuation.
                 { "control: SSBO attenuation differs from the UBO",
                   PointLight({ -5.0f, 3.0f, 0.0f }, { 1.0f, 0.2f, 0.1f }, 8.0f, 15.0f, 1.0f),
-                  Surface({ -3.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 5.0f, 15.0f }, grey, 0.9f, 0.0f, kLegacy),
+                  Surface({ -3.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 5.0f, 15.0f }, grey, 0.9f, 0.0f),
                   true },
             };
         }

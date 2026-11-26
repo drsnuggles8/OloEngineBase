@@ -52,15 +52,6 @@
 // everywhere, as the CPU reference samples: a ray hit has no screen-space
 // derivatives, and a reference does not filter.
 // ---------------------------------------------------------------------------
-// GPUSceneMaterial.ClosureVersion - PBRModel (Legacy 0, ClosureV2 1). A
-// property of the SCENE DATA rather than of any one tier, so it lives with the
-// hit that carries it. Each hit is shaded with ITS closure, as the CPU
-// reference dispatches (PBRClosureBSDF.h): ClosureV2 when the version says so,
-// Legacy otherwise - the CPU's default arm, so an unknown version lands on the
-// same closure on both. GpuPathTracer.glsl's OLO_PT_CLOSURE_* are the same two
-// numbers under its own names, and GpuPathTracerContractTest pins them.
-#define OLO_RT_CLOSURE_LEGACY 0u
-#define OLO_RT_CLOSURE_V2 1u
 
 struct OloRtMaterialTextures
 {
@@ -182,9 +173,6 @@ struct OloRtHit
     // lights are not in the TLAS; OloRtTraceClosest intersects them
     // analytically.
     int SphereLight;
-    // GPUSceneMaterial.ClosureVersion (OLO_PT_CLOSURE_*): which closure the hit
-    // is shaded and sampled with.
-    uint ClosureVersion;
 };
 
 // A committed intersection whose instance, geometry or material record is out of
@@ -223,7 +211,6 @@ bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloR
     hit.TwoSidedEmission = false;
     hit.Unshadeable = false;
     hit.SphereLight = -1;
-    hit.ClosureVersion = OLO_RT_CLOSURE_V2;
 
     rayQueryEXT rayQuery;
     // Opaque unless textures are reachable (see OloRtRayFlags). Every
@@ -351,7 +338,7 @@ bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloR
     hit.Roughness = roughness;
     hit.Emissive = emissive;
     hit.TwoSidedEmission = (material.Flags & OLO_GPU_SCENE_MATERIAL_TWO_SIDED) != 0u;
-    hit.ClosureVersion = material.ClosureVersion;
+
     return true;
 }
 

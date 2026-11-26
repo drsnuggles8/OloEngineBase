@@ -184,7 +184,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
-    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    int _pbrClosurePad;
     // Physical transmission / IOR / volume (issue #970). MUST mirror the
     // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
     // lanes so those stay last. Declared unconditionally -- unlike the heap
@@ -208,8 +208,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // relayout the heap offsets by 16 B and every texture would sample the
     // wrong descriptor.
     //
-    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
-    // of the closure evaluates it. Two fields because they are two questions --
+
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
     int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (15) == names no profile
@@ -328,7 +327,6 @@ layout(std140, binding = 0) uniform CameraMatrices {
 };
 #include "include/ScreenVelocity.glsl"
 
-
 // Canonical GPU Scene material record (issue #994). Included AFTER the
 // instance block because the link it resolves travels in
 // InstanceData::GPUSceneRef. This is the raster path that consumes the record:
@@ -429,7 +427,7 @@ void main()
     float matOcclusionStrength = u_OcclusionStrength;
     float matAlphaCutoff       = u_AlphaCutoff;
     int   matAlphaMode         = u_AlphaMode;
-    int   matPBRModel          = u_PBRModel;
+
     int   matMaterialKind      = u_MaterialKind;
     int   matSkinProfileSlot   = u_SkinProfileSlot;
     bool  matUseAlbedoMap      = bool(u_UseAlbedoMap);
@@ -464,7 +462,7 @@ void main()
         matOcclusionStrength = gpuSceneMaterial.OcclusionStrength;
         matAlphaCutoff       = gpuSceneMaterial.AlphaCutoff;
         matAlphaMode         = int(gpuSceneMaterial.AlphaMode);
-        matPBRModel          = int(gpuSceneMaterial.ClosureVersion);
+
         // Issue #1231 — taken from the record for the same reason the closure
         // version is: one instanced draw can cover several materials, and the
         // per-draw UBO holds only one of them.
@@ -617,7 +615,7 @@ void main()
     // Alpha carries the PBR closure model selector (issue #975): 0=Legacy,
     // 1=ClosureV2. RGBA16F represents small integers exactly, and the
     // deferred lighting pass reads it back with a round().
-    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(matPBRModel, matMaterialKind, matSkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
+    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(matMaterialKind, matSkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
     // .a: the material profile (#1256) is the snow weight (issue #1451).
     o_GBufferVelocity = vec4(velocity, 1.0, snowWeight);
     o_GBufferEntityID = instances[v_InstanceIndex].EntityID;

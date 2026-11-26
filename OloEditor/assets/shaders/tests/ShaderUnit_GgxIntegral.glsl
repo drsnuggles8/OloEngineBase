@@ -30,26 +30,15 @@ uniform int u_ThetaSteps;
 uniform int u_PhiSteps;
 
 const float PI = 3.14159265358979;
-// PBRCommon.glsl's EPSILON — the clamp the shipped distributionGGX applies.
-// This copy used 1e-6, so the probe integrated a function that does not ship
-// (issue #1336). PBRCommon itself cannot be included in a compute stage (its
-// ambient helpers use implicit-LOD texture()), so the copy mirrors it and the
-// CPU side stays above the roughness where the clamp engages (~0.27; see
-// ReferenceBRDFTest.GgxNdfPeakIsEpsilonClampedAtLowRoughness).
-const float EPSILON = 1e-4;
-
-float distributionGGX(vec3 N, vec3 H, float roughness)
+// Vector GGX density matches distributionGGXUnclampedNH in PBRCommon.
+float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
 {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return num / max(denom, EPSILON);
+    float alpha = roughness * roughness;
+    float a2 = alpha * alpha;
+    float c = dot(N, H);
+    vec3 t = cross(N, H);
+    float q = dot(t, t) + a2 * c * c;
+    return a2 / (PI * q * q);
 }
 
 void main()
@@ -70,7 +59,7 @@ void main()
     vec3 N = vec3(0.0, 1.0, 0.0);
     vec3 H = vec3(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi));
 
-    float D = distributionGGX(N, H, roughness);
+    float D = distributionGGXUnclampedNH(N, H, roughness);
     float cosTheta = cos(theta);
     float sinTheta = sin(theta);
 

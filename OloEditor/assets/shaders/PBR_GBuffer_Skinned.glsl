@@ -158,7 +158,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
-    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    int _pbrClosurePad;
     // Physical transmission / IOR / volume (issue #970). MUST mirror the
     // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
     // lanes so those stay last. Declared unconditionally -- unlike the heap
@@ -182,8 +182,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // relayout the heap offsets by 16 B and every texture would sample the
     // wrong descriptor.
     //
-    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
-    // of the closure evaluates it. Two fields because they are two questions --
+
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
     int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (15) == names no profile
@@ -299,7 +298,6 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec4 u_JitterUV; // the TAA jitter offsets, for the velocity (#1552)
 };
 #include "include/ScreenVelocity.glsl"
-
 
 // Converted whole (§5c) — the material five are every sampler this shader has,
 // on either bindless arm.
@@ -499,7 +497,7 @@ void main()
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
-    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_PBRModel, u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
+    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
     // .a: the material profile (#1256) is the snow weight (issue #1451).
     o_GBufferVelocity = vec4(velocity, 1.0, snowWeight);
     o_GBufferEntityID = instances[v_InstanceIndex].EntityID;

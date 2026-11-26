@@ -19,7 +19,7 @@ namespace OloEngine::ReSTIR::PT
     {
         glm::vec4 PositionRoughness{};
         glm::vec4 GeometricNormalMetallic{};
-        glm::vec4 ShadingNormalClosure{};
+        glm::vec4 ShadingNormal{};
         glm::vec4 Albedo{};
         glm::vec4 Incoming{};
         glm::vec4 Randoms{};

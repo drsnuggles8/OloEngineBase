@@ -1516,13 +1516,6 @@ namespace OloEngine
             mat.SetEnableIBL(enableIBL);
         }
 
-        // PBR closure model (issue #975). On load a corrupt/out-of-range index
-        // REJECTS to Legacy — a discriminated value must never saturate to a
-        // different valid model.
-        auto model = mat.GetPBRModel();
-        ar << model;
-        if (ar.IsLoading())
-            mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
         // Physical glTF material extensions (issue #970).
         //
         // ATTENUATION DISTANCE IS WRITTEN RAW, INFINITY INCLUDED: unlike YAML,
@@ -1549,7 +1542,7 @@ namespace OloEngine
         }
         // Material kind + skin profile (issue #1231).
         //
-        // The kind is a DISCRIMINATED value like PBRModel above: a corrupt or
+        // The kind is a discriminated value: a corrupt or
         // future index REJECTS to Generic rather than saturating onto a valid
         // neighbour, because indexing the shader's kind switch with a number it
         // has no branch for is not a rounding error.
@@ -3681,22 +3674,6 @@ namespace OloEngine
                 c.Materials[i].SetEmissiveFactor(emissive);
             }
 
-            // PBR closure model (issue #975) — the SECOND full-Material save
-            // site; missing it here made
-            // a ClosureV2 tile material silently revert to Legacy through
-            // save/load while MaterialComponent round-tripped fine. Same
-            // reject-to-Legacy rule as the MaterialComponent block.
-            auto model = c.Materials[i].GetPBRModel();
-            ar << model;
-            if (ar.IsLoading())
-                c.Materials[i].SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model
-                                                                                      : PBRModel::Legacy);
-
-            // Material kind + skin profile (issue #1231). The SECOND full-
-            // Material save site, for the same reason the block above exists:
-            // a tile material that kept its kind through the scene file and
-            // lost it through a save/load would be exactly the #975 defect
-            // again.
             auto kind = c.Materials[i].GetMaterialKind();
             u64 skinProfile = static_cast<u64>(c.Materials[i].GetSkinProfileHandle());
             ar << kind << skinProfile;

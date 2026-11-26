@@ -17,10 +17,7 @@
 // quantity, this header deliberately uses a DIFFERENT algebraic form (the
 // tan-theta forms of Walter 2007 and Heitz 2014, not the cos-theta forms the
 // shaders use), so a transcription error in one is not copied into the other.
-//
-// WHAT IS MODEL AND WHAT IS CONVENTION. Two versioned closures ship:
-//
-//   * ClosureV2 (issue #975, ADR 0016) claims to BE the physical model:
+// The material closure combines
 //     GGX + height-correlated Smith + Schlick + Kulla-Conty compensation, and
 //     (issue #1479) a Lambert diffuse coupled to what the specular lobe
 //     leaves, so a white dielectric reflects exactly what it receives. Its
@@ -28,13 +25,6 @@
 //     §5) as its only conventions: the alpha clamp at roughness 0.04, and the
 //     multi-scatter lobe switched off when 1 - E_avg < 1e-4 (a near-mirror
 //     lobe sheds nothing worth compensating).
-//   * Legacy is FROZEN, intentionally versioned behaviour (AC 6 of #1347):
-//     UE4's separable Schlick-GGX G with k = (r+1)^2/8, a 1e-4 floor on the
-//     NDF denominator and a 1e-4 addend on the 4 NdotV NdotL denominator. It is
-//     not physics and is not meant to be. `LegacyConventions` names each of
-//     those choices with its source line so the oracle reproduces the version,
-//     and so a test can switch a convention off to measure what it costs —
-//     never so the engine can be "corrected" toward the physics.
 //
 // Nonlocal transport (skin diffusion, leaf and fibre transport) is NOT here.
 // Those have their own independent references in
@@ -535,59 +525,6 @@ namespace OloEngine::Tests::Oracle
                terms.MultiScatter;
     }
 
-    // ---- Legacy: frozen, versioned conventions (AC 6) ----------------------
-
-    // Each field is one deliberate difference between the Legacy closure and
-    // the model, with the line that ships it. Default-constructed, the struct
-    // IS the shipped version; a test may zero a field to measure what that one
-    // convention costs.
-    struct LegacyConventions
-    {
-        // PBRCommon.glsl distributionGGX: `a2 / max(denom, EPSILON)`, EPSILON
-        // 1e-4 — caps the NDF peak below roughness ~0.27.
-        f64 NdfDenominatorFloor = 1.0e-4;
-        // PBRCommon.glsl cookTorranceBRDF: `4 NdotV NdotL + EPSILON` — a 1e-4
-        // addend that dims the lobe at grazing angles (6 % at NdotV = NdotL = 0.02).
-        f64 SpecularDenominatorAddend = 1.0e-4;
-        // PBRCommon.glsl geometrySchlickGGX: `NdotV / max(NdotV (1-k) + k, EPSILON)`.
-        f64 GeometryDenominatorFloor = 1.0e-4;
-    };
-
-    // UE4's separable Schlick-GGX with the analytic-light remap [Karis13]:
-    // G1(mu) = mu / (mu (1 - k) + k), k = (r + 1)^2 / 8. Takes ROUGHNESS.
-    [[nodiscard]] inline f64 LegacySchlickG1(f64 mu, f64 roughness, const LegacyConventions& c = {})
-    {
-        const f64 k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
-        return mu / std::max(mu * (1.0 - k) + k, c.GeometryDenominatorFloor);
-    }
-
-    // The Legacy NDF: the model D, with the frozen denominator floor. Written
-    // in the cos form here because the floor is defined on THAT denominator.
-    [[nodiscard]] inline f64 LegacyD(f64 cosM, f64 roughness, const LegacyConventions& c = {})
-    {
-        const f64 a2 = std::pow(roughness, 4.0);
-        const f64 cm = std::max(cosM, 0.0);
-        const f64 q = cm * cm * (a2 - 1.0) + 1.0;
-        return a2 / std::max(kPi * q * q, c.NdfDenominatorFloor);
-    }
-
-    // The Legacy closure, cosine NOT included. F at v.m, kD = (1 - F)(1 - metallic).
-    [[nodiscard]] inline glm::dvec3 LegacyBrdf(const glm::dvec3& v, const glm::dvec3& l, const glm::dvec3& albedo,
-                                               f64 metallic, f64 roughness, const LegacyConventions& c = {})
-    {
-        const f64 muV = std::max(v.z, 0.0);
-        const f64 muL = std::max(l.z, 0.0);
-        const glm::dvec3 m = HalfVector(v, l);
-        const glm::dvec3 f0 = BaseF0(albedo, metallic);
-        const glm::dvec3 f = SchlickFresnel(std::max(glm::dot(v, m), 0.0), f0);
-        const f64 d = LegacyD(m.z, roughness, c);
-        const f64 g = LegacySchlickG1(muV, roughness, c) * LegacySchlickG1(muL, roughness, c);
-        const glm::dvec3 specular = d * g * f / (4.0 * muV * muL + c.SpecularDenominatorAddend);
-        const glm::dvec3 diffuse = (glm::dvec3(1.0) - f) * (1.0 - metallic) * albedo / kPi;
-        return diffuse + specular;
-    }
-
-    // =========================================================================
     // Path-reuse geometry (model): the reconnection Jacobian as a ratio of
     // solid angles, measured, not transcribed.
     // =========================================================================

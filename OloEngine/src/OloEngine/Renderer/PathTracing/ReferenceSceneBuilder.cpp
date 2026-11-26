@@ -170,7 +170,6 @@ namespace OloEngine::PathTracing
         pending.TwoSidedEmission = material.GetFlag(MaterialFlag::TwoSided);
         // Carry the versioned closure across (issue #975) — a v2 material must
         // trace as v2 or the reference silently measures the wrong closure.
-        pending.Model = material.GetPBRModel();
         // glTF MASK, mirrored (issue #869). Without it a cut-out material —
         // foliage, a grating — traces as a SOLID quad, which is not "less
         // bounce than reality" but a wrong occluder: it casts a shadow the

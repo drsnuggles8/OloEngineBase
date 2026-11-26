@@ -43,7 +43,6 @@ layout(location = 3) out vec4 o_Velocity;
 // into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
 layout(location = 4) out vec4 o_SkinDiffuse;
 
-
 layout(location = 0) in vec3 v_CardWorld;
 layout(location = 1) in vec3 v_PivotWorld;
 layout(location = 4) in float v_AlphaCutoff;
@@ -240,7 +239,7 @@ void main()
         }
 
         OloSurfaceLighting contrib = calculateLightContributionSplit(
-            u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld, OLO_PBR_MODEL_CLOSURE_V2);
+            u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);

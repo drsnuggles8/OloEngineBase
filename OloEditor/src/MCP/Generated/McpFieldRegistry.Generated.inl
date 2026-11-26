@@ -1890,13 +1890,6 @@ registry.push_back(MakeSetterField<MaterialComponent, float>(
         comp.m_Material.SetNormalScale(v);
     }, FieldRange{ std::optional<double>(0), std::nullopt }));
 registry.push_back(MakeSetterField<MaterialComponent, int>(
-    "MaterialComponent", "PBRModel",
-    [](const MaterialComponent& comp) -> int { return (static_cast<int>(comp.m_Material.GetPBRModel())); },
-    [](MaterialComponent& comp, const int& v)
-    {
-        comp.m_Material.SetPBRModel(static_cast<PBRModel>(v));
-    }, FieldRange{ std::optional<double>(0), std::optional<double>(1) }));
-registry.push_back(MakeSetterField<MaterialComponent, int>(
     "MaterialComponent", "MaterialKind",
     [](const MaterialComponent& comp) -> int { return (static_cast<int>(comp.m_Material.GetMaterialKind())); },
     [](MaterialComponent& comp, const int& v)

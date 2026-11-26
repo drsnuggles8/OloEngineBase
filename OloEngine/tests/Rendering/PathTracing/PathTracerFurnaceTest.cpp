@@ -18,16 +18,8 @@
 //      CONVEX single-scatter configuration: the converged radiance is exactly
 //      the directional albedo
 //          integral of f(l, v) * (n . l) dw    with n = v.
-//      That is the identical quantity PbrFurnaceProbe.glsl estimates on the
-//      GPU and ReferenceBRDFTest estimates on the CPU. Equality here means the
-//      integrator's throughput bookkeeping — sample, evaluate, divide by the
-//      density — is correct, because the BRDF term cancels out of the
-//      comparison and only the transport machinery is left under test.
 //
-//   2. `WhiteFurnaceStaysWithinTheEnergyBounds` — the same [0.6, 1.05] band
-//      PbrBrdfTest.FurnaceIntegralWithinEnergyBounds accepts on the GPU, so
-//      the reference and the shader probe deliver the same energy VERDICT and
-//      not merely two similar numbers.
+//   2. WhiteFurnaceStaysWithinTheEnergyBounds checks the traced unit environment.
 //
 //   3. `CornellFurnaceCreatesNoEnergy` — the multi-bounce version, and the one
 //      the acceptance criterion actually names: the full Cornell-box GEOMETRY
@@ -68,9 +60,6 @@ namespace OloEngine::Tests
     namespace
     {
         // Uniform-hemisphere estimate of the directional albedo with n = v, the
-        // same estimator PbrFurnaceProbe.glsl uses. Duplicated (rather than
-        // shared with ReferenceBRDFTest) on purpose: this file must be able to
-        // state its expected value without depending on another test's helper.
         [[nodiscard]] f64 AnalyticFurnaceIntegral(f32 roughness, f32 metallic, u32 sampleCount)
         {
             const glm::vec3 n(0.0f, 1.0f, 0.0f);
@@ -79,7 +68,7 @@ namespace OloEngine::Tests
             f64 sum = 0.0;
             for (u32 i = 0; i < sampleCount; ++i)
             {
-                const glm::vec2 xi(static_cast<f32>(i) / static_cast<f32>(sampleCount),
+                const glm::vec2 xi((static_cast<f32>(i) + 0.5f) / static_cast<f32>(sampleCount),
                                    SamplerDetail::ToUnitFloat(SamplerDetail::ReverseBits(i)));
                 const f32 cosTheta = xi.x;
                 const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
@@ -87,7 +76,7 @@ namespace OloEngine::Tests
                 // Hemisphere around +Y.
                 const glm::vec3 l(std::cos(phi) * sinTheta, cosTheta, std::sin(phi) * sinTheta);
 
-                const glm::vec3 f = CookTorranceBRDF(n, v, l, glm::vec3(1.0f), metallic, roughness);
+                const glm::vec3 f = ClosureV2Evaluate(n, v, l, glm::vec3(1.0f), metallic, roughness);
                 sum += static_cast<f64>((f.x + f.y + f.z) / 3.0f) * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
             }
             return sum / static_cast<f64>(sampleCount);
@@ -126,18 +115,6 @@ namespace OloEngine::Tests
     {
         constexpr u32 kAnalyticSamples = 1u << 17;
         constexpr u32 kTracedSamples = 1u << 15;
-        // Both sides are Monte Carlo estimates, but both use stratified
-        // low-discrepancy point sets, so the residuals are tiny and stable
-        // rather than noisy: an offline reference implementation of this
-        // comparison agreed to five decimal places across the whole grid, and
-        // the analytic side moved by < 1e-5 between 2^17 and 2^20 samples.
-        //
-        // A combined absolute-or-relative bound is what this grid needs: the
-        // METALLIC values span two orders of magnitude (0.035 at roughness 0.1,
-        // where the engine's EPSILON clamp all but deletes the specular lobe,
-        // up to 0.89), so a pure absolute tolerance would be vacuous at the
-        // bottom and a pure relative one needlessly brittle at the top.
-        //
         // For scale: the clamped-PDF bug this test was written to catch made
         // the traced value 2.18 against an analytic 0.96.
         constexpr f64 kAbsoluteTolerance = 0.005;
@@ -169,7 +146,6 @@ namespace OloEngine::Tests
     TEST(PathTracerFurnace, WhiteFurnaceStaysWithinTheEnergyBounds)
     {
         constexpr u32 kTracedSamples = 1u << 14;
-        // The band PbrBrdfTest.FurnaceIntegralWithinEnergyBounds accepts.
         constexpr f64 kLowerBound = 0.6;
         constexpr f64 kUpperBound = 1.05;
 

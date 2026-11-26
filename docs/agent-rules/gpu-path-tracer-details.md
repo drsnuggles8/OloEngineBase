@@ -35,10 +35,9 @@ Two consequences that are easy to break by accident:
   which triangle was hit. The GPU table (`EmissiveTriangleTable`) is built on the CPU from the same
   mesh sources the raster draw indexes, in extraction order; `GpuPathTracerContractTest` checks it
   against `ReferenceScene::GetEmissiveTriangles()` triangle for triangle.
-- **Every hit shades with ITS closure.** `PtEvaluateBRDF` / `PtBsdfPdf` / `PtSampleBRDF` dispatch on
-  the material's `ClosureVersion` the way `PBRClosureBSDF.h` does: the Legacy sampler (GGX-NDF
-  importance sampling plus cosine, the v2 lobe probability) is mirrored in the shader, and both
-  closures are pinned by their own Cornell parity test.
+- **Use one closure for every standard PBR hit.** The GPU and CPU tracers evaluate the
+  same albedo, metallic and roughness inputs. Both draw a mixture of visible-normal specular
+  and cosine diffuse directions, and use its PDF in the MIS weights.
 - **Textures follow one convention on both tracers:** level 0, bilinear, REPEAT; the colour maps
   (albedo, emissive) are sRGB-decoded per texel, the data maps (metallic-roughness, normal) are read
   linear; albedo rgb times the factor, metallic = blue and roughness = green, emissive rgb times the

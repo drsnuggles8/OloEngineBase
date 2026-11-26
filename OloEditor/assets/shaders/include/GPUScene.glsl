@@ -104,7 +104,7 @@ struct GPUSceneMaterial
     float OcclusionStrength;
     float AlphaCutoff;
     uint AlphaMode;
-    uint ClosureVersion;
+    uint PadClosure;
     uint Flags;
     uint AlbedoTextureIndex;
     uint AlbedoTextureGeneration;
