@@ -161,6 +161,26 @@ TEST_F(TerrainCollisionFlatTest, DynamicBodyRestsOnFlatTerrainSurface)
         << "ball did not settle on the flat terrain surface; y=" << pos.y;
 }
 
+class TerrainWithoutPhysicsTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        auto terrain = GetScene().CreateEntity("Terrain in a render-only scene");
+        terrain.AddComponent<TerrainComponent>().m_CollisionEnabled = true;
+        m_TerrainID = terrain.GetUUID();
+    }
+
+    UUID m_TerrainID{ 0 };
+};
+
+TEST_F(TerrainWithoutPhysicsTest, GameplayTickLeavesTerrainCollisionUnbuilt)
+{
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->IsInitialized());
+    RunFrames(1);
+    EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
 class TerrainCollisionHierarchyTest : public FunctionalTest
 {
   protected:

@@ -9057,6 +9057,10 @@ namespace OloEngine
 
     void Scene::SyncTerrainCollisionFrames()
     {
+        // The gameplay scheduler also ticks scenes with 3D physics disabled.
+        // A JoltScene wrapper exists there, but Jolt has no allocator or world.
+        if (!m_JoltScene || !m_JoltScene->IsInitialized())
+            return;
         for (const auto e : m_Registry.view<TerrainComponent, TransformComponent>())
         {
             auto& terrain = m_Registry.get<TerrainComponent>(e);
