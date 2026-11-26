@@ -28,6 +28,7 @@
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "TestTempDir.h"
 
@@ -159,6 +160,19 @@ TEST_F(TerrainCollisionFlatTest, DynamicBodyRestsOnFlatTerrainSurface)
     // quantization error to budget for).
     EXPECT_NEAR(pos.y, kTerrainY + kRadius, 0.1f)
         << "ball did not settle on the flat terrain surface; y=" << pos.y;
+}
+
+TEST_F(TerrainCollisionFlatTest, MovingSupportWakesASleepingBody)
+{
+    TickFor(5.0f);
+    auto ball = GetScene().GetPhysicsScene()->GetBody(m_Ball);
+    ASSERT_TRUE(ball);
+    ball->Deactivate();
+    ASSERT_TRUE(ball->IsSleeping());
+    const float resting = ball->GetPosition().y;
+    m_Terrain.GetComponent<TransformComponent>().Translation.y -= 3.0f;
+    TickFor(0.5f);
+    EXPECT_LT(ball->GetPosition().y, resting - 0.5f);
 }
 
 class TerrainWithoutPhysicsTest : public FunctionalTest

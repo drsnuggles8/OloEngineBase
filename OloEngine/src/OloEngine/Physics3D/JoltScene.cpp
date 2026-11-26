@@ -516,6 +516,42 @@ namespace OloEngine
         return Entity{};
     }
 
+    namespace
+    {
+        void WakeBodiesOnTerrain(JPH::PhysicsSystem& system, JPH::BodyID terrainID)
+        {
+            JPH::AABox bounds;
+            {
+                JPH::BodyLockRead terrain(system.GetBodyLockInterface(), terrainID);
+                if (!terrain.Succeeded())
+                    return;
+                bounds = terrain.GetBody().GetWorldSpaceBounds();
+            }
+            // Resting contacts may sit just above the height field. Release
+            // the terrain lock before the broadphase takes locks on its neighbours.
+            bounds.ExpandBy(JPH::Vec3::sReplicate(system.GetPhysicsSettings().mSpeculativeContactDistance));
+            system.GetBodyInterface().ActivateBodiesInAABox(bounds,
+                                                            system.GetDefaultBroadPhaseLayerFilter(ObjectLayers::NON_MOVING),
+                                                            system.GetDefaultLayerFilter(ObjectLayers::NON_MOVING));
+        }
+
+        void MoveTerrainAndWakeBodies(JPH::PhysicsSystem& system, JPH::BodyID id,
+                                      const glm::vec3& position, const glm::quat& rotation)
+        {
+            auto& bodies = system.GetBodyInterface();
+            const auto target = JoltUtils::ToJoltRVec3(position);
+            const auto orientation = JoltUtils::ToJoltQuat(rotation);
+            JPH::RVec3 oldPosition;
+            JPH::Quat oldRotation;
+            bodies.GetPositionAndRotation(id, oldPosition, oldRotation);
+            if (oldPosition.IsClose(target) && (oldRotation.IsClose(orientation) || oldRotation.IsClose(-orientation)))
+                return;
+            WakeBodiesOnTerrain(system, id);
+            bodies.SetPositionAndRotation(id, target, orientation, JPH::EActivation::DontActivate);
+            WakeBodiesOnTerrain(system, id);
+        }
+    } // namespace
+
     JPH::BodyID JoltScene::CreateTerrainBody(Entity entity, const JPH::Ref<JPH::Shape>& shape,
                                              const glm::vec3& position, const glm::quat& rotation)
     {
@@ -560,13 +596,14 @@ namespace OloEngine
         m_BodyIDToEntity[bodyID] = entityID;
 
         OLO_CORE_TRACE("Created terrain collision body for entity {0}, BodyID: {1}", (u64)entityID, bodyID.GetIndex());
+        WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
         return bodyID;
     }
 
     void JoltScene::MoveTerrainBody(UUID entityID, const glm::vec3& position, const glm::quat& rotation)
     {
         if (const auto it = m_TerrainBodies.find(entityID); it != m_TerrainBodies.end())
-            m_JoltSystem->GetBodyInterface().SetPositionAndRotationWhenChanged(it->second, JoltUtils::ToJoltVector(position), JoltUtils::ToJoltQuat(rotation), JPH::EActivation::DontActivate);
+            MoveTerrainAndWakeBodies(*m_JoltSystem, it->second, position, rotation);
     }
 
     bool JoltScene::MoveTerrainTileBody(UUID entityID, i32 tileX, i32 tileZ, const glm::vec3& position, const glm::quat& rotation)
@@ -574,7 +611,7 @@ namespace OloEngine
         const auto it = m_TerrainTileBodies.find(TerrainTileKey{ entityID, tileX, tileZ });
         if (it == m_TerrainTileBodies.end())
             return false;
-        m_JoltSystem->GetBodyInterface().SetPositionAndRotationWhenChanged(it->second, JoltUtils::ToJoltVector(position), JoltUtils::ToJoltQuat(rotation), JPH::EActivation::DontActivate);
+        MoveTerrainAndWakeBodies(*m_JoltSystem, it->second, position, rotation);
         return true;
     }
 
@@ -589,6 +626,7 @@ namespace OloEngine
         if (m_JoltSystem)
         {
             auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
             bodyInterface.RemoveBody(bodyID);
             bodyInterface.DestroyBody(bodyID);
         }
@@ -666,6 +704,7 @@ namespace OloEngine
 
         OLO_CORE_TRACE("Created terrain tile collision body for entity {0} tile ({1},{2}), BodyID: {3}",
                        (u64)entityID, tileX, tileZ, bodyID.GetIndex());
+        WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
         return bodyID;
     }
 
@@ -680,6 +719,7 @@ namespace OloEngine
         if (m_JoltSystem)
         {
             auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
             bodyInterface.RemoveBody(bodyID);
             bodyInterface.DestroyBody(bodyID);
         }
@@ -713,6 +753,7 @@ namespace OloEngine
                 m_BodyIDToEntity.erase(bodyID);
                 if (bodyInterface)
                 {
+                    WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
                     bodyInterface->RemoveBody(bodyID);
                     bodyInterface->DestroyBody(bodyID);
                 }
@@ -814,11 +855,13 @@ namespace OloEngine
         const JPH::RVec3 prevCOM = bodyInterface.GetCenterOfMassPosition(bodyID);
 
         JPH::TempAllocatorMalloc allocator;
+        WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
         heightField->SetHeights(x0, z0, sizeX, sizeZ, region.data(), static_cast<intptr_t>(sizeX), allocator);
 
         // Refresh the broadphase bounds for the mutated shape. Static body → no mass
         // properties, no activation.
         bodyInterface.NotifyShapeChanged(bodyID, prevCOM, false, JPH::EActivation::DontActivate);
+        WakeBodiesOnTerrain(*m_JoltSystem, bodyID);
         return true;
     }
 
