@@ -444,6 +444,22 @@ TEST_F(ParentedPhysicsPlacementTest, UnrepresentableFloatRotationDoesNotDiscardN
     EXPECT_FLOAT_EQ(glm::dot(local.GetRotation(), original), 1.0f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, HeadingValidationUsesTheStoredFloatQuaternion)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1, 1.0e-12f, 1 };
+    const glm::quat original = m_3D[0].GetComponent<TransformComponent>().GetRotation();
+    const auto desired = glm::angleAxis(1.0e-4f, glm::vec3(0, 0, 1));
+    if (GetScene().TrySetWorldRotation(m_3D[0], desired))
+    {
+        const glm::vec3 storedX = glm::normalize(glm::vec3(GetScene().ComputeWorldTransform(m_3D[0])[0]));
+        EXPECT_NEAR(glm::distance(storedX, desired * glm::vec3(1, 0, 0)), 0.0f, 2.0e-4f);
+    }
+    else
+        EXPECT_FLOAT_EQ(glm::dot(original, m_3D[0].GetComponent<TransformComponent>().GetRotation()), 1.0f);
+}
+
 TEST_F(ParentedPhysicsPlacementTest, SphereWithOneSurvivingScaleAxisKeepsWorldAuthority)
 {
     Entity carrier = GetScene().CreateEntity("Full rank carrier");

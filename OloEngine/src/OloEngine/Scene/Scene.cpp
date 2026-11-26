@@ -3102,7 +3102,10 @@ namespace OloEngine
             // The narrowing to an authored f32 quaternion can lose a tiny but
             // essential angle. Check what this quaternion actually represents.
             glm::quat represented;
-            const glm::mat4 composed = parentWorld * glm::scale(glm::mat4_cast(candidate), signs);
+            // SetRotation normalizes the f32 candidate before storing it.
+            // This final rounding matters when the parent magnifies a near-zero axis.
+            const glm::quat stored = glm::normalize(candidate);
+            const glm::mat4 composed = parentWorld * glm::scale(glm::mat4_cast(stored), signs);
             if (!SplitWorldMatrix(composed, unusedPosition, represented, unusedScale, collapsed))
                 return std::nullopt;
             const f32 error = std::min(glm::length(represented - desiredRotation), glm::length(represented + desiredRotation));
@@ -3548,8 +3551,15 @@ namespace OloEngine
         {
             if (!parented)
                 return PhysicsPoseMatrix({ position, rotation, local.Scale });
-            if (const auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local))
+            bool converted = false;
+            if (auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local, &converted))
+            {
+                // Match SetPhysicsWorldPose: SetRotation normalizes a converted
+                // rotation, while a position-only write keeps the authored value.
+                if (converted)
+                    pose->Rotation = glm::normalize(pose->Rotation);
                 return parentWorld * PhysicsPoseMatrix(*pose);
+            }
             return authored;
         };
         if (const auto* id = m_Registry.try_get<IDComponent>(entity); id)
