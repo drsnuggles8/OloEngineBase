@@ -49,6 +49,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include <algorithm>
 #include <cmath>
 
@@ -191,12 +193,10 @@ namespace OloEngine::Tests
         ASSERT_TRUE(fixture.Scene.IsBuilt());
 
         PathTracerSettings settings;
-        // The sample count is a CORRECTNESS parameter here, not a quality one —
-        // see the per-pixel bound below. At 128 samples this same (correct)
-        // render produced a peak of 1.069 with 0.68% of channel estimates above
-        // 1.0, purely from Monte Carlo variance. At 160 the peak is 1.026 and
-        // NOTHING exceeds the 1.05 tail bound.
-        settings.SamplesPerPixel = 160;
+        // A nearly lossless white closure puts the expected radiance close
+        // to the bound. Resolve the roulette tail without moving the ceiling:
+        // at 160 samples, 825 of 4800 channels exceeded 1.05 on the fixed seed.
+        settings.SamplesPerPixel = 2048;
         // Deep enough that truncation is not what keeps the answer below 1 —
         // otherwise the test would pass for the wrong reason.
         settings.MaxBounces = 32;
@@ -232,12 +232,12 @@ namespace OloEngine::Tests
         // The obvious form — "no pixel exceeds 1.0" — is wrong, and
         // instructively so: the max of a Monte Carlo image is a NOISE statistic,
         // not a bound on the quantity being estimated. An unbiased estimator whose
-        // expectation is 0.858 still produces individual pixels above 1.0 at a low
+        // expectation is unity still produces individual pixels above 1.0 at a low
         // sample count, so a test asserting the max is really asserting the sample
         // count.
         //
         // So: the frame MEAN carries the energy-conservation claim (it averages
-        // 12288 channel estimates, so its own error is negligible), the tail is
+        // 4800 channel estimates, so its own error is negligible), the tail is
         // bounded as a FRACTION rather than by an extreme order statistic, and the
         // per-pixel ceiling sits where only gross creation can reach — a Russian
         // roulette that forgot to divide by the survival probability compounds
@@ -247,27 +247,16 @@ namespace OloEngine::Tests
         EXPECT_LE(meanChannel, 1.005f)
             << "multi-bounce transport is creating energy: the mean radiance of a white enclosure "
                "under a unit environment came out at "
-            << meanChannel << " (measured 0.858)";
+            << meanChannel;
         EXPECT_LT(static_cast<f32>(channelsAboveBound) / static_cast<f32>(channelCount), 0.01f)
             << channelsAboveBound << " of " << channelCount
-            << " channel estimates exceed 1.05 (measured 0)";
+            << " channel estimates exceed 1.05";
         EXPECT_LE(maximum, 1.5f) << "gross energy creation in multi-bounce transport (peak = " << maximum << ")";
 
-        // ...and it must not be trivially dark either — a ceiling alone would
-        // pass for a completely broken integrator that returns zero.
-        //
-        // The floor is NOT 1.0, and deliberately not asserted as such. The
-        // classic "closed white furnace converges to exactly the environment"
-        // statement needs a perfectly energy-conserving BRDF; single-scatter
-        // GGX loses a few percent per bounce, and this cavity is open on one
-        // face, so the equilibrium is the fixed point of
-        //     L = rho * (f_open * 1 + f_closed * L)
-        // with rho the directional albedo (~0.93 here) and f_open the opening's
-        // form factor (~1/6 for a cube open on one face) — landing around 0.7,
-        // not 1.0. Pinning that number exactly would be pinning the cavity's
-        // geometry, not the integrator; 0.3 is a floor that only a genuinely
-        // broken transport can breach.
-        // Measured: 0.858, matching the L = rho * (f_open + f_closed * L) estimate.
+        RecordProperty("FrameMean", std::to_string(meanChannel));
+        RecordProperty("Peak", std::to_string(maximum));
+        RecordProperty("ChannelsAbove105", channelsAboveBound);
+        // A black or absorbing enclosure would pass every upper bound.
         const glm::vec3 centre = film.MeanRadiance(kWidth / 4, kHeight / 4, (kWidth * 3) / 4, (kHeight * 3) / 4);
         EXPECT_GE(std::max({ centre.x, centre.y, centre.z }), 0.5f)
             << "the white furnace enclosure converged far below the environment radiance — "
