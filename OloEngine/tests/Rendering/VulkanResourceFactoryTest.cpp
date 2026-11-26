@@ -52,6 +52,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/TextureCubemapArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -202,6 +203,70 @@ TEST_F(VulkanResourceFactory, FactoriesProduceLiveVulkanObjects)
     const auto* vaoEntry = VulkanRootObjectRegistry::Get().Lookup(vkVao->GetRHIHandle());
     ASSERT_NE(vaoEntry, nullptr);
     EXPECT_EQ(vaoEntry->Kind, VulkanRootObjectKind::VertexArray);
+}
+
+TEST_F(VulkanResourceFactory, CubemapArrayCopiesEveryFaceAndMipWithoutOverwritingItsNeighbor)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    constexpr u32 resolution = 8u;
+    constexpr u32 layers = 2u;
+    CubemapSpecification sourceSpec;
+    sourceSpec.Width = resolution;
+    sourceSpec.Height = resolution;
+    sourceSpec.Format = ImageFormat::R32F;
+    sourceSpec.GenerateMips = true;
+    auto source = TextureCubemap::Create(sourceSpec);
+    auto array = TextureCubemapArray::Create({ resolution, layers, ImageFormat::R32F });
+    ASSERT_TRUE(source && source->IsLoaded());
+    ASSERT_TRUE(array && array->IsLoaded());
+    ASSERT_EQ(array->GetMipLevelCount(), 4u);
+    ASSERT_EQ(array->GetMipLevelCount(), source->GetMipLevelCount());
+
+    const auto pattern = [](u32 face, u32 mip, u32 texel)
+    {
+        return static_cast<f32>(1000u * (mip + 1u) + 100u * face + texel);
+    };
+    for (u32 mip = 0; mip < array->GetMipLevelCount(); ++mip)
+    {
+        const u32 extent = resolution >> mip;
+        const u32 faceTexels = extent * extent;
+        std::vector<f32> faceData(faceTexels);
+        for (u32 face = 0; face < 6u; ++face)
+        {
+            for (u32 texel = 0; texel < faceTexels; ++texel)
+                faceData[texel] = pattern(face, mip, texel);
+            ASSERT_TRUE(source->SetFaceDataMip(face, mip, faceData.data(), faceTexels * sizeof(f32)));
+        }
+        const std::vector<f32> neighbor(faceTexels * 6u, -5.0f);
+        ASSERT_TRUE(array->SetLayerMipData(0u, mip, neighbor.data(), neighbor.size() * sizeof(f32)));
+    }
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    EXPECT_FALSE(array->CopyLayerFromCubemap(1u, *source));
+    ASSERT_TRUE(array->CopyLayerFromCubemap(1u, *source));
+    EXPECT_FALSE(array->CopyLayerFromCubemap(layers, *source));
+    for (u32 mip = 0; mip < array->GetMipLevelCount(); ++mip)
+    {
+        const u32 extent = resolution >> mip;
+        const u32 faceTexels = extent * extent;
+        const u32 layerTexels = faceTexels * 6u;
+        TArray64<u8> bytes;
+        ASSERT_TRUE(array->GetData(bytes, mip));
+        ASSERT_EQ(bytes.Num(), static_cast<i64>(layerTexels * layers * sizeof(f32)));
+        for (u32 face = 0; face < 6u; ++face)
+        {
+            for (u32 texel = 0; texel < faceTexels; ++texel)
+            {
+                SCOPED_TRACE(::testing::Message() << "mip " << mip << ", face " << face << ", texel " << texel);
+                const u32 index = face * faceTexels + texel;
+                f32 value;
+                std::memcpy(&value, bytes.GetData() + index * sizeof(f32), sizeof(value));
+                EXPECT_FLOAT_EQ(value, -5.0f);
+                std::memcpy(&value, bytes.GetData() + (layerTexels + index) * sizeof(f32), sizeof(value));
+                EXPECT_FLOAT_EQ(value, pattern(face, mip, texel));
+            }
+        }
+    }
 }
 
 TEST_F(VulkanResourceFactory, CubemapMipGenerationPreservesFacesUploadedInTheRecording)

@@ -5,6 +5,7 @@
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
@@ -139,6 +140,24 @@ namespace OloEngine
         distanceSpec.Layers = newCapacity;
         distanceSpec.Format = ImageFormat::R32F;
         distanceSpec.MipLevels = 0; // full chain — the CPU field builds every max-mip
+
+        const auto estimate = [](const CubemapArraySpecification& spec)
+        {
+            const u32 mips = spec.MipLevels != 0u ? spec.MipLevels
+                                                  : RendererMemoryFormat::FullMipCount(spec.Resolution, spec.Resolution);
+            return RendererMemoryFormat::ImageBytes(spec.Format, spec.Resolution, spec.Resolution, mips, spec.Layers * 6u).value_or(0u);
+        };
+        const u64 distanceBytes = estimate(distanceSpec);
+        const u64 retiringBytes = capacity == 0u ? 0u : estimate(m_RadianceArray->GetArraySpecification()) + estimate(m_DistanceArray->GetArraySpecification());
+        const u64 stagingBytes = RendererAPI::GetAPI() == RendererAPI::API::Vulkan ? distanceBytes : 0u;
+        if (!Renderer3D::CanAllocateReplacement(estimate(radianceSpec) + distanceBytes, retiringBytes, stagingBytes))
+        {
+            if (!m_WarnedBudgetRefusal)
+                OLO_CORE_WARN("ReflectionProbeArray: GPU memory budget deferred growth to {} layers", newCapacity);
+            m_WarnedBudgetRefusal = true;
+            return capacity != 0u;
+        }
+        m_WarnedBudgetRefusal = false;
 
         auto radiance = TextureCubemapArray::Create(radianceSpec);
         auto distance = TextureCubemapArray::Create(distanceSpec);
@@ -341,7 +360,7 @@ namespace OloEngine
                 }
                 if (layer < 0)
                 {
-                    break; // capacity exhausted (cannot happen: EnsureArrays sized to wanted)
+                    continue; // Growth was deferred; later probes may still own a layer.
                 }
                 if (!UploadLayer(static_cast<u32>(layer), *probe.Environment))
                 {

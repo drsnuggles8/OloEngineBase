@@ -89,6 +89,13 @@ namespace OloEngine::Automation
             return MarshalReadOnMainThread(readJob, timeout);
         }
 
+        // A GPU job needs the frame recording bracket in a windowed host.
+        [[nodiscard]] nlohmann::json MarshalRenderWork(const std::function<nlohmann::json()>& work,
+                                                       std::chrono::milliseconds timeout)
+        {
+            return MarshalRenderWorkOnMainThread(work, timeout);
+        }
+
         // Report progress for the CURRENTLY EXECUTING call. A no-op unless the
         // transport asked for progress and provided somewhere to send it.
         // `progress` must increase monotonically per call; `total` < 0 omits the
@@ -116,6 +123,11 @@ namespace OloEngine::Automation
       protected:
         virtual nlohmann::json MarshalReadOnMainThread(const std::function<nlohmann::json()>& readJob,
                                                        std::chrono::milliseconds timeout) = 0;
+        virtual nlohmann::json MarshalRenderWorkOnMainThread(const std::function<nlohmann::json()>& work,
+                                                             std::chrono::milliseconds timeout)
+        {
+            return MarshalReadOnMainThread(work, timeout);
+        }
         virtual void EmitProgressUpdate(f64 progress, f64 total, const std::string& message) const = 0;
     };
 } // namespace OloEngine::Automation

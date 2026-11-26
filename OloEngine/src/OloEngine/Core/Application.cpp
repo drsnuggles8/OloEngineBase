@@ -535,6 +535,11 @@ namespace OloEngine
         }
     }
 
+    void Application::EnqueueFrameWork(TFunction<void()> work)
+    {
+        m_FrameWork.Add(std::move(work));
+    }
+
     bool Application::RenderFrameLayers(const Timestep timestep)
     {
         // Diagnostic boundaries stay out of the aggregate map, which allocates
@@ -573,6 +578,10 @@ namespace OloEngine
                 Flag = false;
             }
         } latch{ m_FrameLayersInProgress };
+
+        auto frameWork = std::exchange(m_FrameWork, {});
+        for (auto& work : frameWork)
+            work();
 
         {
             OLO_PROFILE_FRAMEMARK_START("LayerStack OnUpdate");

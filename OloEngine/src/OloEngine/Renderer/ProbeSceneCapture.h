@@ -58,14 +58,22 @@ namespace OloEngine
         // is left untouched.
         static void NormalizeFaceRows(std::span<f32> rgba, u32 resolution, bool rowsAreBottomUp);
 
+        // Vulkan captures finish the current graph segment before a CPU read.
+        // This submits the face and signals any renderer frame fences staged
+        // by it, even after the window's backbuffer has been written.
+        [[nodiscard]] static bool SubmitFaceForReadback();
+
         // Renders the six faces through the MAIN view (ADR 0026, section 6) at
         // render scale 1 with no lighting tap, hands each to `onFace`, and puts
         // the main view's size, scale and tap back on every exit. `casterSink`, when given,
         // collects the scene's opaque mesh casters during the warm-up render
         // (Renderer3D::SetAuxCasterSink). Returns false when the scene is null,
         // the graph produced no SceneColor target, or `onFace` abandoned.
+        // `submitEachFace` is for the synchronous reflection bake. On Vulkan
+        // each segment borrows a command buffer until the editor frame ends.
         // `resolution` is clamped to [16, 2048].
         [[nodiscard]] static bool CaptureFaces(Ref<Scene>& scene, const glm::vec3& position, u32 resolution,
-                                               TArray<DDGIMeshCaster>* casterSink, const FaceSink& onFace);
+                                               TArray<DDGIMeshCaster>* casterSink, const FaceSink& onFace,
+                                               bool submitEachFace = false);
     };
 } // namespace OloEngine

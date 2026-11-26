@@ -1343,6 +1343,9 @@ namespace OloEngine
         static void ResetMemoryAdmission();
         // RendererMemoryTracker's admission reporter (RendererMemoryOwners installs it).
         [[nodiscard]] static bool ReportMemoryAdmission(MemoryAdmissionSnapshot& out);
+        // Price both the peak overlap and the steady state of a renderer
+        // allocation whose existing storage retires after the replacement.
+        [[nodiscard]] static bool CanAllocateReplacement(u64 newBytes, u64 retiringBytes, u64 stagingBytes);
         // Texture hot reload under the budget (#1764). Replace `texture`'s contents with
         // `image` now when the replacement fits; otherwise queue it, charge it to the
         // governor so it makes room, keep the old contents on screen, and upload on the

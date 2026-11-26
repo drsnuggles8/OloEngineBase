@@ -48,12 +48,14 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -63,7 +65,6 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
-#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
@@ -85,6 +86,13 @@ namespace OloEngine::Tests
         constexpr u32 kWidth = 1024;
         constexpr u32 kHeight = 768;
         constexpr f32 kCaptureTime = 4.0f;
+
+        struct ProbePath
+        {
+            RenderingPath Path;
+            u32 DeferredSamples;
+            const char* Name;
+        };
 
         struct BandStats
         {
@@ -133,10 +141,16 @@ namespace OloEngine::Tests
         }
     } // namespace
 
-    class ReflectionProbeParallaxVisualEvidenceTest : public RendererAttachedTest
+    class ReflectionProbeParallaxVisualEvidenceTest : public RendererAttachedTest,
+                                                      public ::testing::WithParamInterface<ProbePath>
     {
       protected:
         Entity m_Probe;
+
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
 
         // Corridor interior: x in [-3,3], y in [0,4], z in [-12,12].
         static constexpr f32 kHalfWidth = 3.0f;
@@ -260,7 +274,9 @@ namespace OloEngine::Tests
             fs::create_directories(dir, ec);
             ASSERT_FALSE(ec) << "Failed to create evidence dir: " << ec.message();
 
-            const std::string path = (dir / ("ReflectionProbeParallax_" + tag + ".png")).string();
+            const std::string path = (dir / (TestRenderBackend::EvidenceName("ReflectionProbeParallax") +
+                                             GetParam().Name + "_" + tag + ".png"))
+                                         .string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
                                                static_cast<int>(kHeight), 4, outPixels.data(),
                                                static_cast<int>(kWidth) * 4);
@@ -285,9 +301,17 @@ namespace OloEngine::Tests
         }
     };
 
-    TEST_F(ReflectionProbeParallaxVisualEvidenceTest, MirrorFloorReflectsTheCorridorWithRealParallax)
+    TEST_P(ReflectionProbeParallaxVisualEvidenceTest, MirrorFloorReflectsTheCorridorWithRealParallax)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        if (GetParam().DeferredSamples > 1u && GetParam().DeferredSamples > Renderer3D::GetMaxMSAASamples())
+            GTEST_SKIP() << "The device cannot render the requested " << GetParam().DeferredSamples << " samples";
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = GetParam().Path;
+        settings.Deferred.MSAASampleCount = GetParam().DeferredSamples;
+        settings.Deferred.PerSampleLighting = true;
+        Renderer3D::ApplyRendererSettings();
 
         struct ScopedMockTime
         {
@@ -301,15 +325,32 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
+        EditorCamera warmupCamera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        RunEditorFrames(warmupCamera, 2u);
+        if (GetParam().Path == RenderingPath::Deferred)
+        {
+            const auto* scenePass = static_cast<const SceneRenderPass*>(
+                Renderer3D::GetRenderStreamNode(Renderer3D::RenderStreamType::Geometry));
+            ASSERT_TRUE(scenePass && scenePass->GetGBuffer());
+            EXPECT_EQ(scenePass->GetGBuffer()->GetSampleCount(), GetParam().DeferredSamples);
+        }
+
         Ref<Scene> sceneRef = GetSceneRef();
         auto& probe = m_Probe.GetComponent<ReflectionProbeComponent>();
         const glm::vec3 probePos = m_Probe.GetComponent<TransformComponent>().Translation;
 
         bool baked = false;
-        {
-            GLStateGuard bakeGuard("ReflectionProbeParallax::Bake", GLStateGuard::Policy::Restore);
-            baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
-        }
+        RunInFrame([&]
+                   {
+                       if (TestRenderBackend::IsVulkanProcess())
+                       {
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       }
+                       else
+                       {
+                           GLStateGuard bakeGuard("ReflectionProbeParallax::Bake", GLStateGuard::Policy::Restore);
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       } });
         ASSERT_TRUE(baked) << "ReflectionProbeBaker::BakeProbe failed";
         ASSERT_TRUE(probe.m_BakedEnvironment && probe.m_BakedEnvironment->HasIBL());
         ASSERT_TRUE(probe.m_BakedEnvironment->HasProbeDistanceField())
@@ -493,6 +534,7 @@ namespace OloEngine::Tests
         const f64 splitLeg = (leftLeg.R - leftLeg.G) + (rightLeg.G - rightLeg.R);
         ::testing::Test::RecordProperty("ParallaxSplit", static_cast<int>(splitPar));
         ::testing::Test::RecordProperty("LegacySplit", static_cast<int>(splitLeg));
+        ::testing::Test::RecordProperty("OffscreenRedGain", static_cast<int>(behindPar.R - behindOff.R));
         EXPECT_GT(splitPar, splitLeg + 20.0)
             << "The parallax path's left/right wall split (" << splitPar
             << ") is not measurably better than the legacy direction-only path (" << splitLeg
@@ -506,4 +548,12 @@ namespace OloEngine::Tests
             << "Probe-Off floor strips differ left/right — the baseline is contaminated. "
             << "See ReflectionProbeParallax_Off_FloorAhead.png";
     }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, ReflectionProbeParallaxVisualEvidenceTest,
+                             ::testing::Values(ProbePath{ RenderingPath::Forward, 1u, "Forward" },
+                                               ProbePath{ RenderingPath::ForwardPlus, 1u, "ForwardPlus" },
+                                               ProbePath{ RenderingPath::Deferred, 1u, "Deferred" },
+                                               ProbePath{ RenderingPath::Deferred, 4u, "Deferred4x" }),
+                             [](const auto& info)
+                             { return info.param.Name; });
 } // namespace OloEngine::Tests
