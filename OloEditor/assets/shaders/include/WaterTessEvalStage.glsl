@@ -321,7 +321,7 @@ void main()
         // the fragment stage's foam and the CPU mirror
         // (OceanFFTField::SampleCascades) also go through.
         bool tilted = hasColumn && dot(restSlope, restSlope) > 1e-12;
-        float tangentStep = tilted ? max(0.02, 0.25 * vertexSpacing) : 0.0;
+        float tangentStep = (tilted || shore.Enabled > 0.0) ? max(0.02, 0.25 * vertexSpacing) : 0.0;
         mat2 horizontalDerivative;
         OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams, tangentStep, horizontalDerivative);
         vec3 fftDisp = vec3(fft.Displacement.x * u_FFTParams.w,
@@ -337,17 +337,11 @@ void main()
         // whole displacement vector (not just its height) so the choppy
         // horizontal shift is suppressed with it, and report the removed excess
         // as breaking, exactly as the Gerstner path does.
-        if (shore.Enabled > 0.0)
-        {
-            float aLimit = max(u_ShoreParams2.x, 1e-4) * shore.Depth;
-            float crest = abs(fftDisp.y);
-            if (crest > aLimit)
-            {
-                float k = aLimit / max(crest, 1e-6);
-                fftDisp *= k;
-                shoreBreak = clamp(1.0 - k, 0.0, 1.0);
-            }
-        }
+        vec2 dx = horizontalDerivative[0] * u_FFTParams.w;
+        vec2 dz = horizontalDerivative[1] * u_FFTParams.w;
+        vec2 slope = fft.Slope * u_FFTParams.z;
+        mat2x3 derivative = mat2x3(vec3(dx.x, slope.x, dx.y), vec3(dz.x, slope.y, dz.y));
+        shoreBreak = waterShoreLimitFFT(shore, u_ShoreParams2.x, fftDisp, derivative);
         displacedPos = pos + fftDisp;
         // Zero/NaN-safe: a zero or non-finite texel would otherwise make
         // normalize() emit NaN into the whole triangle's interpolants.
@@ -356,12 +350,11 @@ void main()
         // as well: choppiness moves a vertex away from the column in which
         // its rest height was measured.
         vec3 fftNormal = oceanCascadeNormal(fft);
-        if (tilted)
+        if (tilted || shoreBreak > 0.0)
         {
-            vec2 dx = horizontalDerivative[0] * u_FFTParams.w;
-            vec2 dz = horizontalDerivative[1] * u_FFTParams.w;
-            vec2 slope = fft.Slope * u_FFTParams.z + restSlope;
-            fftNormal = cross(vec3(dz.x, slope.y, 1.0 + dz.y), vec3(1.0 + dx.x, slope.x, dx.y));
+            vec3 tangentX = vec3(1.0, restSlope.x, 0.0) + derivative[0];
+            vec3 tangentZ = vec3(0.0, restSlope.y, 1.0) + derivative[1];
+            fftNormal = cross(tangentZ, tangentX);
         }
         displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy

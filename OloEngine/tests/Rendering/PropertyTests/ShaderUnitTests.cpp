@@ -36,6 +36,7 @@
 #include "OloEngine/Renderer/SurfaceHistory.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -1357,6 +1358,55 @@ namespace OloEngine::Tests
         EXPECT_NEAR(results[0].Rgba[1], 0.5f, 1e-6f);
         EXPECT_NEAR(results[0].Rgba[2], 0.5f, 1e-6f);
         EXPECT_NEAR(results[0].Rgba[3], 1.0f, 1e-6f) << "alpha ignored confidence";
+    }
+
+    TEST(ShaderUnitWaterShoreTest, FFTTangentsFollowTheLimitedDisplacement)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        using Row = std::array<glm::vec4, 3>;
+        const std::array<Row, 5> rows{ {
+            // Displacement and its X/Z derivatives, with depth and depth gradient in W.
+            Row{ glm::vec4(1, 2, -1, 0), glm::vec4(0.8f, -0.5f, 0.1f, 0), glm::vec4(0.3f, 0.7f, -0.1f, 0) },
+            Row{ glm::vec4(1, 2, -1, 0.2f), glm::vec4(0.8f, -0.5f, 0.1f, 0), glm::vec4(0.3f, 0.7f, -0.1f, 0) },
+            Row{ glm::vec4(1, 2, -1, 0.2f), glm::vec4(0.8f, -0.5f, 0.1f, 0.6f), glm::vec4(0.3f, 0.7f, -0.1f, -0.4f) },
+            Row{ glm::vec4(1, -2, -1, 0.2f), glm::vec4(0.8f, -0.5f, 0.1f, 0.6f), glm::vec4(0.3f, 0.7f, -0.1f, -0.4f) },
+            Row{ glm::vec4(1, 2, -1, 100), glm::vec4(0.8f, -0.5f, 0.1f, 0.6f), glm::vec4(0.3f, 0.7f, -0.1f, -0.4f) },
+        } };
+
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_WaterShoreFFT.glsl");
+        ASSERT_TRUE(shader && shader->IsValid());
+        ComputeBuffers buffers(sizeof(rows), sizeof(rows));
+        glNamedBufferSubData(buffers.m_In, 0, sizeof(rows), rows.data());
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.m_In);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers.m_Out);
+        shader->Bind();
+        glDispatchCompute(static_cast<GLuint>(rows.size()), 1, 1);
+        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+        std::array<Row, rows.size()> gpu{};
+        glGetNamedBufferSubData(buffers.m_Out, 0, sizeof(gpu), gpu.data());
+        shader->Unbind();
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+
+        for (sizet i = 0; i < rows.size(); ++i)
+        {
+            SCOPED_TRACE(i);
+            const auto& row = rows[i];
+            // Differentiate the CPU probe's displacement independently. A
+            // clamp that scales the old normal misses both the depth gradient
+            // and the derivative of the crest magnitude in the denominator.
+            const auto position = [&](f32 x, f32 z)
+            {
+                const glm::vec4 point = row[0] + row[1] * x + row[2] * z;
+                return WaterSurface::LimitFFTAtShore(glm::vec3(point), { point.w, {}, true }, WaterShore::kBreakerIndex);
+            };
+            constexpr f32 h = 0.001f;
+            const glm::vec3 dx = (position(h, 0) - position(-h, 0)) / (2 * h);
+            const glm::vec3 dz = (position(0, h) - position(0, -h)) / (2 * h);
+            EXPECT_LT(glm::length(glm::vec3(gpu[i][0]) - position(0, 0)), 1e-5f);
+            EXPECT_LT(glm::length(glm::vec3(gpu[i][1]) - dx), 2e-4f);
+            EXPECT_LT(glm::length(glm::vec3(gpu[i][2]) - dz), 2e-4f);
+        }
     }
 
     TEST(ShaderUnitSurfaceHistoryTest, StableIdentityRejectionAndFirstFrameMomentsMatchTheSharedContract)

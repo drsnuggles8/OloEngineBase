@@ -95,9 +95,8 @@ OceanCascadeSample sampleOceanCascades(vec2 worldXZ, vec4 fftParams, vec4 cascad
         result.Displacement.x += horizontal.x;
         result.Displacement.z += horizontal.y;
 
-        // A tilted grid needs the derivative of the choppy horizontal shift.
-        // Reuse this band's location and centre sample. Flat tiles need no
-        // extra fetches and the vertex displacement is still evaluated once.
+        // Tilt and shore-limited FFT normals need the derivative of the
+        // choppy shift. Reuse this band's location and centre sample.
         if (tangentStep > 0.0)
         {
             vec2 offsetX = oceanRotate(vec2(tangentStep, 0.0), rot) * invPatch[i];
