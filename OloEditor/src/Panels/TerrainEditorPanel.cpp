@@ -1001,7 +1001,8 @@ namespace OloEngine
 
                 const bool usePaintGPU = m_GPUBrush.IsPaintReady() &&
                                          terrain.m_Material->GetSplatmap(0) != nullptr &&
-                                         terrain.m_Material->GetSplatmap(1) != nullptr;
+                                         terrain.m_Material->GetSplatmap(1) != nullptr &&
+                                         (!projection.UsesHeight() || terrain.m_TerrainData->GetGPUHeightmap() != nullptr);
 
                 // Snapshot splatmap on stroke start
                 if (!m_StrokeActive)

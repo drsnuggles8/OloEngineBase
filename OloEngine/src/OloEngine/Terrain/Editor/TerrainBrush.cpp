@@ -26,7 +26,7 @@ namespace OloEngine
         if (res <= 1 || heights.IsEmpty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
             return dirty;
 
-        // Convert world position to normalized terrain coords [0, 1]
+        // Normalize the terrain-local hit before measuring the world radius.
         f32 normX = localHit.x / worldSizeX;
         f32 normZ = localHit.z / worldSizeZ;
 

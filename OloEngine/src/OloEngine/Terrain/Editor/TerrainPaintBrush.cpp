@@ -36,7 +36,7 @@ namespace OloEngine
         auto& splatData1 = material.GetSplatmapData(1);
         u32 layerCount = material.GetLayerCount();
 
-        // Convert world position to splatmap texel coords
+        // Normalize the terrain-local hit before measuring the world radius.
         f32 normX = localHit.x / worldSizeX;
         f32 normZ = localHit.z / worldSizeZ;
 
