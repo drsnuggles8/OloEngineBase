@@ -3076,17 +3076,31 @@ namespace OloEngine
             { return std::abs(axis) > 0.0f ? std::copysign(1.0f, axis) : 0.0f; };
             glm::vec3 signs(axisSign(authored.Scale.x), axisSign(authored.Scale.y), axisSign(authored.Scale.z));
             const bool collapsed = !(std::abs(signs.x) > 0.0f) || !(std::abs(signs.y) > 0.0f) || !(std::abs(signs.z) > 0.0f);
-            // Full-rank poses put handedness in Z. With a missing axis, keep
-            // its column zero and undo the authored signs on the survivors.
+            const glm::dmat3 desired(glm::mat3_cast(rotation));
             if (!collapsed)
-                signs.z = signs.x * signs.y;
-            glm::dmat3 localAxes = *inverse * glm::dmat3(glm::mat3_cast(rotation));
-            for (glm::length_t axis = 0; axis < 3; ++axis)
-                localAxes[axis] *= signs[axis] / glm::length(localAxes[axis]);
-            glm::vec3 unusedPosition, unusedScale;
-            glm::quat localRotation;
-            if (SplitWorldMatrix(glm::mat4(glm::mat3(localAxes)), unusedPosition, localRotation, unusedScale, collapsed))
-                local.Rotation = localRotation;
+            {
+                // The cross of two inverse-transformed tangents is proportional
+                // to the transpose-transformed normal. Deriving Z directly
+                // avoids subtracting nearly parallel axes under extreme scale.
+                const glm::dmat3 parent(parentWorld);
+                const glm::dvec3 x = glm::normalize(*inverse * desired[0]) * static_cast<f64>(signs.x);
+                const f64 handedness = std::copysign(1.0, glm::determinant(parent)) * signs.x * signs.y;
+                const glm::dvec3 z = glm::normalize(glm::transpose(parent) * desired[2]) * handedness;
+                const glm::dvec3 y = glm::normalize(glm::cross(z, x));
+                local.Rotation = glm::quat(glm::normalize(glm::quat_cast(glm::dmat3(x, y, glm::cross(x, y)))));
+                if (!std::isfinite(local.Rotation.w) || !std::isfinite(local.Rotation.x) ||
+                    !std::isfinite(local.Rotation.y) || !std::isfinite(local.Rotation.z))
+                    return std::nullopt;
+            }
+            else
+            {
+                glm::dmat3 localAxes = *inverse * desired;
+                for (glm::length_t axis = 0; axis < 3; ++axis)
+                    localAxes[axis] *= signs[axis] / glm::length(localAxes[axis]);
+                glm::vec3 unusedPosition, unusedScale;
+                if (!SplitWorldMatrix(glm::mat4(glm::mat3(localAxes)), unusedPosition, local.Rotation, unusedScale, true))
+                    return std::nullopt;
+            }
             return local;
         }
 
@@ -3216,7 +3230,7 @@ namespace OloEngine
         }
         if (m_RejectedPhysicsWritebacks.insert(entity).second)
         {
-            OLO_CORE_ERROR("Physics writeback paused for '{}': its parent transform is singular. Restore independent parent axes to resume.", Entity(entity, this).GetName());
+            OLO_CORE_ERROR("Physics writeback paused for '{}': its parent frame is singular or cannot represent the requested pose. Restore independent axes to resume.", Entity(entity, this).GetName());
         }
     }
 

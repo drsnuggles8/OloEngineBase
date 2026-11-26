@@ -414,6 +414,17 @@ TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlane
     EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, StronglyAnisotropicParentStillConvertsTheRequestedWorldHeading)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1.0e-8f, 1.0f, 1.0f };
+    const glm::quat desired = glm::angleAxis(glm::quarter_pi<f32>(), glm::vec3(0, 0, 1));
+    ASSERT_TRUE(GetScene().TrySetWorldRotation(m_3D[0], desired));
+    const glm::vec3 worldX = glm::normalize(glm::vec3(GetScene().ComputeWorldTransform(m_3D[0])[0]));
+    EXPECT_NEAR(glm::distance(worldX, desired * glm::vec3(1, 0, 0)), 0.0f, 1.0e-5f);
+}
+
 TEST_F(ParentedPhysicsPlacementTest, SmallFullRankParentRetainsFiniteLocalWriteback)
 {
     // The reciprocal determinant of this basis overflows float; its inverse axes fit.
