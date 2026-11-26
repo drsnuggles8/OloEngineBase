@@ -15,7 +15,7 @@
 //       1. Both rows produced non-trivial output (mean luminance above a
 //          floor). Catches the "shader silently outputs black" regression.
 //       2. The top row (sphere area light, radius=1) spreads luminance
-//          across MORE bright pixels than the bottom row (point light).
+//          across MORE bright pixels than the middle row (point light).
 //          That's the visible Karis representative-point softening
 //          contract — if a future shader edit collapses the area light
 //          to a point response, the highlight-area ratio drops below 1.0
@@ -296,6 +296,15 @@ namespace OloEngine::Tests
             RecordProperty("RasterPeak" + std::to_string(col), std::to_string(raster));
             RecordProperty("IntegratedPeak" + std::to_string(col), std::to_string(integral));
         }
+
+        // Rough metal sheds enough single-scatter energy to resolve the broad
+        // compensation lobe. Omitting it drops this peak by 20 display codes.
+        constexpr u32 roughMetal = kColumns - 1;
+        const f32 metalRaster = PeakLuminanceInCell(px, roughMetal, 0);
+        const f32 metalIntegral = PeakLuminanceInCell(px, roughMetal, 2);
+        EXPECT_NEAR(metalRaster, metalIntegral, 0.04f);
+        RecordProperty("RoughMetalPeak", std::to_string(metalRaster));
+        RecordProperty("RoughMetalIntegratedPeak", std::to_string(metalIntegral));
 
         // Belt-and-braces: also check the spread. With the threshold set
         // to 80% of the AREA-LIGHT peak, the area light should land more

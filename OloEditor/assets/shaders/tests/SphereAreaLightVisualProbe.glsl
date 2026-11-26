@@ -92,7 +92,7 @@ float IntersectSphere(vec3 rayOrigin, vec3 rayDir, vec3 sphereCenter, float sphe
 // than the area light at the same distance — the comparison would be
 // dominated by attenuation curves rather than highlight shape, defeating
 // the point of the test.
-vec3 EvaluatePointLight(vec3 N, vec3 V, vec3 worldPos, float roughness)
+vec3 EvaluatePointLight(vec3 N, vec3 V, vec3 worldPos, float metallic, float roughness)
 {
     vec3 toLight = kLightPos - worldPos;
     float distance = length(toLight);
@@ -110,11 +110,11 @@ vec3 EvaluatePointLight(vec3 N, vec3 V, vec3 worldPos, float roughness)
     distAtten = distAtten * distAtten / (distance * distance + 1.0);
 
     vec3 radiance = kLightColor * kLightIntensity * distAtten;
-    vec3 brdf = closureV2Evaluate(N, V, L, kAlbedo, 0.0 /*metallic*/, roughness);
+    vec3 brdf = closureV2Evaluate(N, V, L, kAlbedo, metallic, roughness);
     return brdf * radiance * NdotL;
 }
 
-vec3 IntegrateSphereEmitter(vec3 N, vec3 V, vec3 worldPos, float roughness)
+vec3 IntegrateSphereEmitter(vec3 N, vec3 V, vec3 worldPos, float metallic, float roughness)
 {
     GPUSceneLight light;
     light.PositionAndRange = vec4(kLightPos, kLightRange);
@@ -134,13 +134,13 @@ vec3 IntegrateSphereEmitter(vec3 N, vec3 V, vec3 worldPos, float roughness)
     {
         vec2 xi = Hammersley(i, samples);
         vec3 L = OloSampleSphereLightDirection(light, view, worldPos, xi);
-        float bsdfPdf = closureV2Pdf(N, V, L, kAlbedo, 0.0, roughness);
-        sum += closureV2Evaluate(N, V, L, kAlbedo, 0.0, roughness)
+        float bsdfPdf = closureV2Pdf(N, V, L, kAlbedo, metallic, roughness);
+        sum += closureV2Evaluate(N, V, L, kAlbedo, metallic, roughness)
                * (max(dot(N, L), 0.0) / (emitterPdf + bsdfPdf));
 
         // Separate the discrete lobe choice from the angular coordinates.
         float lobe = fract((float(i) + 0.5) * 0.61803398875);
-        ClosureV2Sample bsdf = closureV2SampleBRDF(N, V, kAlbedo, 0.0, roughness, lobe, xi);
+        ClosureV2Sample bsdf = closureV2SampleBRDF(N, V, kAlbedo, metallic, roughness, lobe, xi);
         if (bsdf.Pdf > 0.0 && dot(bsdf.L, centre) >= view.CosThetaMax)
             sum += bsdf.Value * (max(dot(N, bsdf.L), 0.0) / (emitterPdf + bsdf.Pdf));
     }
@@ -166,6 +166,7 @@ void main()
     vec3 rayOrigin = kCameraPos;
 
     float roughness = max(kRoughnessByColumn[col], MIN_ROUGHNESS);
+    float metallic = col == kColumns - 1 ? 1.0 : 0.0;
 
     float tHit = IntersectSphere(rayOrigin, rayDir, vec3(0.0), kSphereRadiusGeo);
     if (tHit < 0.0)
@@ -189,16 +190,16 @@ void main()
         Lo = calculateSphereAreaLightContribution(
             N, V, kLightPos, kAreaLightRadius,
             kLightColor, kLightIntensity, kLightRange,
-            kAlbedo, 0.0 /*metallic*/, roughness, hitPos);
+            kAlbedo, metallic, roughness, hitPos);
     }
     else if (row == 1)
     {
         // Middle row: point-light reference, same colour / intensity / range.
-        Lo = EvaluatePointLight(N, V, hitPos, roughness);
+        Lo = EvaluatePointLight(N, V, hitPos, metallic, roughness);
     }
     else
     {
-        Lo = IntegrateSphereEmitter(N, V, hitPos, roughness);
+        Lo = IntegrateSphereEmitter(N, V, hitPos, metallic, roughness);
     }
 
     // Soft ambient so the dark side of the sphere is not pure black —
