@@ -3062,47 +3062,67 @@ namespace OloEngine
             return glm::inverse(precise);
         }
 
+        [[nodiscard]] std::optional<glm::quat> ToLocalPhysicsRotation(const glm::mat4& parentWorld, const glm::dmat3& inverse,
+                                                                      const glm::quat& desiredRotation, glm::vec3 scale)
+        {
+            const auto axisSign = [](f32 axis)
+            { return std::abs(axis) > 0.0f ? std::copysign(1.0f, axis) : 0.0f; };
+            glm::vec3 signs(axisSign(scale.x), axisSign(scale.y), axisSign(scale.z));
+            const int liveAxes = static_cast<int>(std::abs(signs.x) + std::abs(signs.y) + std::abs(signs.z));
+            // One surviving axis cannot specify roll. Use unit length for the
+            // missing axes to choose a deterministic orientation without ever
+            // changing the child's authored scale.
+            if (liveAxes < 2)
+                for (glm::length_t i = 0; i < 3; ++i)
+                    if (!(std::abs(signs[i]) > 0.0f))
+                        signs[i] = 1.0f;
+            const glm::dmat3 desired(glm::mat3_cast(desiredRotation));
+            const bool collapsed = liveAxes == 2;
+            glm::quat candidate;
+            glm::vec3 unusedPosition, unusedScale;
+            if (!collapsed)
+            {
+                // A normal transforms by the dual basis. Computing Z directly
+                // avoids subtracting nearly parallel inverse-transformed axes.
+                const glm::dmat3 parent(parentWorld);
+                const glm::dvec3 x = glm::normalize(inverse * desired[0]) * static_cast<f64>(signs.x);
+                const f64 handedness = std::copysign(1.0, glm::determinant(parent)) * signs.x * signs.y;
+                const glm::dvec3 z = glm::normalize(glm::transpose(parent) * desired[2]) * handedness;
+                const glm::dvec3 y = glm::normalize(glm::cross(z, x));
+                candidate = glm::quat(glm::normalize(glm::quat_cast(glm::dmat3(x, y, glm::cross(x, y)))));
+            }
+            else
+            {
+                glm::dmat3 localAxes = inverse * desired;
+                for (glm::length_t axis = 0; axis < 3; ++axis)
+                    localAxes[axis] *= signs[axis] / glm::length(localAxes[axis]);
+                if (!SplitWorldMatrix(glm::mat4(glm::mat3(localAxes)), unusedPosition, candidate, unusedScale, true))
+                    return std::nullopt;
+            }
+            // The narrowing to an authored f32 quaternion can lose a tiny but
+            // essential angle. Check what this quaternion actually represents.
+            glm::quat represented;
+            const glm::mat4 composed = parentWorld * glm::scale(glm::mat4_cast(candidate), signs);
+            if (!SplitWorldMatrix(composed, unusedPosition, represented, unusedScale, collapsed))
+                return std::nullopt;
+            const f32 error = std::min(glm::length(represented - desiredRotation), glm::length(represented + desiredRotation));
+            return error <= 1.0e-4f ? std::optional(candidate) : std::nullopt;
+        }
+
         [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalPhysicsPose(const glm::mat4& parentWorld, const glm::vec3& position,
-                                                                        const glm::quat& rotation, const TransformComponent& authored)
+                                                                        const glm::quat& rotation, const TransformComponent& authored,
+                                                                        bool* rotationConverted = nullptr)
         {
             const auto inverse = InverseParentBasis(glm::mat3(parentWorld));
             if (!inverse)
                 return std::nullopt;
-
             const glm::vec3 localPosition(*inverse * (glm::dvec3(position) - glm::dvec3(parentWorld[3])));
             if (!Math::IsFinite(localPosition))
                 return std::nullopt;
-            Scene::WorldTRS local{ localPosition, authored.GetRotation(), authored.Scale };
-            const auto axisSign = [](f32 axis)
-            { return std::abs(axis) > 0.0f ? std::copysign(1.0f, axis) : 0.0f; };
-            glm::vec3 signs(axisSign(authored.Scale.x), axisSign(authored.Scale.y), axisSign(authored.Scale.z));
-            const bool collapsed = !(std::abs(signs.x) > 0.0f) || !(std::abs(signs.y) > 0.0f) || !(std::abs(signs.z) > 0.0f);
-            const glm::dmat3 desired(glm::mat3_cast(rotation));
-            if (!collapsed)
-            {
-                // The cross of two inverse-transformed tangents is proportional
-                // to the transpose-transformed normal. Deriving Z directly
-                // avoids subtracting nearly parallel axes under extreme scale.
-                const glm::dmat3 parent(parentWorld);
-                const glm::dvec3 x = glm::normalize(*inverse * desired[0]) * static_cast<f64>(signs.x);
-                const f64 handedness = std::copysign(1.0, glm::determinant(parent)) * signs.x * signs.y;
-                const glm::dvec3 z = glm::normalize(glm::transpose(parent) * desired[2]) * handedness;
-                const glm::dvec3 y = glm::normalize(glm::cross(z, x));
-                local.Rotation = glm::quat(glm::normalize(glm::quat_cast(glm::dmat3(x, y, glm::cross(x, y)))));
-                if (!std::isfinite(local.Rotation.w) || !std::isfinite(local.Rotation.x) ||
-                    !std::isfinite(local.Rotation.y) || !std::isfinite(local.Rotation.z))
-                    return std::nullopt;
-            }
-            else
-            {
-                glm::dmat3 localAxes = *inverse * desired;
-                for (glm::length_t axis = 0; axis < 3; ++axis)
-                    localAxes[axis] *= signs[axis] / glm::length(localAxes[axis]);
-                glm::vec3 unusedPosition, unusedScale;
-                if (!SplitWorldMatrix(glm::mat4(glm::mat3(localAxes)), unusedPosition, local.Rotation, unusedScale, true))
-                    return std::nullopt;
-            }
-            return local;
+            const auto localRotation = ToLocalPhysicsRotation(parentWorld, *inverse, rotation, authored.Scale);
+            if (rotationConverted)
+                *rotationConverted = localRotation.has_value();
+            return Scene::WorldTRS{ localPosition, localRotation.value_or(authored.GetRotation()), authored.Scale };
         }
 
         [[nodiscard]] glm::mat4 PhysicsPoseMatrix(const Scene::WorldTRS& pose)
@@ -3210,10 +3230,11 @@ namespace OloEngine
             return true;
         }
         const glm::mat4 parent = ComputeParentWorldTransform(entity);
-        const auto pose = ToLocalPhysicsPose(parent, glm::vec3(parent[3]), rotation, local);
-        if (pose)
-            local.SetRotation(pose->Rotation);
-        return pose.has_value();
+        const auto inverse = InverseParentBasis(glm::mat3(parent));
+        const auto converted = inverse ? ToLocalPhysicsRotation(parent, *inverse, rotation, local.Scale) : std::nullopt;
+        if (converted)
+            local.SetRotation(*converted);
+        return converted.has_value();
     }
 
     bool Scene::HasSingularParentFrame(entt::entity entity, bool planar) const
@@ -3233,7 +3254,7 @@ namespace OloEngine
         }
         if (m_RejectedPhysicsWritebacks.insert(entity).second)
         {
-            OLO_CORE_ERROR("Physics writeback paused for '{}': its parent frame is singular or cannot represent the requested pose. Restore independent axes to resume.", Entity(entity, this).GetName());
+            OLO_CORE_ERROR("Physics writeback cannot represent the full pose for '{}': the parent frame is singular or the local rotation lacks precision.", Entity(entity, this).GetName());
         }
     }
 
@@ -3249,12 +3270,14 @@ namespace OloEngine
         }
 
         const glm::mat4 parentWorld = ComputeParentWorldTransform(entity, &physics);
-        const auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local);
-        ReportPhysicsWriteback(entity, !pose);
+        bool rotationConverted = false;
+        const auto pose = ToLocalPhysicsPose(parentWorld, position, rotation, local, &rotationConverted);
+        ReportPhysicsWriteback(entity, !pose || !rotationConverted);
         if (pose)
         {
             local.Translation = pose->Position;
-            local.SetRotation(pose->Rotation);
+            if (rotationConverted)
+                local.SetRotation(pose->Rotation);
         }
     }
 

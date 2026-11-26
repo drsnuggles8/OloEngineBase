@@ -425,6 +425,45 @@ TEST_F(ParentedPhysicsPlacementTest, StronglyAnisotropicParentStillConvertsTheRe
     EXPECT_NEAR(glm::distance(worldX, desired * glm::vec3(1, 0, 0)), 0.0f, 1.0e-5f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, UnrepresentableFloatRotationDoesNotDiscardNativeTranslation)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1.0f, 1.0e-8f, 1.0f };
+    auto& local = m_3D[0].GetComponent<TransformComponent>();
+    const glm::quat original = local.GetRotation();
+    const glm::quat desired = glm::angleAxis(glm::quarter_pi<f32>(), glm::vec3(0, 0, 1));
+    EXPECT_FALSE(GetScene().TrySetWorldRotation(m_3D[0], desired));
+    EXPECT_FLOAT_EQ(glm::dot(local.GetRotation(), original), 1.0f);
+    auto body = GetScene().GetPhysicsScene()->GetBody(m_3D[0]);
+    ASSERT_TRUE(body);
+    body->SetRotation(desired);
+    body->SetPosition({ 6, 5, 4 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(m_3D[0]), body->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(glm::dot(local.GetRotation(), original), 1.0f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, SphereWithOneSurvivingScaleAxisKeepsWorldAuthority)
+{
+    Entity carrier = GetScene().CreateEntity("Full rank carrier");
+    Entity sphere = GetScene().CreateEntity("One-axis sphere collider");
+    sphere.SetParent(carrier);
+    sphere.GetComponent<TransformComponent>().Scale = { 1, 0, 0 };
+    sphere.AddComponent<SphereCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    settings.m_DisableGravity = true;
+    sphere.AddComponent<Rigidbody3DComponent>(settings);
+    auto body = GetScene().GetPhysicsScene()->GetBody(sphere);
+    ASSERT_TRUE(body);
+    body->SetPosition({ 6, 2, -3 });
+    body->SetRotation(glm::angleAxis(0.8f, glm::vec3(0, 1, 0)));
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(sphere), body->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(glm::distance(glm::vec3(GetScene().ComputeWorldTransform(sphere)[0]), body->GetRotation() * glm::vec3(1, 0, 0)), 0.0f, 1.0e-4f);
+}
+
 TEST_F(ParentedPhysicsPlacementTest, SmallFullRankParentRetainsFiniteLocalWriteback)
 {
     // The reciprocal determinant of this basis overflows float; its inverse axes fit.
@@ -494,7 +533,7 @@ TEST_F(PlanarColliderPlacementTest, CollinearBoxWaitsAndUsesTheRotatedNativeFram
     rig.GetComponent<TransformComponent>().Scale = { 0, 2, 1 };
     Entity child = GetScene().CreateEntity("Angled box");
     child.SetParent(rig);
-    child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0, glm::quarter_pi<f32>() });
+    child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0, -glm::quarter_pi<f32>() });
     child.AddComponent<BoxCollider2DComponent>().Offset = { 1, 0 };
     child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
     EnablePhysics2D();
