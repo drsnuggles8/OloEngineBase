@@ -93,6 +93,11 @@ namespace OloEngine
         {
             return m_EditMode != TerrainEditMode::None;
         }
+        [[nodiscard]] bool IsAcquiringStroke(bool mouseDown) const
+        {
+            return mouseDown && !m_StrokeActive &&
+                   (m_EditMode == TerrainEditMode::Sculpt || m_EditMode == TerrainEditMode::Paint);
+        }
 
         // Get brush position for preview rendering
         [[nodiscard]] const glm::vec3& GetBrushWorldPos() const

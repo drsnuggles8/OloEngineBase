@@ -264,7 +264,8 @@ namespace OloEngine
         // Prefers the GPU picker (issue #717) and falls back to the CPU march
         // only while the GPU answer has not come back yet, or when the GPU path
         // is unusable at all. Both halves are below.
-        Entity TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+        Entity TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos,
+                              bool requireCurrentRay = false) const;
 
         // How far the GPU picker has got with the ray for this frame.
         enum class TerrainPickState : u8

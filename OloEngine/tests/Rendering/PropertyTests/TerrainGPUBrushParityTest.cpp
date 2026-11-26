@@ -200,9 +200,12 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
     panel.SetContext(GetSceneRef());
     panel.SetCommandHistory(&history);
     panel.SetEditMode(TerrainEditMode::Sculpt);
+    EXPECT_FALSE(panel.IsAcquiringStroke(false));
+    EXPECT_TRUE(panel.IsAcquiringStroke(true));
     RunInFrame([&]
                {
                    panel.OnUpdate(1, upper, { 32, 4, 32 }, true);
+                   EXPECT_FALSE(panel.IsAcquiringStroke(true));
                    panel.OnUpdate(1, lower, { 48, 2, 48 }, true);
                    panel.OnUpdate(1, {}, {}, true);
                    // Release while the cursor is outside the viewport.

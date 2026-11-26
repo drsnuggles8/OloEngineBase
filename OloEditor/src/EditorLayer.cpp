@@ -2401,7 +2401,8 @@ namespace OloEngine
                 else
                 {
                     glm::vec3 terrainHitPos{};
-                    Entity hitTerrain = TerrainRaycast(mouseTopDown, viewportSize, terrainHitPos);
+                    Entity hitTerrain = TerrainRaycast(mouseTopDown, viewportSize, terrainHitPos,
+                                                       m_TerrainEditorPanel.IsAcquiringStroke(mouseDown));
                     m_TerrainEditorPanel.OnUpdate(ts, hitTerrain, terrainHitPos, mouseDown);
                 }
             }
@@ -5867,7 +5868,8 @@ namespace OloEngine
         return snapshot;
     }
 
-    Entity EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    Entity EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos,
+                                       bool requireCurrentRay) const
     {
         OLO_PROFILE_FUNCTION();
         Ray mouseRay;
@@ -5881,7 +5883,9 @@ namespace OloEngine
             Entity terrain{ id, m_ActiveScene.get() };
             glm::vec3 position{};
             bool hit = false;
-            if (TerrainRaycastGPU(terrain, mouseRay, position, hit) != TerrainPickState::Answered)
+            // A press picks the owner for the whole stroke. Rank every candidate
+            // on this ray; a retired GPU hover sample may belong to an older ray.
+            if (requireCurrentRay || TerrainRaycastGPU(terrain, mouseRay, position, hit) != TerrainPickState::Answered)
                 hit = TerrainRaycastCPU(terrain, mouseRay, position);
             if (!hit)
                 continue;
