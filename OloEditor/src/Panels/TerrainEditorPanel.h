@@ -47,6 +47,7 @@ namespace OloEngine
         }
         void OnImGuiRender();
         void SettleEdits();
+        void SetContinuousErosion(bool enabled);
 
         // Called from EditorLayer each frame with terrain hit info. Only runs while
         // the VIEWPORT is hovered, which is correct for a brush stroke and wrong for
@@ -79,7 +80,7 @@ namespace OloEngine
         {
             if (mode != m_EditMode)
             {
-                EndStroke();
+                SettleEdits();
                 m_EditMode = mode;
             }
         }

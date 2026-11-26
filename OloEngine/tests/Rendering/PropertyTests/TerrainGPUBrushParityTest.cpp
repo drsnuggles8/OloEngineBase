@@ -245,6 +245,17 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
                    EXPECT_FALSE(history.Redo());
                    EXPECT_TRUE(history.Undo()); });
     EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+
+    panel.SetEditMode(TerrainEditMode::Erosion);
+    panel.SetContinuousErosion(true);
+    RunInFrame([&]
+               { panel.OnFrameTick(true, false); });
+    RunInFrame([&]
+               { ASSERT_TRUE(history.Undo()); });
+    ASSERT_TRUE(history.CanRedo());
+    RunInFrame([&]
+               { panel.OnFrameTick(true, false); panel.SettleEdits(); });
+    EXPECT_TRUE(history.CanRedo()) << "a settled erosion session restarted and replaced its redo entry";
 }
 
 TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)
