@@ -183,6 +183,27 @@ TEST_F(NavAgentReachesTargetTest, RegisteredAgentTracksMovingParentLikeARepositi
     }
 }
 
+TEST_F(NavAgentReachesTargetTest, SingularCarrierReleasesCrowdSlotAndResumesFromAuthoredPose)
+{
+    Entity carrier = ParentAgentAtStart();
+    RunFrames(2);
+    auto& nav = m_Agent.GetComponent<NavAgentComponent>();
+    ASSERT_GE(nav.m_CrowdAgentId, 0);
+    const auto prior = nav.m_CrowdAgentId;
+    carrier.GetComponent<TransformComponent>().Scale.y = 0;
+    RunFrames(2);
+    EXPECT_LT(nav.m_CrowdAgentId, 0);
+    glm::vec3 crowd;
+    EXPECT_FALSE(GetScene().GetCrowdManager()->GetAgentPosition(prior, crowd));
+    EXPECT_TRUE(nav.m_HasTarget);
+    carrier.GetComponent<TransformComponent>().Scale.y = 1;
+    RunFrames(2);
+    ASSERT_TRUE(GetScene().GetCrowdManager()->GetAgentPosition(nav.m_CrowdAgentId, crowd));
+    const glm::vec3 world = GetScene().ComputeWorldPosition(m_Agent);
+    EXPECT_NEAR(world.x, crowd.x, 1.0e-4f);
+    EXPECT_NEAR(world.z, crowd.z, 1.0e-4f);
+}
+
 TEST_F(NavAgentReachesTargetTest, ParentedRootMotionUsesTheRootTwinsWorldCornersAndHeading)
 {
     auto& nav = m_Agent.GetComponent<NavAgentComponent>();

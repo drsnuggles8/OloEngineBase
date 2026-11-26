@@ -388,7 +388,7 @@ TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlane
     capsule.AddComponent<Rigidbody3DComponent>(settings);
     auto body = GetScene().GetPhysicsScene()->GetBody(capsule);
     ASSERT_TRUE(body);
-    ASSERT_TRUE(GetScene().HasSingularPhysicsParent(capsule, false));
+    ASSERT_TRUE(GetScene().HasSingularParentFrame(capsule, false));
 
     for (const glm::vec3 native : { glm::vec3(4, 0, 2), glm::vec3(4, -3, 2) })
     {
@@ -399,7 +399,7 @@ TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlane
         EXPECT_NEAR(glm::length(capsule.GetComponent<TransformComponent>().Translation), 0.0f, 1.0e-4f);
     }
     carrier.Scale.y = 2.0f;
-    EXPECT_FALSE(GetScene().HasSingularPhysicsParent(capsule, false));
+    EXPECT_FALSE(GetScene().HasSingularParentFrame(capsule, false));
     RunFrames(1);
     EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
     const glm::vec3 saved = capsule.GetComponent<TransformComponent>().Translation;
@@ -429,7 +429,7 @@ TEST_F(ParentedPhysicsPlacementTest, SmallFullRankParentRetainsFiniteLocalWriteb
 {
     // The reciprocal determinant of this basis overflows float; its inverse axes fit.
     m_Rig.GetComponent<TransformComponent>().Scale = glm::vec3(1.0e-14f);
-    ASSERT_FALSE(GetScene().HasSingularPhysicsParent(m_3D[0], false));
+    ASSERT_FALSE(GetScene().HasSingularParentFrame(m_3D[0], false));
     auto body = GetScene().GetPhysicsScene()->GetBody(m_3D[0]);
     ASSERT_TRUE(body);
     body->SetPosition({ 1, 2, 3 });
@@ -446,11 +446,11 @@ TEST_F(ParentedPhysicsPlacementTest, Box2DWritebackResumesWithAnInvertibleXYPare
     auto& carrier = m_Rig.GetComponent<TransformComponent>();
     carrier.Scale.y = 0.0f;
     const glm::vec3 saved = m_2D[0].GetComponent<TransformComponent>().Translation;
-    ASSERT_TRUE(GetScene().HasSingularPhysicsParent(m_2D[0], true));
+    ASSERT_TRUE(GetScene().HasSingularParentFrame(m_2D[0], true));
     RunFrames(3);
     EXPECT_NEAR(glm::distance(m_2D[0].GetComponent<TransformComponent>().Translation, saved), 0.0f, 1.0e-5f);
     carrier.Scale = { 2.0f, 2.0f, 0.0f };
-    EXPECT_FALSE(GetScene().HasSingularPhysicsParent(m_2D[0], true));
+    EXPECT_FALSE(GetScene().HasSingularParentFrame(m_2D[0], true));
     RunFrames(1);
     const b2Vec2 native = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
     const glm::vec3 world = GetScene().GetWorldPosition(m_2D[0]);

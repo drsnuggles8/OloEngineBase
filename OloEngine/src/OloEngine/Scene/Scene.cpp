@@ -3215,8 +3215,10 @@ namespace OloEngine
         return pose.has_value();
     }
 
-    bool Scene::HasSingularPhysicsParent(entt::entity entity, bool planar) const
+    bool Scene::HasSingularParentFrame(entt::entity entity, bool planar) const
     {
+        if (ResolveTransformParent(entity) == entt::null)
+            return false;
         const glm::mat4 parent = ComputeParentWorldTransform(entity);
         return planar ? !InverseParentBasis(glm::mat2(parent)) : !InverseParentBasis(glm::mat3(parent));
     }

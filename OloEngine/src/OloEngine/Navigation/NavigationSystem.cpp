@@ -26,6 +26,14 @@ namespace OloEngine
         if (!navQuery || !navQuery->IsValid())
             return;
 
+        const auto releaseCrowdSlot = [crowdMgr](NavAgentComponent& agent)
+        {
+            crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
+            agent.m_CrowdAgentId = -1;
+            agent.m_HasPath = false;
+            agent.m_TargetUnreachable = false;
+        };
+
         auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
         if (crowdMgr && crowdMgr->IsValid())
         {
@@ -41,10 +49,7 @@ namespace OloEngine
                     continue;
                 if (!crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, position, *navQuery))
                 {
-                    crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
-                    agent.m_CrowdAgentId = -1;
-                    agent.m_HasPath = false;
-                    agent.m_TargetUnreachable = false;
+                    releaseCrowdSlot(agent);
                 }
             }
             crowdMgr->Update(dt);
@@ -75,7 +80,11 @@ namespace OloEngine
             if (crowdMgr && crowdMgr->IsValid() && !agent.m_UseRootMotion)
             {
                 if (agent.m_CrowdAgentId < 0)
+                {
+                    if (scene->HasSingularParentFrame(e, false))
+                        continue;
                     agent.m_CrowdAgentId = crowdMgr->AddAgent(position, agent);
+                }
 
                 if (agent.m_CrowdAgentId >= 0)
                 {
@@ -101,7 +110,13 @@ namespace OloEngine
                     {
                         if (agent.m_LockYAxis)
                             pos.y = position.y;
-                        scene->TrySetWorldPosition(e, pos);
+                        if (!scene->TrySetWorldPosition(e, pos))
+                        {
+                            // Detour integrated a position the scene cannot
+                            // represent. Rejoin from the authored pose on recovery.
+                            releaseCrowdSlot(agent);
+                            continue;
+                        }
                         position = scene->ComputeWorldPosition(e);
                         agent.m_LastCrowdWorldPosition = position;
                     }

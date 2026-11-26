@@ -1188,7 +1188,7 @@ namespace OloEngine
         // Game-thread writes between propagation passes. A singular parent leaves the local pose intact.
         bool TrySetWorldPosition(entt::entity entity, const glm::vec3& position);
         bool TrySetWorldRotation(entt::entity entity, const glm::quat& rotation);
-        [[nodiscard]] bool HasSingularPhysicsParent(entt::entity entity, bool planar) const;
+        [[nodiscard]] bool HasSingularParentFrame(entt::entity entity, bool planar) const;
 
         struct Physics2DPlacement
         {
