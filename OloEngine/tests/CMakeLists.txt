@@ -2265,11 +2265,13 @@ if(OLO_WITH_VULKAN)
 	# they took ~65 of the lavapipe scene step's 90 minutes (DriftEveryIslandPaths
 	# 21 min, TerrainShadowFromChunks 15, DriftIslandPaths 14, TerrainShadowUntessellated
 	# 9) and pushed the job into GitHub's 6-hour limit with cases unrun. They stay in
-	# the Vulkan process here, on hardware, in every local ctest
-	# (docs/agent-rules/vulkan-software-driver-ci.md).
+	# the Vulkan process here, on hardware, in every local ctest. The single-view
+	# foliage stress case needs 4,320 frames and reached the 150-minute software
+	# scene limit after seven of its nine arms on master run 45755461165. See
+	# docs/agent-rules/vulkan-software-driver-ci.md for the scene budget.
 	add_test(NAME OloEngine-Tests_VulkanSceneHeavy
 		COMMAND OloEngine-Tests --olo-rhi=vulkan
-			"--gtest_filter=AllPaths/TerrainShadowFromChunks.*:AllPaths/TerrainShadowUntessellated.*:AllPaths/DriftIslandPaths.*:AllIslands/DriftEveryIslandPaths.*:AllCells/RendererMemoryAdmissionEvidence.*:RendererMemoryAdmissionTransitions.*"
+			"--gtest_filter=AllPaths/TerrainShadowFromChunks.*:AllPaths/TerrainShadowUntessellated.*:AllPaths/DriftIslandPaths.*:AllIslands/DriftEveryIslandPaths.*:AllCells/RendererMemoryAdmissionEvidence.*:RendererMemoryAdmissionTransitions.*:MultiViewFoliage.SingleViewFoliageRepro"
 			${_olo_vk_scene_args}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
 	set_tests_properties(OloEngine-Tests_VulkanSceneHeavy PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
