@@ -69,6 +69,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTexture3D.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 
@@ -986,6 +987,53 @@ TEST_F(VulkanResourceFactory, ArrayMipGenerationLeavesTheTrackedLayoutAloneWhenT
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
               m_Device->GetSampledImageLayout())
         << "a successful mip chain does advance it";
+}
+
+TEST_F(VulkanResourceFactory, TwoDMipRegenerationPublishesTheExecutedLayoutOnQueueAcceptance)
+{
+    ScopedVulkanRenderCommand vulkanApi;
+    TextureSpecification spec;
+    spec.Width = spec.Height = 4;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+    auto texture = Texture2D::Create(spec);
+    ASSERT_TRUE(texture);
+    std::array<u8, 4 * 4 * 4> pixels;
+    pixels.fill(0x39u);
+    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    auto& tracker = vulkanApi.Get().LayoutTracker();
+    const auto image = static_cast<VulkanTexture2D*>(texture.Raw())->GetVkImage();
+    const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+    ASSERT_NE(info, nullptr);
+    const auto resting = m_Device->GetSampledImageLayout();
+    ASSERT_EQ(info->InitialLayout, resting);
+    tracker.RegisterImage(image, texture->GetMipLevelCount(), 1u, info->RegistrationId, resting);
+
+    // Leave level zero in the layout a submitted terrain snapshot copy uses for
+    // its source. The next one-shot read will consult CurrentExecutedLayout.
+    const VkImageSubresourceRange base{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    ASSERT_TRUE(VulkanOneShot::Submit("test: leave mip zero as a transfer source", [&](VkCommandBuffer cmd)
+                                      {
+                                          VulkanUpload::RecordImageBarrier(cmd, image, resting, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                                           VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                                           VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
+                                          tracker.SetLayout(image, base, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL); }));
+    ASSERT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    texture->RegenerateMips();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    texture->RegenerateMips();
+    const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, texture->GetMipLevelCount(), 0u, 1u };
+    EXPECT_EQ(tracker.CurrentLayout(image, whole), resting);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, whole), resting);
+    TArray64<u8> readback;
+    ASSERT_TRUE(texture->GetData(readback, 0u));
+    ASSERT_EQ(readback.Num(), pixels.size());
+    EXPECT_TRUE(std::equal(pixels.begin(), pixels.end(), readback.begin()));
 }
 
 // A volume's wrap mode is the caller's, on both backends. The Vulkan volume
