@@ -16,7 +16,7 @@ namespace OloEngine
     struct TerrainBrushProjection
     {
         glm::mat2 GridAxes{ 1.0f };
-        glm::vec2 HeightAxis{ 0.0f }; // world XZ per unit normalized height
+        glm::vec2 HeightAxis{ 0.0f };   // world XZ per unit normalized height
         glm::vec2 HeightOffset{ 0.0f }; // subtract the hit's own horizontal height displacement
         const TerrainData* Heights = nullptr;
 
@@ -76,7 +76,11 @@ namespace OloEngine
             }
         };
 
-        enum class Grid { HeightSamples, SplatTexels };
+        enum class Grid
+        {
+            HeightSamples,
+            SplatTexels
+        };
 
         inline BrushRect ComputeBrushRect(u32 resolution, f32 normX, f32 normZ, f32 radius,
                                           f32 worldSizeX, f32 worldSizeZ, const TerrainBrushProjection& projection = {},

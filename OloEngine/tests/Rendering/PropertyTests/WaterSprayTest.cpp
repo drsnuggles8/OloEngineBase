@@ -482,7 +482,10 @@ namespace OloEngine::Tests
         WaterWakeSystem::BeginFrame();
         struct ClearHulls
         {
-            ~ClearHulls() { WaterWakeSystem::BeginFrame(); }
+            ~ClearHulls()
+            {
+                WaterWakeSystem::BeginFrame();
+            }
         } clearHulls;
         WaterWakeHullDesc hull;
         hull.m_ForwardXZ = { 0.0f, 1.0f };

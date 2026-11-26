@@ -2136,9 +2136,9 @@ namespace OloEngine
             i32 LayerCount;       // 80 — paint: layers spanned by re-normalisation
             // Three scalars rather than an ivec3 — see the GLSL twin: std140 would
             // align an ivec3 to 16 and move the projection vectors by one lane.
-            i32 Pad0; // 84
-            i32 Pad1; // 88
-            i32 Pad2; // 92
+            i32 Pad0;                   // 84
+            i32 Pad1;                   // 88
+            i32 Pad2;                   // 92
             glm::vec4 GridAxes;         // projected terrain X and Z basis vectors
             glm::vec4 HeightProjection; // normalized height scale.xy and hit offset.zw in world XZ
 

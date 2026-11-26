@@ -150,7 +150,10 @@ class TerrainGPUBrushParity : public ::testing::TestWithParam<TerrainBrushTool>
 class ParentedTerrainBrush : public RendererAttachedTest
 {
     void BuildScene() override {}
-    bool RunsInVulkanProcess() const override { return true; }
+    bool RunsInVulkanProcess() const override
+    {
+        return true;
+    }
 };
 
 TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)
@@ -186,8 +189,7 @@ TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCi
     RunInFrame([&]
                {
                    brush.ApplySculpt(*gpuSculpt, sculpt, hit, size.x, size.y, kHeightScale, 1, 0, projection);
-                   brush.ApplyPaint(*gpuPaint, paint, hit, size.x, size.y, 1, projection);
-               });
+                   brush.ApplyPaint(*gpuPaint, paint, hit, size.x, size.y, 1, projection); });
 
     const auto& baseline = reference->GetHeightData();
     const auto& cpuHeights = cpuSculpt->GetHeightData();

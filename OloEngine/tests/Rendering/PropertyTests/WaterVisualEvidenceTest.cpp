@@ -781,6 +781,15 @@ namespace OloEngine::Tests
             { RenderingPath::Deferred, HullFoamGrid::Plain, "Deferred_Plain_UpscaleQuality", 1, UpscaleMode::Quality },
         };
 
+        std::vector<HullFoamCell> PlainGridCells()
+        {
+            std::vector<HullFoamCell> cells;
+            for (const auto& cell : kHullFoamCells)
+                if (cell.Grid == HullFoamGrid::Plain)
+                    cells.push_back(cell);
+            return cells;
+        }
+
         struct HullFoamPose
         {
             const char* Name;
@@ -1207,13 +1216,7 @@ namespace OloEngine::Tests
         }
     }
 
-    INSTANTIATE_TEST_SUITE_P(AllPaths, TiltedFogEvidenceTest,
-                             ::testing::ValuesIn([]
-                                                 {
-        std::vector<HullFoamCell> cells;
-        std::copy_if(std::begin(kHullFoamCells), std::end(kHullFoamCells), std::back_inserter(cells),
-                     [](const auto& cell) { return cell.Grid == HullFoamGrid::Plain; });
-        return cells; }()),
+    INSTANTIATE_TEST_SUITE_P(AllPaths, TiltedFogEvidenceTest, ::testing::ValuesIn(PlainGridCells()),
                              [](const ::testing::TestParamInfo<HullFoamCell>& info)
                              { return std::string(info.param.Name); });
 
