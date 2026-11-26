@@ -1225,7 +1225,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
+        const auto* device = VulkanDevice::Get();
+        if (!device || m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
         {
             return;
         }
@@ -1253,7 +1254,7 @@ namespace OloEngine
         const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 
         auto* api = VulkanUpload::TryGetVulkanAPI();
-        const VkImageLayout restingLayout = VulkanDevice::Get()->GetSampledImageLayout();
+        const VkImageLayout restingLayout = device->GetSampledImageLayout();
         const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0, m_MipLevels, 0, 1 };
         if (api && api->CurrentCommandBuffer() != VK_NULL_HANDLE)
         {
@@ -1308,7 +1309,7 @@ namespace OloEngine
 
         if (ok)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, device->GetSampledImageLayout());
         }
         else
         {
