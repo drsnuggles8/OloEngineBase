@@ -366,11 +366,14 @@ namespace OloEngine::WaterSpray
                 // height scale for the reason m_HeightScale records, and the
                 // clearance is half a billboard so the puff sits ON the water
                 // rather than half inside it.
-                const glm::vec2 surfaceXZ = worldXZ + glm::vec2(delta.x, delta.z);
-                const glm::vec3 position{ surfaceXZ.x + (r0 - 0.5f) * kSampleSpacingMetres * 0.25f,
-                                          planeY + delta.y +
+                const glm::vec2 jitterXZ = (glm::vec2(r0, r1) - 0.5f) * kSampleSpacingMetres * 0.25f;
+                const glm::vec2 spawnXZ = (worldXZ + glm::vec2(delta.x, delta.z)) + jitterXZ;
+                const f32 jitterHeight = -glm::dot(jitterXZ, glm::vec2(settings.m_Frame.Normal.x, settings.m_Frame.Normal.z)) /
+                                         settings.m_Frame.Normal.y;
+                const glm::vec3 position{ spawnXZ.x,
+                                          planeY + jitterHeight + delta.y +
                                               kSpawnClearanceMetres + 0.5f * size,
-                                          surfaceXZ.y + (r1 - 0.5f) * kSampleSpacingMetres * 0.25f };
+                                          spawnXZ.y };
 
                 // Ballistic launch: mostly up, thrown downwind, with the
                 // stronger folds throwing harder. GPUSimParams supplies the

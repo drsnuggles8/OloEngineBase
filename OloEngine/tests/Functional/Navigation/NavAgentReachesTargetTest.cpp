@@ -183,6 +183,28 @@ TEST_F(NavAgentReachesTargetTest, RegisteredAgentTracksMovingParentLikeARepositi
     }
 }
 
+TEST_F(NavAgentReachesTargetTest, CrowdControlledParentCarriesItsRegisteredChildInTheSameTick)
+{
+    Entity rig = ParentAgentAtStart();
+    const glm::vec3 startParent = GetScene().ComputeWorldPosition(rig);
+    auto& childNav = m_Agent.GetComponent<NavAgentComponent>();
+    childNav.m_HasTarget = false;
+    auto& parentNav = rig.AddComponent<NavAgentComponent>();
+    parentNav.m_LockYAxis = true;
+    parentNav.m_MaxSpeed = 4.0f;
+    parentNav.m_HasTarget = true;
+    parentNav.m_TargetPosition = { 8, 0, 1 };
+
+    RunFrames(20);
+    const glm::vec3 displacement = GetScene().ComputeWorldPosition(rig) - startParent;
+    ASSERT_GT(displacement.x, 0.4f);
+    const glm::vec3 childPosition = GetScene().ComputeWorldPosition(m_Agent);
+    EXPECT_NEAR(glm::distance(childPosition, kStart + displacement), 0.0f, 1.0e-3f);
+    glm::vec3 nativeChild{};
+    ASSERT_TRUE(GetScene().GetCrowdManager()->GetAgentPosition(childNav.m_CrowdAgentId, nativeChild));
+    EXPECT_NEAR(glm::distance(glm::vec2(nativeChild.x, nativeChild.z), glm::vec2(childPosition.x, childPosition.z)), 0.0f, 1.0e-3f);
+}
+
 TEST_F(NavAgentReachesTargetTest, SingularCarrierReleasesCrowdSlotAndResumesFromAuthoredPose)
 {
     Entity carrier = ParentAgentAtStart();

@@ -60,6 +60,20 @@ TEST(TerrainBrushFootprint, ReflectedTerrainPicksItsUndersideAndNeverRefinesBehi
     EXPECT_FALSE(data->PickRay({ -0.5f, -2, 20 }, { 1, 0, 0 }, { 100, 100 }, 1, 50.0f));
 }
 
+TEST(TerrainBrushFootprint, RayFindsTheNearRootAndTangentWithinOneBilinearCell)
+{
+    auto data = TerrainData::FromCPUHeights(2, TArray<f32>{ 0, 1, 1, 0 });
+    const auto near = data->PickRay({ 0, 0.375f, 0 }, { 1, 0, 1 }, { 1, 1 }, 1, 1);
+    ASSERT_TRUE(near);
+    EXPECT_NEAR(*near, 0.25f, 1.0e-6f);
+    const auto far = data->PickRay({ 0.5f, 0.375f, 0.5f }, { 1, 0, 1 }, { 1, 1 }, 1, 0.5f);
+    ASSERT_TRUE(far);
+    EXPECT_NEAR(*far, 0.25f, 1.0e-6f);
+    const auto tangent = data->PickRay({ 1, 0.5f, 1 }, { -1, 0, -1 }, { 1, 1 }, 1, 1);
+    ASSERT_TRUE(tangent);
+    EXPECT_NEAR(*tangent, 0.5f, 1.0e-6f);
+}
+
 TEST(TerrainBrushFootprint, TenWorldMetresOnADoubledXAxisCoversFiveLocalMetres)
 {
     constexpr u32 res = 65;

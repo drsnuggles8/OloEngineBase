@@ -38,8 +38,8 @@ namespace OloEngine
         void Shutdown();
 
         i32 AddAgent(const glm::vec3& position, const NavAgentComponent& params);
-        // Carry an active agent along its current corridor. False means the new
-        // placement needs a fresh registration (e.g. a disconnected island).
+        // Carry an active agent along its current corridor, or leave an in-flight
+        // off-mesh traversal to Detour. False requires a fresh registration.
         bool MoveAgentOnMesh(i32 agentId, const glm::vec3& position, const NavMeshQuery& query);
         void RemoveAgent(i32 agentId);
         // Returns false if the target is not near any navmesh polygon (no move

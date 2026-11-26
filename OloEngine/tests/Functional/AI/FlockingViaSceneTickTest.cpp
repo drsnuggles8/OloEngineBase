@@ -185,7 +185,8 @@ TEST_F(FlockingViaSceneTickTest, ParentedBoidSteersAndMovesTowardsItsWorldGoal)
     Entity rig = GetScene().CreateEntity("Boid carrier");
     auto& carrier = rig.GetComponent<TransformComponent>();
     carrier.Translation = { 100.0f, 0.0f, 0.0f };
-    carrier.SetRotationEuler({ 0.0f, glm::half_pi<f32>(), 0.0f });
+    carrier.SetRotationEuler({ 0.0f, 0.6f, 0.0f });
+    carrier.Scale = { 3.0f, 1.0f, 0.5f };
     Entity child = m_Boids.front();
     child.SetParent(rig);
     child.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f);
@@ -198,8 +199,8 @@ TEST_F(FlockingViaSceneTickTest, ParentedBoidSteersAndMovesTowardsItsWorldGoal)
     const glm::vec3 world = GetScene().ComputeWorldPosition(child);
     EXPECT_LT(world.x, 100.0f);
     EXPECT_NEAR(world.z, 0.0f, 1.0e-5f);
-    const glm::vec3 forward = GetScene().ComputeWorldTRS(child).Rotation * glm::vec3(0, 0, -1);
-    EXPECT_NEAR(forward.x, -1.0f, 1.0e-5f);
+    const glm::vec3 forward = glm::normalize(-glm::vec3(GetScene().ComputeWorldTransform(child)[2]));
+    EXPECT_NEAR(glm::distance(forward, glm::normalize(boid.m_Velocity)), 0.0f, 1.0e-5f);
 }
 
 TEST_F(FlockingViaSceneTickTest, FlockConvergesAndStaysBounded)

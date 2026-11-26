@@ -31,6 +31,7 @@
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
 #include "OloEngine/Navigation/OffMeshLink.h"
+#include "OloEngine/Navigation/CrowdManager.h"
 
 #include <cmath>
 
@@ -88,6 +89,36 @@ class NavMeshOffMeshLinkBridgesGapTest : public FunctionalTest
         return std::sqrt(dx * dx + dz * dz);
     }
 };
+
+TEST_F(NavMeshOffMeshLinkBridgesGapTest, AgentFinishesItsLinkAfterItsCarrierMovesMidCrossing)
+{
+    GetScene().SetNavMesh(Bake({ OffMeshLink(kLinkA, kLinkB, 0.6f, true) }));
+    ASSERT_TRUE(GetScene().GetCrowdManager()->IsValid());
+    Entity rig = GetScene().CreateEntity("Carrier");
+    Entity walker = GetScene().CreateEntity("Link walker");
+    walker.SetParent(rig);
+    walker.GetComponent<TransformComponent>().Translation = kStart;
+    auto& agent = walker.AddComponent<NavAgentComponent>();
+    agent.m_MaxSpeed = 8.0f;
+    agent.m_HasTarget = true;
+    agent.m_TargetPosition = kEnd;
+
+    for (i32 frame = 0; frame < 180 && GetScene().ComputeWorldPosition(walker).x < -1.0f; ++frame)
+        RunFrames(1);
+    const glm::vec3 onLink = GetScene().ComputeWorldPosition(walker);
+    ASSERT_GT(onLink.x, -1.1f);
+    ASSERT_LT(onLink.x, 1.0f);
+    const i32 slot = agent.m_CrowdAgentId;
+    ASSERT_GE(slot, 0);
+    rig.GetComponent<TransformComponent>().Translation.z = 3.0f;
+    RunFrames(1);
+    EXPECT_EQ(agent.m_CrowdAgentId, slot);
+    const glm::vec3 stillOnLink = GetScene().ComputeWorldPosition(walker);
+    EXPECT_GT(stillOnLink.x, onLink.x);
+    EXPECT_NEAR(stillOnLink.z, onLink.z, 1.0e-3f);
+    TickFor(3.0f);
+    EXPECT_LT(DistXZ(GetScene().ComputeWorldPosition(walker), kEnd), 0.5f);
+}
 
 TEST_F(NavMeshOffMeshLinkBridgesGapTest, LinkClosesGapThatIsImpassableWithoutIt)
 {

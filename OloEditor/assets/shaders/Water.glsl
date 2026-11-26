@@ -745,8 +745,11 @@ void main()
     // and the open ocean turns transparent. This is the deep-water default.
     bool hasFloorBehind = sceneDepthRaw < 0.9999;
     vec3 floorViewPos = viewPosFromDepth(screenUV, sceneDepthRaw);
-    float floorWorldY = (inverse(u_View) * vec4(floorViewPos, 1.0)).y;
-    float verticalWaterDepth = max(v_WorldPos.y - floorWorldY, 0.0);
+    vec3 floorWorldPos = (inverse(u_View) * vec4(floorViewPos, 1.0)).xyz;
+    vec3 restNormal = waterGridNormal(instances[0].Transform);
+    vec2 surfaceGradient = abs(restNormal.y) > 1e-4 ? -restNormal.xz / restNormal.y : vec2(0.0);
+    float surfaceYAtFloor = v_WorldPos.y + dot(surfaceGradient, floorWorldPos.xz - v_WorldPos.xz);
+    float verticalWaterDepth = max(surfaceYAtFloor - floorWorldPos.y, 0.0);
 
     // --- Refraction ---
     float refrDistortion = u_DepthRefractionParams.y;
@@ -917,15 +920,13 @@ void main()
         : 0.0; // open ocean (no floor behind) → no shoreline foam
     if (shorelineFoam > 0.0)
     {
-        vec3 restNormal = waterGridNormal(instances[0].Transform);
         if (abs(restNormal.y) > 1e-4)
         {
-            vec2 gradient = -restNormal.xz / restNormal.y;
             vec3 origin = instances[0].Transform[3].xyz;
-            float planeY = origin.y + dot(gradient, v_WorldPos.xz - origin.xz);
+            float planeY = origin.y + dot(surfaceGradient, v_WorldPos.xz - origin.xz);
             vec2 surfaceY = vec2(v_WorldPos.y, planeY) + u_RenderOrigin.y;
             shorelineFoam *= waterWakeShoreFoamScale(u_WakeShapeParams.x, v_WorldPos.xz + u_RenderOrigin.xz,
-                                                    verticalWaterDepth, surfaceY, gradient);
+                                                    verticalWaterDepth, surfaceY, surfaceGradient);
         }
     }
 

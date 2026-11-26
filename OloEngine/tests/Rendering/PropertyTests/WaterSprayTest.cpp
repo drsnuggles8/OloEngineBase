@@ -526,9 +526,8 @@ namespace OloEngine::Tests
         for (const auto& particle : particles)
         {
             const f32 baseX = particle.PositionLifetime.x - shift.x;
-            // The emitter jitters its final X by at most a quarter metre.
             const f32 expected = 5.0f + 0.4f * baseX + 1.25f + WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f;
-            EXPECT_NEAR(particle.PositionLifetime.y, expected, 0.101f);
+            EXPECT_NEAR(particle.PositionLifetime.y, expected, 1.0e-4f);
         }
     }
 

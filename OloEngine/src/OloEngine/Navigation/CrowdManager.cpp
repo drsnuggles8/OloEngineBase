@@ -87,6 +87,10 @@ namespace OloEngine
             return false;
 
         auto* agent = m_Crowd->getEditableAgent(agentId);
+        // Detour owns the position until the link animation lands. Moving its
+        // corridor during traversal would discard the landing state.
+        if (agent->state == DT_CROWDAGENT_STATE_OFFMESH)
+            return true;
         if (agent->state != DT_CROWDAGENT_STATE_WALKING)
             return false;
 

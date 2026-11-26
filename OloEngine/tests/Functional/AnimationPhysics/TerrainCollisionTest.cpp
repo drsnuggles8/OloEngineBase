@@ -307,6 +307,32 @@ TEST_F(TerrainCollisionHierarchyTest, ShearedGridKeepsItsDrawnRampUnderVerticalR
     }
 }
 
+TEST_F(TerrainCollisionHierarchyTest, ShearedAndMirroredCellsUseTheHeightfieldDiagonal)
+{
+    TArray<f32> heights;
+    constexpr u32 resolution = 33;
+    heights.Init(0.0f, resolution * resolution);
+    heights[resolution + 1] = 1.0f;
+    m_Child.GetComponent<TerrainComponent>().m_TerrainData = TerrainData::FromCPUHeights(resolution, std::move(heights));
+    m_Child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0.45f, 0 });
+
+    for (const f32 xScale : { 1.5f, -1.5f })
+    {
+        m_Rig.GetComponent<TransformComponent>().Scale.x = xScale;
+        TickFor(1.0f / 60.0f);
+        const glm::mat4 world = GetScene().ComputeWorldTransform(m_Child);
+        const glm::vec3 expected(world * glm::vec4(0.25f, 2.0f, 0.75f, 1));
+        RayCastInfo ray;
+        ray.m_Origin = expected + glm::vec3(0, 30, 0);
+        ray.m_Direction = { 0, -1, 0 };
+        ray.m_MaxDistance = 60.0f;
+        SceneQueryHit hit;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, hit));
+        EXPECT_EQ(hit.m_HitEntity, m_Child.GetUUID());
+        EXPECT_NEAR(hit.m_Position.y, expected.y, 0.06f) << xScale;
+    }
+}
+
 TEST_F(TerrainCollisionHierarchyTest, SlopingHeightfieldFollowsItsRotatedAndRescaledCarrier)
 {
     const glm::vec3 old = CheckTwins();

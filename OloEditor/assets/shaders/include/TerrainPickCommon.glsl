@@ -108,19 +108,22 @@ void oloTerrainPickNodeBounds(uint level, uint nx, uint ny, vec2 heightRange, fl
 // Returns the overlap of the ray's [tMin, tMax] window with the box, clipped to
 // the caller's window. False when the box is missed.
 //
-// Division by a zero direction component is deliberate rather than branched
-// around: IEEE gives +/-infinity, the two slab bounds come out +inf and -inf in
-// the correct order after the min/max, and an axis-parallel ray therefore falls
-// out as "this axis does not constrain t" — which is the right answer. A NaN
-// would break that, which is why the CPU refuses to submit a non-finite ray.
+// A parallel ray on a slab face is inside the slab. Handle that case before
+// division so a ray along a clipped terrain edge cannot produce NaNs.
 bool oloTerrainPickRayAABB(vec3 origin, vec3 dir, vec3 boundsMin, vec3 boundsMax,
                            inout float tMin, inout float tMax)
 {
-    vec3 invDir = vec3(1.0) / dir;
-    vec3 t0 = (boundsMin - origin) * invDir;
-    vec3 t1 = (boundsMax - origin) * invDir;
-    vec3 tNear = min(t0, t1);
-    vec3 tFar = max(t0, t1);
+    bvec3 parallel = equal(dir, vec3(0.0));
+    if (any(bvec3(parallel.x && (origin.x < boundsMin.x || origin.x > boundsMax.x),
+                  parallel.y && (origin.y < boundsMin.y || origin.y > boundsMax.y),
+                  parallel.z && (origin.z < boundsMin.z || origin.z > boundsMax.z))))
+        return false;
+
+    vec3 safeDir = mix(dir, vec3(1.0), parallel);
+    vec3 t0 = (boundsMin - origin) / safeDir;
+    vec3 t1 = (boundsMax - origin) / safeDir;
+    vec3 tNear = mix(min(t0, t1), vec3(tMin), parallel);
+    vec3 tFar = mix(max(t0, t1), vec3(tMax), parallel);
 
     tMin = max(tMin, max(tNear.x, max(tNear.y, tNear.z)));
     tMax = min(tMax, min(tFar.x, min(tFar.y, tFar.z)));

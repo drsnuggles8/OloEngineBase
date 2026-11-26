@@ -71,6 +71,7 @@ namespace OloEngine
     struct CrowdVisibilityCounts;
     struct IKTargetComponent;
     struct TerrainComponent;
+    class TerrainTile;
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
     struct FootIKComponent;
@@ -1188,6 +1189,8 @@ namespace OloEngine
         // Game-thread writes between propagation passes. A singular parent leaves the local pose intact.
         bool TrySetWorldPosition(entt::entity entity, const glm::vec3& position);
         bool TrySetWorldRotation(entt::entity entity, const glm::quat& rotation);
+        // Orient the rendered local -Z axis, including the parent's affine basis.
+        bool TrySetWorldForward(entt::entity entity, const glm::vec3& forward, const glm::vec3& up);
         [[nodiscard]] bool HasSingularParentFrame(entt::entity entity, bool planar) const;
 
         struct Physics2DPlacement
@@ -1771,6 +1774,8 @@ namespace OloEngine
         TerrainCollisionPlacement CaptureTerrainCollisionFrame(entt::entity entity, bool streamed) const;
         std::optional<TerrainCollisionPlacement> TerrainCollisionFrameForRender(entt::entity entity, bool streamed) const;
         void RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame);
+        void SyncStreamingTerrainCollision(Entity entity, TerrainComponent& terrain, const TArray<Ref<TerrainTile>>& readyTiles,
+                                           const TerrainCollisionPlacement& frame);
         void SyncTerrainCollisionFrames();
         std::unordered_set<entt::entity> m_RejectedPhysicsWritebacks;
         void ReportPhysicsWriteback(entt::entity entity, bool rejected);

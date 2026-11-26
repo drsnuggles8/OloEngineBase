@@ -1278,6 +1278,7 @@ namespace OloEngine
 
         const VkImageSubresourceRange base{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
         const VkImageLayout baseLayout = ExecutedMipLayout(api, m_Image, base);
+        VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
         const bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::RegenerateMips",
             [&](VkCommandBuffer cmd)
@@ -1303,10 +1304,11 @@ namespace OloEngine
                                                  VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u, m_MipLevels - 1u);
                 RecordMipChain(cmd, blitFilter);
-                if (api)
-                    api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
-            });
+            },
+            &outcome);
 
+        if (api && outcome != VulkanOneShot::Outcome::NotSubmitted)
+            api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
         if (ok)
         {
             VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, device->GetSampledImageLayout());

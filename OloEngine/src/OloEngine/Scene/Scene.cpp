@@ -2279,6 +2279,7 @@ namespace OloEngine
 
     void Scene::OnSimulationStop()
     {
+        m_RejectedPhysicsWritebacks.clear();
         OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         m_SessionProfileSection = 0;
         // Same discontinuity as OnRuntimeStop (#1249).
@@ -3238,6 +3239,30 @@ namespace OloEngine
         if (converted)
             local.SetRotation(*converted);
         return converted.has_value();
+    }
+
+    bool Scene::TrySetWorldForward(entt::entity entity, const glm::vec3& forward, const glm::vec3& up)
+    {
+        auto& local = m_Registry.get<TransformComponent>(entity);
+        if (ResolveTransformParent(entity) == entt::null)
+        {
+            local.SetRotation(glm::quatLookAt(forward, up));
+            return true;
+        }
+        const glm::mat3 parentBasis(ComputeParentWorldTransform(entity));
+        const auto inverse = InverseParentBasis(parentBasis);
+        if (!inverse)
+            return false;
+        const glm::dvec3 worldBack(-forward);
+        const f64 sign = std::copysign(1.0, local.Scale.z);
+        const glm::dvec3 back = glm::normalize(*inverse * worldBack) * sign;
+        // Cross products of inverse-transformed directions use the dual basis.
+        // This keeps the right axis precise even for strongly unequal scales.
+        const glm::dmat3 parent(parentBasis);
+        const f64 handedness = std::copysign(1.0, glm::determinant(parent));
+        const glm::dvec3 right = glm::normalize(glm::transpose(parent) * glm::cross(glm::dvec3(up), worldBack)) * (sign * handedness);
+        local.SetRotation(glm::quat(glm::quat_cast(glm::dmat3(right, glm::cross(back, right), back))));
+        return true;
     }
 
     bool Scene::HasSingularParentFrame(entt::entity entity, bool planar) const
@@ -8782,33 +8807,26 @@ namespace OloEngine
         }
 
         // Reconcile per-tile collision bodies for a STREAMED terrain against the streamer's
-        // currently-ready tiles (issue #469). Runs each frame in the render path after the
-        // streamer Update, when physics is live and collision is enabled: builds a static
+        // currently-ready tiles (issue #469). Builds a static
         // height-field body for every newly-ready tile and destroys the bodies of tiles no
         // longer loaded, so collision tracks the visual load/unload in step. Each tile body
         // reuses the tile's own CPU height field placed at its world origin and carries the
         // entity transform exactly like the draw path (tileModel = entityTransform *
         // translate(tile.WorldOrigin) — see submitChunkPackets), so collision coincides
         // with the rendered tile.
-        void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity,
-                                                const TArray<Ref<TerrainTile>>& readyTiles, const glm::mat4& model, const glm::quat& rotation)
+        void ReconcileTerrainTileBodies(JoltScene& joltScene, Entity entity,
+                                        const TArray<Ref<TerrainTile>>& readyTiles, const glm::mat4& model,
+                                        const glm::mat3& bodyBasis, const glm::quat& rotation)
         {
             const UUID entityID = entity.GetUUID();
 
-            const glm::mat3 bodyBasis = glm::transpose(glm::mat3_cast(rotation)) * glm::mat3(model);
-
-            // `readyTiles` is the SAME per-frame snapshot the render submit path uses, taken
-            // once by the caller (GetReadyTiles takes a shared lock + copies) — an empty list
-            // (streamer not yet created / no ready tiles) correctly tears down every tile body
-            // via the coord sweep below.
-
             // Pack a tile grid coord into a single key for the desired-set membership test.
-            auto packKey = [](i32 x, i32 z) -> i64
+            auto packKey = [](i32 x, i32 z) -> u64
             {
-                return (static_cast<i64>(x) << 32) | (static_cast<i64>(static_cast<u32>(z)));
+                return (static_cast<u64>(static_cast<u32>(x)) << 32) | static_cast<u32>(z);
             };
 
-            std::unordered_set<i64> desired;
+            std::unordered_set<u64> desired;
             desired.reserve(readyTiles.Num());
             for (const auto& tile : readyTiles)
             {
@@ -9174,6 +9192,39 @@ namespace OloEngine
         }
     }
 
+    namespace
+    {
+        bool TerrainShapeBasisChanged(const glm::mat3& baked, const glm::mat3& current)
+        {
+            for (glm::length_t i = 0; i < 3; ++i)
+                if (glm::length(baked[i] - current[i]) > 1.0e-5f * glm::length(baked[i]))
+                    return true;
+            return false;
+        }
+    } // namespace
+
+    void Scene::SyncStreamingTerrainCollision(Entity entity, TerrainComponent& terrain,
+                                              const TArray<Ref<TerrainTile>>& readyTiles,
+                                              const TerrainCollisionPlacement& frame)
+    {
+        const entt::entity handle = entity;
+        const auto previous = m_TerrainCollisionFrames.find(handle);
+        if (previous == m_TerrainCollisionFrames.end() || !previous->second.Streamed ||
+            TerrainShapeBasisChanged(previous->second.ShapeBasis, frame.ShapeBasis))
+        {
+            m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
+            m_JoltScene->DestroyTerrainBody(entity.GetUUID());
+            terrain.m_RuntimeCollisionBodyToken = 0;
+            m_TerrainCollisionFrames[handle] = frame;
+        }
+        auto& recorded = m_TerrainCollisionFrames.at(handle);
+        recorded.Model = frame.Model;
+        recorded.Rotation = frame.Rotation;
+        // All resident tiles share one baked basis, including tiles that have
+        // just become ready while rendering between physics ticks.
+        ReconcileTerrainTileBodies(*m_JoltScene, entity, readyTiles, frame.Model, recorded.ShapeBasis, frame.Rotation);
+    }
+
     void Scene::SyncTerrainCollisionFrames()
     {
         // The gameplay scheduler also ticks scenes with 3D physics disabled.
@@ -9207,39 +9258,23 @@ namespace OloEngine
             const auto pose = ComputeWorldTRS(e);
             const glm::mat3 shapeBasis = glm::transpose(glm::mat3_cast(pose.Rotation)) * glm::mat3(world);
             const TerrainCollisionPlacement frame{ world, shapeBasis, pose.Rotation, terrain.m_StreamingEnabled };
-            bool rebuild = previous == m_TerrainCollisionFrames.end() || previous->second.Streamed != terrain.m_StreamingEnabled;
-            for (glm::length_t i = 0; i < 3 && !rebuild; ++i)
+            if (terrain.m_StreamingEnabled)
             {
-                const glm::vec3 baked = previous->second.ShapeBasis[i];
-                rebuild = glm::length(baked - shapeBasis[i]) > 1.0e-5f * glm::length(baked);
+                TArray<Ref<TerrainTile>> ready;
+                if (terrain.m_Streamer)
+                    terrain.m_Streamer->GetReadyTiles(ready);
+                SyncStreamingTerrainCollision(entity, terrain, ready, frame);
             }
-            if (rebuild)
+            else if (previous == m_TerrainCollisionFrames.end() || previous->second.Streamed ||
+                     TerrainShapeBasisChanged(previous->second.ShapeBasis, shapeBasis))
             {
                 m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
-                m_JoltScene->DestroyTerrainBody(entity.GetUUID());
-                terrain.m_RuntimeCollisionBodyToken = 0;
-                if (terrain.m_StreamingEnabled)
-                    m_TerrainCollisionFrames[e] = frame;
+                RebuildTerrainCollision(entity, terrain, frame);
             }
             else
             {
                 previous->second.Model = world;
                 previous->second.Rotation = pose.Rotation;
-            }
-            if (terrain.m_StreamingEnabled)
-            {
-                if (!terrain.m_Streamer)
-                    continue;
-                TArray<Ref<TerrainTile>> ready;
-                terrain.m_Streamer->GetReadyTiles(ready);
-                ReconcileStreamingTerrainCollision(*m_JoltScene, entity, ready, world, pose.Rotation);
-            }
-            else if (rebuild)
-            {
-                RebuildTerrainCollision(entity, terrain, frame);
-            }
-            else
-            {
                 m_JoltScene->MoveTerrainBody(entity.GetUUID(), pose.Position, pose.Rotation);
             }
         }
@@ -15060,7 +15095,7 @@ namespace OloEngine
                         if (terrain.m_CollisionEnabled)
                         {
                             if (const auto frame = TerrainCollisionFrameForRender(entity, true))
-                                ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles, frame->Model, frame->Rotation);
+                                SyncStreamingTerrainCollision(terrainEnt, terrain, readyTiles, *frame);
                         }
                         else
                             m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());

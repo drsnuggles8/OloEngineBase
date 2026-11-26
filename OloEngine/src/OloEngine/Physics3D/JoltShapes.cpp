@@ -516,9 +516,9 @@ namespace OloEngine
                 if (x + 1 < resolution && z + 1 < resolution)
                 {
                     const u32 right = index + 1, below = index + resolution;
-                    const u32 a = mirrored ? right : below, b = mirrored ? below : right;
-                    triangles.emplace_back(index, a, b, 0);
-                    triangles.emplace_back(b, a, below + 1, 0);
+                    const u32 diagonal = below + 1;
+                    triangles.emplace_back(index, mirrored ? diagonal : below, mirrored ? below : diagonal, 0);
+                    triangles.emplace_back(index, mirrored ? right : diagonal, mirrored ? diagonal : right, 0);
                 }
             }
         }

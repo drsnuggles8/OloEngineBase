@@ -142,6 +142,8 @@ void main()
     vec3 boundsMin;
     vec3 boundsMax;
     oloTerrainPickNodeBounds(level, nx, ny, heightRange, b_Pick.RayDirAndInflate.w, boundsMin, boundsMax);
+    boundsMin.xz = max(boundsMin.xz, vec2(0.0));
+    boundsMax.xz = min(boundsMax.xz, b_Pick.TerrainSizeAndScale.xy);
 
     float tMin = 0.0;
     float tMax = b_Pick.RayOriginAndMaxDist.w;
@@ -159,8 +161,8 @@ void main()
     float laneSpan = (tMax - tMin) / float(gl_WorkGroupSize.x);
     if (!(laneSpan > 0.0))
         return;
-    float laneStart = tMin + laneSpan * float(gl_LocalInvocationID.x);
-    float laneEnd = tMin + laneSpan * float(gl_LocalInvocationID.x + 1u);
+    float laneStart = min(tMin + laneSpan * float(gl_LocalInvocationID.x), tMax);
+    float laneEnd = min(tMin + laneSpan * float(gl_LocalInvocationID.x + 1u), tMax);
 
     // The budget is DEMAND-DRIVEN and then capped, so the common case costs a
     // couple of samples and only a genuinely long segment approaches the cap.
@@ -209,9 +211,7 @@ void main()
         }
         if ((prevGap > 0.0) != (gap > 0.0))
         {
-            // Bracketed. Bisect on the sign of the gap — the same refinement
-            // EditorLayer::TerrainRaycast does, with more iterations because
-            // they cost nothing here.
+            // Bisect the bracket on the sign of the height gap.
             float lo = prevT;
             float hi = t;
             for (int r = 0; r < kRefineSteps; ++r)

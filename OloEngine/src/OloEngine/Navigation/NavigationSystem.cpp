@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/Navigation/CrowdManager.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -34,29 +35,44 @@ namespace OloEngine
             agent.m_TargetUnreachable = false;
         };
 
-        auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
-        if (crowdMgr && crowdMgr->IsValid())
+        struct AgentUpdate
         {
+            entt::entity EntityHandle;
+            sizet Depth = 0;
+            glm::vec3 InitialPosition{ 0.0f };
+        };
+        const bool crowdActive = crowdMgr && crowdMgr->IsValid();
+        const auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
+        TArray<AgentUpdate> updates;
+        updates.Reserve(static_cast<i32>(view.size_hint()));
+        const sizet maxDepth = scene->GetAllEntitiesWith<TransformComponent>().size();
+        for (const auto e : view)
+        {
+            auto& update = updates.Emplace_GetRef(e);
+            if (!crowdActive)
+                continue;
+            for (Entity parent = Entity(e, scene).GetParent();
+                 update.Depth < maxDepth && parent && parent.HasComponent<TransformComponent>();
+                 parent = parent.GetParent())
+                ++update.Depth;
+            update.InitialPosition = scene->ComputeWorldPosition(e);
             // Synchronize external movement before avoidance sees the agents.
             // Small carrier movements keep the path corridor and its velocity.
-            for (const auto e : view)
-            {
-                auto& agent = view.get<NavAgentComponent>(e);
-                if (agent.m_CrowdAgentId < 0)
-                    continue;
-                const glm::vec3 position = scene->ComputeWorldPosition(e);
-                if (Math::BitwiseEqual(position, agent.m_LastCrowdWorldPosition))
-                    continue;
-                if (!crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, position, *navQuery))
-                {
-                    releaseCrowdSlot(agent);
-                }
-            }
+            auto& agent = view.get<NavAgentComponent>(e);
+            if (agent.m_CrowdAgentId >= 0 && !Math::BitwiseEqual(update.InitialPosition, agent.m_LastCrowdWorldPosition) &&
+                !crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, update.InitialPosition, *navQuery))
+                releaseCrowdSlot(agent);
+        }
+        if (crowdActive)
+        {
             crowdMgr->Update(dt);
+            updates.StableSort([](const AgentUpdate& a, const AgentUpdate& b)
+                               { return a.Depth < b.Depth; });
         }
 
-        for (auto e : view)
+        for (const auto& update : updates)
         {
+            const auto e = update.EntityHandle;
             Entity entity = { e, scene };
             auto& agent = entity.GetComponent<NavAgentComponent>();
             glm::vec3 position = scene->ComputeWorldPosition(e);
@@ -65,7 +81,7 @@ namespace OloEngine
             // stays out of the crowd: DetourCrowd integrates its own velocity and
             // writing that position back would move the agent a second time. One
             // switched to root motion mid-play leaves the crowd here.
-            if (agent.m_UseRootMotion && agent.m_CrowdAgentId >= 0 && crowdMgr && crowdMgr->IsValid())
+            if (agent.m_UseRootMotion && agent.m_CrowdAgentId >= 0 && crowdActive)
             {
                 crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
                 agent.m_CrowdAgentId = -1;
@@ -77,9 +93,10 @@ namespace OloEngine
             // OnComponentAdded — that naturally handles "navmesh baked/set after the
             // component was added" ordering, and a SetNavMesh reset (which zeroes
             // every m_CrowdAgentId) re-registers everyone next frame for free.
-            if (crowdMgr && crowdMgr->IsValid() && !agent.m_UseRootMotion)
+            if (crowdActive && !agent.m_UseRootMotion)
             {
-                if (agent.m_CrowdAgentId < 0)
+                const bool alreadyRegistered = agent.m_CrowdAgentId >= 0;
+                if (!alreadyRegistered)
                 {
                     if (scene->HasSingularParentFrame(e, false))
                         continue;
@@ -108,6 +125,18 @@ namespace OloEngine
 
                     if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
                     {
+                        // Ancestor agents already wrote their own crowd motion.
+                        // Carry this agent's integrated position by that change
+                        // before converting it back through the updated parent.
+                        if (alreadyRegistered && update.Depth > 0 && !Math::BitwiseEqual(position, update.InitialPosition))
+                        {
+                            if (!crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, pos + (position - update.InitialPosition), *navQuery))
+                            {
+                                releaseCrowdSlot(agent);
+                                continue;
+                            }
+                            crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos);
+                        }
                         if (agent.m_LockYAxis)
                             pos.y = position.y;
                         if (!scene->TrySetWorldPosition(e, pos))

@@ -642,16 +642,23 @@ namespace OloEngine::Tests
         const glm::vec3 cameraLocal(kWorldSize + 20, 0, -kWorldSize + 32);
         const glm::vec3 target(parent.GetTransform() * glm::vec4(cameraLocal, 1));
         LookDown(target.x, target.z, target.y + 30, 55.0f);
+        const auto waitForTile = [&](i32 x)
+        {
+            constexpr u32 maxFrames = 120;
+            for (u32 frame = 0; frame < maxFrames && (!terrain.m_Streamer || !terrain.m_Streamer->GetTile(x, -1)); ++frame)
+                RunFrames(1, 0.0f);
+        };
 
         // Two representations of exactly the same terrain, including a nonzero
         // resident tile index. A translated-only camera conversion selects a
         // different tile even for the root twin.
         m_Terrain.GetComponent<TransformComponent>() = parent;
+        waitForTile(1);
+        ASSERT_TRUE(terrain.m_Streamer);
+        ASSERT_TRUE(terrain.m_Streamer->GetTile(1, -1));
         std::vector<u8> root, child;
         ASSERT_NO_FATAL_FAILURE(Capture(root));
         WriteEvidence(EvidenceName("ParentedTerrainOff", "StreamedTile"), root);
-        ASSERT_TRUE(terrain.m_Streamer);
-        ASSERT_TRUE(terrain.m_Streamer->GetTile(1, -1));
         ASSERT_EQ(terrain.m_Streamer->GetLoadedTileCount(), 1u);
         ASSERT_GT(LumaContrast(root, Centre(kSize / 4)), 25.0);
         m_Terrain.SetParent(rig);
@@ -702,7 +709,8 @@ namespace OloEngine::Tests
             EXPECT_EQ(hit.m_HitEntity, m_Terrain.GetUUID());
             EXPECT_NEAR(hit.m_Position.y, location.y, 0.05f);
         };
-        RunFrames(3, 0.0f);
+        RunFrames(1, 0.0f);
+        waitForTile(1);
         if (!TerrainChunkManager::IsGpuDrivenLODEnabled())
         {
             const auto resident = terrain.m_Streamer->GetTile(1, -1);
@@ -724,10 +732,19 @@ namespace OloEngine::Tests
         ASSERT_NO_FATAL_FAILURE(checkShore(target + glm::vec3(0, 2, 0)));
         ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2, 0)));
 
+        // A render between fixed physics ticks must replace the baked shape
+        // when scale changes, including when it returns to its original value.
+        parent.Scale.y *= 0.5f;
+        RunFrames(1, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2 - kHeightScale * 0.625f, 0)));
+        parent.Scale.y *= 2;
+        RunFrames(1, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2, 0)));
+
         // The same world camera now sees tile (2,-1). The ready set must evict
         // (1,-1) and the analytic ground query must see the new, flat substitute.
         parent.Translation -= glm::vec3(parent.GetTransform()[0]) * kWorldSize;
-        RunFrames(kFramesPerCapture, 0.0f);
+        waitForTile(2);
         ASSERT_TRUE(terrain.m_Streamer->GetTile(2, -1));
         EXPECT_FALSE(terrain.m_Streamer->GetTile(1, -1));
         EXPECT_EQ(terrain.m_Streamer->GetLoadedTileCount(), 1u);

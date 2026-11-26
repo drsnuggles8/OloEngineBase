@@ -7,8 +7,6 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
-#include <glm/gtc/quaternion.hpp>
-
 #include <algorithm>
 #include <cmath>
 
@@ -325,15 +323,14 @@ namespace OloEngine
 
             if (boid.m_FaceVelocity && glm::dot(velocity, velocity) > kDegenerateLengthSq)
             {
-                // Engine convention is -Z forward (see PerceptionSystem's sight
-                // cone), which is what glm::quatLookAt builds.
+                // Engine convention is -Z forward (see PerceptionSystem's sight cone).
                 const glm::vec3 forward = glm::normalize(velocity);
                 constexpr glm::vec3 kWorldUp(0.0f, 1.0f, 0.0f);
                 // Degenerate when travelling straight up/down — keep the
                 // previous orientation rather than emitting a NaN quaternion.
                 if (std::abs(glm::dot(forward, kWorldUp)) < 0.999f)
                 {
-                    scene->TrySetWorldRotation(entity, glm::quatLookAt(forward, kWorldUp));
+                    scene->TrySetWorldForward(entity, forward, kWorldUp);
                 }
             }
         }
