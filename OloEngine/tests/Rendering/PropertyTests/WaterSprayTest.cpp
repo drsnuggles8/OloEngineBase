@@ -457,6 +457,16 @@ namespace OloEngine::Tests
         }
     }
 
+    TEST(WaterSprayTest, ArtistHeightScalesAboveTenMatchTheRenderedCrest)
+    {
+        auto settings = MakeSettings();
+        settings.m_HeightScale = 15.0f;
+        const auto particles = WS::Emit(settings, 0.25f, { 0, 0 }, 3.0f, 1.0f / 60.0f, FlatSea(0.95f, 2.0f));
+        ASSERT_FALSE(particles.IsEmpty());
+        for (const auto& particle : particles)
+            EXPECT_NEAR(particle.PositionLifetime.y, 30.0f + WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f, 1e-5f);
+    }
+
     TEST(WaterSprayTest, SprayIsThrownDownwind)
     {
         WS::WaterSpraySettings settings = MakeSettings();

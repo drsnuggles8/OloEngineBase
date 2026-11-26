@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Renderer/Water/WaterRainRipples.h"
 
 #include <glm/glm.hpp>
@@ -307,8 +308,7 @@ namespace OloEngine::WaterSpray
         const f32 size = std::isfinite(settings.m_ParticleSize)
                              ? glm::clamp(settings.m_ParticleSize, 0.005f, 2.0f)
                              : 0.25f;
-        const f32 heightScale =
-            std::isfinite(settings.m_HeightScale) ? glm::clamp(settings.m_HeightScale, 0.0f, 10.0f) : 1.0f;
+        const f32 heightScale = WaterSurface::ClampFFTHeightScale(settings.m_HeightScale);
         const f32 planeY = std::isfinite(settings.m_WaterPlaneY) ? settings.m_WaterPlaneY : 0.0f;
         const glm::vec2 wind{ std::isfinite(settings.m_WindMetresPerSecond.x)
                                   ? settings.m_WindMetresPerSecond.x
