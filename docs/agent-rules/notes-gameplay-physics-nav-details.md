@@ -415,12 +415,19 @@ leaves the authored local pose at its last representable value while the native
 body continues simulating. Jolt checks the spatial basis. Box2D checks its XY
 projection, which permits zero Z scale. The inspector identifies the affected
 dynamic body and the runtime logs the first rejected write. Restoring the axes
-resumes writeback from the current simulated pose on the next physics tick.
+resumes writeback from the current simulated pose on the next physics tick. For a
+full-rank parent with extreme anisotropy, verify the stored quaternion reproduces
+the requested world rotation at float precision. If it cannot, the native
+position still writes back and the local orientation keeps its previous value.
+A collapsed Box2D fixture waits until its projected area is representable and is
+then built in the native body's current frame.
 
 Keep streamed terrain origins, height samples, chunks and foliage in terrain
 space. Transform the camera into that frame for tile selection. Use the full
 tile model for submission and collider placement. Rigid parent motion repositions
-resident colliders. A change in the scaled or sheared basis requires a new shape.
+resident colliders and wakes sleeping bodies in the old and new support regions.
+A change in the scaled or sheared basis requires a new shape. A render-time
+height rebuild uses the simulation frame while visual interpolation is active.
 World-XZ height queries on terrain support sloping height samples, yaw, and
 non-uniform scale when local height points vertically. A pitched height axis can
 put several samples in the same world column. Ground and shoreline lookups omit
