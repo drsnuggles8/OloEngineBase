@@ -7,7 +7,9 @@
 
 namespace OloEngine::ReSTIR::PT
 {
-    inline constexpr u32 kLayoutVersion = 1u;
+    // Version 1 replayed material-dependent specular charts. Those uniforms
+    // cannot be reinterpreted as visible-normal samples after a shader reload.
+    inline constexpr u32 kLayoutVersion = 2u;
     inline constexpr u32 kMaterialTexturesFlag = 1u;
     inline constexpr u32 kEnvironmentCubeFlag = 2u;
     inline constexpr u32 kMaximumSecondaryVertices = 3u;

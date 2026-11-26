@@ -2,7 +2,7 @@
 #define OLO_RESTIR_PT_TYPES
 #define OLO_RESTIR_PT_FLAG_TEXTURES 1u
 #define OLO_RESTIR_PT_FLAG_ENVIRONMENT 2u
-#define OLO_RESTIR_PT_LAYOUT_VERSION 1u
+#define OLO_RESTIR_PT_LAYOUT_VERSION 2u
 #define OLO_RESTIR_PT_LAYOUT_BITS (OLO_RESTIR_PT_LAYOUT_VERSION << 16u)
 // Lineage.w: bit0 receiver exists, bit1 selected nonzero-target path exists,
 // bit2 the selected suffix came through temporal reuse. Spatial reuse carries

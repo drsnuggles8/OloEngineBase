@@ -801,7 +801,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(std::any_of(canonical.begin(), canonical.end(), [](const PT::PathRecord& path)
                                 { return (path.Lineage.w & 2u) != 0u; }));
 
-        for (const u32 version : { 0u, PT::kLayoutVersion + 1u })
+        for (const u32 version : { 0u, PT::kLayoutVersion - 1u, PT::kLayoutVersion + 1u })
         {
             SCOPED_TRACE(version);
             auto incompatible = history;
