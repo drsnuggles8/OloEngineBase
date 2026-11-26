@@ -133,7 +133,7 @@ layout(std140, binding = 37) uniform UnderwaterFogBlock
     vec4 u_UnderwaterGodRayColor;     // rgb = shaft tint, w = pad
     vec4 u_UnderwaterGodRayShape;     // x = dappleFloor, y = sunFalloff, zw = pad
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
-    vec4 u_UnderwaterSurfaceGradient; // xy = rest-plane dY/dX and dY/dZ
+    vec4 u_UnderwaterSurfaceGradient; // xy = rest-plane dY/dX and dY/dZ, z = eye tile's vertical wave band
     vec4 u_UnderwaterSurfaceTileU;    // eye tile footprint rows: |dot(row, vec4(p, 1))| <= 1 on the tile
     vec4 u_UnderwaterSurfaceTileV;    // (all-zero rows cover everything)
 };
@@ -269,13 +269,17 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
 }
 
 // The slope a captured surface point slides along to the eye's column: the eye
-// tile's own where that tile drew it, none for a surface another tile drew.
+// tile's own where that tile drew it, none for a surface another tile drew. The
+// eye tile drew a point over its footprint AND within its wave band of its
+// plane; another tile over the same footprint lies off that plane.
 // MUST match UnderwaterFog::PixelSurfaceGradient (UnderwaterFog.h).
 vec2 underwaterPixelSurfaceGradient(vec3 surface)
 {
     vec4 p = vec4(surface, 1.0);
-    bool onEyeTile = abs(dot(u_UnderwaterSurfaceTileU, p)) <= 1.0 && abs(dot(u_UnderwaterSurfaceTileV, p)) <= 1.0;
-    return onEyeTile ? u_UnderwaterSurfaceGradient.xy : vec2(0.0);
+    bool overFootprint = abs(dot(u_UnderwaterSurfaceTileU, p)) <= 1.0 && abs(dot(u_UnderwaterSurfaceTileV, p)) <= 1.0;
+    float planeY = u_UnderwaterFlags.y + dot(u_UnderwaterSurfaceGradient.xy, surface.xz - u_UnderwaterCameraPos.xz);
+    bool onPlane = abs(surface.y - planeY) <= u_UnderwaterSurfaceGradient.z;
+    return (overFootprint && onPlane) ? u_UnderwaterSurfaceGradient.xy : vec2(0.0);
 }
 
 // Length of the part of segment [camPos -> worldPos] below the water plane.

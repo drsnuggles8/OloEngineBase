@@ -1991,6 +1991,8 @@ namespace OloEngine
         glm::mat4 InverseViewProjection = glm::mat4(1.0f);
 
         // xy = world rest-height change per X/Z metre. The eye's column anchors the plane.
+        // z = UnderwaterFog::EyeTileSurfaceBand: how far from that plane the eye
+        // tile's drawn surface can lie.
         glm::vec4 SurfaceGradient{ 0.0f };
         // UnderwaterFog::TileFootprintRows of the eye tile: SurfaceGradient
         // applies only to surface pixels that tile drew. Zero rows cover everything.

@@ -441,6 +441,8 @@ the displaced FFT crest within the tile footprint. A nearly vertical grid
 column for buoyancy, spray or the underwater lens.
 The underwater pass slides each captured surface height along the eye tile's
 slope to the eye's column. Only surface the eye tile drew lies on that plane:
-another tile keeps its own captured height (`UnderwaterFog::TileFootprintRows`).
+a captured point counts as the eye tile's when it is over its footprint
+(`UnderwaterFog::TileFootprintRows`) and within its drawn wave band of the
+plane (`EyeTileSurfaceBand`). Another tile keeps its own captured height.
 Take the nearest of the four depth texels there, never a filtered sample, or
 a silhouette under upscaling reconstructs a point past the tile.

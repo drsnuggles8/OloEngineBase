@@ -186,15 +186,43 @@ namespace OloEngine
             return rows;
         }
 
+        // Metres added to a tile's drawn wave height before a captured point
+        // counts as off its plane.
+        inline constexpr f32 kSurfaceBandMargin = 0.25f;
+
+        // How far, measured vertically, the eye tile's drawn surface can lie from
+        // its rest plane: `waveExtent` is the largest displacement along the tile
+        // normal (waves plus wake), and a tilted tile's vertical reach is longer.
+        [[nodiscard]] inline f32 EyeTileSurfaceBand(const glm::mat4& model, f32 waveExtent) noexcept
+        {
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            const f32 extent = std::isfinite(waveExtent) ? std::max(waveExtent, 0.0f) : 0.0f;
+            const f32 band = (extent + kSurfaceBandMargin) / (frame ? frame->Normal.y : 1.0f);
+            return std::isfinite(band) ? band : kSurfaceBandMargin;
+        }
+
+        // What the underwater pass knows of the eye tile's surface.
+        struct EyeTileSurface
+        {
+            TileFootprintRows Rows;
+            glm::vec2 Gradient{ 0.0f }; // world rest-height change per X/Z metre
+            f32 RestYAtEye = 0.0f;      // rest height on the eye's vertical
+            glm::vec2 EyeXZ{ 0.0f };
+            f32 Band = 0.0f; // EyeTileSurfaceBand
+        };
+
         // The slope a captured surface point slides along to the eye's column:
         // the eye tile's own where that tile drew it, none for another tile's.
+        // A point the eye tile drew lies over its footprint AND within its wave
+        // band of its plane; another tile over the same footprint lies off it.
         // MUST match the GLSL `underwaterPixelSurfaceGradient` in PostProcess_ToneMap.glsl.
-        [[nodiscard]] inline glm::vec2 PixelSurfaceGradient(const TileFootprintRows& rows, glm::vec2 eyeTileGradient,
-                                                            const glm::vec3& surface) noexcept
+        [[nodiscard]] inline glm::vec2 PixelSurfaceGradient(const EyeTileSurface& eyeTile, const glm::vec3& surface) noexcept
         {
             const glm::vec4 p(surface, 1.0f);
-            const bool onEyeTile = std::abs(glm::dot(rows.U, p)) <= 1.0f && std::abs(glm::dot(rows.V, p)) <= 1.0f;
-            return onEyeTile ? eyeTileGradient : glm::vec2(0.0f);
+            const bool overFootprint = std::abs(glm::dot(eyeTile.Rows.U, p)) <= 1.0f && std::abs(glm::dot(eyeTile.Rows.V, p)) <= 1.0f;
+            const f32 planeY = eyeTile.RestYAtEye + glm::dot(eyeTile.Gradient, glm::vec2(surface.x, surface.z) - eyeTile.EyeXZ);
+            const bool onPlane = std::abs(surface.y - planeY) <= eyeTile.Band;
+            return overFootprint && onPlane ? eyeTile.Gradient : glm::vec2(0.0f);
         }
 
     } // namespace UnderwaterFog

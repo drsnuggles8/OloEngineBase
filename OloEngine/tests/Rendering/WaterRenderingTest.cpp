@@ -1224,7 +1224,6 @@ TEST(WaterRendering, UnderwaterSurfaceSlopeAppliesOnlyToTheEyeTilesOwnSurface)
     glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 3.0f, -50.0f));
     model = glm::rotate(model, glm::half_pi<f32>(), glm::vec3(0.0f, 1.0f, 0.0f));
     model = glm::rotate(model, glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-    const auto rows = UnderwaterFog::MakeTileFootprintRows(model, 20.0f, 10.0f);
     const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
     ASSERT_TRUE(frame.has_value());
     const glm::vec2 slope(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y);
@@ -1236,20 +1235,35 @@ TEST(WaterRendering, UnderwaterSurfaceSlopeAppliesOnlyToTheEyeTilesOwnSurface)
     };
     const auto same = [](glm::vec2 a, glm::vec2 b)
     { return glm::length(a - b) < 1.0e-6f; };
+    // Waves 0.4 m along the normal: about 0.69 m vertically on this 20 degree tilt.
+    UnderwaterFog::EyeTileSurface eyeTile;
+    eyeTile.Rows = UnderwaterFog::MakeTileFootprintRows(model, 20.0f, 10.0f);
+    eyeTile.Gradient = slope;
+    eyeTile.RestYAtEye = frame->Origin.y;
+    eyeTile.EyeXZ = { frame->Origin.x, frame->Origin.z };
+    eyeTile.Band = UnderwaterFog::EyeTileSurfaceBand(model, 0.4f);
+    EXPECT_NEAR(eyeTile.Band, (0.4f + UnderwaterFog::kSurfaceBandMargin) / frame->Normal.y, 1e-5f);
+    const glm::vec3 up(0.0f, 1.0f, 0.0f);
     const f32 m = UnderwaterFog::kTileFootprintMargin;
-    // On the tile, at its corners plus the wave margin, and at any height.
+    // The eye tile's own surface: at its corners plus the wave margin, and anywhere
+    // in its wave band above or below the rest plane.
     for (const glm::vec2 local : { glm::vec2(0.0f), glm::vec2(10.0f + m, 5.0f + m) * 0.999f, glm::vec2(-10.0f - m, 5.0f + m) * 0.999f })
     {
         const glm::vec3 p = at(local);
-        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, p), slope)) << local.x << ',' << local.y;
-        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, p + glm::vec3(0.0f, 40.0f, 0.0f)), slope));
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p), slope)) << local.x << ',' << local.y;
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p + up * eyeTile.Band * 0.99f), slope));
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p - up * eyeTile.Band * 0.99f), slope));
     }
     // Just past either edge belongs to some other tile, whose own slope is unknown.
     for (const glm::vec2 local : { glm::vec2(10.0f + m, 0.0f) * 1.001f, glm::vec2(0.0f, -5.0f - m) * 1.001f })
-        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(rows, slope, at(local)), glm::vec2(0.0f))) << local.x << ',' << local.y;
-    // No frame (a tile on edge) leaves every pixel on the eye tile's plane.
-    const auto edgeOn = UnderwaterFog::MakeTileFootprintRows(glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(1.0f, 0.0f, 0.0f)), 20.0f, 10.0f);
-    EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(edgeOn, slope, glm::vec3(1.0e4f)), slope));
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, at(local)), glm::vec2(0.0f))) << local.x << ',' << local.y;
+    // Another tile over the same footprint lies off the plane: a level tile 1.5 m
+    // above or below it there, or a surface far overhead, keeps its own height.
+    for (const f32 offset : { 1.5f, -1.5f, 40.0f })
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, at(glm::vec2(6.0f, 2.0f)) + up * offset), glm::vec2(0.0f))) << offset;
+    // A tile on edge has no frame; its band stays finite.
+    EXPECT_NEAR(UnderwaterFog::EyeTileSurfaceBand(glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(1.0f, 0.0f, 0.0f)), 0.4f),
+                0.4f + UnderwaterFog::kSurfaceBandMargin, 1e-5f);
 }
 
 TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)

@@ -16741,6 +16741,9 @@ namespace OloEngine
                 const WaterComponent* fogWater = nullptr;
                 glm::mat4 fogWaterModel(1.0f);
                 bool fogWaterDrawsFFT = false;
+                // The fog tile's largest drawn displacement along its normal, as the
+                // render path bounds it for culling (wake excluded; added below).
+                f32 fogWaterWaveExtent = 0.0f;
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -16815,6 +16818,12 @@ namespace OloEngine
                         fogWater = &water;
                         fogWaterModel = GetWorldTransform(entity);
                         fogWaterDrawsFFT = fftActive;
+                        if (fftActive)
+                            fogWaterWaveExtent = std::max(2.0f * sanitizeParam(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f) *
+                                                              WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale),
+                                                          3.0f);
+                        else
+                            fogWaterWaveExtent = 2.0f * (std::isfinite(water.m_WaveAmplitude) ? std::clamp(water.m_WaveAmplitude, 0.0f, 100.0f) : 0.5f);
                         // Sanitize each colour component before clamping — glm::clamp
                         // passes NaN through, so a bad component would propagate into
                         // the fog UBO and break the tone-map pass. Replace non-finite
@@ -16937,9 +16946,13 @@ namespace OloEngine
                 if (const auto frame = WaterSurface::SurfaceFrame::FromModel(fogWaterModel))
                     uwData.SurfaceGradient = glm::vec4(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y, 0.0f, 0.0f);
                 // The depth capture holds every drawn tile. Only the fog tile's
-                // surface lies on the plane the gradient describes.
+                // surface lies on the plane the gradient describes: over its
+                // footprint and within its wave band of that plane.
                 if (fogWater)
                 {
+                    const WaterWakeSettings& wake = Renderer3D::GetWaterWakeSettings();
+                    const f32 wakeExtent = wake.m_Enabled && std::isfinite(wake.m_HeightScale) ? std::abs(wake.m_HeightScale) : 0.0f;
+                    uwData.SurfaceGradient.z = UnderwaterFog::EyeTileSurfaceBand(fogWaterModel, fogWaterWaveExtent + wakeExtent);
                     const auto rows = UnderwaterFog::MakeTileFootprintRows(fogWaterModel, fogWater->m_WorldSizeX, fogWater->m_WorldSizeZ);
                     uwData.SurfaceTileU = rows.U;
                     uwData.SurfaceTileV = rows.V;

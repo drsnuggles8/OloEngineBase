@@ -1220,10 +1220,12 @@ namespace OloEngine::Tests
 
     // The water depth capture holds every drawn tile, but only the eye tile's
     // surface lies on the slope the underwater pass slides heights along. A
-    // level tile past the downhill edge, five metres below a dry eye, slid up
-    // that slope reads as a crest above the eye and is fogged over. It must keep
-    // its own height and its above-water shading.
-    TEST_P(TiltedFogEvidenceTest, ALevelTileBeyondATiltedEyeTileKeepsItsOwnHeight)
+    // level tile five metres below a dry eye, slid up that slope, reads as a
+    // crest above the eye and is fogged over. Two of them: one past the
+    // downhill edge, and one over the tilted tile's own footprint, 1.4 m above
+    // its plane, so footprint membership alone cannot tell them apart. Both must
+    // keep their own height and their above-water shading.
+    TEST_P(TiltedFogEvidenceTest, LevelTilesBesideAndOverATiltedEyeTileKeepTheirOwnHeight)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         const auto& cell = GetParam();
@@ -1275,6 +1277,23 @@ namespace OloEngine::Tests
         // Slid up the eye tile's slope from z >= 42, this surface would sit
         // 7.4 m or more above where it is drawn: well above the eye.
         ASSERT_GT(std::tan(pitch) * (42.0f - cameraZ) - 5.0f, 2.0f);
+        constexpr f32 overZ = 24.0f;
+        Entity over = GetScene().CreateEntity("Level tile over the slope");
+        over.GetComponent<TransformComponent>().Translation = { eye.x, eye.y - 5.0f, overZ };
+        auto& overWater = over.AddComponent<WaterComponent>();
+        overWater.m_WorldSizeX = overWater.m_WorldSizeZ = 8.0f;
+        overWater.m_WaveAmplitude = 0.0f;
+        overWater.m_WaveSteepness0 = 0.0f;
+        overWater.m_WaveSteepness1 = 0.0f;
+        overWater.m_WakeShapeEnabled = false;
+        overWater.m_WakeFoamEnabled = false;
+        overWater.m_ProjectedGridEnabled = false;
+        overWater.m_TessellationEnabled = false;
+        // Over the 80 m tile (z <= 37.6) and clear of its plane there, yet slid
+        // up the slope to the eye's column it would read above the eye.
+        const f32 planeAtOver = -std::tan(pitch) * overZ;
+        ASSERT_GT(eye.y - 5.0f - planeAtOver, 1.0f);
+        ASSERT_GT(eye.y - 5.0f + std::tan(pitch) * (overZ - cameraZ), eye.y);
 
         EditorCamera camera(60.0f, static_cast<f32>(kCaptureWidth) / kCaptureHeight, 0.05f, 200.0f);
         camera.SetViewportSize(static_cast<f32>(kCaptureWidth), static_cast<f32>(kCaptureHeight));
@@ -1283,6 +1302,7 @@ namespace OloEngine::Tests
 
         std::array<std::vector<u8>, 2> images;
         u32 levelPixels = 0;
+        u32 overPixels = 0;
         u32 sampledPixels = 0;
         for (u32 arm = 0; arm < images.size(); ++arm)
         {
@@ -1290,6 +1310,7 @@ namespace OloEngine::Tests
             // Adding the level tile can move the component pool; look both up.
             m_Ocean.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
             level.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
+            over.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
             RunEditorFrames(camera, 4);
             const auto& state = Renderer3D::GetUnderwaterFogState();
             ASSERT_TRUE(state.Active);
@@ -1319,8 +1340,11 @@ namespace OloEngine::Tests
                         if (!(d < 1.0f))
                             continue;
                         const glm::vec4 h = invVP * glm::vec4((x + 0.5f) * 2.0f / width - 1.0f, (y + 0.5f) * 2.0f / height - 1.0f, d * 2.0f - 1.0f, 1.0f);
-                        if (h.z / h.w > 42.0f)
+                        const glm::vec3 point = glm::vec3(h) / h.w;
+                        if (point.z > 42.0f)
                             ++levelPixels;
+                        else if (std::abs(point.z - overZ) < 3.5f && std::abs(point.y - (eye.y - 5.0f)) < 0.2f)
+                            ++overPixels;
                     }
             }
 
@@ -1344,11 +1368,13 @@ namespace OloEngine::Tests
                 ++changed;
         }
         constexpr u32 pixels = kCaptureWidth * kCaptureHeight;
-        std::cout << "[TiltedFog] LevelTile" << cell.Name << " level tile covers " << levelPixels << '/' << sampledPixels
-                  << " capture samples; fog on vs off changed=" << changed << '/' << pixels << " max=" << largest << "/255\n";
-        // Measured 4.6% of the capture samples, at native and upscaled resolution.
+        std::cout << "[TiltedFog] LevelTile" << cell.Name << " beyond tile covers " << levelPixels << ", over tile "
+                  << overPixels << " of " << sampledPixels << " capture samples; fog on vs off changed=" << changed << '/'
+                  << pixels << " max=" << largest << "/255\n";
+        // The beyond tile measured 4.6% of the capture samples, native and upscaled.
         EXPECT_GT(levelPixels, sampledPixels / 40) << "the level tile must fill part of the frame";
-        EXPECT_LT(changed, pixels / 500) << "a dry eye must leave the level tile's above-water shading alone";
+        EXPECT_GT(overPixels, sampledPixels / 200) << "the tile over the slope must fill part of the frame";
+        EXPECT_LT(changed, pixels / 500) << "a dry eye must leave the level tiles' above-water shading alone";
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, TiltedFogEvidenceTest, ::testing::ValuesIn(PlainGridCells()),
