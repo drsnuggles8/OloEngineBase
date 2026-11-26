@@ -119,7 +119,20 @@ tiles wink in/out. (For the single-tile path `WorldOrigin == 0`, so `tileModel =
 transform and the frustum is unchanged.) Streamed terrain has no Jolt collision bodies yet (per-tile
 collision is an open follow-up), so there's no physics side to keep in agreement.
 
-## Guards
+## 5. Recorded terrain collision placements — shift them with the bodies
+
+`Scene::m_TerrainCollisionFrames` records, per terrain, the world model its static body (or its
+streamed tile bodies) was placed with at the last physics sync. Rendering between fixed ticks blends
+authored transforms toward the next pose, so a render-time rebuild (`m_NeedsRebuild`, a brush) or a
+streamed-tile reconcile does not read the live transform: `TerrainCollisionFrameForRender` hands it the
+recorded simulation pose instead.
+
+`JoltScene::ShiftOrigin` moves the bodies but knew nothing of those records. After a rebase, the next
+interpolated rebuild placed the new height field at the pre-rebase coordinates, `|shift|` away from
+the terrain on screen, and raycasts missed it until the next physics sync replaced the record.
+`RebaseOrigin` now adds `shift` to each record's model translation; its rotation and baked shape
+basis do not change under a uniform translation (rule 1).
+
 
 - `OloEngine/tests/Functional/Scene/WorldOriginRebasePhysicsTest.cpp` — cloth (rigid vertex shift +
   no CPU-cache pop), world-anchored Fixed joint (applies, anchor follows, body not yanked), pulley

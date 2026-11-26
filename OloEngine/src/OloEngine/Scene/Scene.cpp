@@ -4410,6 +4410,11 @@ namespace OloEngine
         {
             m_JoltScene->ShiftOrigin(shift);
         }
+        // Recorded terrain placements describe those bodies. An interpolated
+        // render rebuild or tile reconcile reads them before the next physics
+        // sync, so they move with the bodies. Rotation and shape basis are unchanged.
+        for (auto& [entity, frame] : m_TerrainCollisionFrames)
+            frame.Model[3] += glm::vec4(shift, 0.0f);
 
         // 3. Shift 2D (Box2D) bodies in the xy plane (2D bodies are authored from
         //    Translation.xy — see SceneStreamer::InitializeStreamedEntities).
@@ -9026,7 +9031,15 @@ namespace OloEngine
                 continue;
             const auto frame = CaptureTerrainCollisionFrame(entity, terrain.m_StreamingEnabled);
             if (frame.Streamed)
-                m_TerrainCollisionFrames[entity] = frame;
+            {
+                // Tiles already resident from edit mode need bodies before the
+                // first step: the per-step sync skips an unchanged placement, and
+                // otherwise only the next render would reconcile them.
+                TArray<Ref<TerrainTile>> ready;
+                if (terrain.m_Streamer)
+                    terrain.m_Streamer->GetReadyTiles(ready);
+                SyncStreamingTerrainCollision(ent, terrain, ready, frame);
+            }
             else
                 RebuildTerrainCollision(ent, terrain, frame);
         }
