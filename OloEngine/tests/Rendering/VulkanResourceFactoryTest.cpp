@@ -204,6 +204,45 @@ TEST_F(VulkanResourceFactory, FactoriesProduceLiveVulkanObjects)
     EXPECT_EQ(vaoEntry->Kind, VulkanRootObjectKind::VertexArray);
 }
 
+TEST_F(VulkanResourceFactory, CubemapMipGenerationPreservesFacesUploadedInTheRecording)
+{
+    ScopedVulkanRenderCommand renderCommand;
+    CubemapSpecification spec;
+    spec.Width = 4u;
+    spec.Height = 4u;
+    spec.Format = ImageFormat::RGBA32F;
+    spec.GenerateMips = true;
+    auto cube = TextureCubemap::Create(spec);
+    ASSERT_TRUE(cube && cube->IsLoaded());
+    ASSERT_EQ(cube->GetMipLevelCount(), 3u);
+
+    bool uploaded = true;
+    ASSERT_TRUE(VulkanOneShot::Submit("cubemap mixed-layout regression", [&](VkCommandBuffer cmd)
+                                      {
+                                         auto& api = renderCommand.Get();
+                                         [[maybe_unused]] const auto recording = api.BeginRecording(cmd);
+                                         std::array<f32, 4u * 4u * 4u> pixels;
+                                         for (u32 face = 0; face < 6u; ++face)
+                                         {
+                                             pixels.fill(static_cast<f32>(face + 1u));
+                                             uploaded &= cube->SetFaceDataMip(face, 0u, pixels.data(), sizeof(pixels));
+                                         }
+                                         cube->GenerateMipmaps();
+                                         api.EndRecording(); }));
+    ASSERT_TRUE(uploaded);
+
+    TArray64<u8> smallestMip;
+    ASSERT_TRUE(cube->GetData(smallestMip, 2u));
+    ASSERT_EQ(smallestMip.Num(), 6u * 4u * sizeof(f32));
+    for (u32 face = 0; face < 6u; ++face)
+    {
+        std::array<f32, 4> texel{};
+        std::memcpy(texel.data(), smallestMip.GetData() + face * sizeof(texel), sizeof(texel));
+        for (const f32 channel : texel)
+            EXPECT_FLOAT_EQ(channel, static_cast<f32>(face + 1u));
+    }
+}
+
 TEST_F(VulkanResourceFactory, UniformBufferAddressFollowsWritesAndFrames)
 {
     ScopedVulkanApiSelection vulkanApi;
