@@ -579,6 +579,44 @@ namespace OloEngine::Tests
         Entity m_Terrain;
     };
 
+    TEST_P(TerrainLayerTextureEvidence, InterpolatedRenderRebuildUsesTheSimulationTerrainPose)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_FALSE(HasFatalFailure());
+        auto& terrain = m_Terrain.GetComponent<TerrainComponent>();
+        terrain.m_CollisionEnabled = true;
+        Entity carrier = GetScene().CreateEntity("Moving terrain carrier");
+        carrier.AddComponent<SphereCollider3DComponent>();
+        auto& body = carrier.AddComponent<Rigidbody3DComponent>();
+        body.m_Type = BodyType3D::Dynamic;
+        body.m_DisableGravity = true;
+        body.m_IsTrigger = true;
+        body.m_InitialLinearVelocity = { 0, 60, 0 };
+        m_Terrain.SetParent(carrier);
+        GetScene().OnPhysics3DStart();
+        LookAtThePlain();
+        constexpr f32 dt = 1.0f / 60.0f;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(dt, dt); });
+        RayCastInfo ray;
+        ray.m_Origin = { 20, 80, 32 };
+        ray.m_Direction = { 0, -1, 0 };
+        ray.m_MaxDistance = 100;
+        SceneQueryHit before, after;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, before));
+        ASSERT_EQ(before.m_HitEntity, m_Terrain.GetUUID());
+        // No new tick. Rebuild while RenderRuntime temporarily applies the
+        // halfway pose, then inspect the native surface after ECS restoration.
+        terrain.m_NeedsRebuild = true;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.5f * dt, dt); });
+        ASSERT_NEAR(GetScene().GetRenderInterpolationAlpha(), 0.5f, 1.0e-4f);
+        ASSERT_GT(std::abs(GetScene().GetInterpolatedLocalTransform(carrier)[3].y - carrier.GetComponent<TransformComponent>().Translation.y), 0.1f);
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, after));
+        ASSERT_EQ(after.m_HitEntity, m_Terrain.GetUUID());
+        EXPECT_NEAR(after.m_Position.y, before.m_Position.y, 0.01f);
+    }
+
     TEST_P(TerrainLayerTextureEvidence, StreamedTileAndShoreDepthFollowTheCarrier)
     {
         OLO_ENSURE_GPU_OR_SKIP();

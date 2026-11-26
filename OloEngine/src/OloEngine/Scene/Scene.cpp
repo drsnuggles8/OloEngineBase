@@ -9101,6 +9101,17 @@ namespace OloEngine
         return { model, glm::transpose(glm::mat3_cast(rotation)) * glm::mat3(model), rotation, streamed };
     }
 
+    std::optional<Scene::TerrainCollisionPlacement> Scene::TerrainCollisionFrameForRender(entt::entity entity, bool streamed) const
+    {
+        // Rendering temporarily blends authored transforms. A new height field
+        // can be installed there, but its static body belongs at the simulation pose.
+        if (!ShouldInterpolateThisFrame())
+            return CaptureTerrainCollisionFrame(entity, streamed);
+        if (const auto it = m_TerrainCollisionFrames.find(entity); it != m_TerrainCollisionFrames.end() && it->second.Streamed == streamed)
+            return it->second;
+        return std::nullopt; // first physics tick will place a newly enabled terrain
+    }
+
     void Scene::RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame)
     {
         BuildTerrainCollisionBody(*m_JoltScene, entity, terrain, frame.ShapeBasis, glm::vec3(frame.Model[3]), frame.Rotation);
@@ -14512,7 +14523,8 @@ namespace OloEngine
                         {
                             Entity terrainEnt = { entity, this };
                             if (terrain.m_CollisionEnabled)
-                                RebuildTerrainCollision(terrainEnt, terrain, CaptureTerrainCollisionFrame(entity, false));
+                                if (const auto frame = TerrainCollisionFrameForRender(entity, false))
+                                    RebuildTerrainCollision(terrainEnt, terrain, *frame);
                         }
                     }
 
@@ -15004,8 +15016,8 @@ namespace OloEngine
                         Entity terrainEnt = { entity, this };
                         if (terrain.m_CollisionEnabled)
                         {
-                            const auto frame = CaptureTerrainCollisionFrame(entity, true);
-                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles, frame.Model, frame.Rotation);
+                            if (const auto frame = TerrainCollisionFrameForRender(entity, true))
+                                ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles, frame->Model, frame->Rotation);
                         }
                         else
                             m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());

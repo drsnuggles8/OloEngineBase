@@ -1769,6 +1769,7 @@ namespace OloEngine
         std::unordered_map<entt::entity, TerrainCollisionPlacement> m_TerrainCollisionFrames;
         std::unordered_map<entt::entity, u32> m_TerrainCollisionRetryTicks;
         TerrainCollisionPlacement CaptureTerrainCollisionFrame(entt::entity entity, bool streamed) const;
+        std::optional<TerrainCollisionPlacement> TerrainCollisionFrameForRender(entt::entity entity, bool streamed) const;
         void RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame);
         void SyncTerrainCollisionFrames();
         std::unordered_set<entt::entity> m_RejectedPhysicsWritebacks;
