@@ -1142,6 +1142,19 @@ vec3 closureV2CosineSampleHemisphere(vec2 Xi, vec3 N)
     return normalize(tangent * x + bitangent * y + N * z);
 }
 
+// Conditional density of the visible-normal specular draw, shared with the
+// replay chart. Directions here already passed the positive NdotL check.
+float closureV2SpecularPdf(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = dot(N, V);
+    if (NdotV <= 0.0)
+        return 0.0;
+    float r = closureV2Roughness(roughness);
+    float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, r * r));
+    return G1V * distributionGGXUnclampedNH(N, normalize(V + L), r) / (4.0 * NdotV);
+}
+
+
 // v2 Pdf: the density of closureV2SampleBRDF below, and nothing else. The
 // specular term is the VNDF density through the reflection Jacobian,
 //     pdf(L) = G1(NdotV) * D(NdotH) / (4 * NdotV),
@@ -1153,20 +1166,9 @@ float closureV2Pdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float ro
     if (NdotL <= 0.0)
         return 0.0;
 
-    float r = closureV2Roughness(roughness);
-    float alpha = r * r;
     float pSpecular = closureV2SpecularProbability(albedo, metallic);
     float pdfDiffuse = NdotL * INV_PI;
-
-    float pdfSpecular = 0.0;
-    float NdotV = dot(N, V);
-    if (NdotV > 0.0)
-    {
-        vec3 H = normalize(V + L);
-        float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, alpha));
-        pdfSpecular = G1V * distributionGGXUnclampedNH(N, H, r) / (4.0 * NdotV);
-    }
-
+    float pdfSpecular = closureV2SpecularPdf(N, V, L, roughness);
     return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
 }
 

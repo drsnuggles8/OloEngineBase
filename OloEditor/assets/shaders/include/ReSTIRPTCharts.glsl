@@ -46,11 +46,7 @@ float PTChartDensity(PTVertex v, vec3 l)
         return 0.0;
     float conditional = dot(n, l) * INV_PI;
     if (v.Randoms.w > 0.5)
-    {
-        vec3 h = normalize(view + l);
-        float r = closureV2Roughness(v.PositionRoughness.w);
-        conditional = distributionGGXUnclampedNH(n, h, r) / (4.0 * dot(n, view) * (1.0 + ggxSmithLambda(dot(n, view), r * r)));
-    }
+        conditional = closureV2SpecularPdf(n, view, l, v.PositionRoughness.w);
     float c = PTBranchMass(v) * conditional;
     return PTFinite(c) && c > 0.0 ? c : 0.0;
 }
