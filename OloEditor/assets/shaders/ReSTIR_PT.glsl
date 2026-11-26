@@ -74,9 +74,6 @@ layout(binding = 11) uniform samplerCube u_EnvironmentCube;
 #define OLO_RT_HIT_SAMPLER_HEAP u_MaterialTable.w
 #define OLO_RT_HIT_TEXTURES_REQUESTED ((u_EmissiveTable.w & OLO_RESTIR_PT_FLAG_TEXTURES) != 0u)
 #include "include/RayTracedSurfaceHit.glsl"
-#define PtHit OloRtHit
-
-#include "include/PathTracerBSDF.glsl"
 #include "include/GBufferRaySurface.glsl"
 #include "include/ReSTIRPTCharts.glsl"
 #include "include/ReSTIRPTTransport.glsl"

@@ -21,22 +21,15 @@ bool PTBranchValid(PTVertex v)
     return PTOpen(v.Randoms.x) && PTOpen(v.Randoms.y) && PTOpen(v.Randoms.z) &&
            ((v.Randoms.x < PTProbability(v)) == (v.Randoms.w > 0.5)) && PTOpen(PTResidual(v));
 }
-OloRtHit PTHitFromVertex(PTVertex v)
-{
-    OloRtHit h;
-    h.Albedo = v.Albedo.rgb;
-    h.Metallic = v.GeometricNormalMetallic.w;
-    h.Roughness = v.PositionRoughness.w;
-
-    return h;
-}
 vec3 PTEvaluate(PTVertex v, vec3 l)
 {
-    return PtEvaluateBRDF(PTHitFromVertex(v), v.ShadingNormal.xyz, v.Incoming.xyz, l);
+    return closureV2Evaluate(v.ShadingNormal.xyz, v.Incoming.xyz, l,
+                             v.Albedo.rgb, v.GeometricNormalMetallic.w, v.PositionRoughness.w);
 }
 float PTMixture(PTVertex v, vec3 l)
 {
-    return PtBsdfPdf(PTHitFromVertex(v), v.ShadingNormal.xyz, v.Incoming.xyz, l);
+    return closureV2Pdf(v.ShadingNormal.xyz, v.Incoming.xyz, l,
+                        v.Albedo.rgb, v.GeometricNormalMetallic.w, v.PositionRoughness.w);
 }
 float PTChartDensity(PTVertex v, vec3 l)
 {
@@ -55,7 +48,9 @@ bool PTForward(PTVertex v, out vec3 l)
     l = vec3(0);
     if (!PTBranchValid(v) || dot(v.ShadingNormal.xyz, v.Incoming.xyz) <= 0.0)
         return false;
-    ClosureV2Sample s = PtSampleBRDF(PTHitFromVertex(v), v.ShadingNormal.xyz, v.Incoming.xyz, v.Randoms.x, v.Randoms.yz);
+    ClosureV2Sample s = closureV2SampleBRDF(v.ShadingNormal.xyz, v.Incoming.xyz, v.Albedo.rgb,
+                                          v.GeometricNormalMetallic.w, v.PositionRoughness.w,
+                                          v.Randoms.x, v.Randoms.yz);
     // Match the oracle's shading-normal hemisphere. Reconnection applies its
     // stronger geometric-front-side domain separately; imposing it on fresh
     // sampling would discard the oracle's normal-mapped transport.
