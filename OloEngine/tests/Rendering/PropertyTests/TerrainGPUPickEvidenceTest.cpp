@@ -17,8 +17,8 @@
 //     — and must lie ON the surface. This is the assertion that does not care
 //     whether the CPU raycast is right, only whether the answer is a point of
 //     the terrain.
-//   * THE CPU PATH. The shipped `EditorLayer::TerrainRaycastCPU` algorithm is
-//     transcribed below and compared against, within one heightmap texel, which
+//   * THE CPU PATH. The shipped `EditorLayer::TerrainRaycastCPU` picker is
+//     compared directly against the GPU, within one heightmap texel, which
 //     is the issue's acceptance criterion in its own words.
 //   * THE RING'S LATENCY. `Latency > 0` proves the answer came back through the
 //     fenced ring at least one frame after the dispatch that produced it. A
@@ -71,62 +71,6 @@ namespace OloEngine::Tests
         // One heightmap texel in world units — the tolerance the issue names.
         constexpr f32 kTexelWorld = kWorldSize / static_cast<f32>(kHeightmapResolution - 1);
 
-        // `EditorLayer::TerrainRaycastCPU`, transcribed: a 1-unit march looking
-        // for the first above->below crossing, then 8 bisection steps. Kept
-        // line-for-line with the shipped path rather than "improved", because
-        // what is being measured is agreement WITH IT, not with a better march.
-        //
-        // The terrain here sits at the origin with an identity transform, so the
-        // world/terrain-local distinction the real path handles collapses.
-        bool CpuTerrainRaycast(const TerrainData& data, const glm::vec3& origin, const glm::vec3& dir,
-                               glm::vec3& outHit)
-        {
-            constexpr f32 stepSize = 1.0f;
-            constexpr f32 maxDist = 2000.0f;
-            constexpr i32 refinementSteps = 8;
-
-            auto heightAt = [&data](const glm::vec3& p)
-            {
-                const f32 nx = std::clamp(p.x / kWorldSize, 0.0f, 1.0f);
-                const f32 nz = std::clamp(p.z / kWorldSize, 0.0f, 1.0f);
-                return data.GetHeightAt(nx, nz) * kHeightScale;
-            };
-
-            bool wasAbove = true;
-            for (f32 t = 0.0f; t < maxDist; t += stepSize)
-            {
-                const glm::vec3 p = origin + dir * t;
-                const f32 normX = p.x / kWorldSize;
-                const f32 normZ = p.z / kWorldSize;
-                if (normX < 0.0f || normX > 1.0f || normZ < 0.0f || normZ > 1.0f)
-                {
-                    continue;
-                }
-
-                const bool isAbove = p.y > heightAt(p);
-                if (!isAbove && wasAbove)
-                {
-                    f32 lo = t - stepSize;
-                    f32 hi = t;
-                    for (i32 i = 0; i < refinementSteps; ++i)
-                    {
-                        const f32 mid = (lo + hi) * 0.5f;
-                        if (const glm::vec3 mp = origin + dir * mid; mp.y > heightAt(mp))
-                        {
-                            lo = mid;
-                        }
-                        else
-                        {
-                            hi = mid;
-                        }
-                    }
-                    outHit = origin + dir * ((lo + hi) * 0.5f);
-                    return true;
-                }
-                wasAbove = isAbove;
-            }
-            return false;
-        }
     } // namespace
 
     class TerrainGPUPickEvidenceTest : public RendererAttachedTest
@@ -251,7 +195,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(terrain.m_TerrainData);
         ASSERT_EQ(terrain.m_TerrainData->GetResolution(), kHeightmapResolution);
 
-        // Four rays fired at different parts of the terrain from different
+        // Rays fired at different parts of the terrain from different
         // heights and angles, all steep enough that the CPU reference's 1-unit
         // march cannot tunnel through a ridge — the comparison is against that
         // march, so a case where IT is wrong would measure nothing useful.
@@ -260,15 +204,17 @@ namespace OloEngine::Tests
             { glm::vec3(200.0f, 500.0f, 300.0f), glm::normalize(glm::vec3(0.25f, -1.0f, 0.15f)) },
             { glm::vec3(800.0f, 450.0f, 700.0f), glm::normalize(glm::vec3(-0.2f, -1.0f, -0.3f)) },
             { glm::vec3(120.0f, 700.0f, 880.0f), glm::normalize(glm::vec3(0.35f, -1.0f, -0.35f)) },
+            // A downward world ray under a Y-reflected carrier points UP locally.
+            { glm::vec3(512.0f, -20.0f, 512.0f), glm::vec3(0.0f, 1.0f, 0.0f) },
         };
 
         u32 rayId = 0;
         u32 comparedRays = 0;
         for (const auto& [origin, direction] : rays)
         {
-            glm::vec3 cpuHit{ 0.0f };
-            ASSERT_TRUE(CpuTerrainRaycast(*terrain.m_TerrainData, origin, direction, cpuHit))
-                << "the CPU reference found no hit for a ray aimed straight at the terrain";
+            const auto cpuT = terrain.m_TerrainData->PickRay(origin, direction, glm::vec2(kWorldSize), kHeightScale, 2000.0f);
+            ASSERT_TRUE(cpuT.has_value()) << "the CPU picker missed a ray aimed at the terrain";
+            const glm::vec3 cpuHit = origin + *cpuT * direction;
 
             TerrainGPUPicker::RayRequest request;
             request.OriginLocal = origin;

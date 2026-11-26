@@ -7,7 +7,7 @@
 // (TerrainRayNodeSelect.comp) has already reduced the whole terrain to the
 // handful of finest-level nodes the ray actually passes through; this kernel
 // clips the ray to each of those boxes, splits that segment 64 ways, and marches
-// its share against the heightmap looking for the first above->below crossing.
+// its share against the heightmap looking for the first crossing.
 //
 // WHY atomicMin IS THE WHOLE ORDERING STORY. Every lane of every work group
 // publishes its crossing as atomicMin(HitTBits, floatBitsToUint(t)). For t >= 0
@@ -17,12 +17,8 @@
 // a candidate the descent included spuriously (the inflated bounds do that on
 // purpose) simply never wins the min.
 //
-// ABOVE->BELOW ONLY, matching EditorLayer::TerrainRaycast: a lane reports a
-// crossing only where the ray goes from above the surface to on/below it, so a
-// ray that starts underground finds nothing, exactly as the CPU path does. A
-// lane does not know what happened before its own sub-segment, and does not need
-// to: a crossing at a lane boundary is inside the NEXT lane's window, and a
-// crossing at a candidate boundary is inside the next candidate's inflated box.
+// A reflected or tilted terrain can present either face. Each lane brackets
+// its own signed gaps, as TerrainData::PickRay does for the CPU path.
 //
 // No barrier() and no shared memory: the lanes are independent and everything
 // they publish goes through one global atomic. That is what makes the early
@@ -197,11 +193,21 @@ void main()
 
     float prevT = laneStart;
     float prevGap = oloTerrainPickGap(prevT);
+    if (abs(prevGap) <= 1e-6)
+    {
+        atomicMin(b_Pick.HitTBits, floatBitsToUint(prevT));
+        return;
+    }
     for (int i = 1; i <= steps; ++i)
     {
         float t = (i == steps) ? laneEnd : (laneStart + dt * float(i));
         float gap = oloTerrainPickGap(t);
-        if (prevGap > 0.0 && gap <= 0.0)
+        if (abs(gap) <= 1e-6)
+        {
+            atomicMin(b_Pick.HitTBits, floatBitsToUint(t));
+            return;
+        }
+        if ((prevGap > 0.0) != (gap > 0.0))
         {
             // Bracketed. Bisect on the sign of the gap — the same refinement
             // EditorLayer::TerrainRaycast does, with more iterations because
@@ -211,7 +217,7 @@ void main()
             for (int r = 0; r < kRefineSteps; ++r)
             {
                 float mid = (lo + hi) * 0.5;
-                if (oloTerrainPickGap(mid) > 0.0)
+                if ((oloTerrainPickGap(mid) > 0.0) == (prevGap > 0.0))
                     lo = mid;
                 else
                     hi = mid;

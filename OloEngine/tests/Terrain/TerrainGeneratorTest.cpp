@@ -42,6 +42,24 @@
 
 using namespace OloEngine;
 
+TEST(TerrainBrushFootprint, ReflectedTerrainPicksItsUndersideAndNeverRefinesBehindTheRay)
+{
+    TArray<f32> flat;
+    flat.Init(0.0f, 4);
+    auto data = TerrainData::FromCPUHeights(2, std::move(flat));
+    for (const f32 side : { 1.0f, -1.0f })
+    {
+        const glm::vec3 origin(50, side * 10.25f, 50), toward(0, -side, 0);
+        const auto hit = data->PickRay(origin, toward, { 100, 100 }, 1, 100.0f);
+        ASSERT_TRUE(hit);
+        EXPECT_NEAR(*hit, 10.25f, 0.003f);
+        EXPECT_FALSE(data->PickRay(origin, -toward, { 100, 100 }, 1, 100.0f));
+        EXPECT_FALSE(data->PickRay(origin, toward, { 100, 100 }, 1, 10.0f));
+    }
+    // Entering the tile below its height is not a crossing at its side wall.
+    EXPECT_FALSE(data->PickRay({ -0.5f, -2, 20 }, { 1, 0, 0 }, { 100, 100 }, 1, 50.0f));
+}
+
 TEST(TerrainBrushFootprint, TenWorldMetresOnADoubledXAxisCoversFiveLocalMetres)
 {
     constexpr u32 res = 65;

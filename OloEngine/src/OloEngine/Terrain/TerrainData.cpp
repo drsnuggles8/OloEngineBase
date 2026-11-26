@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Particle/SimplexNoise.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
@@ -254,6 +255,63 @@ namespace OloEngine
     {
         SyncFromGPU();
         return SampleHeight(m_Heights, m_Resolution, normalizedX, normalizedZ);
+    }
+
+    std::optional<f32> TerrainData::PickRay(glm::vec3 origin, glm::vec3 direction,
+                                            glm::vec2 tileSize, f32 heightScale, f32 maxDistance) const
+    {
+        if (!Math::IsFinite(origin) || !Math::IsFinite(direction) || !std::isfinite(tileSize.x) || !std::isfinite(tileSize.y) ||
+            !(tileSize.x > 0.0f && tileSize.y > 0.0f) || !std::isfinite(heightScale) ||
+            !std::isfinite(maxDistance) || maxDistance < 0.0f || m_Resolution == 0u)
+            return std::nullopt;
+
+        // Clip to the tile footprint first, including fractional entry and exit
+        // distances. A clamped height sampled outside the tile cannot bracket a hit.
+        f32 start = 0.0f, end = maxDistance;
+        const auto clip = [&](f32 o, f32 d, f32 extent)
+        {
+            if (std::fpclassify(d) == FP_ZERO)
+                return o >= 0.0f && o <= extent;
+            const f32 a = -o / d, b = (extent - o) / d;
+            start = std::max(start, std::min(a, b));
+            end = std::min(end, std::max(a, b));
+            return start <= end;
+        };
+        if (!clip(origin.x, direction.x, tileSize.x) || !clip(origin.z, direction.z, tileSize.y))
+            return std::nullopt;
+        const auto gapAt = [&](f32 t)
+        {
+            const glm::vec3 p = origin + t * direction;
+            return p.y - heightScale * GetHeightAt(p.x / tileSize.x, p.z / tileSize.y);
+        };
+        f32 previousGap = gapAt(start);
+        if (std::abs(previousGap) <= 1.0e-6f)
+            return start;
+        while (start < end)
+        {
+            const f32 next = std::min(start + 1.0f, end);
+            if (!(next > start))
+                break;
+            const f32 gap = gapAt(next);
+            if (std::abs(gap) <= 1.0e-6f)
+                return next;
+            if (std::signbit(gap) != std::signbit(previousGap))
+            {
+                f32 lo = start, hi = next;
+                for (int i = 0; i < 8; ++i)
+                {
+                    const f32 mid = (lo + hi) * 0.5f;
+                    if (std::signbit(gapAt(mid)) == std::signbit(previousGap))
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+                return (lo + hi) * 0.5f;
+            }
+            start = next;
+            previousGap = gap;
+        }
+        return std::nullopt;
     }
 
     glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const

@@ -5916,73 +5916,12 @@ namespace OloEngine
         const glm::mat4 inverse = glm::inverse(terrainWorld);
         const glm::vec3 rayOrigin(inverse * glm::vec4(mouseRay.Origin, 1.0f));
         const glm::vec3 rayDir(inverse * glm::vec4(mouseRay.Direction, 0.0f));
-        if (!Math::IsFinite(rayOrigin) || !Math::IsFinite(rayDir))
+        const auto distance = tc.m_TerrainData->PickRay(rayOrigin, rayDir, { tc.m_WorldSizeX, tc.m_WorldSizeZ },
+                                                        tc.m_HeightScale, 2000.0f);
+        if (!distance)
             return false;
-
-        // Step along ray to find heightmap intersection
-        f32 worldSizeX = tc.m_WorldSizeX;
-        f32 worldSizeZ = tc.m_WorldSizeZ;
-        f32 heightScale = tc.m_HeightScale;
-
-        if (worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
-        {
-            return false;
-        }
-
-        // Coarse march along ray (step size = 1 world unit)
-        constexpr f32 stepSize = 1.0f;
-        constexpr f32 maxDist = 2000.0f;
-        constexpr i32 refinementSteps = 8;
-
-        f32 t = 0.0f;
-        bool wasAbove = true;
-        for (; t < maxDist; t += stepSize)
-        {
-            glm::vec3 p = rayOrigin + rayDir * t;
-
-            // Convert world position to terrain normalized coords [0,1]
-            f32 normX = p.x / worldSizeX;
-            f32 normZ = p.z / worldSizeZ;
-
-            // Outside terrain bounds
-            if (normX < 0.0f || normX > 1.0f || normZ < 0.0f || normZ > 1.0f)
-            {
-                continue;
-            }
-
-            f32 terrainHeight = tc.m_TerrainData->GetHeightAt(normX, normZ) * heightScale;
-            bool isAbove = p.y > terrainHeight;
-
-            if (!isAbove && wasAbove)
-            {
-                // Binary search refinement between t-stepSize and t
-                f32 lo = t - stepSize;
-                f32 hi = t;
-                for (int i = 0; i < refinementSteps; ++i)
-                {
-                    f32 mid = (lo + hi) * 0.5f;
-                    glm::vec3 mp = rayOrigin + rayDir * mid;
-                    f32 mnx = mp.x / worldSizeX;
-                    f32 mnz = mp.z / worldSizeZ;
-                    mnx = glm::clamp(mnx, 0.0f, 1.0f);
-                    mnz = glm::clamp(mnz, 0.0f, 1.0f);
-                    f32 th = tc.m_TerrainData->GetHeightAt(mnx, mnz) * heightScale;
-                    if (mp.y > th)
-                    {
-                        lo = mid;
-                    }
-                    else
-                    {
-                        hi = mid;
-                    }
-                }
-                glm::vec3 hitP = rayOrigin + rayDir * ((lo + hi) * 0.5f);
-                outHitPos = glm::vec3(terrainWorld * glm::vec4(hitP, 1.0f));
-                return true;
-            }
-            wasAbove = isAbove;
-        }
-        return false;
+        outHitPos = mouseRay.At(*distance);
+        return true;
     }
 
     void EditorLayer::OnScenePause()
