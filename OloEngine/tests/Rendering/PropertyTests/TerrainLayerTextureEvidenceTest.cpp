@@ -680,6 +680,9 @@ namespace OloEngine::Tests
                 TestScene.OnPhysics3DStop();
             }
         } const stopPhysics{ GetScene() };
+        // A live LOD setting must reach an already-resident tile, including
+        // the OLO_TERRAIN_CPU_LOD process which never consumes the GPU uniform.
+        terrain.m_TargetTriangleSize = 17.0f;
         const auto checkShore = [&](glm::vec3 location)
         {
             const auto ground = SampleTerrainGroundHeight(GetScene(), location.x, location.z);
@@ -698,6 +701,12 @@ namespace OloEngine::Tests
             EXPECT_NEAR(hit.m_Position.y, location.y, 0.05f);
         };
         RunFrames(3, 0.0f);
+        if (!TerrainChunkManager::IsGpuDrivenLODEnabled())
+        {
+            const auto resident = terrain.m_Streamer->GetTile(1, -1);
+            ASSERT_TRUE(resident);
+            EXPECT_FLOAT_EQ(resident->GetChunkManager()->GetQuadtree().GetConfig().TargetTriangleSize, 17.0f);
+        }
         ASSERT_NO_FATAL_FAILURE(checkShore(target));
         ASSERT_NO_FATAL_FAILURE(checkShore(plateau));
         m_Terrain.SetParent({});

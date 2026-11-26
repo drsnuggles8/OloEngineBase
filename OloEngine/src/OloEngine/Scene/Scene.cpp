@@ -15247,6 +15247,7 @@ namespace OloEngine
                             }
                             else if (useTess)
                             {
+                                chunkMgr.GetQuadtree().GetConfig().TargetTriangleSize = targetTrianglePixels;
                                 chunkMgr.SelectVisibleChunks(tileCull.ViewFrustum, tileCull.CameraPos,
                                                              tileCull.ViewProjection, viewportHeight);
                                 const auto& selectedChunks = chunkMgr.GetSelectedChunks();
