@@ -474,6 +474,22 @@ TEST_F(PlanarColliderPlacementTest, BoxStartingOnCollapsedCarrierGainsItsShapeOn
     EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, b2Body_GetPosition(native).y, 1.0e-5f);
 }
 
+TEST_F(PlanarColliderPlacementTest, OffsetBoxRecoversWhenItsCornersBecomeDistinct)
+{
+    Entity child = GetScene().CreateEntity("Offset box");
+    auto& collider = child.AddComponent<BoxCollider2DComponent>();
+    collider.Size = { 0.001f, 1.0f };
+    collider.Offset.x = 100000.0f;
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    collider.Offset.x = 1.0f;
+    RunFrames(1);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 1);
+}
+
 TEST_F(PlanarColliderPlacementTest, BoxAndCircleCentersFollowScaleAndMirrorWithZeroZ)
 {
     Entity rig = GetScene().CreateEntity("Planar Mirrored Rig");

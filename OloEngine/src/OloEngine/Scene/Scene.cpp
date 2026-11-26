@@ -8495,8 +8495,16 @@ namespace OloEngine
                 4.0 * half.x * half.y > std::numeric_limits<f32>::epsilon())
             {
                 const b2Polygon polygon = b2MakeOffsetBox(half.x, half.y, { offset.x, offset.y }, b2MakeRot(0.0f));
-                b2CreatePolygonShape(body, &shapeDef, &polygon);
-                pending.Box = false;
+                // Adding a large collider offset can round the two sides to
+                // the same float even when the unoffset half-extents fit.
+                const b2Vec2 sideX = b2Sub(polygon.vertices[1], polygon.vertices[0]);
+                const b2Vec2 sideY = b2Sub(polygon.vertices[3], polygon.vertices[0]);
+                const f32 area = b2Cross(sideX, sideY);
+                if (std::isfinite(area) && area > std::numeric_limits<f32>::epsilon())
+                {
+                    b2CreatePolygonShape(body, &shapeDef, &polygon);
+                    pending.Box = false;
+                }
             }
         }
 
