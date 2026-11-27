@@ -3039,13 +3039,12 @@ namespace OloEngine::Tests
             if (control)
             {
                 // Both arms draw the same strands with the same random
-                // numbers, so their noise cancels in the ratio; the four
-                // errors added in quadrature overstate it. The control is held
-                // to its bar or twice that estimate, and the estimate itself
-                // must stay small.
+                // numbers, so their noise cancels in the ratio and the four
+                // errors added in quadrature overstate it: the control is held
+                // to its bar whatever that estimate reads, and the estimate
+                // itself must stay under the bar.
                 EXPECT_LT(c.Error, kControlTolerance) << "the control did not converge";
-                EXPECT_NEAR(c.Shadow, 1.0, std::max(kControlTolerance, 2.0 * c.Error))
-                    << "two identical frames measured different coats";
+                EXPECT_NEAR(c.Shadow, 1.0, kControlTolerance) << "two identical frames measured different coats";
                 return;
             }
             const f64 tolerance = kShadowTolerance;

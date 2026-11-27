@@ -956,7 +956,7 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // depth, not the outer strand's. Taking each half of the lock as uniform, with
 // qf the transmittance of its viewer-side half (surface to axis) and qb of its
 // far half, the mean is (1 + qf^2) / 2 of what the viewer-side surface sees
-// (exact for qf = qb, and the one march more it costs is the front half's), and
+// (exact for qf = qb), and
 // behind the fibre exactly qf qb of what the far-side surface sees: every
 // member is reached through the members between it and the far surface and
 // seen through those between it and the eye, and the two always add up to the
@@ -986,16 +986,52 @@ float oloGroomLockSkyDepth()
 }
 
 // The transmittance of the half of the lock between its axis and its surface
-// along `dir`, given the coat beyond that surface (`surfaceTau`).
-float oloGroomLockHalfTransmittance(vec3 dir, float surfaceTau)
+// along `dir`. INTEGRATED OVER THAT SEGMENT ITSELF, at four midpoints: the
+// difference of two whole-coat marches (from the axis and from the surface)
+// carried both marches' step error, which was larger than a thin lock's own
+// depth wherever their spans fell on different step counts.
+const int OLO_GROOM_LOCK_HALF_SAMPLES = 4;
+
+float oloGroomLockHalfTransmittance(vec3 dir)
 {
-	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_CARD_TIER) == 0)
+	int mode = u_GroomCoatModes.x;
+	float depth = oloGroomLockSkyDepth();
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_CARD_TIER) == 0 || mode == OLO_GROOM_COAT_MODE_NONE ||
+	    (u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_NO_MARCH) != 0 || !(depth > 0.0))
 	{
 		return 1.0;
 	}
-	float axisBodyTau = 0.0;
-	float axisTau = oloGroomCoatTauAndBodyFrom(dir, 0.0, false, axisBodyTau);
-	return oloGroomCoatTransmittance(max(axisTau - surfaceTau, 0.0), u_GroomCoatBoundsMin.w);
+	// The coat's object space, at rest or posed, as the whole march takes it.
+	vec3 dirScaled = mat3(u_GroomCoatWorldToObject) * dir;
+	vec3 dirObject;
+	vec3 originObject;
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_AT_REST) != 0)
+	{
+		dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, dirScaled));
+		originObject = v_CoatRestPos;
+	}
+	else
+	{
+		dirObject = normalize(dirScaled);
+		originObject = (u_GroomCoatWorldToObject * vec4(v_WorldPos, 1.0)).xyz;
+	}
+	float dt = (depth * length(dirScaled)) / float(OLO_GROOM_LOCK_HALF_SAMPLES);
+	float tau = 0.0;
+	for (int i = 0; i < OLO_GROOM_LOCK_HALF_SAMPLES; ++i)
+	{
+		vec3 uvw = (originObject + (dirObject * (dt * (float(i) + 0.5))) - u_GroomCoatBoundsMin.xyz) *
+		           u_GroomCoatInvExtent.xyz;
+		if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))))
+		{
+			continue;
+		}
+		OloGroomCoatVolumeSample sampled = oloGroomCoatSampleVolume(u_GroomCoatVolume, uvw);
+		if (sampled.Density > 0.0)
+		{
+			tau += sampled.Density * oloGroomCoatMeanSine(sampled.Direction, dirObject, mode) * dt;
+		}
+	}
+	return oloGroomCoatTransmittance(tau, u_GroomCoatBoundsMin.w);
 }
 
 float oloGroomCoatExitDistance(vec3 worldDir)
@@ -1672,7 +1708,7 @@ OloGroomShading oloGroomShadeFibre()
 		// A card's lock: what its members see of the sky, weighted by how
 		// well the viewer sees them (oloGroomLockHalfTransmittance). 1 on the
 		// strand tier.
-		float lockFront = oloGroomLockHalfTransmittance(envDir, envTau);
+		float lockFront = oloGroomLockHalfTransmittance(envDir);
 		float lockFrontShare = 0.5 * (1.0 + (lockFront * lockFront));
 		OloGroomFibreLobes ambient = oloGroomFibreConstantLobes();
 		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
@@ -1711,7 +1747,7 @@ OloGroomShading oloGroomShadeFibre()
 			float behindBodyTau = 0.0;
 			float behindTau = oloGroomCoatTauAndBodyFrom(behindDir, oloGroomLockSkyDepth(), false, behindBodyTau);
 			float behindShadow = oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
-			float lockBehindShare = lockFront * oloGroomLockHalfTransmittance(behindDir, behindTau);
+			float lockBehindShare = lockFront * oloGroomLockHalfTransmittance(behindDir);
 			vec3 behindArriving = vec3(behindShadow);
 			if (envBody)
 			{

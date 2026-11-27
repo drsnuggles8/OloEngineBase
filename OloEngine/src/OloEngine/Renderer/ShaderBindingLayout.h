@@ -1659,7 +1659,7 @@ namespace OloEngine
             //     a caster with no volume still has to move its receiver past
             //     its own strands, or the map occludes the coat with itself and
             //     it renders black.
-            // w = a bitfield (#1533), set only for a GPU-deformed draw: 1 = the
+            // w = a bitfield. Bits 1 and 2 (#1533) only for a GPU-deformed draw: 1 = the
             //     volume is the coat AT REST, marched from each fragment's bind
             //     point; 2 = it also holds the BODY (negative density), which the
             //     shader counts for every light no map answers for at the strand;

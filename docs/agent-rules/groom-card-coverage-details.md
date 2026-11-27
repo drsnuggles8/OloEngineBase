@@ -116,8 +116,9 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     | 0.6 x, gated on the card tier (shipped) | yes | 0.95-1.05 | 0.94-0.96 |
 
     The short coat's residue at 1.0 x was its mane and tail alone (body-only coat 0.97-1.00,
-    long-hair-only 1.09-1.23). A strand's radius is under half a march step, so the strand tier skips
-    the second march and is unchanged. Rule 4a still holds for every light. At the SHIPPED coat-shadow
+    long-hair-only 1.09-1.23). Only the card tier sets bit 4, so the strand tier never runs the
+    share and is unchanged; the half lock is integrated over its own segment, not as the difference
+    of two whole-coat marches, whose step error exceeded a thin lock's depth. Rule 4a still holds for every light. At the SHIPPED coat-shadow
     LOD the short coat is inside one voxel and the cards still keep up to 2x its sky (#1815), so
     `GroomAnimalsAcceptanceEvidenceTest`'s coverage case keeps its black sky.
 
