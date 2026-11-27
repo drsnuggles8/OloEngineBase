@@ -456,11 +456,15 @@ namespace OloEngine
 
     bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
     {
-        return s_Data->EntityClasses.contains(fullClassName);
+        // As GetEntityClass: an engine that was never initialised has no class,
+        // so a host without C# starts a scene whose scripts simply do not run.
+        return s_Data && s_Data->EntityClasses.contains(fullClassName);
     }
 
     void ScriptEngine::RebindStartupInstance(UUID owner, const Ref<ScriptInstance>& instance)
     {
+        if (!s_Data || !s_Data->SceneContext)
+            return;
         const auto entity = s_Data->SceneContext->TryGetEntityWithUUID(owner);
         if (entity && entity->HasComponent<ScriptComponent>() &&
             GetEntityClass(entity->GetComponent<ScriptComponent>().ClassName) == instance->GetScriptClass())
@@ -493,6 +497,8 @@ namespace OloEngine
 
     void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
     {
+        if (!s_Data)
+            return; // no engine, no instance: OnCreateEntity created none
         UUID entityUUID = entity.GetUUID();
 
         if (s_Data->EntityInstances.contains(entityUUID))
@@ -520,7 +526,7 @@ namespace OloEngine
 
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
     {
-        if (!s_Data->EntityInstances.contains(entityID))
+        if (!s_Data || !s_Data->EntityInstances.contains(entityID))
         {
             return nullptr;
         }
