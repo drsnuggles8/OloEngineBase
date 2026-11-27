@@ -587,12 +587,12 @@ namespace OloEngine
         // ONE FUNNEL since the rest bake (#1533): oloGroomCoatTauAndBodyFrom
         // holds both marches -- the posed coat's, and a coat baked at rest from
         // its bind-pose point. oloGroomCoatTauAndBody is its light-side wrapper
-        // (the march starting on the tube's lit side) and is called for each
-        // light; the sky on the viewer's side and the sky BEHIND the fibre (the
-        // TT paths, whose light comes through the coat below) call the funnel
-        // directly, from the card's lock surface (#1625). The card tier's lock
-        // share (oloGroomLockHalfTransmittance, #1625) integrates the same coat
-        // volume over the lock's own half, in front and behind. Six
+        // (the march starting on the tube's surface) and is called for each
+        // light and for the sky BEHIND the fibre (the TT paths, whose light
+        // comes through the coat below); the sky on the viewer's side calls the
+        // funnel directly, from the card's lock surface (#1625). The card
+        // tier's lock share (oloGroomLockHalfTransmittance, #1625) integrates
+        // the same coat volume over the lock's viewer-side half. Six
         // transmittance mentions: one per light, sky, sky-behind and lock-half
         // call, plus two comments naming the function. All of it is the coat's
         // own volume -- the strands, and since #1533 the body it grows on,
@@ -601,14 +601,14 @@ namespace OloEngine
         EXPECT_EQ(count("oloGroomCoatOpticalDepth"), 2u)
             << "the coat's own optical-depth path moved; re-read the double-count boundary in "
                "GroomCoatShadow.h before changing this number";
-        EXPECT_EQ(count("oloGroomCoatTauAndBodyFrom("), 4u)
-            << "one definition, the light wrapper and two sky marches (the viewer's side, behind the fibre); a "
-               "new caller is a new attenuation path";
-        EXPECT_EQ(count("oloGroomCoatTauAndBody("), 2u)
-            << "one definition and one march per light; a new caller is a new attenuation path";
-        EXPECT_EQ(count("oloGroomLockHalfTransmittance("), 3u)
-            << "one definition and the card lock's two halves (front, behind); a new caller is a new attenuation "
+        EXPECT_EQ(count("oloGroomCoatTauAndBodyFrom("), 3u)
+            << "one definition, the light wrapper and the viewer-side sky march; a new caller is a new attenuation "
                "path";
+        EXPECT_EQ(count("oloGroomCoatTauAndBody("), 3u)
+            << "one definition, one march per light and the sky behind the fibre; a new caller is a new "
+               "attenuation path";
+        EXPECT_EQ(count("oloGroomLockHalfTransmittance("), 2u)
+            << "one definition and the card lock's viewer-side half; a new caller is a new attenuation path";
         EXPECT_EQ(count("oloGroomCoatTransmittance"), 6u)
             << "the coat's own transmittance path moved; same warning";
 

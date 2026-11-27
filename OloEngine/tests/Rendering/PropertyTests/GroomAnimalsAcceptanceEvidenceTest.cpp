@@ -1593,7 +1593,11 @@ namespace OloEngine::Tests
             // on both coats in a few frames.
             Renderer3D::ResetFrameSequences();
             ColdHistory();
-            RunEditorFrames(camera, 8);
+            // Past a tier change's cross-fade window too: a coat whose tier
+            // changed since the last measurement (ladder on after ladder off,
+            // a new stop) draws both tiers until its fade ends, and a mean
+            // over those frames would measure the blend.
+            RunEditorFrames(camera, 8u + Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames);
             Linear out;
             std::vector<f32> colour;
             std::vector<i32> ids;
@@ -3050,6 +3054,10 @@ namespace OloEngine::Tests
             const f64 tolerance = kShadowTolerance;
             if (2.0 * c.Error < tolerance)
             {
+                // The tier must shadow the sky at all: a card arm that ignored
+                // kappa (1.0) would sit inside the bar of a lightly shadowed
+                // strand arm.
+                EXPECT_LT(c.OnShadow, 1.0 - (2.0 * c.Error)) << "the tier did not shadow the sky";
                 EXPECT_NEAR(c.Shadow, 1.0, tolerance)
                     << "the tier does not shadow the sky as its strands do (error " << 100.0 * c.Error << "%)";
                 return;
@@ -3110,7 +3118,7 @@ namespace OloEngine::Tests
                 lod.m_Enabled = ladder;
                 ColdHistory();
                 std::vector<u8> frame;
-                Capture("", view, frame);
+                ASSERT_NO_FATAL_FAILURE(Capture("", view, frame));
                 WriteEnlargedCrop(std::string(ladder ? "GroomAnimalsSky" : "GroomAnimalsSkyOff") + "_GL_" + path +
                                       "_" + s.Tag + "_" + stop.Name + "_Crop",
                                   frame, kWidth / 2u - half, kHeight / 2u - half * 9u / 16u, half * 2u, half * 9u / 8u,
@@ -3145,6 +3153,25 @@ namespace OloEngine::Tests
             }
         }
         SetPath(RenderingPath::Forward);
+
+        // DUAL SCATTERING, the shipped default: the fixture's coats are
+        // occluders only (MakeCoat), whose ambient takes the single-scattering
+        // branch, so the far half -- the behind march, the TT paths and the
+        // back-scatter -- is held here, at each coat's hand-over side. The
+        // lock share once darkened it to 0.903 / 0.848.
+        std::printf("[groom-animals] sky shadow dual scattering\n");
+        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        {
+            SCOPED_TRACE(s->Name);
+            SCOPED_TRACE("DualScattering");
+            auto& shadow = s->Coat.GetComponent<GroomCoatShadowComponent>();
+            shadow.m_MultipleScattering = true;
+            const Cell c = measureCell(*s, stops[2], directions[0]);
+            shadow.m_MultipleScattering = false;
+            ASSERT_FALSE(HasFatalFailure());
+            hold(*s, c, false);
+            ASSERT_FALSE(HasFatalFailure());
+        }
     }
 
     // =========================================================================

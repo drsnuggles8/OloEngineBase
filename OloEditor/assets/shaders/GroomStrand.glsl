@@ -956,11 +956,10 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // depth, not the outer strand's. Taking each half of the lock as uniform, with
 // qf the transmittance of its viewer-side half (surface to axis) and qb of its
 // far half, the mean is (1 + qf^2) / 2 of what the viewer-side surface sees
-// (exact for qf = qb), and
-// behind the fibre exactly qf qb of what the far-side surface sees: every
-// member is reached through the members between it and the far surface and
-// seen through those between it and the eye, and the two always add up to the
-// whole lock.
+// (exact for qf = qb). Behind the fibre the same argument gives qf qb of what
+// the far-side surface sees, but measured that over-darkened the cards under
+// dual scattering, so the far half keeps rule 4a's march and no share (see the
+// ambient block).
 //
 // THE SURFACE IS OLO_GROOM_LOCK_SKY_DEPTH OF THE COOKED RADIUS FROM THE AXIS.
 // The cooked radius is the members' covered width (the card guide's rule 1),
@@ -980,8 +979,14 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // is continuous, and 1 as the lock's depth goes to 0.
 const float OLO_GROOM_LOCK_SKY_DEPTH = 0.6;
 
+// The strand tier keeps rule 4a's origin, the drawn tube's surface, so its
+// ambient is master's to the bit; only a card measures from inside its lock.
 float oloGroomLockSkyDepth()
 {
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_CARD_TIER) == 0)
+	{
+		return max(v_TubeRadius, 0.0);
+	}
 	return max(v_LockRadius, 0.0) * OLO_GROOM_LOCK_SKY_DEPTH;
 }
 
@@ -1685,9 +1690,10 @@ OloGroomShading oloGroomShadeFibre()
 		// at the silhouette the body fills half the lobe and behind the fibre
 		// most of it. The body texel holds the sky it leaves, baked from every
 		// direction, and that share scales each side's light. Each side reads it
-		// where that side's march starts, the lock's surface out along it
-		// (oloGroomLockSkyDepth): at the lock's axis the body hides more of
-		// the sky than at the strands a viewer sees of it.
+		// where that side's march starts: the viewer side at the lock's surface
+		// out along it (oloGroomLockSkyDepth; at the lock's axis the body hides
+		// more of the sky than at the strands a viewer sees of it), the far
+		// side at the drawn tube's surface.
 		bool envBody = oloGroomCoatHoldsBody();
 		float envBodyShadow = 1.0;
 		float behindBodyShadow = 1.0;
@@ -1696,9 +1702,12 @@ OloGroomShading oloGroomShadeFibre()
 			vec3 envScaled = mat3(u_GroomCoatWorldToObject) * envDir;
 			vec3 envObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, envScaled));
 			// World metres to the rest volume's object units, as in the march.
+			// The far side reads where its own march starts, the drawn tube's
+			// surface (see `behindTau` below).
 			float envTube = oloGroomLockSkyDepth() * length(envScaled);
+			float behindTube = max(v_TubeRadius, 0.0) * length(envScaled);
 			vec3 frontUvw = (v_CoatRestPos + (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
-			vec3 behindUvw = (v_CoatRestPos - (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
+			vec3 behindUvw = (v_CoatRestPos - (envObject * behindTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
 			envBodyShadow = oloGroomBodySkyVisibility(texture(u_GroomCoatBody, frontUvw), envObject);
 			behindBodyShadow = oloGroomBodySkyVisibility(texture(u_GroomCoatBody, behindUvw), -envObject);
 		}
@@ -1741,13 +1750,23 @@ OloGroomShading oloGroomShadeFibre()
 			vec3 envForwarded = max(oloGroomCoatForwardTransmittance(envTau, u_GroomCoatBoundsMin.w, forwardScatter) -
 			                            vec3(envShadow),
 			                        vec3(0.0));
-			vec3 front = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward)) * (envBodyShadow * lockFrontShare);
+			// `frontSky` is the coat's viewer-side sky; only the paths that look
+			// out through this lock's near half (R, TRT, half the residual)
+			// take its share.
+			vec3 frontSky = averageRadiance * (vec3(envShadow) + (envForwarded * densityForward)) * envBodyShadow;
+			vec3 front = frontSky * lockFrontShare;
 
+			// THE FAR HALF TAKES NO LOCK SHARE, and marches from the drawn
+			// tube's surface as rule 4a's lights do (#1625). The derived qf*qb
+			// of the far surface's sky over-darkened the cards under dual
+			// scattering (card over strand 0.903 long coat, 0.848 short coat on
+			// a converged volume, where master's shader read 1.094 and 1.296);
+			// this form reads 1.006 and 0.972
+			// (groom-card-coverage-details.md rule 10).
 			vec3 behindDir = -envDir;
 			float behindBodyTau = 0.0;
-			float behindTau = oloGroomCoatTauAndBodyFrom(behindDir, oloGroomLockSkyDepth(), false, behindBodyTau);
+			float behindTau = oloGroomCoatTauAndBody(behindDir, false, behindBodyTau);
 			float behindShadow = oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
-			float lockBehindShare = lockFront * oloGroomLockHalfTransmittance(behindDir);
 			vec3 behindArriving = vec3(behindShadow);
 			if (envBody)
 			{
@@ -1756,7 +1775,7 @@ OloGroomShading oloGroomShadeFibre()
 				                      vec3(0.0)) *
 				                  densityForward;
 			}
-			vec3 behind = behindRadiance * behindArriving * (behindBodyShadow * lockBehindShare);
+			vec3 behind = behindRadiance * behindArriving * behindBodyShadow;
 
 			total.R += ambient.R * front;
 			total.TRT += ambient.TRT * front;
@@ -1772,7 +1791,11 @@ OloGroomShading oloGroomShadeFibre()
 			// meets. Without the share, a thin part counted the same light twice
 			// and a coat of clear fibres read brighter than the sky lighting it.
 			float cosThetaO = sqrt(max(0.0, 1.0 - (sinThetaO * sinThetaO)));
-			multiple += multipleBackScatter * (densityBack * cosThetaO * (1.0 - (behindShadow * lockBehindShare))) * front;
+			//
+			// The coat behind returns sky that reached it through the coat's
+			// own surface, not through this lock's near half: `frontSky`, with
+			// no lock share.
+			multiple += multipleBackScatter * (densityBack * cosThetaO * (1.0 - behindShadow)) * frontSky;
 		}
 	}
 

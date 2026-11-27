@@ -97,8 +97,9 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     ambient march runs along the fibre's eye-facing normal, nearly the view direction, so a member
     the eye sees well also sees the sky well. Taking each half of the lock as uniform, with qf and qb
     the transmittances of its viewer-side and far halves, the mean is (1 + qf^2) / 2 of what the
-    viewer-side surface sees in front (exact for qf = qb) and exactly qf qb of what the far surface
-    sees behind (`oloGroomLockHalfTransmittance`, `GroomStrand.glsl`). The surface is 0.6 of the
+    viewer-side surface sees in front (exact for qf = qb; `oloGroomLockHalfTransmittance`,
+    `GroomStrand.glsl`). That share scales only the paths that look out through the lock's near half
+    (R, TRT, half the residual); the far half is in the table below. The surface is 0.6 of the
     cooked (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the
     members' covered width, not the lock's depth along the sky. Only the card tier runs it
     (`u_GroomCoatModes.w` bit 4); a gate on the lock's size against the march step switched it off
@@ -121,6 +122,23 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     of two whole-coat marches, whose step error exceeded a thin lock's depth. Rule 4a still holds for every light. At the SHIPPED coat-shadow
     LOD the short coat is inside one voxel and the cards still keep up to 2x its sky (#1815), so
     `GroomAnimalsAcceptanceEvidenceTest`'s coverage case keeps its black sky.
+
+    **The far half takes no lock share.** The same argument gives qf qb of the far surface's sky
+    behind the fibre, but the coats in that test are occluders only, whose ambient never reaches the
+    far half; under dual scattering, the shipped default, it over-darkened the cards. Card over strand
+    at each coat's hand-over side:
+
+    | far half (TT, half the residual, back-scatter) | long coat | short coat |
+    |---|---|---|
+    | master's shader (no lock share anywhere) | 1.094 | 1.296 |
+    | from 0.6 x, qf qb on TT and the back-scatter's coat | 0.903 | 0.848 |
+    | from 0.6 x, no share behind | 0.963 | 0.902 |
+    | from the drawn tube's surface, no share behind | 0.986 | 0.918 |
+    | **from the drawn tube's surface, no share behind, back-scatter without the front share (shipped)** | **1.006** | **0.972** |
+
+    The back-scatter is sky the coat behind returns, which reached that coat through its own
+    surface, not through this lock's near half. The single-scattering cells do not move with any of
+    these (0.944 / 1.001 at the same stop).
 
 ## Measured
 
