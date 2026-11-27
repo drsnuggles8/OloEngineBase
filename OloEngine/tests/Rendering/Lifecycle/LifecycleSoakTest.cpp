@@ -68,6 +68,7 @@
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -178,8 +179,6 @@ namespace OloEngine::Tests::Lifecycle
             return editor;
         }
 
-        // <stem>_<leg>_<backend><ext>: one report per leg and process, so the
-        // two backends' processes never overwrite each other's.
         // <stem>_<leg>_<backend><ext>: one report (or control frame) per leg and
         // backend, so the legs and the two backends' processes never overwrite
         // each other's. The editor and the runtime draw A through different
@@ -250,11 +249,14 @@ namespace OloEngine::Tests::Lifecycle
         {
             m_PreviousProject = Project::GetActive();
             m_PreviousAssetManager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
-            std::error_code ec;
-            m_PreviousCwd = fs::current_path(ec);
             RendererAttachedTest::SetUp();
             if (IsSkipped() || HasFatalFailure())
                 return;
+            // After the base SetUp, which enters OloEditor/: that is the
+            // directory every later test resolves its shaders against, and the
+            // one TearDown puts back.
+            std::error_code ec;
+            m_PreviousCwd = fs::current_path(ec);
             m_PreviousShadow = Renderer3D::GetShadowMap().GetSettings();
             m_SavedFault = Levers::FaultSkipSceneRenderSettingsPublish();
             // What Application's startup does before any scene runs. Lua's Init
@@ -263,18 +265,23 @@ namespace OloEngine::Tests::Lifecycle
             // carries a script (ScriptEngine tolerates the absent engine).
             LuaScriptEngine::Init();
             m_ValidationAtStart = ValidationErrors();
+            m_SetUpComplete = true;
         }
 
         void TearDown() override
         {
-            Levers::SetFaultSkipSceneRenderSettingsPublish(m_SavedFault);
             if (m_Running && GetSceneRef())
                 GetSceneRef()->OnRuntimeStop();
             m_Running = false;
             m_EditScene = nullptr;
-            SetScene(nullptr);
-            if (!IsSkipped())
+            // Only what SetUp saved is put back. The scene stays set: the base
+            // TearDown resets the frame camera only for a fixture with a scene,
+            // and the next test must not cull against this one's camera.
+            if (m_SetUpComplete)
+            {
+                Levers::SetFaultSkipSceneRenderSettingsPublish(m_SavedFault);
                 Renderer3D::GetShadowMap().SetSettings(m_PreviousShadow);
+            }
             RendererAttachedTest::TearDown();
 
             if (m_EditorAssetManager)
@@ -404,9 +411,7 @@ namespace OloEngine::Tests::Lifecycle
             }
             m_EditScene = loaded.LoadedScene;
             SetScene(m_EditScene);
-            const auto live = SceneTransition::SceneRenderSettings::CaptureRenderer();
-            Renderer3D::ResetSceneState();
-            live.PublishToRenderer();
+            ResetRendererForSceneSwap();
             SceneTransition::ApplySceneRenderSettings(*m_EditScene);
             Prepare(*m_EditScene);
             std::string error;
@@ -440,28 +445,49 @@ namespace OloEngine::Tests::Lifecycle
                 RuntimeActivate(name);
         }
 
-        // EditorLayer::OnScenePlay: the renderer's settings are remembered, the
-        // authored scene is copied, the copy takes the live world settings and
-        // starts.
+        // The editor's ResetRendererForSceneSwap: drop the renderer's scene
+        // state, keep the live settings.
+        static void ResetRendererForSceneSwap()
+        {
+            const auto live = SceneTransition::SceneRenderSettings::CaptureRenderer();
+            Renderer3D::ResetSceneState();
+            live.PublishToRenderer();
+        }
+
+        // EditorLayer::OnScenePlay + StartActiveRuntimeScene: remember the
+        // renderer's settings for Stop, copy the authored scene, give the copy
+        // the live world settings, the scene-swap reset, the user's
+        // render-interpolation preference (on by default), start.
         void EditorPlay()
         {
+            m_RenderSettingsAtPlay = SceneTransition::SceneRenderSettings::CaptureRenderer();
+            m_ShadowSettingsAtPlay = Renderer3D::GetShadowMap().GetSettings();
+            m_RendererSettingsAtPlay = Renderer3D::GetRendererSettings();
             SetScene(Scene::Copy(m_EditScene));
             SceneTransition::CaptureRendererWorldSettings(GetScene());
+            ResetRendererForSceneSwap();
             Prepare(GetScene());
+            GetSceneRef()->SetRenderInterpolationEnabled(true);
             GetSceneRef()->OnRuntimeStart();
             m_Running = true;
         }
 
         // EditorLayer::OnSceneStop: stop the copy, back to the authored scene,
-        // the scene-swap reset.
+        // the scene-swap reset, and nothing Play wrote to the renderer outlives
+        // it (#1563).
         void EditorStop()
         {
             GetSceneRef()->OnRuntimeStop();
             m_Running = false;
             SetScene(m_EditScene);
-            const auto live = SceneTransition::SceneRenderSettings::CaptureRenderer();
-            Renderer3D::ResetSceneState();
-            live.PublishToRenderer();
+            ResetRendererForSceneSwap();
+            m_RenderSettingsAtPlay->PublishToRenderer();
+            Renderer3D::GetShadowMap().SetSettings(*m_ShadowSettingsAtPlay);
+            Renderer3D::GetRendererSettings() = *m_RendererSettingsAtPlay;
+            Renderer3D::ApplyRendererSettings();
+            m_RenderSettingsAtPlay.reset();
+            m_ShadowSettingsAtPlay.reset();
+            m_RendererSettingsAtPlay.reset();
         }
 
         void Unload()
@@ -535,6 +561,24 @@ namespace OloEngine::Tests::Lifecycle
             Renderer3D::GetShadowMap().SetSettings(shadow);
             ApplyTieringToRendererSettings(qt, Renderer3D::GetRendererSettings());
             Renderer3D::ApplyRendererSettings();
+        }
+
+        // ShaderLibrary::ReloadShaders keeps a shader's previous program when its
+        // reload fails, so the frame cannot show a failure; the library's own
+        // compile_finished record does.
+        static void ReloadShadersChecked()
+        {
+            auto& log = DiagnosticsEventLog::Get();
+            DiagnosticEventQuery query;
+            query.MaxCount = 1;
+            query.Categories = { DiagnosticEventCategory::CompileFinished };
+            const auto before = log.Query(query);
+            query.SinceId = before.empty() ? 0 : before.back().Id;
+            Renderer3D::GetShaderLibrary().ReloadShaders();
+            const auto after = log.Query(query);
+            ASSERT_EQ(after.size(), 1u) << "ShaderLibrary::ReloadShaders recorded no compile_finished";
+            EXPECT_NE(after.back().Message.find("succeeded"), std::string::npos)
+                << "a shader kept its previous program: " << after.back().Message;
         }
 
         static void SetPath(RenderingPath path)
@@ -653,7 +697,7 @@ namespace OloEngine::Tests::Lifecycle
             Step("path forward+", []
                  { SetPath(RenderingPath::ForwardPlus); });
             Step("shader reload", []
-                 { Renderer3D::GetShaderLibrary().ReloadShaders(); });
+                 { ReloadShadersChecked(); });
             Step("open B", [this]
                  { Open(kSceneB); });
             if (m_RecordOps && !HasFatalFailure())
@@ -687,7 +731,7 @@ namespace OloEngine::Tests::Lifecycle
                 ASSERT_NO_FATAL_FAILURE(EnterCookedRuntime());
 
             m_Report.Leg = LegName();
-            m_Report.Backend = TestRenderBackend::IsVulkanProcess() ? "Vulkan" : "OpenGL";
+            m_Report.Backend = TestRenderBackend::IsVulkanProcess() ? "Vulkan" : "GL"; // as in the file names
             m_Report.Build = std::string(BuildInfo::GetGitDescribe()) + " (" + BuildInfo::GetGitHash() + ")";
             m_Report.WarmUpCycles = options.LifecycleSoakWarmUp;
             m_Report.Cycles = options.LifecycleSoakCycles;
@@ -776,8 +820,12 @@ namespace OloEngine::Tests::Lifecycle
             }
 
             // Unload, shut the renderer down, bring it back, open A again.
+            m_RecordOps = true;
             Step("unload", [this]
                  { Unload(); });
+            m_Report.Operations.emplace_back("shutdown");
+            m_Report.Operations.emplace_back("init");
+            m_Report.Operations.emplace_back("open A after restart");
             Renderer3D::Shutdown();
             const auto census = Renderer3D::DebugOwnedStateCensus();
             EXPECT_EQ(census.ViewHistoryFacts, 0u) << "Shutdown left camera history for the next renderer";
@@ -841,6 +889,9 @@ namespace OloEngine::Tests::Lifecycle
         }
 
         Host m_Host = Host::Editor;
+        std::optional<SceneTransition::SceneRenderSettings> m_RenderSettingsAtPlay;
+        std::optional<ShadowSettings> m_ShadowSettingsAtPlay;
+        std::optional<RendererSettings> m_RendererSettingsAtPlay;
         Ref<Scene> m_EditScene;
         std::optional<EditorCamera> m_Camera;
         bool m_Running = false;
@@ -862,6 +913,7 @@ namespace OloEngine::Tests::Lifecycle
         fs::path m_PreviousCwd;
         ShadowSettings m_PreviousShadow{};
         bool m_SavedFault = false;
+        bool m_SetUpComplete = false;
     };
 
     TEST_F(LifecycleSoak, EditorSequenceHoldsAcrossCycles)

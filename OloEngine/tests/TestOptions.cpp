@@ -75,7 +75,7 @@ namespace OloEngine::Tests
                 "                                 (default 24; 0 disables minimisation)\n"
                 "  --olo-cross-path-export=<dir>  write the cross-path matrix rows' scenes + manifest for the\n"
                 "                                 live Vulkan replay (scripts/cross-path-matrix-live.py, #1347)\n"
-                "  --olo-lifecycle-soak-cycles=<n> lifecycle soak cycles after warm-up (default 2, #1796)\n"
+                "  --olo-lifecycle-soak-cycles=<n> lifecycle soak cycles after warm-up (2..100000, default 2, #1796)\n"
                 "  --olo-lifecycle-soak-warmup=<n> lifecycle soak warm-up cycles (default 1)\n"
                 "  --olo-lifecycle-soak-report=<path> write the soak's replay data as JSON\n"
                 "  --olo-lifecycle-soak-control-out=<path> write scene A's settled frame (fresh-process control)\n"
@@ -319,9 +319,10 @@ namespace OloEngine::Tests
             {
                 u32 parsed = 0;
                 if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
-                    ec != std::errc{} || ptr != v->data() + v->size() || parsed == 0u)
+                    ec != std::errc{} || ptr != v->data() + v->size() || parsed < 2u || parsed > 100000u)
                 {
-                    Fail("--olo-lifecycle-soak-cycles needs a positive integer", arg);
+                    // One measured cycle makes the growth verdict compare a sample with itself.
+                    Fail("--olo-lifecycle-soak-cycles needs an integer from 2 to 100000", arg);
                 }
                 s_Options.LifecycleSoakCycles = parsed;
             }
@@ -329,9 +330,9 @@ namespace OloEngine::Tests
             {
                 u32 parsed = 0;
                 if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
-                    ec != std::errc{} || ptr != v->data() + v->size())
+                    ec != std::errc{} || ptr != v->data() + v->size() || parsed > 100000u)
                 {
-                    Fail("--olo-lifecycle-soak-warmup needs a non-negative integer", arg);
+                    Fail("--olo-lifecycle-soak-warmup needs an integer from 0 to 100000", arg);
                 }
                 s_Options.LifecycleSoakWarmUp = parsed;
             }

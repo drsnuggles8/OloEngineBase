@@ -2265,6 +2265,18 @@ if(OLO_WITH_VULKAN)
 	set_tests_properties(OloEngine-Tests_VulkanPipelineSeed PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600
 		RESOURCE_LOCK "olo_sandbox_registry")
 
+	# THE LIFECYCLE SOAK (#1796): the same --olo-rhi=vulkan process, for LifecycleSoak.*
+	# alone. It loads the real Sandbox project (so it shares the registry lock with the
+	# GL pass that runs it) and walks every render path and two quality tiers each cycle,
+	# so on a software ICD every pipeline of three paths compiles cold at its first draw
+	# (see the seed guard above). On hardware, in every local ctest; the long run is
+	# scripts/lifecycle-soak.ps1.
+	add_test(NAME OloEngine-Tests_VulkanLifecycleSoak
+		COMMAND OloEngine-Tests --olo-rhi=vulkan "--gtest_filter=LifecycleSoak.*" ${_olo_vk_scene_args}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
+	set_tests_properties(OloEngine-Tests_VulkanLifecycleSoak PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600
+		RESOURCE_LOCK "olo_sandbox_registry")
+
 	# THE HEAVY SCENE SUITES: the same --olo-rhi=vulkan process, for the Drift island
 	# and terrain-shadow suites lavapipe cannot afford. Measured on the PR #1761 run,
 	# they took ~65 of the lavapipe scene step's 90 minutes (DriftEveryIslandPaths

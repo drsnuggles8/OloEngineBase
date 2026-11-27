@@ -7,7 +7,12 @@ renderer-level operations over a scene built in code.
 
 - **Per-PR smoke:** `LifecycleSoak.*` in the ordinary suite (one warm-up cycle, two measured
   cycles per leg), [LifecycleSoakTest.cpp](../../OloEngine/tests/Rendering/Lifecycle/LifecycleSoakTest.cpp).
-  It runs on both backends: the default process and `OloEngine-Tests --olo-rhi=vulkan`.
+  Every local `ctest` runs it on both backends: the GL pass under the `olo_sandbox_registry` lock,
+  and its own `OloEngine-Tests_VulkanLifecycleSoak` entry (`--olo-rhi=vulkan`). Hosted PR runners
+  have no GPU, so there it skips and only `LifecycleSoakStats.*` runs; the AMD nightly's default
+  filter includes it. It is not in `vulkan_scene_filter.txt`: on lavapipe every pipeline compiles
+  cold at its first draw, the soak draws three render paths and two tiers every cycle, and one
+  path's cold render of a Sandbox scene already took 26 minutes there (`EnginePipelineSeedTest`).
 - **Long soak:** [scripts/lifecycle-soak.ps1](../../scripts/lifecycle-soak.ps1), a reproducible
   invocation, not a scheduled job (the owner declined a scheduled run on the RTX dev box on
   2026-10-18).
@@ -36,6 +41,17 @@ step is followed by three rendered frames.
 Once at the end of a run: unload, `Renderer3D::Shutdown`, an owned-state census, `Init`, open A
 and compare again. Skipped transitions, with their reason, are in each report's `skipped` list:
 MSAA and upscale belong to the state-machine harness, and play/stop does not exist in the runtime.
+
+Cells the soak does not run, and why:
+
+- **Editor with cooked assets:** the editor never loads a cooked game; cooked content is the
+  runtime's by definition.
+- **OloRuntime as a real process, restarted:** the executable's only flag is `--smoke-test`, which
+  skips the `RuntimeLayer` and the renderer. It takes no scene, frame count or exit request, so a
+  process-level load/unload/restart cycle cannot be driven. The runtime leg's restart is a renderer
+  `Shutdown`/`Init` in one process.
+- **OloServer:** it has no renderer; `AppLaunchSmoke.OloServerStopsAHeadlessSceneCleanly` covers its
+  only lifecycle step.
 
 The editor leg uses the Sandbox project with an `EditorAssetManager`. The runtime leg uses the game
 directory `GameBuildPipeline::StageRuntimeContent` lays out and a `RuntimeAssetManager`, as
