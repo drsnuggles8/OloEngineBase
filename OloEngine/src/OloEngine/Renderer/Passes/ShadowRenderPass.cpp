@@ -928,7 +928,8 @@ namespace OloEngine
         // (most are culled per cascade) while Courtyard's 428 win. Counting
         // stops as soon as the threshold is reached (the decision is then
         // made, so WorkUnits saturates there) or after kShadowWorkTestCap
-        // tests, returning the pairs counted so far as a lower bound. It runs
+        // tests (then the default forks: the items' culling is itself the
+        // work; an explicit override gets the pairs counted). It runs
         // only where a fork is possible at all: on a backend or in a state
         // that cannot fork, the result would be thrown away.
         const u32 minWorkToFork = Levers::VulkanParallelShadowMinWork()
@@ -963,6 +964,11 @@ namespace OloEngine
             };
             if (opaque && countVisible(m_MeshCasters))
                 (void)countVisible(m_SkinnedCasters);
+            // A region whose culling alone exhausts the budget is large work
+            // for its items whatever survives, so the default forks it. An
+            // explicit override is taken literally: the pairs counted so far.
+            if (tests >= kShadowWorkTestCap && !Levers::VulkanParallelShadowMinWork())
+                return std::max(cap, static_cast<u32>(std::min<u64>(work, UINT32_MAX)));
             return static_cast<u32>(std::min<u64>(work, UINT32_MAX));
         };
         for (u32 first = 0; first < activeCount; first += batchSize)

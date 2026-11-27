@@ -852,8 +852,7 @@ namespace OloEngine
             // ~0.6 ms after its own work: +2.3 ms of GPU frame time on
             // Courtyard with three batches and 0 ms of overlap. Until the
             // wait moves to the batch's first consumer, crossing is opt-in.
-            m_AsyncComputeDeclineReason = "not opted in: the graphics queue would wait for the whole batch, so crossing "
-                                          "adds idle time without overlap (#1341); OLO_VK_ASYNC_COMPUTE=1 crosses";
+            m_AsyncComputeDeclineReason = kAsyncComputeNotOptedInReason;
             return false;
         }
         if (!CanSubmitRenderGraphFenceSegments() || d.AsyncComputeTimeline == VK_NULL_HANDLE)

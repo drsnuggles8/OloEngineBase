@@ -53,7 +53,8 @@ namespace OloEngine
     struct ParallelRegionHint
     {
         const char* Family = nullptr; ///< Static string naming the policy family; null for an unhinted region.
-        u32 WorkUnits = 0;            ///< Work in the family's unit (packets for bucket replay).
+        u32 WorkUnits = 0;            ///< Work in the family's unit (packets for bucket replay); 0 = not estimated
+                                      ///< (a shadow region that could not fork skips its estimate).
         u32 MinWorkUnitsToFork = 0;   ///< The threshold the caller applied, for the record.
         ParallelRegionDecision PolicyDecision = ParallelRegionDecision::Parallel;
     };

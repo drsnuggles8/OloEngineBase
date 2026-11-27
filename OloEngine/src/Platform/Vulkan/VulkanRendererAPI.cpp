@@ -1080,7 +1080,7 @@ namespace OloEngine
         m_AsyncComputeStats.DeclineReason = reason;
         // The default since #1341 is a decline by design, not a fault: it is
         // counted and named in the stats, and a warning would read as one.
-        if (reason.starts_with("not opted in"))
+        if (reason.data() == VulkanContext::kAsyncComputeNotOptedInReason)
             return;
         // Warn once per process, not per frame: a device with no compute-only
         // family would otherwise log this every frame forever.

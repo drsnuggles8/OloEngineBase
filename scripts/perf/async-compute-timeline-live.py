@@ -99,6 +99,7 @@ def main() -> int:
                         'passGpuTotalMs': t.get('passGpuTotalMs'), 'passes': passes}
     captures = {}
     if args.capture_dir:
+        # The captures leave the editor on the path the run was measured on.
         import base64
         args.capture_dir.mkdir(parents=True, exist_ok=True)
         for path in args.capture_paths:
@@ -116,6 +117,7 @@ def main() -> int:
                 file = args.capture_dir / f'Async_{args.arm}_{path}_{target}.png'
                 file.write_bytes(base64.b64decode(image['data']))
                 captures[f'{path}/{target}'] = str(file)
+        client.tool('olo_renderer_settings_set', setting='renderpath', value=args.render_path)
     client.tool('olo_viewport_set_size', reset=True)
     if len(samples) < args.samples:
         raise RuntimeError(f'only {len(samples)} of {args.samples} distinct resolved frames')

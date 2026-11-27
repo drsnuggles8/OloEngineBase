@@ -94,9 +94,12 @@ walls of `final-ab.json` and each region's pair count, the shadow wall a thresho
 
 Visible pairs cannot separate MaterialLab's 218 losing pairs from Courtyard's 219 winning ones
 (their per-pair inline cost differs threefold), so a lower threshold buys Courtyard time with
-MaterialLab's and IntegratedRenderer's. 256 is the smallest round threshold at which no measured
-scene records slower than inline, with a margin over MaterialLab; it forgoes up to 0.5 ms that
-forking all of Courtyard's regions would win.
+MaterialLab's and IntegratedRenderer's. 224 is the lowest row where no measured scene records
+slower than inline, but it sits 6 pairs above MaterialLab's losing 218 on a proxy whose per-pair
+cost varies threefold; 256 keeps a 38-pair margin and gives up 0.16 ms of Courtyard's gain for
+it. It forgoes up to 0.5 ms that forking all of Courtyard's regions would win. A region whose
+culling alone exhausts the 16,384-test budget forks under the default (the items' culling is then
+large work in itself); none of the measured scenes reaches the budget below the threshold.
 
 ## Quality
 
