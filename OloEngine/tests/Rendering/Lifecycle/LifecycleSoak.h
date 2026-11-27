@@ -52,7 +52,7 @@ namespace OloEngine::Tests::Lifecycle
     // (the same state rendered twice), scaled, with absolute minimums so a
     // bit-exact control does not turn one rounding step into a failure.
     inline constexpr f64 kFloorScale = 4.0;
-    inline constexpr f64 kMinTileShift = 1.0;         // of 255
+    inline constexpr f64 kMinTileShift = 1.0;           // of 255
     inline constexpr f64 kMinDifferingFraction = 0.002; // 0.2 % of the pixels
 
     struct FrameVerdict

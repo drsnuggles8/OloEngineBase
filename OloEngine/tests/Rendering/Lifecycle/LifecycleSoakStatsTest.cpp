@@ -203,7 +203,8 @@ namespace OloEngine::Tests::Lifecycle
                                  "\"p99Ms\"", "\"gpuGrowth\"", "\"processGrowth\": null", "\"afterRestart\"",
                                  "\"cycleRecords\"", "\"frameIndexAtReturn\"", "\"validationDiagnostics\"" })
         {
-            EXPECT_NE(json.find(key), std::string::npos) << key << " missing from\n" << json;
+            EXPECT_NE(json.find(key), std::string::npos) << key << " missing from\n"
+                                                         << json;
         }
         EXPECT_NE(json.find(R"("abc \"quoted\"\n")"), std::string::npos) << "strings are escaped";
         EXPECT_EQ(json.find("inf"), std::string::npos) << "JSON has no infinity";
