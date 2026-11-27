@@ -502,6 +502,13 @@ namespace OloEngine
         // queue-family ownership pair, in place. No-op outside a region.
         void SplitOwnershipTransfersForRegion(std::vector<VkImageMemoryBarrier2>& imageBarriers,
                                               std::vector<VkBufferMemoryBarrier2>& bufferBarriers);
+        // Move `image` (all of `aspect`) into the open region's family if the
+        // region has not taken it yet: the release goes into the parked
+        // graphics buffer, the acquire into the live one, now. No-op outside a
+        // region. Every route by which a batch can touch an image calls it
+        // before that access: the barrier split above, and the bind-time
+        // layout seam, which reaches images the planner issued no barrier for.
+        void TransferImageIntoOwnershipRegion(VkImage image, VkImageAspectFlags aspect);
         // One ownership-only release/acquire pair per run of equal layout in
         // `range`; used in both directions (see the definition).
         void AppendOwnershipTransfer(VkImage image, const VkImageSubresourceRange& range, u32 fromFamily,

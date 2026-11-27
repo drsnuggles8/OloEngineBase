@@ -717,6 +717,136 @@ TEST(VulkanAsyncComputeDevice, AnAsyncBatchCrossesToTheComputeQueueAndBack)
         << "queue-family ownership transfers and the cross-queue submits must be validation-clean";
 }
 
+// #1341: the production shape the first test does not cover. A graphics pass
+// already moved the image into its sampled layout, and the async pass's read
+// is declared through a native import, so the planner issues no barrier for
+// it inside the batch. The pass still samples the image on the compute family, so the bind
+// must move ownership; before the fix nothing did and the image was read while
+// the graphics family owned it (undefined contents on hardware that splits the
+// families, invisible on NVIDIA).
+TEST(VulkanAsyncComputeDevice, ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+
+    ScopedHiddenVulkanWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+
+    const bool originalSequential = Levers::RenderGraphSequential();
+    const Levers::Tristate originalAsync = Levers::VulkanAsyncCompute();
+    struct LeverRestore
+    {
+        bool Sequential;
+        Levers::Tristate Async;
+        ~LeverRestore()
+        {
+            Levers::SetRenderGraphSequential(Sequential);
+            Levers::SetVulkanAsyncCompute(Async);
+        }
+    } leverRestore{ originalSequential, originalAsync };
+    Levers::SetRenderGraphSequential(false);
+    Levers::SetVulkanAsyncCompute(Levers::Tristate::On);
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    {
+        VulkanContext context(window.Get());
+        try
+        {
+            context.Init();
+        }
+        catch (const std::exception& e)
+        {
+            GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+        }
+        RenderCommand::Init();
+        VulkanDevice::ResetValidationErrorCount();
+        auto* device = VulkanDevice::Get();
+        ASSERT_NE(device, nullptr);
+        if (!device->HasAsyncComputeQueue())
+            GTEST_SKIP() << VulkanQueueSelection::Describe(device->GetAsyncComputeUnavailableReason());
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+        TransientPool pool;
+        TextureSpecification colorSpec;
+        colorSpec.Width = 64;
+        colorSpec.Height = 64;
+        colorSpec.Format = ImageFormat::RGBA16F;
+        const auto colorTex = pool.AcquireTexture(colorSpec);
+        ASSERT_TRUE(colorTex);
+        const auto colorIdentity = colorTex->GetRHIHandle();
+        RGResourceDesc texDesc;
+        texDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        texDesc.Format = RGResourceFormat::RGBA16Float;
+        texDesc.Width = 64;
+        texDesc.Height = 64;
+
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(true);
+        auto importRead = [&texDesc, colorIdentity](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTextureHandle("AsyncBindColor", colorIdentity, texDesc);
+            [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+        };
+        graph.AddNode(Ref<AsyncStubPass>::Create(
+            "BindProducer",
+            [&texDesc, colorIdentity](RGBuilder& builder)
+            {
+                auto tex = builder.ImportTextureHandle("AsyncBindColor", colorIdentity, texDesc);
+                builder.Write(tex, RGWriteUsage::ShaderImage);
+            },
+            [&]()
+            { api.ClearTextureFloat(colorIdentity, 0, { 0.25f, 0.5f, 0.75f, 1.0f }); }));
+        // The graphics reader takes the image to its sampled layout.
+        graph.AddNode(Ref<AsyncStubPass>::Create("BindGraphicsReader", importRead,
+                                                 [&]()
+                                                 { api.BindTexture(0u, colorIdentity); }));
+        // The async pass declares its read through the native-id import, the
+        // form production blackboard inputs take: it cannot answer in the
+        // identity currency, so the planner resolves no per-resource barrier
+        // for it and the bind below is the only place that sees the image.
+        const u32 nativeId = colorTex->GetRendererID();
+        auto consumer = Ref<AsyncStubPass>::Create(
+            "BindAsyncConsumer",
+            [&texDesc, nativeId](RGBuilder& builder)
+            {
+                auto tex = builder.ImportTexture("AsyncBindColorNative", nativeId, texDesc);
+                [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+            },
+            [&]()
+            { api.BindTexture(0u, colorIdentity); });
+        consumer->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
+        consumer->SetAsyncComputeCandidate(true);
+        graph.AddNode(consumer);
+        graph.AddExecutionDependency("BindProducer", "BindGraphicsReader");
+        graph.AddExecutionDependency("BindGraphicsReader", "BindAsyncConsumer");
+        graph.SetFinalPass("BindAsyncConsumer");
+        graph.BuildFrameGraph();
+
+        const auto plan = graph.GetSubmissionPlan();
+        ASSERT_NE(std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                       { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; }),
+                  plan.end())
+            << "the graph did not schedule an async-compute batch";
+
+        context.SetFrameRenderCallback(
+            [&](const GraphicsContext::FrameRenderTarget&)
+            {
+                graph.Execute();
+                return false;
+            });
+        context.SwapBuffers();
+        ASSERT_EQ(vkQueueWaitIdle(device->GetQueue()), VK_SUCCESS);
+
+        const auto stats = api.GetAsyncComputeStats();
+        EXPECT_EQ(stats.BatchesOnComputeQueue, 1u);
+        // One pair in, one pair back at the batch end.
+        EXPECT_GE(stats.OwnershipTransfers, 2u)
+            << "the async pass sampled an image the graphics family still owned";
+        context.SetFrameRenderCallback({});
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
 namespace
 {
     // The VSM shaders are runtime assets resolved against the working
