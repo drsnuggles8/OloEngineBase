@@ -1,6 +1,6 @@
 # KESTREL design constitution
 
-Status: consolidated synthesis of owner-approved principles; proposed repository adoption, 2026-11-27. This document governs gameplay intent, not engine architecture or milestone dates.
+Status: consolidated synthesis of owner-approved principles; adopted into the repository 2026-11-27 as documentation only. This document governs gameplay intent, not engine architecture or milestone dates.
 
 1. **Fun first; build resorts.** Construction, operation and visible consequences are central. Marketing, trailers and retention metrics do not dictate design. Preserve ambition and use incremental playable validation rather than silently shrinking the vision. (D-001, S-22, V-22, AUD-18)
 2. **Easy to understand, difficult to master.** Make interaction intuitive and causal, not shallow. Deep snow, geography, guest behavior and economics create strategic choices; automate routine administration. (D-005, W-04, U-05, AUD-15)
