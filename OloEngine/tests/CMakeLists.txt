@@ -1976,6 +1976,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ColorBlindVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UITextScaleVisualEvidenceTest.cpp
 		Functional/Accessibility/SubtitlesFollowDialogueStateTest.cpp
+
+		# HDR display output (#1353): the transfer/gamut/EETF contract, the diagnosed
+		# mode selection and the display.yaml lifecycle; the scene-to-display chain
+		# and the HDR10/scRGB present path on both backends.
+		Rendering/DisplayOutputContractTest.cpp
+		Rendering/PropertyTests/DisplayOutputEvidenceTest.cpp
 )
 
 # The editor's heavy TUs are bound on OloEditorCore now (#1314) — this target links

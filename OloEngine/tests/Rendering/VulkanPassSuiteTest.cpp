@@ -123,6 +123,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
@@ -2466,6 +2467,114 @@ TEST_F(VulkanPassSuite, ToneMapAppliesManualExposureAndMetersAutoExposure)
     EXPECT_GE(meteredValue, 21) << "metered exposure must not crush to black";
     EXPECT_LE(meteredValue, 33) << "metered exposure ~1/(9.6 x 0.502) must dim mid-gray to ~27 "
                                    "(128 here means the metering computes never wrote the exposure SSBO)";
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+    m_ExtraSetup = nullptr;
+}
+
+// =============================================================================
+// ToneMap in an HDR output mode (#1353): the same pass with the PostProcessUBO
+// display tail set to HDR10 (paper white 200, peak 600 nits). Gamma 1 and a UI
+// white of 800 nits keep the composition below 1.0, so the chain's RGBA8
+// readback can measure it. Analytic, against DisplayOutput.h's CPU twin:
+//   A) a mid-grey field at exposure 1 is 100 nits, below the BT.2390 knee: the
+//      curve is the identity and the output is 100/800;
+//   B) exposure 4 puts 402 nits above the knee: the EETF's shoulder, which a
+//      tone map still on its SDR operator would put at Reinhard's 0.8;
+//   C) exposure 8 with the None operator clips at the 600-nit peak.
+// =============================================================================
+TEST_F(VulkanPassSuite, ToneMapHdrOutputMapsSceneNitsThroughTheBt2390Curve)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto midGray = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(midGray, nullptr);
+    auto depthTexture = MakeSolidTexture(kSize, 0, 0, 0, 255);
+    ASSERT_NE(depthTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+    auto postProcessUbo = UniformBuffer::Create(sizeof(PostProcessUBOData), 7);
+    UnderwaterFogUBOData underwaterData{};
+    underwaterData.Flags = glm::vec4(0.0f);
+    auto underwaterUbo = UniformBuffer::Create(sizeof(UnderwaterFogUBOData), 37);
+    underwaterUbo->SetData(&underwaterData, sizeof(underwaterData));
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc depthDesc;
+        depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthDesc.Format = RGResourceFormat::RGBA8UNorm;
+        depthDesc.Width = kSize;
+        depthDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), depthDesc);
+    };
+
+    DisplayMapping mapping;
+    mapping.Mode = DisplayOutputMode::HDR10;
+    mapping.PaperWhiteNits = 200.0f;
+    mapping.UIWhiteNits = 800.0f;
+    mapping.PeakNits = 600.0f;
+    mapping.MinNits = 0.0f;
+
+    const auto runChain = [&](f32 exposure, i32 op) -> TArray64<u8>
+    {
+        PostProcessUBOData uboData{};
+        uboData.TonemapOperator = op;
+        uboData.Exposure = exposure;
+        uboData.Gamma = 1.0f;
+        uboData.DitherAmplitude = 0.0f;
+        uboData.InverseScreenWidth = 1.0f / static_cast<f32>(kSize);
+        uboData.InverseScreenHeight = 1.0f / static_cast<f32>(kSize);
+        uboData.DisplayMode = std::to_underlying(mapping.Mode);
+        uboData.DisplayPaperWhiteNits = mapping.PaperWhiteNits;
+        uboData.DisplayUIWhiteNits = mapping.UIWhiteNits;
+        uboData.DisplayPeakNits = mapping.PeakNits;
+        uboData.DisplayMinNits = mapping.MinNits;
+        postProcessUbo->SetData(&uboData, sizeof(uboData));
+
+        auto toneMap = Ref<ToneMapRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        toneMap->Init(initSpec);
+        toneMap->SetPostProcessUBO(postProcessUbo);
+        toneMap->SetUnderwaterFogUBO(underwaterUbo);
+        auto producer = Ref<PatternProducerPass>::Create(midGray, blitShader);
+        return RunSinglePassChain(kSize, producer, toneMap, "ToneMapPass", ResourceNames::ToneMapColor,
+                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.ToneMapColor = handle; });
+    };
+    const auto expected = [&](f32 exposure, bool clipOnly)
+    {
+        const glm::vec3 scene(128.0f / 255.0f * exposure);
+        return NitsToComposition(ToneMapForHdrDisplay(scene, mapping, clipOnly), mapping, 1.0f).r * 255.0f;
+    };
+    const auto redAt = [kSize](const TArray64<u8>& img, u32 x, u32 y)
+    { return static_cast<f32>(img[(static_cast<sizet>(y) * kSize + x) * 4]); };
+
+    const auto identity = runChain(1.0f, 1);
+    ASSERT_EQ(identity.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_NEAR(expected(1.0f, false), 32.1f, 0.2f) << "the CPU twin moved: 100.4 nits / 800 below the knee";
+    EXPECT_NEAR(redAt(identity, 32, 32), expected(1.0f, false), 1.5f) << "below the knee the HDR curve is the identity";
+
+    const auto shoulder = runChain(4.0f, 1);
+    ASSERT_EQ(shoulder.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_NEAR(redAt(shoulder, 32, 32), expected(4.0f, false), 1.5f) << "402 nits must land on the EETF shoulder";
+    EXPECT_LT(expected(4.0f, false), 4.0f * 128.0f / 255.0f * 200.0f / 800.0f * 255.0f - 5.0f)
+        << "the shoulder compresses: 402 nits does not come out at 402";
+
+    const auto clipped = runChain(8.0f, 0);
+    ASSERT_EQ(clipped.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    EXPECT_NEAR(redAt(clipped, 32, 32), 600.0f / 800.0f * 255.0f, 1.5f) << "None clips at the 600-nit peak";
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
