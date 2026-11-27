@@ -407,8 +407,12 @@ lavapipe failed the two strip cases with 0 px darkened in three runs with the ba
 the levers no longer matched the issue's pattern (parallel recording off still failed; the coat-exit
 lever, which allocates no opaque copy, passed), and moving only the bake into `RunInFrame` passed
 all four cases with every lever on (the thin strip darkened 1,049 px, the issue's passing number).
-`022108a88` moved it and made a dropped call a test failure. A Vulkan result that changes with a
-recording or memory lever is first a question of what the frame read that nothing wrote.
+On the RTX 4090 under load (two OpenGL and one Vulkan process beside it) the same binary failed the
+thin occluder (292 px) and the VSM-against-cascades strip (296 px), the two cases the issue's
+loaded-GPU repro named, and with the bake in a frame passed all 19 cases twice under the same load
+(1,046 px). The issue's other two lavapipe failures did not recur in any run. `022108a88` moved it
+and made a dropped call a test failure. A Vulkan result that changes with a recording or memory
+lever is first a question of what the frame read that nothing wrote.
 
 A third was order-dependent: after a process had rendered Forward, Forward+ and Deferred, the
 next Forward scene lost its cast shadow (#1666). The black-sky bake had been skipped, and stale
