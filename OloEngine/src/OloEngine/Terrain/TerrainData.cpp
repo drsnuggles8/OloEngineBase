@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Particle/SimplexNoise.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -72,6 +74,16 @@ namespace OloEngine
         }
         stbi_image_free(texels);
         return true;
+    }
+
+    Ref<TerrainData> TerrainData::FromCPUHeights(u32 resolution, TArray<f32> heights)
+    {
+        if (resolution == 0 || heights.Num() != static_cast<sizet>(resolution) * resolution)
+            return nullptr;
+        auto data = Ref<TerrainData>::Create();
+        data->m_Resolution = resolution;
+        data->m_Heights = std::move(heights);
+        return data;
     }
 
     bool TerrainData::LoadFromFile(const std::string& path)
@@ -244,6 +256,110 @@ namespace OloEngine
     {
         SyncFromGPU();
         return SampleHeight(m_Heights, m_Resolution, normalizedX, normalizedZ);
+    }
+
+    std::optional<f32> TerrainData::PickRay(glm::vec3 origin, glm::vec3 direction,
+                                            glm::vec2 tileSize, f32 heightScale, f32 maxDistance) const
+    {
+        if (!Math::IsFinite(origin) || !Math::IsFinite(direction) || !std::isfinite(tileSize.x) || !std::isfinite(tileSize.y) ||
+            !(tileSize.x > 0.0f && tileSize.y > 0.0f) || !std::isfinite(heightScale) ||
+            !std::isfinite(maxDistance) || maxDistance < 0.0f || m_Resolution == 0u)
+            return std::nullopt;
+
+        // Clip to the tile footprint first, including fractional entry and exit
+        // distances. A clamped height sampled outside the tile cannot bracket a hit.
+        f64 start = 0.0, end = maxDistance;
+        const auto clip = [&](f64 o, f64 d, f64 extent)
+        {
+            if (std::fpclassify(d) == FP_ZERO)
+                return o >= 0.0 && o <= extent;
+            const f64 a = -o / d, b = (extent - o) / d;
+            start = std::max(start, std::min(a, b));
+            end = std::min(end, std::max(a, b));
+            return start <= end;
+        };
+        if (!clip(origin.x, direction.x, tileSize.x) || !clip(origin.z, direction.z, tileSize.y))
+            return std::nullopt;
+
+        SyncFromGPU();
+        if (m_Heights.Num() != static_cast<sizet>(m_Resolution) * m_Resolution)
+            return std::nullopt;
+        const auto cells = static_cast<i32>(std::max(1u, m_Resolution - 1));
+        const glm::dvec2 gridScale = f64(cells) / glm::dvec2(tileSize);
+        const glm::dvec2 gridOrigin = glm::dvec2(origin.x, origin.z) * gridScale;
+        const glm::dvec2 gridDirection = glm::dvec2(direction.x, direction.z) * gridScale;
+        glm::ivec2 cell(glm::clamp(gridOrigin + start * gridDirection, glm::dvec2(0), glm::dvec2(cells - 1)));
+        const glm::ivec2 step(glm::sign(gridDirection));
+        const auto crossing = [&](glm::length_t axis)
+        {
+            if (step[axis] == 0)
+                return std::numeric_limits<f64>::infinity();
+            const i32 edge = cell[axis] + (step[axis] > 0 ? 1 : 0);
+            return (edge - gridOrigin[axis]) / gridDirection[axis];
+        };
+        const auto height = [&](i32 x, i32 z)
+        {
+            const auto last = static_cast<i32>(m_Resolution - 1);
+            return static_cast<f64>(m_Heights[static_cast<sizet>(std::min(z, last)) * m_Resolution + std::min(x, last)]) * heightScale;
+        };
+        const auto firstRoot = [](f64 a, f64 b, f64 c) -> std::optional<f64>
+        {
+            constexpr f64 tolerance = 8.0 * std::numeric_limits<f64>::epsilon();
+            const auto inSegment = [](f64 root)
+            { return root >= -tolerance && root <= 1.0 + tolerance; };
+            if (std::fpclassify(c) == FP_ZERO)
+                return 0.0;
+            if (std::fpclassify(a) == FP_ZERO)
+            {
+                if (std::fpclassify(b) != FP_ZERO && inSegment(-c / b))
+                    return std::clamp(-c / b, 0.0, 1.0);
+                return std::nullopt;
+            }
+            const f64 product = 4.0 * a * c;
+            const f64 discriminant = b * b - product;
+            if (discriminant < -tolerance * (b * b + std::abs(product)))
+                return std::nullopt;
+            // Compute the second root from the product of the roots to avoid
+            // cancellation when one intersection is much closer than the other.
+            const f64 q = -0.5 * (b + std::copysign(std::sqrt(std::max(discriminant, 0.0)), b));
+            const f64 r0 = q / a;
+            const f64 r1 = std::fpclassify(q) == FP_ZERO ? r0 : c / q;
+            if (const f64 nearRoot = std::min(r0, r1); inSegment(nearRoot))
+                return std::clamp(nearRoot, 0.0, 1.0);
+            if (const f64 farRoot = std::max(r0, r1); inSegment(farRoot))
+                return std::clamp(farRoot, 0.0, 1.0);
+            return std::nullopt;
+        };
+
+        while (cell.x >= 0 && cell.x < cells && cell.y >= 0 && cell.y < cells)
+        {
+            const f64 crossX = crossing(0), crossZ = crossing(1);
+            const f64 next = std::clamp(std::min(crossX, crossZ), start, end);
+            const f64 span = next - start;
+            const glm::dvec2 uv = glm::clamp(gridOrigin + start * gridDirection - glm::dvec2(cell),
+                                             glm::dvec2(0), glm::dvec2(1));
+            const glm::dvec2 delta = gridDirection * span;
+            const f64 h00 = height(cell.x, cell.y);
+            const f64 hx = height(cell.x + 1, cell.y) - h00;
+            const f64 hz = height(cell.x, cell.y + 1) - h00;
+            const f64 hxz = height(cell.x + 1, cell.y + 1) - h00 - hx - hz;
+            // The ray and bilinear patch meet where their height difference is
+            // zero. Parameterize this cell's segment by a fraction in [0, 1].
+            const f64 a = -hxz * delta.x * delta.y;
+            const f64 b = direction.y * span - hx * delta.x - hz * delta.y - hxz * (uv.x * delta.y + uv.y * delta.x);
+            const f64 c = origin.y + direction.y * start - (h00 + hx * uv.x + hz * uv.y + hxz * uv.x * uv.y);
+            if (const auto root = firstRoot(a, b, c))
+                return static_cast<f32>(start + *root * span);
+
+            if (next >= end)
+                break;
+            if (crossX <= crossZ)
+                cell.x += step.x;
+            if (crossZ <= crossX)
+                cell.y += step.y;
+            start = next;
+        }
+        return std::nullopt;
     }
 
     glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const

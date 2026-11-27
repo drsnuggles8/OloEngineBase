@@ -58,6 +58,22 @@ namespace OloEngine::Tests
         EXPECT_NEAR(TerrainShadowLod::PixelSizePerMetre(flipped, kViewportHeight), expected, expected * 1.0e-4f);
     }
 
+    TEST(TerrainShadowLod, CarrierScaleAndEquivalentWorldGridChooseTheSameShadowAndReceiverLevels)
+    {
+        constexpr f32 scale = 10.0f;
+        const glm::mat4 vp = glm::perspective(kFovY, 1.0f, 0.2f, 8000.0f);
+        const glm::mat4 localVP = glm::scale(vp, glm::vec3(scale));
+        const f32 localPixel = TerrainShadowLod::PixelSizePerMetre(localVP, kViewportHeight);
+        const f32 worldPixel = TerrainShadowLod::PixelSizePerMetre(vp, kViewportHeight);
+        for (const f32 distance : { 100.0f, 1600.0f, 3200.0f, 7000.0f })
+        {
+            EXPECT_EQ(TerrainShadowLod::Select(distance / scale, kQuad, localPixel, kTargetPixels, kCeiling),
+                      TerrainShadowLod::Select(distance, kQuad * scale, worldPixel, kTargetPixels, kCeiling * scale));
+            EXPECT_NEAR(kQuad * TerrainLodMetric::QuadProjectionScale(localVP, kViewportHeight) / (distance / scale),
+                        (kQuad * scale) * TerrainLodMetric::QuadProjectionScale(vp, kViewportHeight) / distance, 1.0e-5f);
+        }
+    }
+
     // An orthographic view has no "per metre of distance", and a view with no
     // height has no pixels: both answer zero, which Select reads as level 0.
     TEST(TerrainShadowLod, AViewWithNoPerspectiveKeepsEveryChunkAtFullDensity)

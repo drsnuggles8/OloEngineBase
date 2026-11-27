@@ -52,15 +52,15 @@ void main()
     if (texel.x >= u_Resolution || texel.y >= u_Resolution)
         return;
 
-    float dist = terrainBrushDistance(texel);
+    float h;
+    SCRATCH_AT(texel, h);
+    float dist = terrainBrushDistance(vec2(texel) / float(u_Resolution - 1), h);
     if (dist > u_Radius)
         return;
 
     float weight = terrainBrushFalloff(dist, u_Radius, u_Falloff);
     float influence = clamp(weight * u_StrengthDt, 0.0, 1.0);
 
-    float h;
-    SCRATCH_AT(texel, h);
     float result = h;
 
     if (u_Tool == 0) // Raise

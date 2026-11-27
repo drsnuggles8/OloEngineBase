@@ -118,8 +118,10 @@ namespace OloEngine
         }
 
         // Check if agent reached destination
-        const auto& transform = entity.GetComponent<TransformComponent>();
-        if (f32 dist = glm::length(transform.Translation - nav.m_TargetPosition); dist <= nav.m_StoppingDistance)
+        glm::vec3 distance = entity.GetScene()->ComputeWorldPosition(entity) - nav.m_TargetPosition;
+        if (nav.m_LockYAxis)
+            distance.y = 0.0f;
+        if (glm::length(distance) <= nav.m_StoppingDistance)
         {
             nav.m_HasTarget = false;
             return BTStatus::Success;

@@ -125,12 +125,12 @@ namespace OloEngine
         {
             Entity perceiver = { perceiverId, scene };
             auto& pc = perceiver.GetComponent<PerceptionComponent>();
-            const auto& perceiverTransform = perceiver.GetComponent<TransformComponent>();
+            const auto pose = scene->ComputeWorldTRS(perceiverId);
 
             // Eye position and look direction in world space. Forward is the
             // entity's local -Z (engine convention; see EditorCamera / fly-cam).
-            const glm::quat orientation = perceiverTransform.GetRotation();
-            const glm::vec3 eye = perceiverTransform.Translation + (orientation * pc.EyeOffset);
+            const glm::quat orientation = pose.Rotation;
+            const glm::vec3 eye = pose.Position + (orientation * pc.EyeOffset);
             const glm::vec3 forward = glm::normalize(orientation * glm::vec3(0.0f, 0.0f, -1.0f));
 
             const UUID perceiverUUID = perceiver.GetUUID();
@@ -177,7 +177,7 @@ namespace OloEngine
                     continue; // ally — filtered out
                 }
 
-                const glm::vec3 targetPos = targetEntity.GetComponent<TransformComponent>().Translation;
+                const glm::vec3 targetPos = scene->ComputeWorldPosition(targetEntity);
                 const f32 distSq = glm::dot(targetPos - eye, targetPos - eye);
                 if (distSq >= bestDistSq)
                 {

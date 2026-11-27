@@ -85,6 +85,28 @@ WaterShoreSample waterShoreSample(vec2 worldXZ, vec4 shoreParams)
     return s;
 }
 
+// WaterSurface::LimitFFTAtShore applies this same displacement to the CPU
+// water probe. The GPU also needs d(k*D)/dx and d(k*D)/dz to shade it.
+float waterShoreLimitFFT(WaterShoreSample shore, float breakerIndex,
+                         inout vec3 displacement, inout mat2x3 derivative)
+{
+    float breaker = max(breakerIndex, 1e-4);
+    float limit = breaker * shore.Depth;
+    float crest = abs(displacement.y);
+    if (shore.Enabled <= 0.0 || crest <= limit)
+        return 0.0;
+
+    float denominator = max(crest, 1e-6);
+    float k = limit / denominator;
+    vec2 heightSlope = vec2(derivative[0].y, derivative[1].y);
+    vec2 denominatorSlope = crest > 1e-6 ? sign(displacement.y) * heightSlope : vec2(0.0);
+    vec2 scaleSlope = (breaker * shore.Gradient - k * denominatorSlope) / denominator;
+    derivative[0] = k * derivative[0] + displacement * scaleSlope.x;
+    derivative[1] = k * derivative[1] + displacement * scaleSlope.y;
+    displacement *= k;
+    return clamp(1.0 - k, 0.0, 1.0);
+}
+
 // WaterShoreDepth.h :: LocalWavenumber. k solving w^2 = g k tanh(k h), from the
 // deep-water k0 (w^2 = g k0), by Newton from an Eckart seed on the dimensionless
 // form (kh) tanh(kh) = x.

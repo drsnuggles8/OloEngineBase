@@ -13,9 +13,9 @@ namespace OloEngine
     TerrainBrush::DirtyRegion TerrainBrush::Apply(
         TerrainData& terrainData,
         const TerrainBrushSettings& settings,
-        const glm::vec3& worldPos,
+        const glm::vec3& localHit,
         f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-        f32 deltaTime)
+        f32 deltaTime, const TerrainBrushProjection& projection)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -26,14 +26,14 @@ namespace OloEngine
         if (res <= 1 || heights.IsEmpty() || heightScale <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
             return dirty;
 
-        // Convert world position to normalized terrain coords [0, 1]
-        f32 normX = worldPos.x / worldSizeX;
-        f32 normZ = worldPos.z / worldSizeZ;
+        // Normalize the terrain-local hit before measuring the world radius.
+        f32 normX = localHit.x / worldSizeX;
+        f32 normZ = localHit.z / worldSizeZ;
 
         // Shared with TerrainGPUBrush (issue #716) so the two implementations
         // cannot drift on which texels a stroke covers.
         const auto rect = TerrainBrushUtils::ComputeBrushRect(res, normX, normZ, settings.Radius,
-                                                              worldSizeX, worldSizeZ);
+                                                              worldSizeX, worldSizeZ, projection);
         if (rect.Empty())
             return dirty;
 
@@ -69,14 +69,14 @@ namespace OloEngine
                 // Distance in world space
                 f32 dx = (static_cast<f32>(x) / static_cast<f32>(res - 1) - normX) * worldSizeX;
                 f32 dz = (static_cast<f32>(z) / static_cast<f32>(res - 1) - normZ) * worldSizeZ;
-                f32 dist = std::sqrt(dx * dx + dz * dz);
+                const sizet idx = static_cast<sizet>(z) * res + static_cast<sizet>(x);
+                const f32 dist = projection.Distance({ dx, dz }, readHeights[idx]);
 
                 if (dist > settings.Radius)
                     continue;
 
                 f32 weight = TerrainBrushUtils::ComputeFalloff(dist, settings.Radius, settings.Falloff);
                 f32 influence = glm::clamp(weight * strengthDt, 0.0f, 1.0f);
-                sizet idx = static_cast<sizet>(z) * res + static_cast<sizet>(x);
 
                 switch (settings.Tool)
                 {

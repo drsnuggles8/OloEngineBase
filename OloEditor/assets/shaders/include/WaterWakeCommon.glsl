@@ -92,7 +92,7 @@ float waterWakeArmOffset(float halfBeam, float speed, float ageSeconds)
 // frame that publishes the disabled form cannot leave a stale hull footprint
 // pressed into the sea.
 vec2 waterWakeEvaluateRecords(float hullCount, float heightScale, float flattenStrength,
-                              vec2 worldXZ, float vertexSpacing, bool shoreFoamOnly, vec2 surfaceY)
+                              vec2 worldXZ, float vertexSpacing, bool shoreFoamOnly, vec2 surfaceY, vec2 planeGradient)
 {
     if (!shoreFoamOnly && !(heightScale > 0.0))
         return vec2(0.0);
@@ -108,13 +108,13 @@ vec2 waterWakeEvaluateRecords(float hullCount, float heightScale, float flattenS
         // Bounding-circle rejection first - the branch almost every sample on
         // an ocean takes. Anything ahead of it is paid for by the whole sea.
         vec4 bound = waterWakeFetch(base + WATER_WAKE_OFFSET_BOUND);
-        // x is the completed displaced surface and y is its still-water
-        // plane. Require a shallow overlap on the plane that owns the hull.
-        if (shoreFoamOnly && (abs(surfaceY.y - bound.w) > 0.01 ||
-                              surfaceY.x < bound.x || surfaceY.x > bound.y + WATER_WAKE_SHORE_DEPTH_METRES))
-            continue;
         vec4 centreForward = waterWakeFetch(base + WATER_WAKE_OFFSET_CENTRE_FORWARD);
         vec2 rel = worldXZ - centreForward.xy;
+        // Compare plane heights at the hull centre, where the hull chose its tile.
+        float planeAtHull = surfaceY.y - dot(planeGradient, rel);
+        if (shoreFoamOnly && (abs(planeAtHull - bound.w) > 0.01 ||
+                              surfaceY.x < bound.x || surfaceY.x > bound.y + WATER_WAKE_SHORE_DEPTH_METRES))
+            continue;
         if (dot(rel, rel) > bound.z * bound.z)
             continue;
 
@@ -213,17 +213,17 @@ vec2 waterWakeEvaluateRecords(float hullCount, float heightScale, float flattenS
 vec2 waterWakeEvaluate(float hullCount, float heightScale, float flattenStrength,
                        vec2 worldXZ, float vertexSpacing)
 {
-    return waterWakeEvaluateRecords(hullCount, heightScale, flattenStrength, worldXZ, vertexSpacing, false, vec2(0.0));
+    return waterWakeEvaluateRecords(hullCount, heightScale, flattenStrength, worldXZ, vertexSpacing, false, vec2(0.0), vec2(0.0));
 }
 
-float waterWakeShoreFoamScale(float hullCount, vec2 worldXZ, float waterDepth, vec2 surfaceY)
+float waterWakeShoreFoamScale(float hullCount, vec2 worldXZ, float waterDepth, vec2 surfaceY, vec2 planeGradient)
 {
     // The shallow contact band follows the intersection in scene depth, so
     // it can follow a curved waterline inside the rectangular footprint.
     float insideWaterColumn = smoothstep(0.04, 0.12, waterDepth);
     if (!(insideWaterColumn > 0.0) || !(hullCount > 0.0))
         return 1.0;
-    float hullInterior = waterWakeEvaluateRecords(hullCount, 0.0, 0.0, worldXZ, 0.0, true, surfaceY).y;
+    float hullInterior = waterWakeEvaluateRecords(hullCount, 0.0, 0.0, worldXZ, 0.0, true, surfaceY, planeGradient).y;
     return 1.0 - hullInterior * insideWaterColumn;
 }
 

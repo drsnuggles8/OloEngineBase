@@ -24,20 +24,7 @@ namespace OloEngine
         if (!entity.HasComponent<TransformComponent>())
             return false;
 
-        // World transform: compose local transforms up the parent chain (the
-        // scene stores parent-relative transforms; gizmos and rendering do the
-        // same composition).
-        glm::mat4 world = entity.GetComponent<TransformComponent>().GetTransform();
-        for (UUID parentId = entity.GetParentUUID(); static_cast<u64>(parentId) != 0;)
-        {
-            const auto parentOpt = scene->TryGetEntityWithUUID(parentId);
-            if (!parentOpt)
-                break;
-            Entity parent = *parentOpt;
-            if (parent.HasComponent<TransformComponent>())
-                world = parent.GetComponent<TransformComponent>().GetTransform() * world;
-            parentId = parent.GetParentUUID();
-        }
+        const glm::mat4 world = scene->ComputeWorldTransform(entity);
 
         // Bounds: prefer real mesh bounds, fall back to a scale-derived radius.
         glm::vec3 center = glm::vec3(world[3]);
@@ -63,8 +50,10 @@ namespace OloEngine
         else if (entity.HasComponent<TerrainComponent>())
         {
             const auto& tc = entity.GetComponent<TerrainComponent>();
-            center += glm::vec3(tc.m_WorldSizeX * 0.5f, tc.m_HeightScale * 0.4f, tc.m_WorldSizeZ * 0.5f);
-            radius = std::max(tc.m_WorldSizeX, tc.m_WorldSizeZ) * 0.5f;
+            const BoundingBox box{ glm::vec3(0.0f), { tc.m_WorldSizeX, tc.m_HeightScale, tc.m_WorldSizeZ } };
+            const BoundingBox worldBox = box.Transform(world);
+            center = worldBox.GetCenter();
+            radius = glm::length(worldBox.GetExtents());
         }
         if (radius < 0.5f)
         {

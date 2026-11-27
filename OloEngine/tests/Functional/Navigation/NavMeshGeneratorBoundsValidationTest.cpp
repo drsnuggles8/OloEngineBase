@@ -25,6 +25,7 @@
 #include "OloEngine/Navigation/NavMeshGenerator.h"
 #include "OloEngine/Navigation/NavMeshSettings.h"
 #include "OloEngine/Navigation/NavMesh.h"
+#include "OloEngine/Navigation/NavMeshQuery.h"
 
 #include <cmath>
 #include <limits>
@@ -65,6 +66,28 @@ TEST_F(NavMeshGeneratorBoundsValidationTest, ValidBoundsProduceMesh)
     auto mesh = Bake(kValidMin, kValidMax);
     ASSERT_TRUE(mesh && mesh->IsValid())
         << "valid, finite, ordered bounds were rejected — the guard is too strict.";
+}
+
+TEST_F(NavMeshGeneratorBoundsValidationTest, BoxTopInsideBakeBoundsIsWalkableWithEitherParentHandedness)
+{
+    Entity rig = GetScene().CreateEntity("Deck carrier");
+    rig.GetComponent<TransformComponent>().Translation = { 0.0f, 3.75f, 0.0f };
+    Entity deck = GetScene().CreateEntity("Deck");
+    deck.SetParent(rig);
+    deck.AddComponent<BoxCollider3DComponent>().m_HalfExtents = { 6.0f, 0.5f, 6.0f };
+
+    // Only the top face at y=4.25 lies inside these bounds. The deck bottom
+    // at y=3.25 cannot supply an accidentally upward-facing underside.
+    for (const f32 scaleX : { 1.0f, -1.0f })
+    {
+        SCOPED_TRACE(scaleX);
+        rig.GetComponent<TransformComponent>().Scale.x = scaleX;
+        auto mesh = Bake({ -7, 3.5f, -7 }, { 7, 8, 7 });
+        ASSERT_TRUE(mesh && mesh->IsValid());
+        glm::vec3 point{};
+        ASSERT_TRUE(NavMeshQuery(mesh).FindNearestPoint({ 0, 4.25f, 0 }, 0.4f, point));
+        EXPECT_NEAR(point.y, 4.25f, NavMeshSettings{}.CellHeight);
+    }
 }
 
 TEST_F(NavMeshGeneratorBoundsValidationTest, NaNBoundsRejected)

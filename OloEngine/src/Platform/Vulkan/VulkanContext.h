@@ -124,6 +124,14 @@ namespace OloEngine
         // (previous-frame data) on false; a full GPU stall on true is the
         // price GL always paid for glGetBufferSubData.
         [[nodiscard]] bool FlushFrameRecordingAndWait();
+        // Test-only: the next `count` flushes fail before vkQueueSubmit2, as a
+        // rejected submit would, so the discarded-recording path can be driven.
+        static void SetFailNextFlushSubmitsForTesting(u32 count);
+        [[nodiscard]] static u32 GetPendingFailNextFlushSubmitsForTesting();
+        // Test-only: the next `count` accepted flushes report a failed fence
+        // wait (VK_ERROR_OUT_OF_HOST_MEMORY) instead of waiting.
+        static void SetFailNextFlushWaitsForTesting(u32 count);
+        [[nodiscard]] static u32 GetPendingFailNextFlushWaitsForTesting();
 
         // Ends and submits the current render-graph producer segment without
         // waiting for the GPU, then opens a fresh command buffer for the

@@ -56,16 +56,17 @@ namespace OloEngine
         // MUST match the GLSL `underwaterSegmentLength` in PostProcess_ToneMap.glsl.
         [[nodiscard]] inline f32 UnderwaterSegmentLength(const glm::vec3& camPos,
                                                          const glm::vec3& worldPos,
-                                                         f32 waterSurfaceY) noexcept
+                                                         f32 waterSurfaceY, glm::vec2 surfaceGradient = glm::vec2(0.0f)) noexcept
         {
             const bool camUnder = camPos.y < waterSurfaceY;
-            const bool fragUnder = worldPos.y < waterSurfaceY;
+            const f32 fragmentY = worldPos.y - glm::dot(surfaceGradient, glm::vec2(worldPos.x - camPos.x, worldPos.z - camPos.z));
+            const bool fragUnder = fragmentY < waterSurfaceY;
             if (camUnder && fragUnder)
                 return glm::length(worldPos - camPos);
             if (!camUnder && !fragUnder)
                 return 0.0f;
             // Segment crosses the plane: find the crossing point.
-            const f32 dy = worldPos.y - camPos.y;
+            const f32 dy = fragmentY - camPos.y;
             if (std::abs(dy) < 1e-6f)
                 return 0.0f;                                    // parallel to the plane and not both under (handled above)
             const f32 tCross = (waterSurfaceY - camPos.y) / dy; // in [0,1]
@@ -126,14 +127,8 @@ namespace OloEngine
         // `fallbackY` answers for a tile standing on edge, which has no height there.
         [[nodiscard]] inline f32 TilePlaneYAt(const glm::mat4& model, f32 worldX, f32 worldZ, f32 fallbackY) noexcept
         {
-            const glm::vec3 origin(model[3]);
-            // The plane is spanned by the tile's X and Z axes, so their cross product is
-            // its normal whatever scale or shear the matrix carries.
-            const glm::vec3 normal = glm::cross(glm::vec3(model[2]), glm::vec3(model[0]));
-            const f32 lengthSquared = glm::dot(normal, normal);
-            if (!std::isfinite(lengthSquared) || !(normal.y * normal.y > 1e-8f * lengthSquared))
-                return fallbackY;
-            const f32 y = origin.y - (normal.x * (worldX - origin.x) + normal.z * (worldZ - origin.z)) / normal.y;
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            const f32 y = frame ? frame->RestHeight({ worldX, worldZ }) : fallbackY;
             return std::isfinite(y) ? y : fallbackY;
         }
 
@@ -142,47 +137,93 @@ namespace OloEngine
         [[nodiscard]] inline bool TryGetTileFootprintGap(const glm::mat4& model, f32 width, f32 depth,
                                                          const glm::vec3& eye, f32& gap) noexcept
         {
-            const glm::mat4 inverse = glm::inverse(model);
-            f32 surfaceY = TilePlaneYAt(model, eye.x, eye.z, std::numeric_limits<f32>::quiet_NaN());
-            glm::vec4 localPoint;
-            if (std::isfinite(surfaceY))
-            {
-                localPoint = inverse * glm::vec4(eye.x, surfaceY, eye.z, 1.0f);
-            }
-            else
-            {
-                // A nearly vertical plane has no usable height on the ray.
-                // Retain the local-Y projection used for a tile on edge.
-                localPoint = inverse * glm::vec4(eye, 1.0f);
-                surfaceY = (model * glm::vec4(localPoint.x, 0.0f, localPoint.z, 1.0f)).y;
-            }
-            if (!std::isfinite(localPoint.x) || !std::isfinite(localPoint.z) || !std::isfinite(surfaceY))
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            if (!frame)
                 return false;
-
-            const f32 halfX = WaterSurface::SanitizeTileDimension(width) * 0.5f;
-            const f32 halfZ = WaterSurface::SanitizeTileDimension(depth) * 0.5f;
-            if (std::abs(localPoint.x) > halfX || std::abs(localPoint.z) > halfZ)
+            const glm::vec2 worldXZ(eye.x, eye.z);
+            const glm::vec2 local = frame->LocalXZ(worldXZ);
+            const glm::vec2 halfExtent(WaterSurface::SanitizeTileDimension(width) * 0.5f,
+                                       WaterSurface::SanitizeTileDimension(depth) * 0.5f);
+            if (!glm::all(glm::lessThanEqual(glm::abs(local), halfExtent)))
                 return false;
-
-            gap = surfaceY - eye.y;
-            return true;
+            gap = frame->RestHeight(worldXZ) - eye.y;
+            return std::isfinite(gap);
         }
 
-        // The height of the surface DRAWN over the eye: the tile's own plane at the
-        // eye, plus what the waves add there.
-        //
-        // Two sources, because neither has the whole answer. The plane comes from the
-        // tile's transform, which a raised or tilted tile moves; the waves come from
-        // the water probe, which is how physics sees the tile and which measures from
-        // the height of the tile's ORIGIN (`probeRestY`). Taking the probe's sample
-        // whole put a tilted tile's surface at its origin's height wherever the eye
-        // was, so an eye under the raised side read as in the air. A flat tile's plane
-        // is its origin's height, and for it this is the probe's sample unchanged.
-        // A sample that is not finite adds nothing: the still plane stands.
-        [[nodiscard]] inline f32 DrawnSurfaceY(f32 planeYAtEye, f32 probeRestY, f32 probeSurfaceY) noexcept
+        // Tile-local metres a wave may push the drawn surface past its tile's edge
+        // and still count as that tile in TileFootprintRows.
+        inline constexpr f32 kTileFootprintMargin = 2.0f;
+
+        // Two rows that tell whether a world position lies over a water tile:
+        // it does when |dot(U, p)| <= 1 and |dot(V, p)| <= 1 for p = (x, y, z, 1).
+        // The underwater pass slides every captured surface height along the eye
+        // tile's slope (SurfaceGradient); a surface another tile drew does not lie
+        // on that plane, so the slope applies only inside these rows. All-zero rows
+        // put every position on the tile, which is what a level eye tile needs.
+        struct TileFootprintRows
         {
-            const f32 waves = probeSurfaceY - probeRestY;
-            return std::isfinite(waves) ? planeYAtEye + waves : planeYAtEye;
+            glm::vec4 U{ 0.0f };
+            glm::vec4 V{ 0.0f };
+        };
+
+        [[nodiscard]] inline TileFootprintRows MakeTileFootprintRows(const glm::mat4& model, f32 width, f32 depth) noexcept
+        {
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            if (!frame)
+                return {};
+            const glm::vec2 origin(frame->Origin.x, frame->Origin.z);
+            // LocalXZ = WorldXZToLocal * (xz - origin); component r is row r of the matrix.
+            const auto row = [&](glm::length_t r, f32 dimension)
+            {
+                const glm::vec2 a(frame->WorldXZToLocal[0][r], frame->WorldXZToLocal[1][r]);
+                const f32 reach = WaterSurface::SanitizeTileDimension(dimension) * 0.5f + kTileFootprintMargin;
+                return glm::vec4(a.x, 0.0f, a.y, -glm::dot(a, origin)) / reach;
+            };
+            const TileFootprintRows rows{ row(0, width), row(1, depth) };
+            for (glm::length_t i = 0; i < 4; ++i)
+                if (!std::isfinite(rows.U[i]) || !std::isfinite(rows.V[i]))
+                    return {};
+            return rows;
         }
+
+        // Metres added to a tile's drawn wave height before a captured point
+        // counts as off its plane.
+        inline constexpr f32 kSurfaceBandMargin = 0.25f;
+
+        // How far, measured vertically, the eye tile's drawn surface can lie from
+        // its rest plane: `waveExtent` is the largest displacement along the tile
+        // normal (waves plus wake), and a tilted tile's vertical reach is longer.
+        [[nodiscard]] inline f32 EyeTileSurfaceBand(const glm::mat4& model, f32 waveExtent) noexcept
+        {
+            const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+            const f32 extent = std::isfinite(waveExtent) ? std::max(waveExtent, 0.0f) : 0.0f;
+            const f32 band = (extent + kSurfaceBandMargin) / (frame ? frame->Normal.y : 1.0f);
+            return std::isfinite(band) ? band : kSurfaceBandMargin;
+        }
+
+        // What the underwater pass knows of the eye tile's surface.
+        struct EyeTileSurface
+        {
+            TileFootprintRows Rows;
+            glm::vec2 Gradient{ 0.0f }; // world rest-height change per X/Z metre
+            f32 RestYAtEye = 0.0f;      // rest height on the eye's vertical
+            glm::vec2 EyeXZ{ 0.0f };
+            f32 Band = 0.0f; // EyeTileSurfaceBand
+        };
+
+        // The slope a captured surface point slides along to the eye's column:
+        // the eye tile's own where that tile drew it, none for another tile's.
+        // A point the eye tile drew lies over its footprint AND within its wave
+        // band of its plane; another tile over the same footprint lies off it.
+        // MUST match the GLSL `underwaterPixelSurfaceGradient` in PostProcess_ToneMap.glsl.
+        [[nodiscard]] inline glm::vec2 PixelSurfaceGradient(const EyeTileSurface& eyeTile, const glm::vec3& surface) noexcept
+        {
+            const glm::vec4 p(surface, 1.0f);
+            const bool overFootprint = std::abs(glm::dot(eyeTile.Rows.U, p)) <= 1.0f && std::abs(glm::dot(eyeTile.Rows.V, p)) <= 1.0f;
+            const f32 planeY = eyeTile.RestYAtEye + glm::dot(eyeTile.Gradient, glm::vec2(surface.x, surface.z) - eyeTile.EyeXZ);
+            const bool onPlane = std::abs(surface.y - planeY) <= eyeTile.Band;
+            return overFootprint && onPlane ? eyeTile.Gradient : glm::vec2(0.0f);
+        }
+
     } // namespace UnderwaterFog
 } // namespace OloEngine

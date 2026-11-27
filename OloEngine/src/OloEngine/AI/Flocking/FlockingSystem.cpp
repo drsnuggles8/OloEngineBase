@@ -7,8 +7,6 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
-#include <glm/gtc/quaternion.hpp>
-
 #include <algorithm>
 #include <cmath>
 
@@ -82,10 +80,9 @@ namespace OloEngine
         f32 maxAvoidRadius = 0.0f;
         for (const auto entity : boidView)
         {
-            const auto& transform = boidView.get<TransformComponent>(entity);
             const auto& boid = boidView.get<BoidComponent>(entity);
 
-            workspace.BoidPositions.push_back(transform.Translation);
+            workspace.BoidPositions.push_back(scene->ComputeWorldPosition(entity));
             workspace.BoidVelocities.push_back(boid.m_Velocity);
 
             maxNeighborRadius = std::max(maxNeighborRadius, std::max(boid.m_NeighborRadius, boid.m_SeparationRadius));
@@ -118,10 +115,9 @@ namespace OloEngine
         for (auto obstacleView = scene->GetAllEntitiesWith<TransformComponent, BoidObstacleComponent>();
              const auto entity : obstacleView)
         {
-            const auto& transform = obstacleView.get<TransformComponent>(entity);
             const auto& obstacle = obstacleView.get<BoidObstacleComponent>(entity);
 
-            workspace.ObstaclePositions.push_back(transform.Translation);
+            workspace.ObstaclePositions.push_back(scene->ComputeWorldPosition(entity));
             workspace.ObstacleRadii.push_back(obstacle.m_Radius);
             workspace.MaxObstacleRadius = std::max(workspace.MaxObstacleRadius, obstacle.m_Radius);
         }
@@ -304,7 +300,6 @@ namespace OloEngine
 
         for (auto view = scene->GetAllEntitiesWith<TransformComponent, BoidComponent>(); const auto entity : view)
         {
-            auto& transform = view.get<TransformComponent>(entity);
             auto& boid = view.get<BoidComponent>(entity);
 
             if (!Math::IsFinite(boid.m_Velocity))
@@ -322,22 +317,20 @@ namespace OloEngine
 
             boid.m_Velocity = velocity;
 
-            if (!Math::IsFinite(transform.Translation))
+            const glm::vec3 position = scene->ComputeWorldPosition(entity);
+            if (!Math::IsFinite(position) || !scene->TrySetWorldPosition(entity, position + velocity * dt))
                 continue;
-
-            transform.Translation += velocity * dt;
 
             if (boid.m_FaceVelocity && glm::dot(velocity, velocity) > kDegenerateLengthSq)
             {
-                // Engine convention is -Z forward (see PerceptionSystem's sight
-                // cone), which is what glm::quatLookAt builds.
+                // Engine convention is -Z forward (see PerceptionSystem's sight cone).
                 const glm::vec3 forward = glm::normalize(velocity);
                 constexpr glm::vec3 kWorldUp(0.0f, 1.0f, 0.0f);
                 // Degenerate when travelling straight up/down — keep the
                 // previous orientation rather than emitting a NaN quaternion.
                 if (std::abs(glm::dot(forward, kWorldUp)) < 0.999f)
                 {
-                    transform.SetRotation(glm::quatLookAt(forward, kWorldUp));
+                    scene->TrySetWorldForward(entity, forward, kWorldUp);
                 }
             }
         }

@@ -51,6 +51,7 @@
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -60,7 +61,9 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Entity.h"
@@ -134,6 +137,19 @@ namespace OloEngine::Tests
         [[nodiscard]] bool GoldenRebaseRequested()
         {
             return OloEngine::Tests::Options().GoldenRebase;
+        }
+
+        void WriteWaterEvidence(const std::string& stem, const std::vector<u8>& pixels, u32 width, u32 height)
+        {
+            fs::create_directories("assets/tests/visual");
+            const auto path = fs::path("assets/tests/visual") / (stem + ".png");
+            const auto stride = static_cast<sizet>(width) * 4;
+            std::vector<u8> topDown(pixels.size());
+            for (u32 y = 0; y < height; ++y)
+                std::copy_n(pixels.data() + (height - y - 1u) * stride, stride, topDown.data() + y * stride);
+            ASSERT_NE(stbi_write_png(path.string().c_str(), static_cast<int>(width), static_cast<int>(height),
+                                     4, topDown.data(), static_cast<int>(stride)),
+                      0);
         }
     } // namespace
 
@@ -767,6 +783,15 @@ namespace OloEngine::Tests
             { RenderingPath::Deferred, HullFoamGrid::Plain, "Deferred_Plain_UpscaleQuality", 1, UpscaleMode::Quality },
         };
 
+        std::vector<HullFoamCell> PlainGridCells()
+        {
+            std::vector<HullFoamCell> cells;
+            for (const auto& cell : kHullFoamCells)
+                if (cell.Grid == HullFoamGrid::Plain)
+                    cells.push_back(cell);
+            return cells;
+        }
+
         struct HullFoamPose
         {
             const char* Name;
@@ -949,15 +974,7 @@ namespace OloEngine::Tests
                 feature = pose.ShoreControl ? "HullFoamShoreDark" : "HullFoamContactDark";
             const std::string stem = TestRenderBackend::EvidenceName(feature) +
                                      GetParam().Name + (play ? "_Play_" : "_Edit_") + pose.Name;
-            fs::create_directories("assets/tests/visual");
-            const auto path = fs::path("assets/tests/visual") / (stem + ".png");
-            const auto stride = static_cast<sizet>(width) * 4;
-            std::vector<u8> topDown(pixels.size());
-            for (u32 y = 0; y < height; ++y)
-                std::copy_n(pixels.data() + (height - y - 1u) * stride, stride, topDown.data() + y * stride);
-            ASSERT_NE(stbi_write_png(path.string().c_str(), static_cast<int>(width), static_cast<int>(height),
-                                     4, topDown.data(), static_cast<int>(stride)),
-                      0);
+            WriteWaterEvidence(stem, pixels, width, height);
         }
 
         static constexpr u32 kCaptureWidth = 640;
@@ -1079,4 +1096,493 @@ namespace OloEngine::Tests
     INSTANTIATE_TEST_SUITE_P(AllPaths, HullFoamEvidenceTest, ::testing::ValuesIn(kHullFoamCells),
                              [](const ::testing::TestParamInfo<HullFoamCell>& info)
                              { return std::string(info.param.Name); });
+
+    // The post-process sees the same depth contract for each grid topology.
+    // Reuse the native, multisampled and spatially upscaled plain-grid cells.
+    class TiltedFogEvidenceTest : public HullFoamEvidenceTest
+    {
+    };
+
+    TEST_P(TiltedFogEvidenceTest, OnlyTheWetEyeSeesUnderwaterAbsorptionLookingUphill)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto& cell = GetParam();
+        if (cell.Samples > Renderer3D::GetMaxMSAASamples() && cell.Samples > 1u)
+            GTEST_SKIP() << "Device does not support " << cell.Samples << "x scene MSAA";
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = cell.Path;
+        settings.Deferred.MSAASampleCount = cell.Samples;
+        settings.EditorDebugDrawsEnabled = false;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.Upscale = cell.Upscale;
+        post.Technique = UpscalerTechnique::Spatial;
+        Renderer3D::ApplyRendererSettings();
+
+        struct ResetTime
+        {
+            ~ResetTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const resetTime;
+        Time::SetMockTime(kCaptureTime);
+        Entity rig = GetScene().CreateEntity("Water carrier");
+        constexpr f32 pitch = glm::radians(20.0f);
+        rig.GetComponent<TransformComponent>().SetRotationEuler({ pitch, 0, 0 });
+        m_Ocean.SetParent(rig);
+        auto& water = m_Ocean.GetComponent<WaterComponent>();
+        water.m_UnderwaterFogColor = { 0.85f, 0.03f, 0.35f };
+        water.m_UnderwaterRefractionStrength = 0.0f;
+        water.m_CausticsIntensity = 0.0f;
+        water.m_GodRayIntensity = 0.0f;
+        // The surface rises toward -Z. In the dry pose, uphill fragments
+        // are above eye height even though the entire still plane is viewed
+        // from its dry side. The eye is within the 2 m activation margin.
+        constexpr f32 cameraZ = 8.0f;
+        const f32 restY = -std::tan(pitch) * cameraZ;
+        for (const bool wet : { false, true })
+        {
+            const char* pose = wet ? "Wet" : "DryUphill";
+            const f32 clearance = wet ? -0.8f : 0.6f;
+            const EditorCamera camera = MakeFoamCamera({ pose, { -9.0f, restY + clearance, cameraZ }, 0.0f });
+            std::array<std::vector<u8>, 2> images;
+            std::array<std::string, 2> names;
+            u32 renderWidth = 0;
+            u32 renderHeight = 0;
+            for (u32 arm = 0; arm < images.size(); ++arm)
+            {
+                const f32 density = arm == 0 ? 0.0f : 0.8f;
+                water.m_UnderwaterFogDensity = density;
+                RunEditorFrames(camera, 4);
+                const auto& state = Renderer3D::GetUnderwaterFogState();
+                ASSERT_TRUE(state.Active) << pose;
+                EXPECT_FLOAT_EQ(state.Density, density);
+                EXPECT_NEAR(state.WaterSurfaceY, restY, 1e-4f);
+                const auto buffer = Renderer3D::GetUnderwaterFogUBO();
+                ASSERT_TRUE(buffer);
+                ASSERT_EQ(buffer->GetCachedData().size(), sizeof(UnderwaterFogUBOData));
+                const auto data = buffer->GetData<UnderwaterFogUBOData>();
+                EXPECT_NEAR(data.Flags.w, -clearance, 1e-4f);
+                EXPECT_NEAR(data.SurfaceGradient.y, -std::tan(pitch), 1e-4f);
+                ASSERT_TRUE(Renderer3D::GetWaterSurfaceDepthTextureID().IsValid());
+
+                const auto& resolution = Renderer3D::GetUpscaleResolution();
+                EXPECT_TRUE(resolution.Latched);
+                EXPECT_EQ(resolution.Path, cell.Path);
+                EXPECT_EQ(resolution.SceneSampleCount, cell.Samples);
+                const auto sceneColor = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                ASSERT_TRUE(sceneColor);
+                renderWidth = sceneColor->GetActiveViewportWidth();
+                renderHeight = sceneColor->GetActiveViewportHeight();
+                ASSERT_GT(renderWidth, 0u);
+                ASSERT_GT(renderHeight, 0u);
+                if (cell.Upscale == UpscaleMode::Quality)
+                {
+                    EXPECT_EQ(resolution.Result.Resolved, TemporalUpscalePolicy::ResolvedUpscaler::Spatial);
+                    EXPECT_LT(renderWidth, kCaptureWidth);
+                    EXPECT_LT(renderHeight, kCaptureHeight);
+                }
+                else
+                {
+                    EXPECT_EQ(renderWidth, kCaptureWidth);
+                    EXPECT_EQ(renderHeight, kCaptureHeight);
+                }
+                u32 width = 0;
+                u32 height = 0;
+                ASSERT_TRUE(ReadbackComposite(images[arm], width, height));
+                ASSERT_EQ(width, kCaptureWidth);
+                ASSERT_EQ(height, kCaptureHeight);
+                ASSERT_EQ(images[arm].size(), static_cast<sizet>(width) * height * 4);
+                names[arm] = TestRenderBackend::EvidenceName(arm == 0 ? "TiltedFogOff" : "TiltedFog") + cell.Name + "_" + pose;
+                ASSERT_NO_FATAL_FAILURE(WriteWaterEvidence(names[arm], images[arm], width, height));
+            }
+            u32 changed = 0;
+            i32 largest = 0;
+            for (sizet pixel = 0; pixel < images[0].size(); pixel += 4)
+            {
+                i32 delta = 0;
+                for (sizet c = 0; c < 3; ++c)
+                    delta = std::max(delta, std::abs(static_cast<i32>(images[0][pixel + c]) - images[1][pixel + c]));
+                largest = std::max(largest, delta);
+                if (delta > 5)
+                    ++changed;
+            }
+            constexpr u32 pixels = kCaptureWidth * kCaptureHeight;
+            std::cout << "[TiltedFog] " << names[1] << ".png vs " << names[0] << ".png scene=" << renderWidth << 'x' << renderHeight
+                      << " display=" << kCaptureWidth << 'x' << kCaptureHeight << " samples=" << cell.Samples
+                      << " changed=" << changed << '/' << pixels << " max=" << largest << "/255\n";
+            if (wet)
+                EXPECT_GT(changed, pixels / 8) << "submerged control must show absorption";
+            else
+                EXPECT_LT(changed, pixels / 500) << "uphill water should keep its above-water shading";
+        }
+    }
+
+    // The water depth capture holds every drawn tile, but only the eye tile's
+    // surface lies on the slope the underwater pass slides heights along. A
+    // level tile five metres below a dry eye, slid up that slope, reads as a
+    // crest above the eye and is fogged over. Two of them: one past the
+    // downhill edge, and one over the tilted tile's own footprint, 1.4 m above
+    // its plane, so footprint membership alone cannot tell them apart. Both must
+    // keep their own height and their above-water shading.
+    TEST_P(TiltedFogEvidenceTest, LevelTilesBesideAndOverATiltedEyeTileKeepTheirOwnHeight)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto& cell = GetParam();
+        if (cell.Samples > Renderer3D::GetMaxMSAASamples() && cell.Samples > 1u)
+            GTEST_SKIP() << "Device does not support " << cell.Samples << "x scene MSAA";
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = cell.Path;
+        settings.Deferred.MSAASampleCount = cell.Samples;
+        settings.EditorDebugDrawsEnabled = false;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.Upscale = cell.Upscale;
+        post.Technique = UpscalerTechnique::Spatial;
+        Renderer3D::ApplyRendererSettings();
+
+        struct ResetTime
+        {
+            ~ResetTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const resetTime;
+        Time::SetMockTime(kCaptureTime);
+        Entity rig = GetScene().CreateEntity("Water carrier");
+        constexpr f32 pitch = glm::radians(20.0f);
+        rig.GetComponent<TransformComponent>().SetRotationEuler({ pitch, 0, 0 });
+        m_Ocean.SetParent(rig);
+        auto& water = m_Ocean.GetComponent<WaterComponent>();
+        water.m_UnderwaterFogColor = { 0.85f, 0.03f, 0.35f };
+        water.m_UnderwaterRefractionStrength = 0.0f;
+        water.m_CausticsIntensity = 0.0f;
+        water.m_GodRayIntensity = 0.0f;
+
+        // The tilted 80 m tile falls toward +Z and ends near z = 37.6. The eye
+        // stands 0.6 m above it at z = 8, looking downhill.
+        constexpr f32 cameraZ = 8.0f;
+        const f32 restY = -std::tan(pitch) * cameraZ;
+        const glm::vec3 eye{ -9.0f, restY + 0.6f, cameraZ };
+        Entity level = GetScene().CreateEntity("Level tile beyond the slope");
+        level.GetComponent<TransformComponent>().Translation = { eye.x, eye.y - 5.0f, 72.0f };
+        auto& levelWater = level.AddComponent<WaterComponent>();
+        levelWater.m_WorldSizeX = levelWater.m_WorldSizeZ = 60.0f;
+        levelWater.m_WaveAmplitude = 0.0f;
+        levelWater.m_WaveSteepness0 = 0.0f;
+        levelWater.m_WaveSteepness1 = 0.0f;
+        levelWater.m_WakeShapeEnabled = false;
+        levelWater.m_WakeFoamEnabled = false;
+        levelWater.m_ProjectedGridEnabled = false;
+        levelWater.m_TessellationEnabled = false;
+        // Slid up the eye tile's slope from z >= 42, this surface would sit
+        // 7.4 m or more above where it is drawn: well above the eye.
+        ASSERT_GT(std::tan(pitch) * (42.0f - cameraZ) - 5.0f, 2.0f);
+        constexpr f32 overZ = 24.0f;
+        Entity over = GetScene().CreateEntity("Level tile over the slope");
+        over.GetComponent<TransformComponent>().Translation = { eye.x, eye.y - 5.0f, overZ };
+        auto& overWater = over.AddComponent<WaterComponent>();
+        overWater.m_WorldSizeX = overWater.m_WorldSizeZ = 8.0f;
+        overWater.m_WaveAmplitude = 0.0f;
+        overWater.m_WaveSteepness0 = 0.0f;
+        overWater.m_WaveSteepness1 = 0.0f;
+        overWater.m_WakeShapeEnabled = false;
+        overWater.m_WakeFoamEnabled = false;
+        overWater.m_ProjectedGridEnabled = false;
+        overWater.m_TessellationEnabled = false;
+        // Over the 80 m tile (z <= 37.6) and clear of its plane there, yet slid
+        // up the slope to the eye's column it would read above the eye.
+        const f32 planeAtOver = -std::tan(pitch) * overZ;
+        ASSERT_GT(eye.y - 5.0f - planeAtOver, 1.0f);
+        ASSERT_GT(eye.y - 5.0f + std::tan(pitch) * (overZ - cameraZ), eye.y);
+
+        EditorCamera camera(60.0f, static_cast<f32>(kCaptureWidth) / kCaptureHeight, 0.05f, 200.0f);
+        camera.SetViewportSize(static_cast<f32>(kCaptureWidth), static_cast<f32>(kCaptureHeight));
+        camera.SetPose(eye, glm::pi<f32>(), 0.0f);
+        ASSERT_GT(camera.GetForwardDirection().z, 0.99f);
+
+        std::array<std::vector<u8>, 2> images;
+        u32 levelPixels = 0;
+        u32 overPixels = 0;
+        u32 sampledPixels = 0;
+        for (u32 arm = 0; arm < images.size(); ++arm)
+        {
+            const f32 density = arm == 0 ? 0.0f : 0.8f;
+            // Adding the level tile can move the component pool; look both up.
+            m_Ocean.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
+            level.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
+            over.GetComponent<WaterComponent>().m_UnderwaterFogDensity = density;
+            RunEditorFrames(camera, 4);
+            const auto& state = Renderer3D::GetUnderwaterFogState();
+            ASSERT_TRUE(state.Active);
+            EXPECT_NEAR(state.WaterSurfaceY, restY, 1e-4f) << "the tilted tile under the eye owns the fog";
+            const auto data = Renderer3D::GetUnderwaterFogUBO()->GetData<UnderwaterFogUBOData>();
+            EXPECT_NEAR(data.SurfaceGradient.y, -std::tan(pitch), 1e-4f);
+            EXPECT_GT(glm::length(glm::vec2(data.SurfaceTileV.x, data.SurfaceTileV.z)), 0.0f);
+
+            if (arm == 0)
+            {
+                // Measure how much of the frame the level tile covers in the
+                // capture the fog pass reads, so a pass is not a missed tile.
+                const auto sceneColor = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                ASSERT_TRUE(sceneColor);
+                const u32 width = sceneColor->GetActiveViewportWidth();
+                const u32 height = sceneColor->GetActiveViewportHeight();
+                const auto target = Renderer3D::GetWaterSurfaceDepthTextureID();
+                ASSERT_TRUE(target.IsValid());
+                std::vector<f32> depth(static_cast<sizet>(width) * height);
+                ReadbackDepth32F(target, width, height, depth);
+                const glm::mat4 invVP = glm::inverse(camera.GetViewProjection());
+                for (u32 y = 1; y < height; y += 2)
+                    for (u32 x = 1; x < width; x += 2)
+                    {
+                        ++sampledPixels;
+                        const f32 d = depth[static_cast<sizet>(y) * width + x];
+                        if (!(d < 1.0f))
+                            continue;
+                        const glm::vec4 h = invVP * glm::vec4((x + 0.5f) * 2.0f / width - 1.0f, (y + 0.5f) * 2.0f / height - 1.0f, d * 2.0f - 1.0f, 1.0f);
+                        const glm::vec3 point = glm::vec3(h) / h.w;
+                        if (point.z > 42.0f)
+                            ++levelPixels;
+                        else if (std::abs(point.z - overZ) < 3.5f && std::abs(point.y - (eye.y - 5.0f)) < 0.2f)
+                            ++overPixels;
+                    }
+            }
+
+            u32 width = 0;
+            u32 height = 0;
+            ASSERT_TRUE(ReadbackComposite(images[arm], width, height));
+            ASSERT_EQ(width, kCaptureWidth);
+            ASSERT_EQ(height, kCaptureHeight);
+            const std::string name = TestRenderBackend::EvidenceName(arm == 0 ? "LevelTileFogOff" : "LevelTileFog") + cell.Name;
+            ASSERT_NO_FATAL_FAILURE(WriteWaterEvidence(name, images[arm], width, height));
+        }
+        u32 changed = 0;
+        i32 largest = 0;
+        for (sizet pixel = 0; pixel < images[0].size(); pixel += 4)
+        {
+            i32 delta = 0;
+            for (sizet c = 0; c < 3; ++c)
+                delta = std::max(delta, std::abs(static_cast<i32>(images[0][pixel + c]) - images[1][pixel + c]));
+            largest = std::max(largest, delta);
+            if (delta > 5)
+                ++changed;
+        }
+        constexpr u32 pixels = kCaptureWidth * kCaptureHeight;
+        std::cout << "[TiltedFog] LevelTile" << cell.Name << " beyond tile covers " << levelPixels << ", over tile "
+                  << overPixels << " of " << sampledPixels << " capture samples; fog on vs off changed=" << changed << '/'
+                  << pixels << " max=" << largest << "/255\n";
+        // The beyond tile measured 4.6% of the capture samples, native and upscaled.
+        EXPECT_GT(levelPixels, sampledPixels / 40) << "the level tile must fill part of the frame";
+        EXPECT_GT(overPixels, sampledPixels / 200) << "the tile over the slope must fill part of the frame";
+        EXPECT_LT(changed, pixels / 500) << "a dry eye must leave the level tiles' above-water shading alone";
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, TiltedFogEvidenceTest, ::testing::ValuesIn(PlainGridCells()),
+                             [](const ::testing::TestParamInfo<HullFoamCell>& info)
+                             { return std::string(info.param.Name); });
+
+    class TiltedWaterEvidenceTest : public RendererAttachedTest
+    {
+      protected:
+        static constexpr u32 kSize = 256;
+        bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            EnableRendering(kSize, kSize);
+            m_Water = GetScene().CreateEntity("Water");
+            auto& water = m_Water.AddComponent<WaterComponent>();
+            water.m_WorldSizeX = 18.0f;
+            water.m_WorldSizeZ = 18.0f;
+            water.m_GridResolutionX = water.m_GridResolutionZ = 96;
+            water.m_WaveAmplitude = 0.4f;
+            water.m_WaveSpeed = 0.0f;
+            m_Rig = GetScene().CreateEntity("Water carrier");
+            auto& carrier = m_Rig.GetComponent<TransformComponent>();
+            carrier.Translation = { 3, 2, -4 };
+            carrier.SetRotationEuler({ 0.18f, -0.15f, 0.35f });
+            auto& sun = GetScene().CreateEntity("Sun").AddComponent<DirectionalLightComponent>();
+            sun.m_Direction = glm::normalize(glm::vec3(-0.3f, -0.9f, -0.2f));
+        }
+
+        void Measure(const char* feature, const char* path, const char* angle, const EditorCamera& camera,
+                     std::vector<f32>& depth)
+        {
+            RunEditorFrames(camera, 3);
+            const auto target = Renderer3D::GetWaterSurfaceDepthTextureID();
+            ASSERT_TRUE(target.IsValid());
+            depth.resize(kSize * kSize);
+            ReadbackDepth32F(target, kSize, kSize, depth);
+            const auto volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
+            ASSERT_EQ(volumes.size(), 1u);
+            const auto invVP = glm::inverse(camera.GetViewProjection());
+            f64 squaredError = 0.0;
+            u32 samples = 0;
+            u32 samplesAboveEye = 0;
+            // Deproject the water-only depth capture. Each sampled pixel has a
+            // real rasterized position independent of the CPU wave inversion.
+            for (u32 y = 2; y < kSize; y += 4)
+            {
+                for (u32 x = 2; x < kSize; x += 4)
+                {
+                    const f32 d = depth[y * kSize + x];
+                    if (!(d < 1.0f))
+                        continue;
+                    const glm::vec4 ndc{ (static_cast<f32>(x) + 0.5f) * 2.0f / kSize - 1.0f,
+                                         (static_cast<f32>(y) + 0.5f) * 2.0f / kSize - 1.0f, d * 2.0f - 1.0f, 1 };
+                    const glm::vec4 h = invVP * ndc;
+                    const glm::vec3 point = glm::vec3(h) / h.w;
+                    if (point.y > camera.GetPosition().y + 0.15f)
+                        ++samplesAboveEye;
+                    const f32 diff = WaterProbe::SampleSurfaceY(volumes.front(), { point.x, point.z }, 0) - point.y;
+                    squaredError += static_cast<f64>(diff) * diff;
+                    ++samples;
+                }
+            }
+            ASSERT_GT(samples, 300u);
+            if (std::string_view(angle) == "Across")
+                EXPECT_GT(samplesAboveEye, 8u) << "the uphill side remains visible above the eye";
+            const f64 rms = std::sqrt(squaredError / samples);
+            EXPECT_LT(rms, 0.035) << "The rasterized water and buoyancy surface disagree";
+            std::vector<u8> pixels;
+            u32 width, height;
+            ASSERT_TRUE(ReadbackComposite(pixels, width, height));
+            ASSERT_EQ(width, kSize);
+            ASSERT_EQ(height, kSize);
+            const std::string name = TestRenderBackend::EvidenceName(feature) + path + "_" + angle;
+            WriteWaterEvidence(name, pixels, width, height);
+            std::cout << "[TiltedWater] " << name << " samples=" << samples << " depth/probe RMS=" << rms << " m\n";
+        }
+
+        Entity m_Water;
+        Entity m_Rig;
+    };
+
+    TEST_F(TiltedWaterEvidenceTest, FogEyeDepthUsesTheShoreFieldDrawnAcrossOverlappingFFTTiles)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ResetTime
+        {
+            ~ResetTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const resetTime;
+        Time::SetMockTime(kCaptureTime);
+
+        Entity largeTile = GetScene().CreateEntity("Shore settings owner");
+        largeTile.GetComponent<TransformComponent>().Translation.y = -2.0f;
+        auto& large = largeTile.AddComponent<WaterComponent>();
+        auto& local = m_Water.GetComponent<WaterComponent>();
+        for (auto* water : { &large, &local })
+        {
+            water->m_UseFFT = true;
+            water->m_FFTUseGpuCompute = false; // upload the same deterministic field we can read below
+            water->m_FFTCascades = Ocean::kSingleCascadeCount;
+            water->m_FFTResolution = 32;
+            water->m_FFTPatchSize = 16.0f;
+            water->m_FFTAmplitude = 6.0f;
+            water->m_FFTChoppiness = 0.0f; // the query column is the undisplaced parameter
+            water->m_FFTHeightScale = 1.0f;
+            water->m_GridResolutionX = water->m_GridResolutionZ = 32;
+        }
+        large.m_WorldSizeX = large.m_WorldSizeZ = 64.0f;
+        large.m_ShoreWavesEnabled = true;
+        large.m_ShoreBreakerIndex = 0.10f;
+        local.m_ShoreWavesEnabled = false;
+        local.m_ShoreBreakerIndex = 0.02f;
+        Entity bed = GetScene().CreateEntity("Flat seabed");
+        bed.GetComponent<TransformComponent>().Translation = { -32, -3, -32 };
+        auto& terrain = bed.AddComponent<TerrainComponent>();
+        terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 64.0f;
+        terrain.m_ProceduralEnabled = false;
+        terrain.m_CollisionEnabled = false;
+
+        EditorCamera camera(60.0f, 1.0f, 0.05f, 100.0f);
+        camera.SetViewportSize(kSize, kSize);
+        camera.SetPose({ 0, 0.25f, 0 }, 0, 0.1f);
+        RunEditorFrames(camera, 2);
+        ASSERT_TRUE(local.m_OceanField && local.m_OceanField->GetDisplacementTextureHandle().IsValid());
+        ASSERT_TRUE(local.m_OceanField->GetDerivativesTextureHandle().IsValid());
+        // Select a crest tall enough for the two breaker settings to place
+        // the eye on opposite sides of the visible waterline.
+        glm::vec2 crestXZ(0.0f);
+        f32 crest = 0.0f;
+        for (i32 z = -7; z <= 7; ++z)
+            for (i32 x = -7; x <= 7; ++x)
+            {
+                const glm::vec2 column(x, z);
+                const f32 h = local.m_OceanField->SampleCascades(column).Height;
+                if (h > crest)
+                {
+                    crest = h;
+                    crestXZ = column;
+                }
+            }
+        ASSERT_GT(crest, 0.5f);
+        constexpr f32 eyeY = 0.25f;
+        camera.SetPose({ crestXZ.x, eyeY, crestXZ.y }, 0, 0.1f);
+        for (const bool localShore : { false, true })
+        {
+            local.m_ShoreWavesEnabled = localShore;
+            large.m_ShoreBreakerIndex = localShore ? 2.0f : 0.10f;
+            RunEditorFrames(camera, 2);
+            const auto waterUBO = Renderer3D::GetWaterUBO();
+            const auto fogUBO = Renderer3D::GetUnderwaterFogUBO();
+            ASSERT_TRUE(waterUBO && fogUBO);
+            ASSERT_EQ(waterUBO->GetCachedData().size(), sizeof(ShaderBindingLayout::WaterUBO));
+            ASSERT_EQ(fogUBO->GetCachedData().size(), sizeof(UnderwaterFogUBOData));
+            const auto drawn = waterUBO->GetData<ShaderBindingLayout::WaterUBO>();
+            const auto fog = fogUBO->GetData<UnderwaterFogUBOData>();
+            ASSERT_GT(drawn.ShoreParams.w, 0.0f);
+            ASSERT_FLOAT_EQ(drawn.ShoreParams2.x, large.m_ShoreBreakerIndex);
+            ASSERT_GT(fog.Flags.x, 0.0f);
+            ASSERT_NEAR(fog.Flags.y, 0.0f, 1e-5f) << "the nearest tile owns the fog";
+            const auto shore = WaterShoreDepthSystem::SampleWorld(crestXZ);
+            ASSERT_TRUE(shore.Enabled);
+            ASSERT_NEAR(shore.Depth, 1.0f, 1e-4f);
+            const f32 drawnCrest = std::min(crest, drawn.ShoreParams2.x * shore.Depth);
+            EXPECT_NEAR(fog.Flags.w, drawnCrest - eyeY, 1e-4f);
+        }
+    }
+
+    TEST_F(TiltedWaterEvidenceTest, BuoyancyAndTheDrawnSurfaceCoincideAcrossPaths)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        for (const auto& [path, name] : std::array{
+                 std::pair{ RenderingPath::Forward, "Forward" },
+                 std::pair{ RenderingPath::ForwardPlus, "ForwardPlus" },
+                 std::pair{ RenderingPath::Deferred, "Deferred" } })
+        {
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = path;
+            settings.EditorDebugDrawsEnabled = false;
+            settings.Deferred.MSAASampleCount = 1;
+            Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+            Renderer3D::ApplyRendererSettings();
+            for (const bool overhead : { false, true })
+            {
+                const char* angle = overhead ? "Above" : "Across";
+                EditorCamera camera(50.0f, 1.0f, 0.1f, 100.0f);
+                camera.SetViewportSize(kSize, kSize);
+                camera.SetPose(overhead ? glm::vec3(3, 21, -3) : glm::vec3(3, 3.3f, 10), 0.0f,
+                               overhead ? 1.50f : 0.12f);
+                m_Water.SetParent({});
+                m_Water.GetComponent<TransformComponent>() = m_Rig.GetComponent<TransformComponent>();
+                std::vector<f32> root, child;
+                ASSERT_NO_FATAL_FAILURE(Measure("TiltedWaterOff", name, angle, camera, root));
+                m_Water.SetParent(m_Rig);
+                m_Water.GetComponent<TransformComponent>() = TransformComponent{};
+                ASSERT_NO_FATAL_FAILURE(Measure("TiltedWater", name, angle, camera, child));
+                ASSERT_EQ(root.size(), child.size());
+                f32 maxDelta = 0.0f;
+                for (sizet i = 0; i < root.size(); ++i)
+                    maxDelta = std::max(maxDelta, std::abs(child[i] - root[i]));
+                EXPECT_LT(maxDelta, 1.0e-5f) << name << ' ' << angle;
+            }
+        }
+    }
 } // namespace OloEngine::Tests

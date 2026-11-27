@@ -14,12 +14,14 @@
 8. **Keep the recast UBSan exclusion until the vendored tag passes upstream fix #827.** `OloEngine/vendor/CMakeLists.txt` sets target-level `-fno-sanitize=signed-integer-overflow` on the recast targets, because `DetourProximityGrid::hashPos2` (`x*73856093`) overflows `int` beyond ~174 m (benign wrap; recastnavigation#826). Drop it once bumped. [Details](floating-origin-rebase-subsystems-details.md#3-navmesh--crowd--rebake-dont-translate-detours-tile-origin-is-unreachable)
 9. **Make terrain streaming entity-relative so a rebase touches nothing.** Feed the streamer `cameraPosition - entityTranslation` so the tile grid and `TerrainTile::WorldOrigin` are anchored to the entity; draw each tile with `tileModel = entityTransform * translate(tile->WorldOrigin)` at every site (`DrawTerrainPatch` and `AddTerrainShadowCaster`, tess and non-tess). `WorldOrigin` was previously never read, stacking all tiles. [Details](floating-origin-rebase-subsystems-details.md#4-terrain-streaming--make-worldorigin-entity-relative-and-its-rebase-free)
 10. **Build the non-tessellated terrain cull frustum (`MakeTerrainLocalCullInputs`) per tile from `tileModel`,** not once from the entity transform, or offset tiles are culled at the wrong position and wink in and out. Streamed terrain has no Jolt bodies yet. [Details](floating-origin-rebase-subsystems-details.md#4-terrain-streaming--make-worldorigin-entity-relative-and-its-rebase-free)
+11. **Shift recorded terrain collision placements with their bodies.** `Scene::m_TerrainCollisionFrames` holds each terrain body's world model; an interpolated render rebuild or streamed-tile reconcile places bodies from it before the next physics sync, so `RebaseOrigin` adds `shift` to each model translation or the bodies jump back to the old origin. [Details](floating-origin-rebase-subsystems-details.md#5-recorded-terrain-collision-placements--shift-them-with-the-bodies)
 
 ## Where the guards are
 
 - `OloEngine/tests/Functional/Scene/WorldOriginRebasePhysicsTest.cpp` (cloth, world-anchored joint, pulley, many-rebase continuity: a missed shift shows as a ~`|shift|` jump).
 - `OloEngine/tests/Functional/Navigation/WorldOriginRebaseNavTest.cpp`; `OloEngine/tests/Rendering/PropertyTests/WorldOriginRebaseVisualEvidenceTest.cpp`; `OloEngine/tests/Scene/WorldOriginRebaseBenchmarkTest.cpp`.
 - Terrain streaming has no headless guard: verify un-stacking and rebase in the editor.
+- Recorded terrain placements: `TerrainLayerTextureEvidence.InterpolatedRenderRebuildUsesTheSimulationTerrainPose` rebases, then rebuilds between ticks.
 
 ---
 

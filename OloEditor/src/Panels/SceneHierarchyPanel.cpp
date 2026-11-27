@@ -2689,8 +2689,10 @@ namespace OloEngine
             ImGui::DragFloat("Collider Restitution", &component.ColliderRestitution, 0.01f, 0.0f, 1.0f);
             ImGui::TextDisabled("Paint tiles in Window > Tilemap Painter."); });
 
-        DrawComponent<Rigidbody2DComponent>("Rigidbody 2D", entity, [](auto& component)
+        DrawComponent<Rigidbody2DComponent>("Rigidbody 2D", entity, [entity](auto& component)
                                             {
+            if (component.Type == Rigidbody2DComponent::BodyType::Dynamic && entity.GetScene()->HasSingularParentFrame(entity, true))
+                ImGui::TextWrapped("Physics writeback paused: the parent transform is singular. Restore independent parent axes to resume.");
             const char* const bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
             if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
             {
@@ -4866,8 +4868,10 @@ namespace OloEngine
                 }
             } });
 
-        DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
+        DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [entity](auto& component)
                                             {
+            if (component.m_Type == BodyType3D::Dynamic && entity.GetScene()->HasSingularParentFrame(entity, false))
+                ImGui::TextWrapped("Physics writeback paused: the parent transform is singular. Restore independent parent axes to resume.");
             const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
             if (const char* currentBodyTypeString = bodyTypeStrings[static_cast<int>(component.m_Type)]; ImGui::BeginCombo("Body Type", currentBodyTypeString))
             {

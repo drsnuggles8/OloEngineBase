@@ -14,6 +14,7 @@ layout(triangles, equal_spacing, ccw) in;
 #include "CameraCommon.glsl"
 
 #include "InstanceBlock_Single.glsl"
+#include "WaterTileFrame.glsl"
 
 layout(std140, binding = 23) uniform WaterParams
 {
@@ -309,12 +310,20 @@ void main()
 
     vec3 displacedNormal;
     vec3 displacedPos;
+    vec3 restNormal = waterGridNormal(instances[0].Transform);
+    bool hasColumn = abs(restNormal.y) > 1e-4;
+    vec2 restSlope = hasColumn ? -restNormal.xz / restNormal.y : vec2(0.0);
+    if (restNormal.y < 0.0)
+        restNormal = -restNormal;
     if (u_FFTParams.x > 0.5)
     {
         // Band-limited cascade sum (issue #969), through the shared function
         // the fragment stage's foam and the CPU mirror
         // (OceanFFTField::SampleCascades) also go through.
-        OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams);
+        bool tilted = hasColumn && dot(restSlope, restSlope) > 1e-12;
+        float tangentStep = (tilted || shore.Enabled > 0.0) ? max(0.02, 0.25 * vertexSpacing) : 0.0;
+        mat2 horizontalDerivative;
+        OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams, tangentStep, horizontalDerivative);
         vec3 fftDisp = vec3(fft.Displacement.x * u_FFTParams.w,
                             fft.Displacement.y * u_FFTParams.z,
                             fft.Displacement.z * u_FFTParams.w);
@@ -328,21 +337,25 @@ void main()
         // whole displacement vector (not just its height) so the choppy
         // horizontal shift is suppressed with it, and report the removed excess
         // as breaking, exactly as the Gerstner path does.
-        if (shore.Enabled > 0.0)
-        {
-            float aLimit = max(u_ShoreParams2.x, 1e-4) * shore.Depth;
-            float crest = abs(fftDisp.y);
-            if (crest > aLimit)
-            {
-                float k = aLimit / max(crest, 1e-6);
-                fftDisp *= k;
-                shoreBreak = clamp(1.0 - k, 0.0, 1.0);
-            }
-        }
+        vec2 dx = horizontalDerivative[0] * u_FFTParams.w;
+        vec2 dz = horizontalDerivative[1] * u_FFTParams.w;
+        vec2 slope = fft.Slope * u_FFTParams.z;
+        mat2x3 derivative = mat2x3(vec3(dx.x, slope.x, dx.y), vec3(dz.x, slope.y, dz.y));
+        shoreBreak = waterShoreLimitFFT(shore, u_ShoreParams2.x, fftDisp, derivative);
         displacedPos = pos + fftDisp;
         // Zero/NaN-safe: a zero or non-finite texel would otherwise make
         // normalize() emit NaN into the whole triangle's interpolants.
+        // The cascade derivatives are heights per metre in the parameter
+        // domain. For a tilted tile, take the horizontal derivatives there
+        // as well: choppiness moves a vertex away from the column in which
+        // its rest height was measured.
         vec3 fftNormal = oceanCascadeNormal(fft);
+        if (tilted || shoreBreak > 0.0)
+        {
+            vec3 tangentX = vec3(1.0, restSlope.x, 0.0) + derivative[0];
+            vec3 tangentZ = vec3(0.0, restSlope.y, 1.0) + derivative[1];
+            fftNormal = cross(tangentZ, tangentX);
+        }
         displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy
     }
@@ -352,7 +365,7 @@ void main()
             posAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
-            vertexSpacing, // mesh vertex spacing — band-limits the octave ladder (#943)
+            vertexSpacing, restSlope, // mesh vertex spacing band-limits the octave ladder (#943)
             shore, u_ShoreParams2.x, // seabed depth + the breaker index (#1033)
             displacedNormal, shoreJacobian, shoreBreak
         ) - u_RenderOrigin; // world-anchored phase, relative result (issue #429)
@@ -365,13 +378,16 @@ void main()
             posPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
-            vertexSpacing, // mesh vertex spacing — band-limits the octave ladder (#943)
+            vertexSpacing, restSlope, // the previous normal is discarded
             shore, u_ShoreParams2.x, // the SAME seabed sample — it does not move (#1033)
             _prevNormalUnused, _prevJacobianUnused, _prevBreakUnused
         ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;
     }
 
+
+    if (!hasColumn)
+        displacedNormal = restNormal;
 
     // --- Boat / actor wake shape (issue #968) --------------------------------
     // Applied AFTER the ocean displacement (FFT or Gerstner) and to BOTH, since
@@ -393,7 +409,7 @@ void main()
     //
     // Guarded on the height scale so a scene with the feature off pays one
     // compare rather than five bounding-circle rejections per vertex.
-    if (u_WakeShapeParams.y > 0.0)
+    if (hasColumn && u_WakeShapeParams.y > 0.0)
     {
         // u_FoamParams2.w is the BASE grid's vertex spacing (#943). This stage
         // runs on a surface the tessellator has already subdivided, so the
@@ -428,7 +444,7 @@ void main()
         if (wake.x != 0.0 || wake.y > 0.0)
         {
             displacedPos = pos + (displacedPos - pos) * (1.0 - wake.y);
-            displacedNormal = normalize(mix(displacedNormal, vec3(0.0, 1.0, 0.0), wake.y));
+            displacedNormal = normalize(mix(displacedNormal, restNormal, wake.y));
 
             displacedPos.y += wake.x;
             // The finite-difference step: a quarter metre, or half the mesh

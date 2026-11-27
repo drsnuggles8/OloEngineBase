@@ -42,6 +42,8 @@ layout(location = 0) in vec3 v_WorldPos;
 // its stages agree on the block — and carrying the forward screen-space AO
 // lane (issue #1452).
 #include "include/CameraCommon.glsl"
+#include "include/InstanceBlock_Single.glsl"
+#include "include/WaterTileFrame.glsl"
 
 // Water UBO (binding 23) — same exact-match rule as CameraMatrices.
 layout(std140, binding = 23) uniform WaterParams
@@ -186,7 +188,8 @@ void main()
     // actually on relative to THIS fragment.
     if (u_NormalMapSpeed.w > 0.5)
     {
-        bool cameraBelowFragment = v_WorldPos.y > u_CameraPosition.y;
+        bool cameraBelowFragment = waterCameraBelowFragment(waterGridNormal(instances[0].Transform),
+                                                           u_CameraPosition, v_WorldPos);
         if (cameraBelowFragment == gl_FrontFacing)
             discard;
     }

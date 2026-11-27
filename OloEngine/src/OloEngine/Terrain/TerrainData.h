@@ -33,6 +33,9 @@ namespace OloEngine
         [[nodiscard]] static bool DecodeHeightmapFile(const std::string& path, TArray<f32>& outHeights,
                                                       u32& outResolution);
 
+        // Streamer workers prepare a new CPU field. Its first texture upload belongs to the render thread.
+        [[nodiscard]] static Ref<TerrainData> FromCPUHeights(u32 resolution, TArray<f32> heights);
+
         // Create a flat heightmap of given resolution
         void CreateFlat(u32 resolution, f32 defaultHeight = 0.0f);
 
@@ -51,6 +54,11 @@ namespace OloEngine
 
         // CPU height query with bilinear interpolation — normalizedX/Z in [0, 1]
         [[nodiscard]] f32 GetHeightAt(f32 normalizedX, f32 normalizedZ) const;
+
+        // Pick either face of the height field. The local direction is the
+        // displacement per world metre; the returned parameter is a world distance.
+        [[nodiscard]] std::optional<f32> PickRay(glm::vec3 origin, glm::vec3 direction,
+                                                 glm::vec2 tileSize, f32 heightScale, f32 maxDistance) const;
 
         // CPU normal query from finite differences
         [[nodiscard]] glm::vec3 GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const;

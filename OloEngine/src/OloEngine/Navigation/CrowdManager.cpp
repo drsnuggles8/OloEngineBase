@@ -1,11 +1,13 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Navigation/CrowdManager.h"
+#include "OloEngine/Navigation/NavMeshQuery.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Log.h"
 
 #include <DetourNavMesh.h>
 #include <DetourNavMeshQuery.h>
 #include <DetourCrowd.h>
+#include <DetourCommon.h>
 
 namespace OloEngine
 {
@@ -77,6 +79,33 @@ namespace OloEngine
 
         const f32 pos[3] = { position.x, position.y, position.z };
         return m_Crowd->addAgent(pos, &ap);
+    }
+
+    bool CrowdManager::MoveAgentOnMesh(i32 agentId, const glm::vec3& position, const NavMeshQuery& query)
+    {
+        if (!IsAgentActive(agentId) || !query.IsValid())
+            return false;
+
+        auto* agent = m_Crowd->getEditableAgent(agentId);
+        // Detour owns the position until the link animation lands. Moving its
+        // corridor during traversal would discard the landing state.
+        if (agent->state == DT_CROWDAGENT_STATE_OFFMESH)
+            return true;
+        if (agent->state != DT_CROWDAGENT_STATE_WALKING)
+            return false;
+
+        const f32 desired[3]{ position.x, position.y, position.z };
+        const auto* filter = m_Crowd->getFilter(agent->params.queryFilterType);
+        dtPolyRef destination = 0;
+        f32 nearest[3]{};
+        if (dtStatusFailed(query.m_Query->findNearestPoly(desired, m_Crowd->getQueryHalfExtents(), filter, &destination, nearest)) || !destination)
+            return false;
+        if (!agent->corridor.movePosition(nearest, query.m_Query, filter) || agent->corridor.getFirstPoly() != destination)
+            return false;
+
+        dtVcopy(agent->npos, agent->corridor.getPos());
+        agent->boundary.reset();
+        return true;
     }
 
     void CrowdManager::RemoveAgent(i32 agentId)

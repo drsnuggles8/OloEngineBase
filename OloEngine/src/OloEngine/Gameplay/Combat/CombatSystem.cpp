@@ -71,7 +71,7 @@ namespace OloEngine
         }
         if (source.HasComponent<TransformComponent>())
         {
-            PerceptionSystem::ReportAlert(*target, source.GetComponent<TransformComponent>().Translation);
+            PerceptionSystem::ReportAlert(*target, scene->ComputeWorldPosition(source));
         }
         if (!definition.ImpactAudioTrigger.empty())
         {

@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
 #include "OloEngine/Renderer/Water/WaterSpray.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 
 #include <algorithm>
 #include <cmath>
@@ -56,7 +57,7 @@ namespace
         s.m_Lifetime = 0.9f;
         s.m_ParticleSize = 0.12f;
         s.m_WindMetresPerSecond = { 8.0f, 0.0f };
-        s.m_WaterPlaneY = 0.0f;
+        s.m_Frame.Origin.y = 0.0f;
         s.m_HeightScale = 1.0f;
         return s;
     }
@@ -437,7 +438,7 @@ namespace OloEngine::Tests
     TEST(WaterSprayTest, ParticlesLaunchUpwardFromTheCrestAndAreAlive)
     {
         WS::WaterSpraySettings settings = MakeSettings();
-        settings.m_WaterPlaneY = 7.0f;
+        settings.m_Frame.Origin.y = 7.0f;
         constexpr f32 kCrestHeight = 1.25f;
         const auto particles = WS::Emit(settings, 0.25f, { 0.0f, 0.0f }, 3.0f, 1.0f / 60.0f,
                                         FlatSea(0.95f, kCrestHeight));
@@ -448,12 +449,85 @@ namespace OloEngine::Tests
             // and clear of it by the margin the band-limited CPU proxy's
             // under-reported crest height demands (kSpawnClearanceMetres).
             EXPECT_GT(p.PositionLifetime.y,
-                      settings.m_WaterPlaneY + kCrestHeight + WS::kSpawnClearanceMetres)
+                      settings.m_Frame.Origin.y + kCrestHeight + WS::kSpawnClearanceMetres)
                 << "a droplet spawned inside the surface it came off";
             EXPECT_GT(p.VelocityMaxLifetime.y, 0.0f) << "spray must be thrown UP";
             EXPECT_GT(p.PositionLifetime.w, 0.0f) << "a zero-lifetime particle dies on frame 1";
             EXPECT_FLOAT_EQ(p.Misc.z, 1.0f) << "the particle was not marked alive";
             EXPECT_GT(p.Misc.x, 0.0f) << "a zero-size particle draws nothing";
+        }
+    }
+
+    TEST(WaterSprayTest, ArtistHeightScalesAboveTenMatchTheRenderedCrest)
+    {
+        auto settings = MakeSettings();
+        settings.m_HeightScale = 15.0f;
+        const auto particles = WS::Emit(settings, 0.25f, { 0, 0 }, 3.0f, 1.0f / 60.0f, FlatSea(0.95f, 2.0f));
+        ASSERT_FALSE(particles.IsEmpty());
+        for (const auto& particle : particles)
+            EXPECT_NEAR(particle.PositionLifetime.y, 30.0f + WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f, 1e-5f);
+    }
+
+    TEST(WaterSprayTest, ShoreLimitScalesTheHorizontalAndVerticalCrestTogether)
+    {
+        const WaterShore::Sample shore{ 0.5f, glm::vec2(0.0f), true };
+        const auto delta = WaterSurface::LimitFFTAtShore({ 1, 2, -1 }, shore, 0.39f);
+        EXPECT_NEAR(delta.y, 0.195f, 1.0e-6f);
+        EXPECT_NEAR(delta.x, 0.0975f, 1.0e-6f);
+        EXPECT_NEAR(delta.z, -0.0975f, 1.0e-6f);
+    }
+
+    TEST(WaterSprayTest, FullHullFlattenMovesTheSprayLaunchToRestHeight)
+    {
+        WaterWakeSystem::BeginFrame();
+        struct ClearHulls
+        {
+            ~ClearHulls()
+            {
+                WaterWakeSystem::BeginFrame();
+            }
+        } clearHulls;
+        WaterWakeHullDesc hull;
+        hull.m_ForwardXZ = { 0.0f, 1.0f };
+        hull.m_HalfBeam = 25.0f;
+        hull.m_HalfLength = 25.0f;
+        ASSERT_TRUE(WaterWakeSystem::SubmitHull(hull));
+        auto settings = MakeSettings();
+        settings.m_WakeHeightScale = 1.0f;
+        settings.m_FlattenStrength = 1.0f;
+        const auto particles = WS::Emit(settings, 0.25f, { 0, 0 }, 3.0f, 1.0f / 60.0f, FlatSea(0.95f, 2.0f));
+        ASSERT_FALSE(particles.IsEmpty());
+        for (const auto& particle : particles)
+            EXPECT_NEAR(particle.PositionLifetime.y, WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f, 1.0e-4f);
+    }
+
+    TEST(WaterSprayTest, TiltedSprayStartsAtTheDisplacedCrestInsideItsTile)
+    {
+        auto settings = MakeSettings();
+        // y = 5 + 0.4*x. XZ shear keeps a footprint test in world axes from passing.
+        glm::mat4 model(1);
+        model[0] = { 1, 0.4f, 0, 0 };
+        model[2] = { 0.5f, 0.2f, 1, 0 };
+        model[3].y = 5;
+        const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+        ASSERT_TRUE(frame);
+        settings.m_Frame = *frame;
+        settings.m_HalfExtent = { 4, 5 };
+        const glm::vec2 shift(2, -1);
+        const auto particles = WS::Emit(settings, 0.25f, { 0, 0 }, 3.0f, 1.0f / 60.0f,
+                                        [&](glm::vec2 parameter)
+                                        {
+                                            const auto local = settings.m_Frame.LocalXZ(parameter);
+                                            EXPECT_LE(std::abs(local.x), 4.0f);
+                                            EXPECT_LE(std::abs(local.y), 5.0f);
+                                            return WS::CrestSample{ 0.95f, 1.25f, shift };
+                                        });
+        ASSERT_FALSE(particles.IsEmpty());
+        for (const auto& particle : particles)
+        {
+            const f32 baseX = particle.PositionLifetime.x - shift.x;
+            const f32 expected = 5.0f + 0.4f * baseX + 1.25f + WS::kSpawnClearanceMetres + settings.m_ParticleSize * 0.5f;
+            EXPECT_NEAR(particle.PositionLifetime.y, expected, 1.0e-4f);
         }
     }
 

@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
 #include "OloEngine/Navigation/CrowdManager.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -25,23 +27,61 @@ namespace OloEngine
         if (!navQuery || !navQuery->IsValid())
             return;
 
-        // Update crowd first so agents get current-frame positions
-        if (crowdMgr && crowdMgr->IsValid())
-            crowdMgr->Update(dt);
-
-        auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
-
-        for (auto e : view)
+        const auto releaseCrowdSlot = [crowdMgr](NavAgentComponent& agent)
         {
+            crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
+            agent.m_CrowdAgentId = -1;
+            agent.m_HasPath = false;
+            agent.m_TargetUnreachable = false;
+        };
+
+        struct AgentUpdate
+        {
+            entt::entity EntityHandle;
+            sizet Depth = 0;
+            glm::vec3 InitialPosition{ 0.0f };
+        };
+        const bool crowdActive = crowdMgr && crowdMgr->IsValid();
+        const auto view = scene->GetAllEntitiesWith<NavAgentComponent, TransformComponent>();
+        TArray<AgentUpdate> updates;
+        updates.Reserve(static_cast<i32>(view.size_hint()));
+        const sizet maxDepth = scene->GetAllEntitiesWith<TransformComponent>().size();
+        for (const auto e : view)
+        {
+            auto& update = updates.Emplace_GetRef(e);
+            if (!crowdActive)
+                continue;
+            for (Entity parent = Entity(e, scene).GetParent();
+                 update.Depth < maxDepth && parent && parent.HasComponent<TransformComponent>();
+                 parent = parent.GetParent())
+                ++update.Depth;
+            update.InitialPosition = scene->ComputeWorldPosition(e);
+            // Synchronize external movement before avoidance sees the agents.
+            // Small carrier movements keep the path corridor and its velocity.
+            auto& agent = view.get<NavAgentComponent>(e);
+            if (agent.m_CrowdAgentId >= 0 && !Math::BitwiseEqual(update.InitialPosition, agent.m_LastCrowdWorldPosition) &&
+                !crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, update.InitialPosition, *navQuery))
+                releaseCrowdSlot(agent);
+        }
+        if (crowdActive)
+        {
+            crowdMgr->Update(dt);
+            updates.StableSort([](const AgentUpdate& a, const AgentUpdate& b)
+                               { return a.Depth < b.Depth; });
+        }
+
+        for (const auto& update : updates)
+        {
+            const auto e = update.EntityHandle;
             Entity entity = { e, scene };
             auto& agent = entity.GetComponent<NavAgentComponent>();
-            auto& transform = entity.GetComponent<TransformComponent>();
+            glm::vec3 position = scene->ComputeWorldPosition(e);
 
             // A root-motion agent (issue #1559) is moved by its animation, so it
             // stays out of the crowd: DetourCrowd integrates its own velocity and
             // writing that position back would move the agent a second time. One
             // switched to root motion mid-play leaves the crowd here.
-            if (agent.m_UseRootMotion && agent.m_CrowdAgentId >= 0 && crowdMgr && crowdMgr->IsValid())
+            if (agent.m_UseRootMotion && agent.m_CrowdAgentId >= 0 && crowdActive)
             {
                 crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
                 agent.m_CrowdAgentId = -1;
@@ -53,10 +93,15 @@ namespace OloEngine
             // OnComponentAdded — that naturally handles "navmesh baked/set after the
             // component was added" ordering, and a SetNavMesh reset (which zeroes
             // every m_CrowdAgentId) re-registers everyone next frame for free.
-            if (crowdMgr && crowdMgr->IsValid() && !agent.m_UseRootMotion)
+            if (crowdActive && !agent.m_UseRootMotion)
             {
-                if (agent.m_CrowdAgentId < 0)
-                    agent.m_CrowdAgentId = crowdMgr->AddAgent(transform.Translation, agent);
+                const bool alreadyRegistered = agent.m_CrowdAgentId >= 0;
+                if (!alreadyRegistered)
+                {
+                    if (scene->HasSingularParentFrame(e, false))
+                        continue;
+                    agent.m_CrowdAgentId = crowdMgr->AddAgent(position, agent);
+                }
 
                 if (agent.m_CrowdAgentId >= 0)
                 {
@@ -80,9 +125,29 @@ namespace OloEngine
 
                     if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
                     {
+                        // Ancestor agents already wrote their own crowd motion.
+                        // Carry this agent's integrated position by that change
+                        // before converting it back through the updated parent.
+                        if (alreadyRegistered && update.Depth > 0 && !Math::BitwiseEqual(position, update.InitialPosition))
+                        {
+                            if (!crowdMgr->MoveAgentOnMesh(agent.m_CrowdAgentId, pos + (position - update.InitialPosition), *navQuery))
+                            {
+                                releaseCrowdSlot(agent);
+                                continue;
+                            }
+                            crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos);
+                        }
                         if (agent.m_LockYAxis)
-                            pos.y = transform.Translation.y;
-                        transform.Translation = pos;
+                            pos.y = position.y;
+                        if (!scene->TrySetWorldPosition(e, pos))
+                        {
+                            // Detour integrated a position the scene cannot
+                            // represent. Rejoin from the authored pose on recovery.
+                            releaseCrowdSlot(agent);
+                            continue;
+                        }
+                        position = scene->ComputeWorldPosition(e);
+                        agent.m_LastCrowdWorldPosition = position;
                     }
 
                     if (agent.m_HasTarget && agent.m_HasPath)
@@ -96,7 +161,7 @@ namespace OloEngine
                                 break;
                             case CrowdTargetState::Valid:
                             {
-                                glm::vec3 toTarget = agent.m_TargetPosition - transform.Translation;
+                                glm::vec3 toTarget = agent.m_TargetPosition - position;
                                 if (agent.m_LockYAxis)
                                     toTarget.y = 0.0f;
                                 constexpr f32 EPSILON = 1e-4f;
@@ -129,7 +194,7 @@ namespace OloEngine
                 // NavMeshQuery exposes a std::vector output; the component owns native storage.
                 std::vector<glm::vec3> pathCorners;
                 const FindPathResult result =
-                    navQuery->FindPath(transform.Translation, agent.m_TargetPosition, pathCorners);
+                    navQuery->FindPath(position, agent.m_TargetPosition, pathCorners);
                 agent.m_PathCorners.Reset();
                 agent.m_PathCorners.Append(pathCorners.data(), static_cast<i32>(pathCorners.size()));
                 agent.m_CurrentCornerIndex = 0;
@@ -156,7 +221,7 @@ namespace OloEngine
 
             // Move toward current corner (full 3D, or XZ-only when LockYAxis)
             const glm::vec3& target = agent.m_PathCorners[agent.m_CurrentCornerIndex];
-            glm::vec3 toTarget = target - transform.Translation;
+            glm::vec3 toTarget = target - position;
             if (agent.m_LockYAxis)
                 toTarget.y = 0.0f;
             f32 dist = glm::length(toTarget);
@@ -188,7 +253,8 @@ namespace OloEngine
                 const glm::vec2 wanted(toTarget.x, toTarget.z);
                 if (glm::dot(wanted, wanted) > EPSILON * EPSILON)
                 {
-                    const glm::vec3 forward = transform.GetRotation() * glm::vec3(0.0f, 0.0f, 1.0f);
+                    const glm::quat rotation = scene->ComputeWorldTRS(e).Rotation;
+                    const glm::vec3 forward = rotation * glm::vec3(0.0f, 0.0f, 1.0f);
                     const f32 currentYaw = std::atan2(forward.x, forward.z);
                     const f32 wantedYaw = std::atan2(wanted.x, wanted.y);
                     const f32 delta = std::remainder(wantedYaw - currentYaw, glm::two_pi<f32>());
@@ -196,7 +262,7 @@ namespace OloEngine
                     const f32 turn = std::clamp(delta, -maxTurn, maxTurn);
                     if (std::isfinite(turn) && turn != 0.0f)
                     {
-                        transform.SetRotation(glm::normalize(glm::angleAxis(turn, glm::vec3(0.0f, 1.0f, 0.0f)) * transform.GetRotation()));
+                        scene->TrySetWorldRotation(e, glm::normalize(glm::angleAxis(turn, glm::vec3(0.0f, 1.0f, 0.0f)) * rotation));
                     }
                 }
             }
@@ -204,7 +270,7 @@ namespace OloEngine
             {
                 glm::vec3 direction = toTarget / dist;
                 f32 speed = std::min(agent.m_MaxSpeed * dt, dist);
-                transform.Translation += direction * speed;
+                scene->TrySetWorldPosition(e, position + direction * speed);
             }
         }
     }

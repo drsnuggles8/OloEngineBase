@@ -399,3 +399,50 @@ carrying still moves the kinematic body with its carrier.
 On a streamed region load, deserialize the entire region before starting runtime
 components. Build every rigid body before creating joints, vehicles, or running
 script `OnCreate` callbacks.
+
+### Reading and writing composed poses between ticks
+
+Use `ComputeWorldPosition`, `ComputeWorldTransform` and `ComputeWorldTRS` for
+game-thread queries that can follow an edit to an ancestor in the same tick.
+Detour paths, steering velocities, sight rays, collision queries and spatial-index
+entries all use world coordinates. Use `TrySetWorldPosition` and
+`TrySetWorldRotation` to write movement through the current parent or bone frame.
+Move a registered crowd agent on its corridor before stepping avoidance when its
+composed position changes externally.
+
+A simulated body needs independent parent axes for writeback. A collapsed axis
+leaves the authored local pose at its last representable value while the native
+body continues simulating. Jolt checks the spatial basis. Box2D checks its XY
+projection, which permits zero Z scale. The inspector identifies the affected
+dynamic body and the runtime logs the first rejected write. Restoring the axes
+resumes writeback from the current simulated pose on the next physics tick. For a
+full-rank parent with extreme anisotropy, verify the stored quaternion reproduces
+the requested world rotation at float precision. If it cannot, the native
+position still writes back and the local orientation keeps its previous value.
+A collapsed Box2D fixture waits until its projected area is representable and is
+then built in the native body's current frame.
+
+Keep streamed terrain origins, height samples, chunks and foliage in terrain
+space. Transform the camera into that frame for tile selection. Use the full
+tile model for submission and collider placement. Rigid parent motion repositions
+resident colliders and wakes sleeping bodies in the old and new support regions.
+A change in the scaled or sheared basis requires a new shape. A render-time
+height rebuild uses the simulation frame while visual interpolation is active.
+World-XZ height queries on terrain support sloping height samples, yaw, and
+non-uniform scale when local height points vertically. A pitched height axis can
+put several samples in the same world column. Ground and shoreline lookups omit
+that terrain. Editor picking intersects the ray in terrain space.
+
+Water waves displace the composed grid in world axes. For a world-XZ query,
+invert the horizontal wave displacement, including wake flattening, before adding
+the vertical displacement to the base vertex's rest height. Spray launches from
+the displaced FFT crest within the tile footprint. A nearly vertical grid
+(`abs(normal.y) <= 1e-4` for a unit normal) can be drawn but supplies no water
+column for buoyancy, spray or the underwater lens.
+The underwater pass slides each captured surface height along the eye tile's
+slope to the eye's column. Only surface the eye tile drew lies on that plane:
+a captured point counts as the eye tile's when it is over its footprint
+(`UnderwaterFog::TileFootprintRows`) and within its drawn wave band of the
+plane (`EyeTileSurfaceBand`). Another tile keeps its own captured height.
+Take the nearest of the four depth texels there, never a filtered sample, or
+a silhouette under upscaling reconstructs a point past the tile.

@@ -8,12 +8,15 @@
 
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/TextureCompression.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
+#include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
@@ -22,6 +25,7 @@
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -38,6 +42,22 @@ namespace OloEngine
         // #809, see VulkanTexture2D::GetHostImageCopyUploadCount. Atomic
         // because texture creation is not guaranteed to stay on one thread.
         std::atomic<u64> s_HostImageCopyUploadCount{ 0 };
+
+        // One-shots run before a still-open frame. The registry is the fallback
+        // for a loaded asset the tracker has never seen. A recorded transition
+        // alone cannot establish contents for a read borrowing the executed image.
+        VkImageLayout ExecutedMipLayout(VulkanRendererAPI* api, VkImage image, VkImageSubresourceRange range, bool borrowing = false)
+        {
+            if (api)
+            {
+                auto& tracker = api->LayoutTracker();
+                const VkImageLayout executed = tracker.CurrentExecutedLayout(image, range);
+                if (executed != VK_IMAGE_LAYOUT_UNDEFINED || (borrowing && tracker.CurrentLayout(image, range) != VK_IMAGE_LAYOUT_UNDEFINED))
+                    return executed;
+            }
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+            return info ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        }
 
         [[nodiscard]] bool IsDepthImageFormat(ImageFormat format)
         {
@@ -1206,7 +1226,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
+        const auto* device = VulkanDevice::Get();
+        if (!device || m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
         {
             return;
         }
@@ -1233,6 +1254,32 @@ namespace OloEngine
 
         const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 
+        auto* api = VulkanUpload::TryGetVulkanAPI();
+        const VkImageLayout restingLayout = device->GetSampledImageLayout();
+        const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0, m_MipLevels, 0, 1 };
+        if (api && api->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            if (api->IsRecordingParallelItem() || api->CurrentRecordingContext().OnComputeOnlyQueue)
+            {
+                OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips requires a graphics primary recording");
+                return;
+            }
+            // A brush dispatch or undo copy may have just produced mip 0 on
+            // this command buffer. The blits must run after that producer.
+            const std::array transitions{
+                RHI::Barrier{ .Resource = m_RHIHandle.Get(), .Range = { .MipCount = 1 }, .After = RHI::Access::TransferRead },
+                RHI::Barrier{ .Resource = m_RHIHandle.Get(), .Range = { .BaseMip = 1 }, .After = RHI::Access::TransferWrite }
+            };
+            api->IssueBarrierBatch(MemoryBarrierFlags::None, transitions);
+            RecordMipChain(api->CurrentCommandBuffer(), blitFilter);
+            api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, restingLayout);
+            return;
+        }
+
+        const VkImageSubresourceRange base{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        const VkImageLayout baseLayout = ExecutedMipLayout(api, m_Image, base);
+        VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
         const bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::RegenerateMips",
             [&](VkCommandBuffer cmd)
@@ -1245,29 +1292,37 @@ namespace OloEngine
                 // the data the whole chain is derived from. Passing UNDEFINED here,
                 // as the full-overwrite paths legitimately do, would let the driver
                 // discard the very texels being propagated.
-                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_GENERAL,
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, baseLayout,
                                                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                                  VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                                 VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
                                                  VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
                 // Mips 1..N hold stale content that is about to be overwritten in
                 // full, so discarding them is free and correct.
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED,
                                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                                  VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                                 VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u, m_MipLevels - 1u);
                 RecordMipChain(cmd, blitFilter);
-            });
+            },
+            &outcome);
 
-        if (ok)
+        if (outcome != VulkanOneShot::Outcome::NotSubmitted)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
+            // Submit's own scope closed before the outcome became available
+            // here. Publish this accepted image transition to both tracker
+            // views; unrelated recorded work has not necessarily executed.
+            if (api)
+            {
+                VulkanImageLayoutTracker::ImmediateExecutionScope submitted;
+                api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
+                submitted.MarkSubmitted();
+            }
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, restingLayout);
         }
-        else
-        {
+        if (!ok)
             OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips: mip chain submit failed");
-        }
     }
 
     bool VulkanTexture2D::UsesAlphaCoverageChain() const
@@ -1635,6 +1690,21 @@ namespace OloEngine
             return false;
         }
 
+        auto* vk = VulkanUpload::TryGetVulkanAPI();
+        bool borrowLayout = false;
+        if (vk && vk->CurrentCommandBuffer() != VK_NULL_HANDLE)
+        {
+            if (vk->IsRecordingParallelItem())
+                return false;
+            auto* context = VulkanContext::Get();
+            borrowLayout = !context || !context->FlushFrameRecordingAndWait();
+        }
+        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1u, 0u, 1u };
+        const VkImageLayout priorLayout = ExecutedMipLayout(vk, m_Image, range, borrowLayout);
+        if (borrowLayout && priorLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+            return false;
+        const VkImageLayout settleLayout = borrowLayout ? priorLayout : device->GetSampledImageLayout();
+
         VkBufferCreateInfo readbackInfo{};
         readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         readbackInfo.size = sizeBytes;
@@ -1652,39 +1722,6 @@ namespace OloEngine
             return false;
         }
 
-        // The image's ACTUAL prior layout, not the steady-state assumption.
-        // Sampled asset content usually does sit in its resting layout between
-        // graph executions, but two cases break the assumption and both are
-        // invalid usage (VUID-VkImageMemoryBarrier2-oldLayout-01197) that also
-        // leaves the copied texels undefined: a texture created and never
-        // uploaded is still UNDEFINED, and an ATTACHMENT sits in whatever
-        // layout the graph left it in.
-        //
-        // Prefer the tracker's EXECUTED layout, not its recorded one — this is
-        // a one-shot, so it runs BEFORE the still-recording frame command
-        // buffer whose transitions the recorded layout already reflects (#800,
-        // the same reasoning as VulkanRendererAPI::ReadTextureSubImage's borrow
-        // mode). Deliberately NO RegisterImage first: re-registering with
-        // extents or a registration id the graph did not use RESETS that
-        // image's rows, and wiping the graph's own tracked layouts to learn one
-        // value would be a far worse trade. An image the tracker has never seen
-        // answers UNDEFINED, which is exactly when the registry's load-time
-        // record is the better answer.
-        const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
-        const VkImageLayout registryLayout =
-            imageInfo != nullptr ? imageInfo->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1u, 0u, 1u };
-        auto* vk = VulkanUpload::TryGetVulkanAPI();
-        VkImageLayout priorLayout = registryLayout;
-        if (vk != nullptr)
-        {
-            if (const VkImageLayout tracked = vk->LayoutTracker().CurrentExecutedLayout(m_Image, range);
-                tracked != VK_IMAGE_LAYOUT_UNDEFINED)
-            {
-                priorLayout = tracked;
-            }
-        }
-
         bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::GetData",
             [&](VkCommandBuffer cmd)
@@ -1700,17 +1737,20 @@ namespace OloEngine
                 vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
 
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 settleLayout, VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                                 VK_ACCESS_2_MEMORY_READ_BIT, mipLevel, 1u);
+                                                 VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, mipLevel, 1u);
 
                 // Settle recorded INSIDE the one-shot's immediate-execution
                 // scope, so it advances the executed layout only once the
                 // buffer really reached the queue (#800) — the same shape as
                 // VulkanRendererAPI::ReadTextureSubImage's non-borrow arm.
-                if (vk != nullptr)
+                // A refused flush borrows previous-frame contents. Hand back
+                // the executed layout and never overwrite the in-flight copy's
+                // recorded layout (#1806, VUID-oldLayout-01197).
+                if (vk != nullptr && !borrowLayout)
                 {
-                    vk->LayoutTracker().SetLayout(m_Image, range, VulkanDevice::Get()->GetSampledImageLayout());
+                    vk->LayoutTracker().SetLayout(m_Image, range, settleLayout);
                 }
             });
 
@@ -1730,7 +1770,7 @@ namespace OloEngine
             // UNDEFINED — manufacturing the very desync this change removes.
             // The per-subresource truth is the tracker's, set inside the
             // callback above.
-            if (m_MipLevels == 1u)
+            if (m_MipLevels == 1u && !borrowLayout)
             {
                 VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             }

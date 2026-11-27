@@ -26,8 +26,13 @@
 #include "OloEngine/Containers/Array.h"
 
 #include "RenderPropertyTest.h"
+#include "RendererAttachedTest.h"
+#include "Panels/TerrainEditorPanel.h"
+#include "UndoRedo/EditorCommand.h"
 
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
 #include "OloEngine/Terrain/Editor/TerrainGPUBrush.h"
@@ -38,11 +43,13 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -144,6 +151,195 @@ namespace
 class TerrainGPUBrushParity : public ::testing::TestWithParam<TerrainBrushTool>
 {
 };
+
+class ParentedTerrainBrush : public RendererAttachedTest
+{
+    void BuildScene() override {}
+    bool RunsInVulkanProcess() const override
+    {
+        return true;
+    }
+};
+
+TEST_F(ParentedTerrainBrush, SnapshotReadbackAndUndoRebuildTheCurrentFramesMipChain)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    auto original = Ref<TerrainData>::Create();
+    auto edited = Ref<TerrainData>::Create();
+    original->CreateFlat(8, 0.25f);
+    edited->CreateFlat(8, 0.75f);
+    TerrainTextureUndoStack stack;
+    const auto live = edited->GetGPUHeightmap();
+    ASSERT_EQ(live->GetMipLevelCount(), 4u);
+
+    RunInFrame([&]
+               {
+                   const auto before = stack.Capture(original->GetGPUHeightmap(), 0, 0, 8, 8);
+                   ASSERT_NE(before, TerrainTextureUndoStack::kInvalidSnapshot);
+                   ASSERT_NE(stack.Capture(live, 0, 0, 8, 8), TerrainTextureUndoStack::kInvalidSnapshot);
+                   // Erosion settlement reads back level zero after the copy used
+                   // it as a source, then undo uses it as the destination.
+                   TArray64<u8> bytes;
+                   ASSERT_TRUE(live->GetData(bytes));
+                   ASSERT_EQ(bytes.Num(), 8u * 8u * sizeof(f32));
+                   f32 height = 0.0f;
+                   std::memcpy(&height, bytes.GetData(), sizeof(height));
+                   EXPECT_FLOAT_EQ(height, 0.75f);
+                   ASSERT_TRUE(stack.Restore(before, live));
+                   ASSERT_TRUE(live->GetData(bytes, 3u));
+                   ASSERT_EQ(bytes.Num(), sizeof(f32));
+                   std::memcpy(&height, bytes.GetData(), sizeof(height));
+                   EXPECT_FLOAT_EQ(height, 0.25f) << "the restored mip chain must observe this frame's level-zero copy"; });
+}
+
+TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    Entity upper = GetScene().CreateEntity("Picked upper field");
+    Entity lower = GetScene().CreateEntity("Lower field");
+    upper.GetComponent<TransformComponent>().Translation.y = 2;
+    auto prepare = [](Entity e, u32 resolution, bool tessellates, u32 layerCount)
+    {
+        auto& terrain = e.AddComponent<TerrainComponent>();
+        terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 64;
+        terrain.m_HeightScale = 8;
+        terrain.m_TessellationEnabled = tessellates;
+        terrain.m_TerrainData = Ref<TerrainData>::Create();
+        terrain.m_TerrainData->CreateFlat(resolution, 0.25f);
+        terrain.m_ChunkManager = Ref<TerrainChunkManager>::Create();
+        terrain.m_ChunkManager->GenerateAllChunks(*terrain.m_TerrainData, 64, 64, 8);
+        terrain.m_Material = Ref<TerrainMaterial>::Create();
+        for (u32 layer = 0; layer < layerCount; ++layer)
+            terrain.m_Material->AddLayer(TerrainLayer{});
+        terrain.m_Material->InitializeCPUSplatmaps(resolution);
+        auto& splat = terrain.m_Material->GetSplatmapData(0);
+        for (i32 i = 0; i < splat.Num(); i += 4)
+        {
+            splat[i] = 0;
+            splat[i + 1] = 255;
+        }
+        terrain.m_Material->UploadSplatmapRegion(0, 0, 0, resolution, resolution);
+    };
+    RunInFrame([&]
+               { prepare(upper, 65, false, 2); prepare(lower, 129, true, 6); });
+    auto& upperTile = upper.GetComponent<TerrainComponent>();
+    auto& lowerTile = lower.GetComponent<TerrainComponent>();
+    const auto beforeUpper = upperTile.m_TerrainData->GetHeightData();
+    const auto beforeLower = lowerTile.m_TerrainData->GetHeightData();
+
+    CommandHistory history;
+    TerrainEditorPanel panel;
+    panel.SetContext(GetSceneRef());
+    panel.SetCommandHistory(&history);
+    panel.SetEditMode(TerrainEditMode::Sculpt);
+    EXPECT_FALSE(panel.IsAcquiringStroke(false));
+    EXPECT_TRUE(panel.IsAcquiringStroke(true));
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, upper, { 32, 4, 32 }, true);
+                   EXPECT_FALSE(panel.IsAcquiringStroke(true));
+                   panel.OnUpdate(1, lower, { 48, 2, 48 }, true);
+                   panel.OnUpdate(1, {}, {}, true);
+                   // Release while the cursor is outside the viewport.
+                   panel.OnFrameTick(true, false); });
+    ASSERT_TRUE(history.CanUndo());
+    EXPECT_GT(CountChanged(beforeUpper, upperTile.m_TerrainData->GetHeightData()), 0u);
+    EXPECT_EQ(CountChanged(beforeLower, lowerTile.m_TerrainData->GetHeightData()), 0u);
+    RunInFrame([&]
+               { history.Undo(); });
+    EXPECT_FALSE(history.CanUndo());
+    EXPECT_EQ(CountChanged(beforeUpper, upperTile.m_TerrainData->GetHeightData()), 0u);
+
+    const auto beforeUpperPaint = upperTile.m_Material->GetSplatmapData(0);
+    const auto beforeLowerPaint = lowerTile.m_Material->GetSplatmapData(0);
+    panel.SetEditMode(TerrainEditMode::Paint);
+    panel.OnUpdate(0, upper, { 32, 4, 32 }, false);
+    ASSERT_EQ(panel.GetPaintMaterial(), upperTile.m_Material.Raw());
+    EXPECT_EQ(panel.GetPaintMaterial()->GetLayerCount(), 2u);
+    RunInFrame([&]
+               {
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true);
+                   panel.OnUpdate(1, upper, { 48, 4, 48 }, true);
+                   ASSERT_EQ(panel.GetPaintMaterial(), lowerTile.m_Material.Raw());
+                   EXPECT_EQ(panel.GetPaintMaterial()->GetLayerCount(), 6u);
+                   panel.OnUpdate(0, {}, {}, false); });
+    ASSERT_TRUE(history.CanUndo());
+    EXPECT_TRUE(upperTile.m_Material->GetSplatmapData(0) == beforeUpperPaint);
+    EXPECT_FALSE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    RunInFrame([&]
+               { history.Undo(); });
+    EXPECT_FALSE(history.CanUndo());
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+}
+
+TEST_F(ParentedTerrainBrush, PaintedAndSculptedTexelsMatchTheWorldSpacePreviewCircle)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    TerrainGPUBrush brush;
+    ASSERT_TRUE(brush.IsReady());
+    constexpr glm::vec2 size{ kWorldSizeX, kWorldSizeZ };
+    // Local X and Z project non-orthogonally and terrain heights change world XZ.
+    // This defeats independent per-axis radius adjustment as well as a metric
+    // that ignores the height under a paint texel.
+    const glm::mat4 carrier = glm::scale(glm::mat4(1), { 2, 1, 0.65f });
+    const glm::mat4 model = glm::rotate(glm::rotate(carrier, 0.55f, { 0, 1, 0 }), 0.82f, { 1, 0, 0 });
+    auto reference = MakeTerrain();
+    const glm::vec3 hit{ 111.4f, kHeightScale * reference->GetHeightAt(111.4f / size.x, 76.8f / size.y), 76.8f };
+    const auto projection = TerrainBrushProjection::FromTerrain(model, hit.y, kHeightScale, *reference);
+    const glm::vec3 worldHit(model * glm::vec4(hit, 1));
+
+    auto cpuSculpt = MakeTerrain(), gpuSculpt = MakeTerrain();
+    auto cpuPaint = MakeMaterial(2), gpuPaint = MakeMaterial(2);
+    TerrainBrushSettings sculpt;
+    // No sample centre lies within 2 cm of this boundary, including the
+    // splatmap's half-texel offsets and sampler interpolation precision.
+    sculpt.Radius = 18.75f;
+    sculpt.Falloff = 0;
+    TerrainPaintSettings paint;
+    paint.Radius = sculpt.Radius;
+    paint.Falloff = 0;
+    paint.Strength = 1;
+    paint.TargetLayer = 1;
+    TerrainBrush::Apply(*cpuSculpt, sculpt, hit, size.x, size.y, kHeightScale, 1, projection);
+    TerrainPaintBrush::Apply(*cpuPaint, paint, hit, size.x, size.y, 1, projection);
+    RunInFrame([&]
+               {
+                   brush.ApplySculpt(*gpuSculpt, sculpt, hit, size.x, size.y, kHeightScale, 1, 0, projection);
+                   brush.ApplyPaint(*gpuPaint, paint, hit, size.x, size.y, 1, projection); });
+
+    const auto& baseline = reference->GetHeightData();
+    const auto& cpuHeights = cpuSculpt->GetHeightData();
+    const auto& gpuHeights = gpuSculpt->GetHeightData();
+    const auto& cpuWeights = cpuPaint->GetSplatmapData(0);
+    const auto& gpuWeights = gpuPaint->GetSplatmapData(0);
+    u32 expectedSculpt = 0, expectedPaint = 0, wrongSculpt = 0, wrongPaint = 0;
+    const auto insidePreview = [&](glm::vec2 uv, f32 h)
+    {
+        const glm::vec3 world(model * glm::vec4(uv.x * size.x, h * kHeightScale, uv.y * size.y, 1));
+        return std::hypot(world.x - worldHit.x, world.z - worldHit.z) < sculpt.Radius;
+    };
+    for (u32 z = 0; z < kResolution; ++z)
+    {
+        for (u32 x = 0; x < kResolution; ++x)
+        {
+            const auto index = z * kResolution + x;
+            const glm::vec2 sample = glm::vec2(x, z) / static_cast<f32>(kResolution - 1);
+            const glm::vec2 texel = (glm::vec2(x, z) + 0.5f) / static_cast<f32>(kResolution);
+            const bool sculpts = insidePreview(sample, baseline[index]);
+            const bool paints = insidePreview(texel, reference->GetHeightAt(texel.x, texel.y));
+            expectedSculpt += sculpts;
+            expectedPaint += paints;
+            wrongSculpt += (cpuHeights[index] > baseline[index]) != sculpts || (gpuHeights[index] > baseline[index]) != sculpts;
+            wrongPaint += (cpuWeights[index * 4 + 1] > 0) != paints || (gpuWeights[index * 4 + 1] > 0) != paints;
+        }
+    }
+    EXPECT_GT(expectedSculpt, 100u);
+    EXPECT_GT(expectedPaint, 100u);
+    EXPECT_EQ(wrongSculpt, 0u);
+    EXPECT_EQ(wrongPaint, 0u);
+    std::cout << "[ParentedTerrainBrush] " << expectedSculpt << " height samples and " << expectedPaint
+              << " painted texels inside the world circle; wrong masks " << wrongSculpt << ", " << wrongPaint << '\n';
+}
 
 TEST_P(TerrainGPUBrushParity, MatchesTheCpuBrushOnANonSquareTerrain)
 {

@@ -130,6 +130,12 @@ namespace OloEngine
                                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                                                   const glm::vec3& scale = glm::vec3(1.0f));
 
+        // A hierarchy can shear a height field. Preserve the affine grid in
+        // that case with triangles in the rigid body's own frame.
+        static JPH::Ref<JPH::Shape> CreateTerrainCollisionShape(std::span<const f32> heights, u32 resolution,
+                                                                f32 sizeX, f32 sizeZ, f32 heightScale,
+                                                                const glm::mat3& bodyBasis);
+
         // @brief Build the shared settings for a rectangular cloth soft body (issue #460).
         //
         // Generates a `columns`×`rows` grid of particles in the local X–Z plane (spanning

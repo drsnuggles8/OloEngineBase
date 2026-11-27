@@ -92,6 +92,7 @@ vec2 octEncode(vec3 n)
 // fragment stage must match it rather than declaring `flat in int
 // v_InstanceIndex` with no producer (link error).
 #include "include/InstanceBlock_Single.glsl"
+#include "include/WaterTileFrame.glsl"
 
 // Water UBO (binding 23)
 layout(std140, binding = 23) uniform WaterParams
@@ -565,7 +566,8 @@ void main()
     // this branch is inert.)
     if (u_NormalMapSpeed.w > 0.5)
     {
-        bool cameraBelowFragment = v_WorldPos.y > u_CameraPosition.y;
+        bool cameraBelowFragment = waterCameraBelowFragment(waterGridNormal(instances[0].Transform),
+                                                           u_CameraPosition, v_WorldPos);
         if (cameraBelowFragment == gl_FrontFacing)
             discard;
     }
@@ -743,8 +745,11 @@ void main()
     // and the open ocean turns transparent. This is the deep-water default.
     bool hasFloorBehind = sceneDepthRaw < 0.9999;
     vec3 floorViewPos = viewPosFromDepth(screenUV, sceneDepthRaw);
-    float floorWorldY = (inverse(u_View) * vec4(floorViewPos, 1.0)).y;
-    float verticalWaterDepth = max(v_WorldPos.y - floorWorldY, 0.0);
+    vec3 floorWorldPos = (inverse(u_View) * vec4(floorViewPos, 1.0)).xyz;
+    vec3 restNormal = waterGridNormal(instances[0].Transform);
+    vec2 surfaceGradient = abs(restNormal.y) > 1e-4 ? -restNormal.xz / restNormal.y : vec2(0.0);
+    float surfaceYAtFloor = v_WorldPos.y + dot(surfaceGradient, floorWorldPos.xz - v_WorldPos.xz);
+    float verticalWaterDepth = max(surfaceYAtFloor - floorWorldPos.y, 0.0);
 
     // --- Refraction ---
     float refrDistortion = u_DepthRefractionParams.y;
@@ -915,10 +920,14 @@ void main()
         : 0.0; // open ocean (no floor behind) → no shoreline foam
     if (shorelineFoam > 0.0)
     {
-        vec2 surfaceY = vec2(v_WorldPos.y, instances[0].Transform[3].y) + u_RenderOrigin.y;
-        shorelineFoam *= waterWakeShoreFoamScale(u_WakeShapeParams.x,
-                                                v_WorldPos.xz + u_RenderOrigin.xz,
-                                                verticalWaterDepth, surfaceY);
+        if (abs(restNormal.y) > 1e-4)
+        {
+            vec3 origin = instances[0].Transform[3].xyz;
+            float planeY = origin.y + dot(surfaceGradient, v_WorldPos.xz - origin.xz);
+            vec2 surfaceY = vec2(v_WorldPos.y, planeY) + u_RenderOrigin.y;
+            shorelineFoam *= waterWakeShoreFoamScale(u_WakeShapeParams.x, v_WorldPos.xz + u_RenderOrigin.xz,
+                                                    verticalWaterDepth, surfaceY, surfaceGradient);
+        }
     }
 
     // --- Large-scale spatial noise gate ---

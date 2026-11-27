@@ -3,12 +3,15 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
+#include "OloEngine/Renderer/WaterSurface.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Water/WaterRainRipples.h"
 
 #include <glm/glm.hpp>
 
 #include <cmath>
 #include <numeric>
+#include <limits>
 #include "OloEngine/Containers/Array.h"
 
 namespace OloEngine::WaterSpray
@@ -163,11 +166,15 @@ namespace OloEngine::WaterSpray
         /// WaterFoamSettings::m_DriftMetresPerSecond gives.
         glm::vec2 m_WindMetresPerSecond{ 0.0f };
         /// World Y of the water plane the crests sit on.
-        f32 m_WaterPlaneY = 0.0f;
+        WaterSurface::SurfaceFrame m_Frame;
+        glm::vec2 m_HalfExtent{ std::numeric_limits<f32>::max() };
         /// The artist multiplier already applied to the FFT height
         /// (WaterComponent::m_FFTHeightScale), so a spray particle launches
         /// from the crest the SHADER drew rather than from the raw field.
         f32 m_HeightScale = 1.0f;
+        f32 m_BreakerIndex = 0.0f; // zero disables shore limiting
+        f32 m_WakeHeightScale = 0.0f;
+        f32 m_FlattenStrength = 0.0f;
     };
 
     /// Spray threshold that always sits at or above the foam deposit threshold.
@@ -307,9 +314,7 @@ namespace OloEngine::WaterSpray
         const f32 size = std::isfinite(settings.m_ParticleSize)
                              ? glm::clamp(settings.m_ParticleSize, 0.005f, 2.0f)
                              : 0.25f;
-        const f32 heightScale =
-            std::isfinite(settings.m_HeightScale) ? glm::clamp(settings.m_HeightScale, 0.0f, 10.0f) : 1.0f;
-        const f32 planeY = std::isfinite(settings.m_WaterPlaneY) ? settings.m_WaterPlaneY : 0.0f;
+        const f32 heightScale = WaterSurface::ClampFFTHeightScale(settings.m_HeightScale);
         const glm::vec2 wind{ std::isfinite(settings.m_WindMetresPerSecond.x)
                                   ? settings.m_WindMetresPerSecond.x
                                   : 0.0f,
@@ -323,6 +328,11 @@ namespace OloEngine::WaterSpray
             const glm::ivec2 cell = cellMin + glm::ivec2(index % cellsPerAxis, index / cellsPerAxis);
             const glm::vec2 worldXZ = SamplePointForCell(cell);
 
+            if (glm::any(glm::greaterThan(glm::abs(settings.m_Frame.LocalXZ(worldXZ)), settings.m_HalfExtent)))
+                continue;
+            const f32 planeY = settings.m_Frame.RestHeight(worldXZ);
+            if (!std::isfinite(planeY))
+                continue;
             const CrestSample crest = sampleCrest(worldXZ);
             if (!std::isfinite(crest.m_Fold) || !std::isfinite(crest.m_Height) ||
                 !std::isfinite(crest.m_Horizontal.x) || !std::isfinite(crest.m_Horizontal.y))
@@ -335,6 +345,10 @@ namespace OloEngine::WaterSpray
             if (count == 0u)
                 continue;
 
+            glm::vec3 delta(crest.m_Horizontal.x, crest.m_Height * heightScale, crest.m_Horizontal.y);
+            if (settings.m_BreakerIndex > 0.0f)
+                delta = WaterSurface::LimitFFTAtShore(delta, WaterShoreDepthSystem::SampleWorld(worldXZ), settings.m_BreakerIndex);
+            delta = WaterSurface::ApplyWakeAtBase(delta, worldXZ, settings.m_WakeHeightScale, settings.m_FlattenStrength);
             count = glm::min(count, kMaxEmitPerFrame - static_cast<u32>(particles.Num()));
             for (u32 i = 0; i < count; ++i)
             {
@@ -352,11 +366,14 @@ namespace OloEngine::WaterSpray
                 // height scale for the reason m_HeightScale records, and the
                 // clearance is half a billboard so the puff sits ON the water
                 // rather than half inside it.
-                const glm::vec2 surfaceXZ = worldXZ + crest.m_Horizontal;
-                const glm::vec3 position{ surfaceXZ.x + (r0 - 0.5f) * kSampleSpacingMetres * 0.25f,
-                                          planeY + crest.m_Height * heightScale +
+                const glm::vec2 jitterXZ = (glm::vec2(r0, r1) - 0.5f) * kSampleSpacingMetres * 0.25f;
+                const glm::vec2 spawnXZ = (worldXZ + glm::vec2(delta.x, delta.z)) + jitterXZ;
+                const f32 jitterHeight = -glm::dot(jitterXZ, glm::vec2(settings.m_Frame.Normal.x, settings.m_Frame.Normal.z)) /
+                                         settings.m_Frame.Normal.y;
+                const glm::vec3 position{ spawnXZ.x,
+                                          planeY + jitterHeight + delta.y +
                                               kSpawnClearanceMetres + 0.5f * size,
-                                          surfaceXZ.y + (r1 - 0.5f) * kSampleSpacingMetres * 0.25f };
+                                          spawnXZ.y };
 
                 // Ballistic launch: mostly up, thrown downwind, with the
                 // stronger folds throwing harder. GPUSimParams supplies the

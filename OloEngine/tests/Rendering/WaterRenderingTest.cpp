@@ -758,9 +758,10 @@ TEST(WaterRendering, UnderwaterFogUBOAlignment)
     // vec4 ColorAndDensity + vec4 Flags + vec4 CameraPos + vec4 RefractionParams
     // + vec4 CausticParams + vec4 CausticColorAndSun + vec4 GodRayParams
     // + vec4 GodRaySun + vec4 GodRayColor + vec4 GodRayShape + mat4 InvViewProj
-    // = 16 * 10 + 64 = 224 bytes. The §3.3 god-ray params were appended after the
-    // caustics block; if this changes, update the GLSL UnderwaterFogBlock layout too.
-    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 224u);
+    // + vec4 SurfaceGradient + vec4 SurfaceTileU + vec4 SurfaceTileV = 272 bytes.
+    // The god-ray params were appended after the caustics block; if this changes,
+    // update the GLSL UnderwaterFogBlock layout too.
+    EXPECT_EQ(sizeof(UnderwaterFogUBOData), 272u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
@@ -778,6 +779,9 @@ TEST(WaterRendering, UnderwaterFogUBOFieldOffsets)
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayColor), 128u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, GodRayShape), 144u);
     EXPECT_EQ(offsetof(UnderwaterFogUBOData, InverseViewProjection), 160u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceGradient), 224u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceTileU), 240u);
+    EXPECT_EQ(offsetof(UnderwaterFogUBOData, SurfaceTileV), 256u);
 }
 
 TEST(WaterRendering, UnderwaterFogUBOBindingSlot)
@@ -1213,6 +1217,55 @@ TEST(WaterRendering, UnderwaterSegment_AtWaterlineSplitsRayByDirection)
     EXPECT_FLOAT_EQ(UnderwaterFog::UnderwaterSegmentLength(cam, up, kWaterSurfaceY), 0.0f);
 }
 
+TEST(WaterRendering, UnderwaterSurfaceSlopeAppliesOnlyToTheEyeTilesOwnSurface)
+{
+    // A 20 x 10 tile pitched about X, carried to (100, 3, -50) and turned 90 degrees
+    // about Y: its local X runs along world -Z and its local Z along world X.
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 3.0f, -50.0f));
+    model = glm::rotate(model, glm::half_pi<f32>(), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    const auto frame = WaterSurface::SurfaceFrame::FromModel(model);
+    ASSERT_TRUE(frame.has_value());
+    const glm::vec2 slope(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y);
+    ASSERT_GT(glm::length(slope), 0.3f);
+    const auto at = [&](glm::vec2 local)
+    {
+        const glm::vec2 xz = glm::inverse(frame->WorldXZToLocal) * local + glm::vec2(frame->Origin.x, frame->Origin.z);
+        return glm::vec3(xz.x, frame->RestHeight(xz), xz.y);
+    };
+    const auto same = [](glm::vec2 a, glm::vec2 b)
+    { return glm::length(a - b) < 1.0e-6f; };
+    // Waves 0.4 m along the normal: about 0.69 m vertically on this 20 degree tilt.
+    UnderwaterFog::EyeTileSurface eyeTile;
+    eyeTile.Rows = UnderwaterFog::MakeTileFootprintRows(model, 20.0f, 10.0f);
+    eyeTile.Gradient = slope;
+    eyeTile.RestYAtEye = frame->Origin.y;
+    eyeTile.EyeXZ = { frame->Origin.x, frame->Origin.z };
+    eyeTile.Band = UnderwaterFog::EyeTileSurfaceBand(model, 0.4f);
+    EXPECT_NEAR(eyeTile.Band, (0.4f + UnderwaterFog::kSurfaceBandMargin) / frame->Normal.y, 1e-5f);
+    const glm::vec3 up(0.0f, 1.0f, 0.0f);
+    const f32 m = UnderwaterFog::kTileFootprintMargin;
+    // The eye tile's own surface: at its corners plus the wave margin, and anywhere
+    // in its wave band above or below the rest plane.
+    for (const glm::vec2 local : { glm::vec2(0.0f), glm::vec2(10.0f + m, 5.0f + m) * 0.999f, glm::vec2(-10.0f - m, 5.0f + m) * 0.999f })
+    {
+        const glm::vec3 p = at(local);
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p), slope)) << local.x << ',' << local.y;
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p + up * eyeTile.Band * 0.99f), slope));
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, p - up * eyeTile.Band * 0.99f), slope));
+    }
+    // Just past either edge belongs to some other tile, whose own slope is unknown.
+    for (const glm::vec2 local : { glm::vec2(10.0f + m, 0.0f) * 1.001f, glm::vec2(0.0f, -5.0f - m) * 1.001f })
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, at(local)), glm::vec2(0.0f))) << local.x << ',' << local.y;
+    // Another tile over the same footprint lies off the plane: a level tile 1.5 m
+    // above or below it there, or a surface far overhead, keeps its own height.
+    for (const f32 offset : { 1.5f, -1.5f, 40.0f })
+        EXPECT_TRUE(same(UnderwaterFog::PixelSurfaceGradient(eyeTile, at(glm::vec2(6.0f, 2.0f)) + up * offset), glm::vec2(0.0f))) << offset;
+    // A tile on edge has no frame; its band stays finite.
+    EXPECT_NEAR(UnderwaterFog::EyeTileSurfaceBand(glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(1.0f, 0.0f, 0.0f)), 0.4f),
+                0.4f + UnderwaterFog::kSurfaceBandMargin, 1e-5f);
+}
+
 TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)
 {
     // Surface raised to y=5: depth is measured from that plane.
@@ -1286,31 +1339,38 @@ TEST(WaterRendering, SurfacePixelFog_SurvivesGarbageWeights)
     EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, -7.0f), 0.0f);
 }
 
+TEST(WaterRendering, UphillViewRayOnlyFogsTheSegmentBelowTheTiltedPlane)
+{
+    // The eye is half a metre above y=x. The first ray follows the slope
+    // above the surface. The horizontal ray crosses it at x=0.5.
+    const glm::vec3 eye(0, 0.5f, 0);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(eye, { 2, 2.5f, 0 }, 0.0f, { 1, 0 }), 0.0f, 1.0e-5f);
+    EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(eye, { 2, 0.5f, 0 }, 0.0f, { 1, 0 }), 1.5f, 1.0e-5f);
+}
+
 TEST(WaterRendering, DrawnSurface_AFlatTileIsTheProbesSample)
 {
-    // A flat tile's plane is the height of its origin, wherever the eye is: the
-    // probe's sample, waves and all, is the surface.
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 2.4f), 2.4f);
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 1.7f), 1.7f);
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(0.0f, 0.0f, 0.0f), 0.0f);
+    WaterComponent water;
+    const auto volume = WaterProbe::MakeVolume(glm::translate(glm::mat4(1.0f), glm::vec3(3, 2, 5)), water);
+    ASSERT_TRUE(volume);
+    const glm::vec2 column(1.0f, 1.5f);
+    EXPECT_NEAR(WaterProbe::SampleSurfaceY(*volume, column, 1.0f),
+                WaterSurface::SampleHeight(volume->m_Params, column, 1.0f), 1.0e-5f);
 }
 
 TEST(WaterRendering, DrawnSurface_ATiltedTileKeepsItsPlaneUnderTheWaves)
 {
-    // A wave-free tile turned 45 degrees about Z has its surface at Y = 1 where X = 1
-    // (TilePlaneYAt, above), and its origin at Y = 0. An eye at (1, 0.5, 0) is half a metre under it. The
-    // probe, which measures from the origin, answers 0 there; taken whole (0 - 0.5)
-    // that reads as an eye half a metre in the AIR, and the lens switches off under water.
-    const f32 planeAtEye = 1.0f;
-    const f32 originY = 0.0f;
-    const f32 cameraY = 0.5f;
-    const f32 drawn = UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, /*probeSurfaceY=*/0.0f);
-    EXPECT_FLOAT_EQ(drawn, 1.0f);
-    EXPECT_GT(UnderwaterFog::EyeInWater(drawn - cameraY), 0.99f) << "the eye is under the tilted surface";
-
-    // Waves ride on the plane.
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, 0.3f), 1.3f);
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, -0.2f), 0.8f);
+    WaterComponent water;
+    water.m_WaveAmplitude = 0.0f;
+    const glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 0, 1));
+    const auto volume = WaterProbe::MakeVolume(model, water);
+    ASSERT_TRUE(volume);
+    for (const f32 x : { -4.0f, 1.0f, 7.0f })
+    {
+        const f32 drawn = WaterProbe::SampleSurfaceY(*volume, { x, 0.0f }, 1.0f);
+        EXPECT_NEAR(drawn, x, 1.0e-5f);
+        EXPECT_GT(UnderwaterFog::EyeInWater(drawn - (x - 0.5f)), 0.99f);
+    }
 }
 
 TEST(WaterRendering, TilePlane_ALevelTileIsAtItsOriginsHeightEverywhere)
@@ -1340,7 +1400,7 @@ TEST(WaterRendering, TilePlane_ATiltedTileIsMeasuredOnTheVerticalThroughTheEye)
     EXPECT_NEAR(foot, 0.95f, 1e-5f) << "the control: the perpendicular's foot is a different point";
 
     // And the depth the lens is given, through the same two steps the scene takes.
-    const f32 depth = UnderwaterFog::DrawnSurfaceY(plane, model[3].y, /*probeSurfaceY=*/model[3].y) - eye.y;
+    const f32 depth = plane - eye.y;
     EXPECT_NEAR(depth, 0.1f, 1e-5f);
 }
 
@@ -1363,8 +1423,8 @@ TEST(WaterRendering, TiltedTileFootprintUsesTheVerticalIntersection)
     EXPECT_FALSE(UnderwaterFog::TryGetTileFootprintGap(model, 4.0f, 4.0f, { 5.0f, 5.0f, 0.0f }, gap));
 
     const glm::mat4 onEdge = glm::rotate(glm::mat4(1.0f), glm::half_pi<f32>(), glm::vec3(0.0f, 0.0f, 1.0f));
-    ASSERT_TRUE(UnderwaterFog::TryGetTileFootprintGap(onEdge, 4.0f, 4.0f, { 0.5f, -1.0f, 0.0f }, gap));
-    EXPECT_NEAR(gap, 0.0f, 1.0e-5f);
+    EXPECT_FALSE(UnderwaterFog::TryGetTileFootprintGap(onEdge, 4.0f, 4.0f, { 0.5f, -1.0f, 0.0f }, gap));
+    EXPECT_FALSE(WaterProbe::MakeVolume(onEdge, WaterComponent{}));
 }
 
 TEST(WaterRendering, TileFootprintUsesTheRenderedGridFallbackForNonFiniteDimensions)
@@ -1387,13 +1447,36 @@ TEST(WaterRendering, TileFootprintUsesTheRenderedGridFallbackForNonFiniteDimensi
     EXPECT_FALSE(WaterProbe::IsOverFootprint(*buoyancyVolume, { 51.0f, -1.0f, 0.0f }));
 }
 
+TEST(WaterRendering, TiltedGridWithZeroLocalYStillHasAColumnAndFootprint)
+{
+    glm::mat4 model(1.0f);
+    model[0] = { 2, 1, 0, 0 };
+    model[1] = glm::vec4(0);
+    model[2] = { 1, 0, 3, 0 };
+    model[3] = { 5, 2, 10, 1 };
+    WaterComponent water;
+    water.m_WorldSizeX = water.m_WorldSizeZ = 10.0f;
+    water.m_WaveAmplitude = 0.0f;
+    const auto volume = WaterProbe::MakeVolume(model, water);
+    ASSERT_TRUE(volume);
+    // Local (4,0,-2) transforms to world (11,6,4). The footprint must be
+    // identical on a vertical line through that point even far above/below it.
+    EXPECT_TRUE(WaterProbe::IsOverFootprint(*volume, { 11, 100, 4 }));
+    EXPECT_TRUE(WaterProbe::IsOverFootprint(*volume, { 11, -100, 4 }));
+    EXPECT_FALSE(WaterProbe::IsOverFootprint(*volume, { 16, 6, 4 }));
+    EXPECT_NEAR(WaterProbe::SampleSurfaceY(*volume, { 11, 4 }, 0), 6.0f, 1e-6f);
+    const glm::vec3 normal = glm::normalize(glm::vec3(-3, 6, 1));
+    EXPECT_LT(glm::length(volume->m_Frame.Normal - normal), 1e-6f);
+}
+
 TEST(WaterRendering, DrawnSurface_AProbeWithNoAnswerLeavesTheStillPlane)
 {
-    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
-    const f32 inf = std::numeric_limits<f32>::infinity();
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, nan), 1.5f);
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, inf), 1.5f);
-    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, nan, 0.2f), 1.5f);
+    WaterComponent water;
+    water.m_WaveAmplitude = std::numeric_limits<f32>::quiet_NaN();
+    const glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0, 1.5f, 0));
+    const auto volume = WaterProbe::MakeVolume(model, water);
+    ASSERT_TRUE(volume);
+    EXPECT_FLOAT_EQ(WaterProbe::SampleSurfaceY(*volume, { 1.0f, 0.0f }, 1.0f), 1.5f);
 }
 
 TEST(WaterRendering, WaterFace_CameraAbove_KeepsTopsDiscardsUndersides)

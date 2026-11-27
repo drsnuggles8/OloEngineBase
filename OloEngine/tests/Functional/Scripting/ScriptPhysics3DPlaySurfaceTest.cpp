@@ -355,6 +355,7 @@ function s.OnUpdate(id, ts)
     if frame == 1 then
         entity_utils.attach_to($BALL, $CARRIER, "", vec3.new(0, 0.5, 0))
     elseif frame == 3 then
+        entity_utils.set_translation($CARRIER, vec3.new(3, 1, 2))
         entity_utils.set_translation(id, entity_utils.get_world_translation($BALL))
         entity_utils.set_scale(id, entity_utils.get_translation($BALL))
     end

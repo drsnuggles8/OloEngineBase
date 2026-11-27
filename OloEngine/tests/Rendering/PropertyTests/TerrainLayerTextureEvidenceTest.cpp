@@ -58,16 +58,21 @@
 #include "../../TestTempDir.h"
 
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/TerrainGround.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Terrain/TerrainSurfaceShading.h"
 #include "OloEngine/Terrain/VirtualTexture/TerrainVirtualTexture.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -548,6 +553,20 @@ namespace OloEngine::Tests
             ASSERT_EQ(h, kSize);
         }
 
+        // Fraction of pixels whose RGB changed by more than four display levels.
+        [[nodiscard]] static f64 ChangedFraction(const std::vector<u8>& a, const std::vector<u8>& b)
+        {
+            u32 changed = 0;
+            for (sizet at = 0; at < a.size(); at += 4)
+            {
+                const auto delta = [&](sizet channel)
+                { return std::abs(a[at + channel] - b[at + channel]); };
+                if (std::max({ delta(0), delta(1), delta(2) }) > 4)
+                    ++changed;
+            }
+            return static_cast<f64>(changed) / (kSize * kSize);
+        }
+
         [[nodiscard]] std::string EvidenceName(const char* feature, const char* angle) const
         {
             return TestRenderBackend::EvidenceName(feature) + PathName(GetParam()) + "_" + angle;
@@ -559,6 +578,257 @@ namespace OloEngine::Tests
         Entity m_Camera;
         Entity m_Terrain;
     };
+
+    TEST_P(TerrainLayerTextureEvidence, InterpolatedRenderRebuildUsesTheSimulationTerrainPose)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_FALSE(HasFatalFailure());
+        auto& terrain = m_Terrain.GetComponent<TerrainComponent>();
+        terrain.m_CollisionEnabled = true;
+        Entity carrier = GetScene().CreateEntity("Moving terrain carrier");
+        carrier.AddComponent<SphereCollider3DComponent>();
+        auto& body = carrier.AddComponent<Rigidbody3DComponent>();
+        body.m_Type = BodyType3D::Dynamic;
+        body.m_DisableGravity = true;
+        body.m_IsTrigger = true;
+        body.m_InitialLinearVelocity = { 0, 60, 0 };
+        m_Terrain.SetParent(carrier);
+        GetScene().OnPhysics3DStart();
+        LookAtThePlain();
+        constexpr f32 dt = 1.0f / 60.0f;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(dt, dt); });
+        RayCastInfo ray;
+        ray.m_Origin = { 20, 80, 32 };
+        ray.m_Direction = { 0, -1, 0 };
+        ray.m_MaxDistance = 100;
+        SceneQueryHit before, after;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, before));
+        ASSERT_EQ(before.m_HitEntity, m_Terrain.GetUUID());
+        const f32 localHeight = terrain.m_TerrainData->GetHeightAt(20.0f / kWorldSize, 32.0f / kWorldSize) * kHeightScale;
+        EXPECT_NEAR(before.m_Position.y, GetScene().ComputeWorldPosition(m_Terrain).y + localHeight, 0.02f);
+        // No new tick. Rebuild while RenderRuntime temporarily applies the
+        // halfway pose, then inspect the native surface after ECS restoration.
+        terrain.m_NeedsRebuild = true;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.5f * dt, dt); });
+        ASSERT_NEAR(GetScene().GetRenderInterpolationAlpha(), 0.5f, 1.0e-4f);
+        ASSERT_GT(std::abs(GetScene().GetInterpolatedLocalTransform(carrier)[3].y - carrier.GetComponent<TransformComponent>().Translation.y), 0.1f);
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, after));
+        ASSERT_EQ(after.m_HitEntity, m_Terrain.GetUUID());
+        EXPECT_NEAR(after.m_Position.y, before.m_Position.y, 0.01f);
+
+        // An origin rebase moves the native body. The recorded simulation pose
+        // an interpolated rebuild reads must move with it, not put it back.
+        const glm::vec3 shift(0, 7, 0);
+        GetScene().RebaseOrigin(shift);
+        terrain.m_NeedsRebuild = true;
+        // A zero step keeps the half-filled accumulator: still no physics tick.
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.0f, dt); });
+        ASSERT_NEAR(GetScene().GetRenderInterpolationAlpha(), 0.5f, 1.0e-4f);
+        SceneQueryHit rebased;
+        ray.m_Origin += shift;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, rebased));
+        ASSERT_EQ(rebased.m_HitEntity, m_Terrain.GetUUID());
+        EXPECT_NEAR(rebased.m_Position.y, before.m_Position.y + shift.y, 0.01f);
+    }
+
+    TEST_P(TerrainLayerTextureEvidence, StreamedTileAndShoreDepthFollowTheCarrier)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_FALSE(HasFatalFailure());
+        ScopedMockTime mockTime(kCaptureTime);
+        auto& terrain = m_Terrain.GetComponent<TerrainComponent>();
+        terrain.m_StreamingEnabled = true;
+        terrain.m_TileWorldSize = kWorldSize;
+        terrain.m_TileResolution = kHeightmapSize;
+        terrain.m_StreamingLoadRadius = 0;
+        terrain.m_StreamingMaxTiles = 1;
+        terrain.m_TileDirectory = m_Directory.generic_string();
+        terrain.m_TileFilePattern = "tile_%d_%d.png";
+        ASSERT_NO_FATAL_FAILURE(WriteHeightmap(m_Directory / "tile_1_-1.png"));
+
+        Entity rig = GetScene().CreateEntity("TerrainCarrier");
+        auto& parent = rig.GetComponent<TransformComponent>();
+        parent.Translation = { 240, 3, -170 };
+        parent.SetRotationEuler({ 0, glm::half_pi<f32>(), 0 });
+        parent.Scale = { 1.5f, 1.25f, 1.0f };
+        const glm::vec3 cameraLocal(kWorldSize + 20, 0, -kWorldSize + 32);
+        const glm::vec3 target(parent.GetTransform() * glm::vec4(cameraLocal, 1));
+        LookDown(target.x, target.z, target.y + 30, 55.0f);
+        const auto waitForTile = [&](i32 x)
+        {
+            constexpr u32 maxFrames = 120;
+            for (u32 frame = 0; frame < maxFrames && (!terrain.m_Streamer || !terrain.m_Streamer->GetTile(x, -1)); ++frame)
+                RunFrames(1, 0.0f);
+        };
+
+        // Two representations of exactly the same terrain, including a nonzero
+        // resident tile index. A translated-only camera conversion selects a
+        // different tile even for the root twin.
+        m_Terrain.GetComponent<TransformComponent>() = parent;
+        waitForTile(1);
+        ASSERT_TRUE(terrain.m_Streamer);
+        ASSERT_TRUE(terrain.m_Streamer->GetTile(1, -1));
+        std::vector<u8> root, child;
+        ASSERT_NO_FATAL_FAILURE(Capture(root));
+        WriteEvidence(EvidenceName("ParentedTerrainOff", "StreamedTile"), root);
+        ASSERT_EQ(terrain.m_Streamer->GetLoadedTileCount(), 1u);
+        ASSERT_GT(LumaContrast(root, Centre(kSize / 4)), 25.0);
+        m_Terrain.SetParent(rig);
+        m_Terrain.GetComponent<TransformComponent>() = TransformComponent{};
+        ASSERT_NO_FATAL_FAILURE(Capture(child));
+        WriteEvidence(EvidenceName("ParentedTerrain", "StreamedTile"), child);
+        const f64 difference = ChangedFraction(root, child);
+        EXPECT_LT(difference, 0.015);
+        std::cout << "[ParentedTerrain] " << EvidenceName("ParentedTerrain", "StreamedTile")
+                  << " tile (1,-1), checker contrast " << LumaContrast(child, Centre(kSize / 4))
+                  << ", changed fraction vs root " << difference << '\n';
+
+        Entity ocean = GetScene().CreateEntity("ShoreAboveStreamedTile");
+        const f32 seaLevel = target.y + 40;
+        ocean.GetComponent<TransformComponent>().Translation = { target.x, seaLevel, target.z };
+        const glm::vec3 plateau(parent.GetTransform() * glm::vec4(kWorldSize + 52, kHeightScale, -kWorldSize + 32, 1));
+        auto& water = ocean.AddComponent<WaterComponent>();
+        water.m_ShoreWavesEnabled = true;
+        water.m_WorldSizeX = water.m_WorldSizeZ = 128;
+        water.m_GridResolutionX = water.m_GridResolutionZ = 8;
+        terrain.m_CollisionEnabled = true;
+        GetScene().OnPhysics3DStart();
+        struct StopPhysics
+        {
+            Scene& TestScene;
+            ~StopPhysics()
+            {
+                TestScene.OnPhysics3DStop();
+            }
+        } const stopPhysics{ GetScene() };
+        // The tile was resident before physics started. The first step must
+        // collide with it without waiting for a render to reconcile it.
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 1, -1));
+        // A live LOD setting must reach an already-resident tile, including
+        // the OLO_TERRAIN_CPU_LOD process which never consumes the GPU uniform.
+        terrain.m_TargetTriangleSize = 17.0f;
+        const auto checkShore = [&](glm::vec3 location)
+        {
+            const auto ground = SampleTerrainGroundHeight(GetScene(), location.x, location.z);
+            ASSERT_TRUE(ground.has_value());
+            EXPECT_NEAR(*ground, location.y, 0.02f);
+            const auto sample = WaterShoreDepthSystem::SampleWorld({ location.x, location.z });
+            ASSERT_TRUE(sample.Enabled);
+            EXPECT_NEAR(sample.Depth, seaLevel - location.y, 0.05f);
+            RayCastInfo ray;
+            ray.m_Origin = location + glm::vec3(0, 60, 0);
+            ray.m_Direction = { 0, -1, 0 };
+            ray.m_MaxDistance = 100;
+            SceneQueryHit hit;
+            ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, hit));
+            EXPECT_EQ(hit.m_HitEntity, m_Terrain.GetUUID());
+            EXPECT_NEAR(hit.m_Position.y, location.y, 0.05f);
+        };
+        RunFrames(1, 0.0f);
+        waitForTile(1);
+        if (!TerrainChunkManager::IsGpuDrivenLODEnabled())
+        {
+            const auto resident = terrain.m_Streamer->GetTile(1, -1);
+            ASSERT_TRUE(resident);
+            EXPECT_FLOAT_EQ(resident->GetChunkManager()->GetQuadtree().GetConfig().TargetTriangleSize, 17.0f);
+        }
+        ASSERT_NO_FATAL_FAILURE(checkShore(target));
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau));
+        m_Terrain.SetParent({});
+        m_Terrain.GetComponent<TransformComponent>() = parent;
+        RunFrames(2, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(target));
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau));
+        m_Terrain.SetParent(rig);
+        m_Terrain.GetComponent<TransformComponent>() = TransformComponent{};
+        parent.Translation.y += 2;
+        // The old tile stays loaded. The moving parent changes its base height.
+        RunFrames(3, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(target + glm::vec3(0, 2, 0)));
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2, 0)));
+
+        // A render between fixed physics ticks must replace the baked shape
+        // when scale changes, including when it returns to its original value.
+        parent.Scale.y *= 0.5f;
+        RunFrames(1, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2 - kHeightScale * 0.625f, 0)));
+        parent.Scale.y *= 2;
+        RunFrames(1, 0.0f);
+        ASSERT_NO_FATAL_FAILURE(checkShore(plateau + glm::vec3(0, 2, 0)));
+
+        // The same world camera now sees tile (2,-1). The ready set must evict
+        // (1,-1) and the analytic ground query must see the new, flat substitute.
+        parent.Translation -= glm::vec3(parent.GetTransform()[0]) * kWorldSize;
+        waitForTile(2);
+        ASSERT_TRUE(terrain.m_Streamer->GetTile(2, -1));
+        EXPECT_FALSE(terrain.m_Streamer->GetTile(1, -1));
+        EXPECT_EQ(terrain.m_Streamer->GetLoadedTileCount(), 1u);
+        EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 1, -1));
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
+        ASSERT_NO_FATAL_FAILURE(checkShore(target + glm::vec3(0, 2, 0)));
+
+        // A render without a physics step installs the single field before
+        // physics has a chance to reconcile the old resident tiles.
+        terrain.m_StreamingEnabled = false;
+        terrain.m_NeedsRebuild = true;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.0f, 1.0f / 60.0f); });
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_Terrain.GetUUID()));
+        EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
+    }
+
+    TEST_P(TerrainLayerTextureEvidence, FoliageAndTerrainDrawAtTheRootTwinsPose)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_FALSE(HasFatalFailure());
+        ScopedMockTime mockTime(kCaptureTime);
+        Entity rig = GetScene().CreateEntity("FoliageCarrier");
+        auto& parent = rig.GetComponent<TransformComponent>();
+        parent.Translation = { 90, 4, -65 };
+        parent.SetRotationEuler({ 0, 0.45f, 0 });
+        auto& foliage = m_Terrain.AddComponent<FoliageComponent>();
+        FoliageLayer layer;
+        layer.Density = 0.3f;
+        layer.MinHeight = layer.MaxHeight = 2.0f;
+        layer.AlbedoPath = "assets/textures/grass.png";
+        foliage.m_Layers.Add(layer);
+        m_Terrain.GetComponent<TransformComponent>() = parent;
+        const glm::vec3 target(parent.GetTransform() * glm::vec4(20, 0, 32, 1));
+        const glm::vec3 offset(0, 16, 16);
+        auto& camera = m_Camera.GetComponent<TransformComponent>();
+        camera.Translation = target + offset;
+        camera.SetRotationEuler({ -glm::quarter_pi<f32>(), 0, 0 });
+        m_Camera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(60.0f), 0.5f, 1000.0f);
+        std::vector<u8> root, child, bare;
+        ASSERT_NO_FATAL_FAILURE(Capture(root));
+        ASSERT_TRUE(foliage.m_Renderer);
+        ASSERT_GT(foliage.m_Renderer->GetTotalInstanceCount(), 0u);
+        m_Terrain.SetParent(rig);
+        m_Terrain.GetComponent<TransformComponent>() = TransformComponent{};
+        ASSERT_NO_FATAL_FAILURE(Capture(child));
+        const auto& groups = foliage.m_Renderer->GetInstanceRegistry().GetGroups();
+        ASSERT_FALSE(groups.IsEmpty());
+        for (const auto& group : groups)
+        {
+            const auto expected = group.m_LocalBounds.Transform(parent.GetTransform());
+            EXPECT_LT(glm::length(expected.Min - group.m_WorldBounds.Min), 1e-4f);
+            EXPECT_LT(glm::length(expected.Max - group.m_WorldBounds.Max), 1e-4f);
+        }
+        WriteEvidence(EvidenceName("ParentedTerrainOff", "Foliage"), root);
+        WriteEvidence(EvidenceName("ParentedTerrain", "Foliage"), child);
+        const f64 twinDiff = ChangedFraction(root, child);
+        EXPECT_LT(twinDiff, 0.015);
+        foliage.m_Enabled = false;
+        ASSERT_NO_FATAL_FAILURE(Capture(bare));
+        WriteEvidence(EvidenceName("ParentedTerrainBare", "Foliage"), bare);
+        const f64 coverage = ChangedFraction(child, bare);
+        EXPECT_GT(coverage, 0.001) << "removing the grass should change visible terrain pixels";
+        std::cout << "[ParentedTerrain] " << EvidenceName("ParentedTerrain", "Foliage")
+                  << " foliage coverage fraction " << coverage << ", changed fraction vs root " << twinDiff << '\n';
+    }
 
     // (a) and (e).
     TEST_P(TerrainLayerTextureEvidence, ALayerTextureRepeatsAcrossTheTerrainAndCoarsensWithDistance)

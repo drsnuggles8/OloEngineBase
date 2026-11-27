@@ -571,7 +571,7 @@ namespace OloEngine::Tests
         m_Ocean.GetComponent<TransformComponent>().Translation.y = 2.0f;
         RunEditorFrames(camera, 2);
         ASSERT_TRUE(WaterSpraySystem::GetSettings().m_Enabled);
-        const f32 rootHeight = WaterSpraySystem::GetSettings().m_WaterPlaneY;
+        const f32 rootHeight = WaterSpraySystem::GetSettings().m_Frame.Origin.y;
         EXPECT_FLOAT_EQ(rootHeight, 2.0f);
 
         Entity parent = GetScene().CreateEntity("Ocean Rig");
@@ -580,7 +580,7 @@ namespace OloEngine::Tests
         m_Ocean.SetParent(parent);
         RunEditorFrames(camera, 2);
         ASSERT_TRUE(WaterSpraySystem::GetSettings().m_Enabled);
-        EXPECT_FLOAT_EQ(WaterSpraySystem::GetSettings().m_WaterPlaneY, rootHeight);
+        EXPECT_FLOAT_EQ(WaterSpraySystem::GetSettings().m_Frame.Origin.y, rootHeight);
     }
 
     // -------------------------------------------------------------------------

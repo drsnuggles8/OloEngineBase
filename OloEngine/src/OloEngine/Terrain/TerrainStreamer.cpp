@@ -5,8 +5,10 @@
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 
 namespace OloEngine
 {
@@ -36,18 +38,25 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_Config.TileWorldSize <= 0.0f)
+        if (!std::isfinite(m_Config.TileWorldSize) || !(m_Config.TileWorldSize > 0.0f))
         {
             return;
         }
 
         m_CurrentFrame = frameNumber;
 
-        // Determine which tile the camera is in
-        i32 cameraTileX = static_cast<i32>(std::floor(cameraPos.x / m_Config.TileWorldSize));
-        i32 cameraTileZ = static_cast<i32>(std::floor(cameraPos.z / m_Config.TileWorldSize));
-
-        i32 radius = static_cast<i32>(m_Config.LoadRadius);
+        // A small but invertible parent scale can put the local-space camera
+        // beyond the addressable grid. Check the whole window before narrowing.
+        const f64 tileX = std::floor(static_cast<f64>(cameraPos.x) / m_Config.TileWorldSize);
+        const f64 tileZ = std::floor(static_cast<f64>(cameraPos.z) / m_Config.TileWorldSize);
+        const f64 minTile = static_cast<f64>(std::numeric_limits<i32>::min()) + m_Config.LoadRadius;
+        const f64 maxTile = static_cast<f64>(std::numeric_limits<i32>::max()) - m_Config.LoadRadius;
+        if (!(tileX >= minTile && tileX <= maxTile && tileZ >= minTile && tileZ <= maxTile) ||
+            m_Config.LoadRadius >= static_cast<u32>(std::numeric_limits<i32>::max()))
+            return;
+        const auto cameraTileX = static_cast<i32>(tileX);
+        const auto cameraTileZ = static_cast<i32>(tileZ);
+        const auto radius = static_cast<i32>(m_Config.LoadRadius);
 
         // Mark all tiles in the load radius as needed. One exclusive lock spans the
         // whole scan; the loop body is fast and the per-iteration lock the previous

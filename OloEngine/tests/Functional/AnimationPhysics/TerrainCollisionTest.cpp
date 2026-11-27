@@ -24,8 +24,11 @@
 #include "Functional/FunctionalTest.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/TerrainGround.h"
+#include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "TestTempDir.h"
 
@@ -157,6 +160,195 @@ TEST_F(TerrainCollisionFlatTest, DynamicBodyRestsOnFlatTerrainSurface)
     // quantization error to budget for).
     EXPECT_NEAR(pos.y, kTerrainY + kRadius, 0.1f)
         << "ball did not settle on the flat terrain surface; y=" << pos.y;
+}
+
+TEST_F(TerrainCollisionFlatTest, MovingSupportWakesASleepingBody)
+{
+    TickFor(5.0f);
+    auto ball = GetScene().GetPhysicsScene()->GetBody(m_Ball);
+    ASSERT_TRUE(ball);
+    ball->Deactivate();
+    ASSERT_TRUE(ball->IsSleeping());
+    const float resting = ball->GetPosition().y;
+    m_Terrain.GetComponent<TransformComponent>().Translation.y -= 3.0f;
+    TickFor(0.5f);
+    EXPECT_LT(ball->GetPosition().y, resting - 0.5f);
+}
+
+class TerrainWithoutPhysicsTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        auto terrain = GetScene().CreateEntity("Terrain in a render-only scene");
+        terrain.AddComponent<TerrainComponent>().m_CollisionEnabled = true;
+        m_TerrainID = terrain.GetUUID();
+    }
+
+    UUID m_TerrainID{ 0 };
+};
+
+TEST_F(TerrainWithoutPhysicsTest, GameplayTickLeavesTerrainCollisionUnbuilt)
+{
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->IsInitialized());
+    RunFrames(1);
+    EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
+TEST_F(TerrainWithoutPhysicsTest, EnablingCollisionBeforeFirstTickBuildsTheBody)
+{
+    Entity entity = GetScene().GetEntityByUUID(m_TerrainID);
+    auto& terrain = entity.GetComponent<TerrainComponent>();
+    terrain.m_CollisionEnabled = false;
+    EnablePhysics3D();
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+    terrain.m_CollisionEnabled = true;
+    RunFrames(1);
+    EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
+TEST_F(TerrainWithoutPhysicsTest, MissingHeightDataIsRetriedWhenItBecomesAvailable)
+{
+    Entity entity = GetScene().GetEntityByUUID(m_TerrainID);
+    auto& terrain = entity.GetComponent<TerrainComponent>();
+    terrain.m_HeightmapPath = Tests::TempFile("missing-height.png").generic_string();
+    EnablePhysics3D();
+    ASSERT_FALSE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+    terrain.m_HeightmapPath.clear(); // flat CPU height field is now available
+    RunFrames(61);
+    EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_TerrainID));
+}
+
+class TerrainCollisionHierarchyTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        m_Rig = GetScene().CreateEntity("Carrier");
+        m_Child = GetScene().CreateEntity("TerrainChild");
+        m_Child.SetParent(m_Rig);
+        m_Child.GetComponent<TransformComponent>().Translation = kLocalOffset;
+        m_Root = GetScene().CreateEntity("TerrainRoot");
+
+        // A known ramp. Both the bilinear CPU sampler and the Jolt triangles
+        // interpolate this linear surface exactly (up to Jolt quantization).
+        constexpr u32 resolution = 33;
+        TArray<f32> heights;
+        for (u32 z = 0; z < resolution; ++z)
+            for (u32 x = 0; x < resolution; ++x)
+                heights.Add(static_cast<f32>(x) / (resolution - 1u));
+        auto data = TerrainData::FromCPUHeights(resolution, std::move(heights));
+        for (Entity entity : { m_Child, m_Root })
+        {
+            auto& terrain = entity.AddComponent<TerrainComponent>();
+            terrain.m_WorldSizeX = terrain.m_WorldSizeZ = 32.0f;
+            terrain.m_HeightScale = 8.0f;
+            terrain.m_TerrainData = data;
+            terrain.m_CollisionEnabled = true;
+        }
+        MoveTwins({ 90, 6, -60 }, 0.6f, { 1.5f, 2, 0.75f });
+        EnablePhysics3D();
+    }
+
+    void MoveTwins(glm::vec3 translation, f32 yaw, glm::vec3 scale)
+    {
+        auto& rig = m_Rig.GetComponent<TransformComponent>();
+        rig.Translation = translation;
+        rig.SetRotationEuler({ 0, yaw, 0 });
+        rig.Scale = scale;
+        auto& root = m_Root.GetComponent<TransformComponent>();
+        root.Translation = translation + rig.GetRotation() * (scale * kLocalOffset) + kTwinSeparation;
+        root.SetRotation(rig.GetRotation());
+        root.Scale = scale;
+    }
+
+    void CheckHeightAt(glm::vec3 probe, Entity expected)
+    {
+        RayCastInfo ray;
+        ray.m_Origin = probe + glm::vec3(0, 50, 0);
+        ray.m_Direction = { 0, -1, 0 };
+        ray.m_MaxDistance = 100.0f;
+        SceneQueryHit hit;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, hit));
+        EXPECT_EQ(hit.m_HitEntity, expected.GetUUID());
+        EXPECT_NEAR(hit.m_Position.y, probe.y, 0.06f);
+        const auto ground = SampleTerrainGroundHeight(GetScene(), probe.x, probe.z);
+        ASSERT_TRUE(ground.has_value());
+        EXPECT_NEAR(*ground, probe.y, 1e-4f);
+    }
+
+    glm::vec3 CheckTwins()
+    {
+        // x=24 lies 3/4 of the way up the 8 m ramp.
+        const auto& root = m_Root.GetComponent<TransformComponent>();
+        const glm::vec3 probe = root.Translation + root.GetRotation() * (root.Scale * glm::vec3(24, 6, 9));
+        CheckHeightAt(probe, m_Root);
+        CheckHeightAt(probe - kTwinSeparation, m_Child);
+        return probe - kTwinSeparation;
+    }
+
+    static constexpr glm::vec3 kLocalOffset{ 4, 1, -2 };
+    static constexpr glm::vec3 kTwinSeparation{ 400, 0, 0 };
+    Entity m_Rig, m_Child, m_Root;
+};
+
+TEST_F(TerrainCollisionHierarchyTest, ShearedGridKeepsItsDrawnRampUnderVerticalRaycasts)
+{
+    // Turning the child inside a non-uniformly scaled parent shears its X/Z
+    // grid. A rigid rotation plus three axis lengths cannot place this ramp.
+    auto& local = m_Child.GetComponent<TransformComponent>();
+    for (const f32 yaw : { 0.6f, -0.6f })
+    {
+        local.SetRotationEuler({ 0, yaw, 0 });
+        TickFor(1.0f / 60.0f);
+        const glm::mat4 world = GetScene().ComputeWorldTransform(m_Child);
+        for (const glm::vec3 sample : { glm::vec3(3, 0.75f, 5), glm::vec3(25, 6.25f, 28) })
+            CheckHeightAt(glm::vec3(world * glm::vec4(sample, 1.0f)), m_Child);
+    }
+}
+
+TEST_F(TerrainCollisionHierarchyTest, ShearedAndMirroredCellsUseTheHeightfieldDiagonal)
+{
+    TArray<f32> heights;
+    constexpr u32 resolution = 33;
+    heights.Init(0.0f, resolution * resolution);
+    heights[resolution + 1] = 1.0f;
+    m_Child.GetComponent<TerrainComponent>().m_TerrainData = TerrainData::FromCPUHeights(resolution, std::move(heights));
+    m_Child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0.45f, 0 });
+
+    for (const f32 xScale : { 1.5f, -1.5f })
+    {
+        m_Rig.GetComponent<TransformComponent>().Scale.x = xScale;
+        TickFor(1.0f / 60.0f);
+        const glm::mat4 world = GetScene().ComputeWorldTransform(m_Child);
+        const glm::vec3 expected(world * glm::vec4(0.25f, 2.0f, 0.75f, 1));
+        RayCastInfo ray;
+        ray.m_Origin = expected + glm::vec3(0, 30, 0);
+        ray.m_Direction = { 0, -1, 0 };
+        ray.m_MaxDistance = 60.0f;
+        SceneQueryHit hit;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, hit));
+        EXPECT_EQ(hit.m_HitEntity, m_Child.GetUUID());
+        EXPECT_NEAR(hit.m_Position.y, expected.y, 0.06f) << xScale;
+    }
+}
+
+TEST_F(TerrainCollisionHierarchyTest, SlopingHeightfieldFollowsItsRotatedAndRescaledCarrier)
+{
+    const glm::vec3 old = CheckTwins();
+    MoveTwins({ -110, 12, 85 }, -0.8f, { 1.5f, 2, 0.75f });
+    TickFor(1.0f / 60.0f);
+    CheckTwins();
+
+    RayCastInfo ray;
+    ray.m_Origin = old + glm::vec3(0, 50, 0);
+    ray.m_Direction = { 0, -1, 0 };
+    ray.m_MaxDistance = 100.0f;
+    SceneQueryHit hit;
+    EXPECT_FALSE(GetScene().GetPhysicsScene()->CastRay(ray, hit));
+    MoveTwins({ -110, 12, 85 }, -0.8f, { 2, 3, 1 });
+    TickFor(1.0f / 60.0f);
+    CheckTwins();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -38,11 +38,11 @@ namespace OloEngine::WaterProbe
     // =========================================================================
 
     /// One resolved water tile for physics: the wave parameters plus the
-    /// footprint of the horizontal rest plane.
+    /// vertical projection of its composed rest plane.
     struct Volume
     {
         WaterSurface::Params m_Params;
-        glm::mat4 m_InvModel{ 1.0f };
+        WaterSurface::SurfaceFrame m_Frame;
         f32 m_HalfX = 0.0f;
         f32 m_HalfZ = 0.0f;
         /// When the tile renders the Tessendorf FFT ocean and its CPU proxy has
@@ -76,8 +76,8 @@ namespace OloEngine::WaterProbe
         f32 m_WakeFlattenStrength = 0.9f; ///< WaterComponent::m_WakeShapeFlattenStrength
     };
 
-    /// One WaterComponent tile resolved to world space, or nothing when its transform
-    /// is not finite. For a caller that has already chosen the tile.
+    /// One WaterComponent tile resolved to world space, or nothing when its plane
+    /// has no finite, single-valued height above world XZ. For a caller that has already chosen the tile.
     [[nodiscard("the resolved tile must be used")]] std::optional<Volume> MakeVolume(const glm::mat4& model, const WaterComponent& water);
 
     /// Every enabled WaterComponent tile in the scene, resolved to world space.

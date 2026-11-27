@@ -14,10 +14,14 @@ layout(local_size_x = 8, local_size_y = 8) in;
 
 #include "../include/BindlessHeap.glsl"
 #include "../include/TerrainBrushParams.glsl"
+#include "../include/TerrainHeightUV.glsl"
 
 #ifndef OLO_BINDLESS
 layout(rgba8, binding = 0) coherent uniform image2D u_Splatmap0;
 layout(rgba8, binding = 1) coherent uniform image2D u_Splatmap1;
+layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+#else
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)
 #endif
 
 // The CPU brush stores u8 and truncates on every assignment. Working in the same
@@ -44,7 +48,14 @@ void main()
     if (texel.x >= u_Resolution || texel.y >= u_Resolution)
         return;
 
-    float dist = terrainBrushDistance(texel);
+    float height = 0.0;
+    vec2 tileUV = (vec2(texel) + 0.5) / float(u_Resolution);
+    if (any(notEqual(u_HeightProjection.xy, vec2(0.0))))
+    {
+        float heightResolution = float(textureSize(u_TerrainHeightmap, 0).x);
+        height = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(tileUV, heightResolution), 0.0).r;
+    }
+    float dist = terrainBrushDistance(tileUV, height);
     if (dist > u_Radius)
         return;
 

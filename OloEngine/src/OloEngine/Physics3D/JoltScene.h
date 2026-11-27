@@ -129,6 +129,8 @@ namespace OloEngine
         // (invalid on failure). DestroyTerrainBody removes it by entity UUID.
         JPH::BodyID CreateTerrainBody(Entity entity, const JPH::Ref<JPH::Shape>& shape,
                                       const glm::vec3& position, const glm::quat& rotation);
+        void MoveTerrainBody(UUID entityID, const glm::vec3& position, const glm::quat& rotation);
+        bool MoveTerrainTileBody(UUID entityID, i32 tileX, i32 tileZ, const glm::vec3& position, const glm::quat& rotation);
         void DestroyTerrainBody(UUID entityID);
         bool HasTerrainBody(UUID entityID) const
         {

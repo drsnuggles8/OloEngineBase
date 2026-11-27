@@ -24,6 +24,9 @@
 #include "OloEngine/Navigation/NavMeshGenerator.h"
 #include "OloEngine/Navigation/NavMeshSettings.h"
 #include "OloEngine/Navigation/NavMesh.h"
+#include "OloEngine/Navigation/CrowdManager.h"
+#include "OloEngine/Navigation/NavigationSystem.h"
+#include "OloEngine/AI/BehaviorTree/BTTasks.h"
 
 #include <cmath>
 
@@ -81,6 +84,31 @@ class NavAgentReachesTargetTest : public FunctionalTest
         agent.m_HasPath = false; // force path recomputation on first tick
     }
 
+    Entity CreateRootTwin(Scene& scene)
+    {
+        scene.SetNavMesh(GetScene().GetNavMesh());
+        Entity twin = scene.CreateEntity("Root twin");
+        twin.GetComponent<TransformComponent>().Translation = kStart;
+        auto& nav = twin.AddComponent<NavAgentComponent>(m_Agent.GetComponent<NavAgentComponent>());
+        nav.m_TargetPosition = kTarget;
+        nav.m_HasTarget = true;
+        return twin;
+    }
+
+    Entity ParentAgentAtStart()
+    {
+        Entity rig = GetScene().CreateEntity("Carrier");
+        auto& carrier = rig.GetComponent<TransformComponent>();
+        carrier.Translation = { -3.0f, 0.0f, 1.0f };
+        carrier.SetRotation(glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 1, 0)));
+        m_Agent.SetParent(rig);
+        const glm::quat inverseRotation = glm::inverse(carrier.GetRotation());
+        auto& local = m_Agent.GetComponent<TransformComponent>();
+        local.Translation = inverseRotation * (kStart - carrier.Translation);
+        local.SetRotation(inverseRotation);
+        return rig;
+    }
+
     Entity m_Agent;
 };
 
@@ -124,4 +152,119 @@ TEST_F(NavAgentReachesTargetTest, ParentedEmitterSeesTheSameTicksNavigationMove)
         ASSERT_NEAR(glm::length(emitter.GetEmitterPosition() - position), 0.0f, 1.0e-4f) << frame;
     }
     EXPECT_GT(emitter.GetEmitterPosition().x, kStart.x + 1.0f);
+}
+
+TEST_F(NavAgentReachesTargetTest, RegisteredAgentTracksMovingParentLikeARepositionedRootTwin)
+{
+    auto twinScene = Ref<Scene>::Create();
+    Entity twin = CreateRootTwin(*twinScene);
+    Entity rig = ParentAgentAtStart();
+    auto& carrier = rig.GetComponent<TransformComponent>();
+
+    for (u32 frame = 0; frame < 60; ++frame)
+    {
+        if (frame == 12)
+        {
+            const glm::vec3 shift(2.0f, 0.0f, 2.0f);
+            carrier.Translation += shift;
+            twin.GetComponent<TransformComponent>().Translation += shift;
+        }
+        RunFrames(1);
+        NavigationSystem::OnUpdate(twinScene.Raw(), 1.0f / 60.0f);
+        const glm::vec3 world = GetScene().ComputeWorldPosition(m_Agent);
+        EXPECT_NEAR(glm::length(world - twinScene->ComputeWorldPosition(twin)), 0.0f, 1.0e-3f) << frame;
+        glm::vec3 crowd{};
+        ASSERT_TRUE(GetScene().GetCrowdManager()->GetAgentPosition(m_Agent.GetComponent<NavAgentComponent>().m_CrowdAgentId, crowd));
+        EXPECT_NEAR(world.x, crowd.x, 1.0e-3f);
+        EXPECT_NEAR(world.z, crowd.z, 1.0e-3f);
+        EXPECT_NEAR(world.y, kStart.y, 1.0e-4f);
+        if (frame == 12)
+            EXPECT_GT(world.z, 1.5f);
+    }
+}
+
+TEST_F(NavAgentReachesTargetTest, CrowdControlledParentCarriesItsRegisteredChildInTheSameTick)
+{
+    Entity rig = ParentAgentAtStart();
+    const glm::vec3 startParent = GetScene().ComputeWorldPosition(rig);
+    auto& childNav = m_Agent.GetComponent<NavAgentComponent>();
+    childNav.m_HasTarget = false;
+    auto& parentNav = rig.AddComponent<NavAgentComponent>();
+    parentNav.m_LockYAxis = true;
+    parentNav.m_MaxSpeed = 4.0f;
+    parentNav.m_HasTarget = true;
+    parentNav.m_TargetPosition = { 8, 0, 1 };
+
+    RunFrames(20);
+    const glm::vec3 displacement = GetScene().ComputeWorldPosition(rig) - startParent;
+    ASSERT_GT(displacement.x, 0.4f);
+    const glm::vec3 childPosition = GetScene().ComputeWorldPosition(m_Agent);
+    EXPECT_NEAR(glm::distance(childPosition, kStart + displacement), 0.0f, 1.0e-3f);
+    glm::vec3 nativeChild{};
+    ASSERT_TRUE(GetScene().GetCrowdManager()->GetAgentPosition(childNav.m_CrowdAgentId, nativeChild));
+    EXPECT_NEAR(glm::distance(glm::vec2(nativeChild.x, nativeChild.z), glm::vec2(childPosition.x, childPosition.z)), 0.0f, 1.0e-3f);
+}
+
+TEST_F(NavAgentReachesTargetTest, SingularCarrierReleasesCrowdSlotAndResumesFromAuthoredPose)
+{
+    Entity carrier = ParentAgentAtStart();
+    RunFrames(2);
+    auto& nav = m_Agent.GetComponent<NavAgentComponent>();
+    ASSERT_GE(nav.m_CrowdAgentId, 0);
+    const auto prior = nav.m_CrowdAgentId;
+    carrier.GetComponent<TransformComponent>().Scale.y = 0;
+    RunFrames(2);
+    EXPECT_LT(nav.m_CrowdAgentId, 0);
+    glm::vec3 crowd;
+    EXPECT_FALSE(GetScene().GetCrowdManager()->GetAgentPosition(prior, crowd));
+    EXPECT_TRUE(nav.m_HasTarget);
+    carrier.GetComponent<TransformComponent>().Scale.y = 1;
+    RunFrames(2);
+    ASSERT_TRUE(GetScene().GetCrowdManager()->GetAgentPosition(nav.m_CrowdAgentId, crowd));
+    const glm::vec3 world = GetScene().ComputeWorldPosition(m_Agent);
+    EXPECT_NEAR(world.x, crowd.x, 1.0e-4f);
+    EXPECT_NEAR(world.z, crowd.z, 1.0e-4f);
+}
+
+TEST_F(NavAgentReachesTargetTest, ParentedRootMotionUsesTheRootTwinsWorldCornersAndHeading)
+{
+    auto& nav = m_Agent.GetComponent<NavAgentComponent>();
+    nav.m_UseRootMotion = true;
+    auto twinScene = Ref<Scene>::Create();
+    Entity twin = CreateRootTwin(*twinScene);
+    ParentAgentAtStart();
+
+    for (u32 frame = 0; frame < 30; ++frame)
+    {
+        RunFrames(1);
+        NavigationSystem::OnUpdate(twinScene.Raw(), 1.0f / 60.0f);
+        const auto pose = GetScene().ComputeWorldTRS(m_Agent);
+        const auto root = twinScene->ComputeWorldTRS(twin);
+        EXPECT_NEAR(glm::distance(pose.Position, kStart), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(std::abs(glm::dot(pose.Rotation, root.Rotation)), 1.0f, 1.0e-4f) << frame;
+    }
+    const auto& rootNav = twin.GetComponent<NavAgentComponent>();
+    ASSERT_GE(nav.m_PathCorners.Num(), 2);
+    ASSERT_EQ(nav.m_PathCorners.Num(), rootNav.m_PathCorners.Num());
+    for (i32 i = 0; i < nav.m_PathCorners.Num(); ++i)
+        EXPECT_NEAR(glm::distance(nav.m_PathCorners[i], rootNav.m_PathCorners[i]), 0.0f, 1.0e-3f);
+    const auto forward = GetScene().ComputeWorldTRS(m_Agent).Rotation * glm::vec3(0, 0, 1);
+    EXPECT_GT(forward.x, 0.99f);
+}
+
+TEST_F(NavAgentReachesTargetTest, ManualFollowerReachesWorldTargetUnderMovingParent)
+{
+    GetScene().GetCrowdManager()->Shutdown();
+    Entity rig = ParentAgentAtStart();
+    RunFrames(10);
+    rig.GetComponent<TransformComponent>().Translation.z += 2.0f;
+    TickFor(4.0f);
+    const auto position = GetScene().ComputeWorldPosition(m_Agent);
+    EXPECT_LT(glm::distance(position, kTarget), 0.31f);
+
+    BTBlackboard blackboard;
+    blackboard.Set("goal", kTarget);
+    BTMoveTo move;
+    move.TargetBlackboardKey = "goal";
+    EXPECT_EQ(move.Tick(1.0f / 60.0f, blackboard, m_Agent), BTStatus::Success);
 }

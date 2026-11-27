@@ -374,11 +374,217 @@ TEST_F(ParentedPhysicsPlacementTest, JoltCapsuleKeepsItsSurvivingYAxisUnderAColl
     EXPECT_NEAR(glm::length(axis - glm::vec3(-1.0f, 0.0f, 0.0f)), 0.0f, 1.0e-4f);
 }
 
+TEST_F(ParentedPhysicsPlacementTest, CapsuleRejectsMotionInAndOutOfSingularPlaneThenResumes)
+{
+    Entity parent = GetScene().CreateEntity("Collapsed carrier");
+    auto& carrier = parent.GetComponent<TransformComponent>();
+    carrier.Scale = { 1.0f, 0.0f, 1.0f };
+    Entity capsule = GetScene().CreateEntity("Moving capsule");
+    capsule.SetParent(parent);
+    capsule.AddComponent<CapsuleCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    settings.m_DisableGravity = true;
+    capsule.AddComponent<Rigidbody3DComponent>(settings);
+    auto body = GetScene().GetPhysicsScene()->GetBody(capsule);
+    ASSERT_TRUE(body);
+    ASSERT_TRUE(GetScene().HasSingularParentFrame(capsule, false));
+
+    for (const glm::vec3 native : { glm::vec3(4, 0, 2), glm::vec3(4, -3, 2) })
+    {
+        body->SetPosition(native);
+        RunFrames(1);
+        EXPECT_NEAR(glm::distance(body->GetPosition(), native), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(glm::length(GetScene().GetWorldPosition(capsule)), 0.0f, 1.0e-4f);
+        EXPECT_NEAR(glm::length(capsule.GetComponent<TransformComponent>().Translation), 0.0f, 1.0e-4f);
+    }
+    carrier.Scale.y = 2.0f;
+    EXPECT_FALSE(GetScene().HasSingularParentFrame(capsule, false));
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
+    const glm::vec3 saved = capsule.GetComponent<TransformComponent>().Translation;
+    EXPECT_NEAR(saved.y, -1.5f, 1.0e-4f);
+    carrier.Scale.y = 0.0f;
+    body->SetPosition({ 7, -4, 3 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(capsule.GetComponent<TransformComponent>().Translation, saved), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), glm::vec3(4, 0, 2)), 0.0f, 1.0e-4f);
+    carrier.Scale.y = 1.0f;
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().GetWorldPosition(capsule), body->GetPosition()), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, StronglyAnisotropicParentStillConvertsTheRequestedWorldHeading)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1.0e-8f, 1.0f, 1.0f };
+    const glm::quat desired = glm::angleAxis(glm::quarter_pi<f32>(), glm::vec3(0, 0, 1));
+    ASSERT_TRUE(GetScene().TrySetWorldRotation(m_3D[0], desired));
+    const glm::vec3 worldX = glm::normalize(glm::vec3(GetScene().ComputeWorldTransform(m_3D[0])[0]));
+    EXPECT_NEAR(glm::distance(worldX, desired * glm::vec3(1, 0, 0)), 0.0f, 1.0e-5f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, UnrepresentableFloatRotationDoesNotDiscardNativeTranslation)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1.0f, 1.0e-8f, 1.0f };
+    auto& local = m_3D[0].GetComponent<TransformComponent>();
+    const glm::quat original = local.GetRotation();
+    const glm::quat desired = glm::angleAxis(glm::quarter_pi<f32>(), glm::vec3(0, 0, 1));
+    EXPECT_FALSE(GetScene().TrySetWorldRotation(m_3D[0], desired));
+    EXPECT_FLOAT_EQ(glm::dot(local.GetRotation(), original), 1.0f);
+    auto body = GetScene().GetPhysicsScene()->GetBody(m_3D[0]);
+    ASSERT_TRUE(body);
+    body->SetRotation(desired);
+    body->SetPosition({ 6, 5, 4 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(m_3D[0]), body->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_FLOAT_EQ(glm::dot(local.GetRotation(), original), 1.0f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, HeadingValidationUsesTheStoredFloatQuaternion)
+{
+    auto& parent = m_Rig.GetComponent<TransformComponent>();
+    parent.SetRotation(glm::quat(1, 0, 0, 0));
+    parent.Scale = { 1, 1.0e-12f, 1 };
+    const glm::quat original = m_3D[0].GetComponent<TransformComponent>().GetRotation();
+    const auto desired = glm::angleAxis(1.0e-4f, glm::vec3(0, 0, 1));
+    if (GetScene().TrySetWorldRotation(m_3D[0], desired))
+    {
+        const glm::vec3 storedX = glm::normalize(glm::vec3(GetScene().ComputeWorldTransform(m_3D[0])[0]));
+        EXPECT_NEAR(glm::distance(storedX, desired * glm::vec3(1, 0, 0)), 0.0f, 2.0e-4f);
+    }
+    else
+        EXPECT_FLOAT_EQ(glm::dot(original, m_3D[0].GetComponent<TransformComponent>().GetRotation()), 1.0f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, SphereWithOneSurvivingScaleAxisKeepsWorldAuthority)
+{
+    Entity carrier = GetScene().CreateEntity("Full rank carrier");
+    Entity sphere = GetScene().CreateEntity("One-axis sphere collider");
+    sphere.SetParent(carrier);
+    sphere.GetComponent<TransformComponent>().Scale = { 1, 0, 0 };
+    sphere.AddComponent<SphereCollider3DComponent>();
+    Rigidbody3DComponent settings;
+    settings.m_Type = BodyType3D::Dynamic;
+    settings.m_DisableGravity = true;
+    sphere.AddComponent<Rigidbody3DComponent>(settings);
+    auto body = GetScene().GetPhysicsScene()->GetBody(sphere);
+    ASSERT_TRUE(body);
+    body->SetPosition({ 6, 2, -3 });
+    body->SetRotation(glm::angleAxis(0.8f, glm::vec3(0, 1, 0)));
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(sphere), body->GetPosition()), 0.0f, 1.0e-4f);
+    EXPECT_NEAR(glm::distance(glm::vec3(GetScene().ComputeWorldTransform(sphere)[0]), body->GetRotation() * glm::vec3(1, 0, 0)), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, SmallFullRankParentRetainsFiniteLocalWriteback)
+{
+    // The reciprocal determinant of this basis overflows float; its inverse axes fit.
+    m_Rig.GetComponent<TransformComponent>().Scale = glm::vec3(1.0e-14f);
+    ASSERT_FALSE(GetScene().HasSingularParentFrame(m_3D[0], false));
+    auto body = GetScene().GetPhysicsScene()->GetBody(m_3D[0]);
+    ASSERT_TRUE(body);
+    body->SetPosition({ 1, 2, 3 });
+    RunFrames(1);
+    EXPECT_NEAR(glm::distance(GetScene().ComputeWorldPosition(m_3D[0]), body->GetPosition()), 0.0f, 1.0e-4f);
+    const b2Vec2 planar = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    const glm::vec3 world = GetScene().ComputeWorldPosition(m_2D[0]);
+    EXPECT_NEAR(world.x, planar.x, 1.0e-4f);
+    EXPECT_NEAR(world.y, planar.y, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, Box2DWritebackResumesWithAnInvertibleXYParent)
+{
+    auto& carrier = m_Rig.GetComponent<TransformComponent>();
+    carrier.Scale.y = 0.0f;
+    const glm::vec3 saved = m_2D[0].GetComponent<TransformComponent>().Translation;
+    ASSERT_TRUE(GetScene().HasSingularParentFrame(m_2D[0], true));
+    RunFrames(3);
+    EXPECT_NEAR(glm::distance(m_2D[0].GetComponent<TransformComponent>().Translation, saved), 0.0f, 1.0e-5f);
+    carrier.Scale = { 2.0f, 2.0f, 0.0f };
+    EXPECT_FALSE(GetScene().HasSingularParentFrame(m_2D[0], true));
+    RunFrames(1);
+    const b2Vec2 native = b2Body_GetPosition(m_2D[0].GetComponent<Rigidbody2DComponent>().RuntimeBody);
+    const glm::vec3 world = GetScene().GetWorldPosition(m_2D[0]);
+    EXPECT_NEAR(world.x, native.x, 1.0e-4f);
+    EXPECT_NEAR(world.y, native.y, 1.0e-4f);
+}
+
 class PlanarColliderPlacementTest : public FunctionalTest
 {
   protected:
     void BuildScene() override {}
 };
+
+TEST_F(PlanarColliderPlacementTest, BoxStartingOnCollapsedCarrierGainsItsShapeOnRecovery)
+{
+    Entity rig = GetScene().CreateEntity("Collapsed rig");
+    rig.GetComponent<TransformComponent>().Scale = { 1, 0, 1 };
+    Entity child = GetScene().CreateEntity("Box");
+    child.SetParent(rig);
+    child.AddComponent<BoxCollider2DComponent>();
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    // A body awaiting its first shape has zero mass. Prescribe motion to
+    // exercise native integration without assuming a gravity response.
+    b2Body_SetLinearVelocity(native, { 0.0f, -3.0f });
+    RunFrames(4);
+    EXPECT_LT(b2Body_GetPosition(native).y, 0.0f);
+    EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, 0.0f, 1.0e-5f);
+    rig.GetComponent<TransformComponent>().Scale.y = 2;
+    RunFrames(2);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 1);
+    EXPECT_NEAR(GetScene().ComputeWorldPosition(child).y, b2Body_GetPosition(native).y, 1.0e-5f);
+}
+
+TEST_F(PlanarColliderPlacementTest, CollinearBoxWaitsAndUsesTheRotatedNativeFrameOnRecovery)
+{
+    Entity rig = GetScene().CreateEntity("Collapsed XY frame");
+    rig.GetComponent<TransformComponent>().Scale = { 0, 2, 1 };
+    Entity child = GetScene().CreateEntity("Angled box");
+    child.SetParent(rig);
+    child.GetComponent<TransformComponent>().SetRotationEuler({ 0, 0, -glm::quarter_pi<f32>() });
+    child.AddComponent<BoxCollider2DComponent>().Offset = { 1, 0 };
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    b2Body_SetTransform(native, { 4, 8 }, b2MakeRot(glm::half_pi<f32>()));
+    RunFrames(1);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    rig.GetComponent<TransformComponent>().Scale.x = 1;
+    RunFrames(1);
+    b2ShapeId shape;
+    ASSERT_EQ(b2Body_GetShapes(native, &shape, 1), 1);
+    const b2Vec2 centre = b2Body_GetWorldPoint(native, b2Shape_GetPolygon(shape).centroid);
+    const glm::vec3 expected(GetScene().ComputeWorldTransform(child) * glm::vec4(1, 0, 0, 1));
+    EXPECT_NEAR(centre.x, expected.x, 1.0e-4f);
+    EXPECT_NEAR(centre.y, expected.y, 1.0e-4f);
+    EXPECT_NEAR(centre.y - b2Body_GetPosition(native).y, 2.0f, 1.0e-4f);
+}
+
+TEST_F(PlanarColliderPlacementTest, OffsetBoxRecoversWhenItsCornersBecomeDistinct)
+{
+    Entity child = GetScene().CreateEntity("Offset box");
+    auto& collider = child.AddComponent<BoxCollider2DComponent>();
+    collider.Size = { 0.001f, 1.0f };
+    collider.Offset.x = 100000.0f;
+    child.AddComponent<Rigidbody2DComponent>().Type = Rigidbody2DComponent::BodyType::Dynamic;
+    EnablePhysics2D();
+    const auto native = child.GetComponent<Rigidbody2DComponent>().RuntimeBody;
+    ASSERT_TRUE(b2Body_IsValid(native));
+    EXPECT_EQ(b2Body_GetShapeCount(native), 0);
+    collider.Offset.x = 1.0f;
+    RunFrames(1);
+    EXPECT_EQ(b2Body_GetShapeCount(native), 1);
+}
 
 TEST_F(PlanarColliderPlacementTest, BoxAndCircleCentersFollowScaleAndMirrorWithZeroZ)
 {

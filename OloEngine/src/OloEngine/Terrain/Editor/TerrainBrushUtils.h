@@ -1,6 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Terrain/TerrainData.h"
+
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +11,33 @@
 
 namespace OloEngine
 {
+    // The editor preview is a cylinder around the hit's world XZ. On tilted
+    // terrain the sample's height also moves it horizontally across that circle.
+    struct TerrainBrushProjection
+    {
+        glm::mat2 GridAxes{ 1.0f };
+        glm::vec2 HeightAxis{ 0.0f };   // world XZ per unit normalized height
+        glm::vec2 HeightOffset{ 0.0f }; // subtract the hit's own horizontal height displacement
+        const TerrainData* Heights = nullptr;
+
+        [[nodiscard]] static TerrainBrushProjection FromTerrain(const glm::mat4& model, f32 localHitY, f32 heightScale, const TerrainData& data)
+        {
+            const glm::vec2 up{ model[1].x, model[1].z };
+            return { glm::mat2({ model[0].x, model[0].z }, { model[2].x, model[2].z }),
+                     up * heightScale, -up * localHitY, &data };
+        }
+
+        [[nodiscard]] bool UsesHeight() const
+        {
+            return std::abs(HeightAxis.x) > 0.0f || std::abs(HeightAxis.y) > 0.0f;
+        }
+
+        [[nodiscard]] f32 Distance(glm::vec2 localDelta, f32 height) const
+        {
+            return glm::length(GridAxes * localDelta + HeightAxis * height + HeightOffset);
+        }
+    };
+
     // Shared brush utilities used by TerrainBrush and TerrainPaintBrush
     namespace TerrainBrushUtils
     {
@@ -46,34 +76,55 @@ namespace OloEngine
             }
         };
 
+        enum class Grid
+        {
+            HeightSamples,
+            SplatTexels
+        };
+
         inline BrushRect ComputeBrushRect(u32 resolution, f32 normX, f32 normZ, f32 radius,
-                                          f32 worldSizeX, f32 worldSizeZ)
+                                          f32 worldSizeX, f32 worldSizeZ, const TerrainBrushProjection& projection = {},
+                                          Grid grid = Grid::HeightSamples)
         {
             BrushRect rect{};
-            if (resolution <= 1 || radius <= 0.0f || worldSizeX <= 0.0f || worldSizeZ <= 0.0f)
+            if (resolution <= 1 || !(radius > 0.0f) || !(worldSizeX > 0.0f) || !(worldSizeZ > 0.0f) ||
+                !std::isfinite(normX) || !std::isfinite(normZ) || (projection.UsesHeight() && !projection.Heights))
                 return rect;
 
-            const f32 resF = static_cast<f32>(resolution);
-            const f32 radiusTexelsX = (radius / worldSizeX) * resF;
-            const f32 radiusTexelsZ = (radius / worldSizeZ) * resF;
-            const f32 radiusTexels = std::max(radiusTexelsX, radiusTexelsZ);
-
-            const f32 centerPixelX = normX * (resF - 1.0f);
-            const f32 centerPixelZ = normZ * (resF - 1.0f);
-
-            const i32 maxIndex = static_cast<i32>(resolution) - 1;
-            const i32 minX = std::max(0, static_cast<i32>(centerPixelX - radiusTexels));
-            const i32 maxX = std::min(maxIndex, static_cast<i32>(centerPixelX + radiusTexels));
-            const i32 minZ = std::max(0, static_cast<i32>(centerPixelZ - radiusTexels));
-            const i32 maxZ = std::min(maxIndex, static_cast<i32>(centerPixelZ + radiusTexels));
-
-            if (minX > maxX || minZ > maxZ)
+            // Each row of the inverse projected basis gives the extent of the
+            // world circle along one grid axis. A height variation also shifts
+            // its centre. Bound the two endpoints of the loaded height range.
+            // A vertical base plane or an unsynchronized height range requires
+            // a conservative full dispatch; the per-sample circle stays exact.
+            const glm::mat2 inverse = glm::inverse(projection.GridAxes);
+            const glm::vec2 radii = radius * glm::vec2(std::hypot(inverse[0].x, inverse[1].x),
+                                                       std::hypot(inverse[0].y, inverse[1].y));
+            if (!std::isfinite(radii.x) || !std::isfinite(radii.y))
+                return { 0, 0, resolution, resolution };
+            glm::vec2 lo = -radii - inverse * projection.HeightOffset;
+            glm::vec2 hi = radii - inverse * projection.HeightOffset;
+            if (projection.UsesHeight())
+            {
+                const auto range = projection.Heights->GetHeightRange();
+                if (!range)
+                    return { 0, 0, resolution, resolution };
+                const glm::vec2 shift = -(inverse * projection.HeightAxis);
+                lo += glm::min(shift * range->x, shift * range->y);
+                hi += glm::max(shift * range->x, shift * range->y);
+            }
+            const glm::vec2 size{ worldSizeX, worldSizeZ }, center{ normX, normZ };
+            const f32 last = static_cast<f32>(resolution - 1u);
+            const bool splat = grid == Grid::SplatTexels;
+            const f32 intervals = splat ? static_cast<f32>(resolution) : last;
+            const f32 texelOffset = splat ? 0.5f : 0.0f;
+            lo = glm::max(glm::floor((center + lo / size) * intervals - texelOffset), glm::vec2(0));
+            hi = glm::min(glm::ceil((center + hi / size) * intervals - texelOffset), glm::vec2(last));
+            if (!(lo.x <= hi.x) || !(lo.y <= hi.y))
                 return rect;
-
-            rect.X = static_cast<u32>(minX);
-            rect.Y = static_cast<u32>(minZ);
-            rect.Width = static_cast<u32>(maxX - minX + 1);
-            rect.Height = static_cast<u32>(maxZ - minZ + 1);
+            rect.X = static_cast<u32>(lo.x);
+            rect.Y = static_cast<u32>(lo.y);
+            rect.Width = static_cast<u32>(hi.x) - rect.X + 1;
+            rect.Height = static_cast<u32>(hi.y) - rect.Y + 1;
             return rect;
         }
     } // namespace TerrainBrushUtils

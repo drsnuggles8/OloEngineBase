@@ -234,13 +234,13 @@ float octaveMeshWeight(float wavelength, float vertexSpacing)
 vec3 sumGerstnerWavesShore(vec3 position, float time,
                            vec4 waveDir0, vec4 waveDir1,
                            float waveFrequency, float waveAmplitude,
-                           float vertexSpacing,
+                           float vertexSpacing, vec2 restSlope,
                            WaterShoreSample shore, float breakerIndex,
                            out vec3 normal, out float jacobian, out float breaking)
 {
     vec3 displaced = position;
-    vec3 tangent = vec3(1.0, 0.0, 0.0);
-    vec3 binormal = vec3(0.0, 0.0, 1.0);
+    vec3 tangent = vec3(1.0, restSlope.x, 0.0);
+    vec3 binormal = vec3(0.0, restSlope.y, 1.0);
     breaking = 0.0;
 
     // Normalize directions
@@ -432,6 +432,6 @@ vec3 sumGerstnerWaves(vec3 position, float time,
     float jacobianUnused;
     float breakingUnused;
     return sumGerstnerWavesShore(position, time, waveDir0, waveDir1, waveFrequency, waveAmplitude,
-                                 vertexSpacing, waterShoreDisabled(), WATER_SHORE_BREAKER_INDEX,
+                                 vertexSpacing, vec2(0.0), waterShoreDisabled(), WATER_SHORE_BREAKER_INDEX,
                                  normal, jacobianUnused, breakingUnused);
 }

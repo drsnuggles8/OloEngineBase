@@ -50,16 +50,16 @@ namespace OloEngine
         // "level to where I clicked" already meant.
         TerrainBrush::DirtyRegion ApplySculpt(TerrainData& terrainData,
                                               const TerrainBrushSettings& settings,
-                                              const glm::vec3& worldPos,
+                                              const glm::vec3& localHit,
                                               f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
-                                              f32 deltaTime, f32 targetHeight);
+                                              f32 deltaTime, f32 targetHeight, const TerrainBrushProjection& projection = {});
 
         // Paint into the splatmap pair in place.
         TerrainPaintBrush::DirtyRegion ApplyPaint(TerrainMaterial& material,
                                                   const TerrainPaintSettings& settings,
-                                                  const glm::vec3& worldPos,
+                                                  const glm::vec3& localHit,
                                                   f32 worldSizeX, f32 worldSizeZ,
-                                                  f32 deltaTime);
+                                                  f32 deltaTime, const TerrainBrushProjection& projection = {});
 
       private:
         // Grow the scratch heightmap to hold at least width x height texels.

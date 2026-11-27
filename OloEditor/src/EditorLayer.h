@@ -264,7 +264,8 @@ namespace OloEngine
         // Prefers the GPU picker (issue #717) and falls back to the CPU march
         // only while the GPU answer has not come back yet, or when the GPU path
         // is unusable at all. Both halves are below.
-        bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+        Entity TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos,
+                              bool requireCurrentRay = false) const;
 
         // How far the GPU picker has got with the ray for this frame.
         enum class TerrainPickState : u8
@@ -278,7 +279,7 @@ namespace OloEngine
         // has already retired. Never stalls: the answer is one or two frames
         // old by construction, which is what a hovering brush cursor can afford
         // and a synchronous readback is not.
-        TerrainPickState TerrainRaycastGPU(const glm::vec2& mousePos, const glm::vec2& viewportSize,
+        TerrainPickState TerrainRaycastGPU(Entity terrainEntity, const Ray& mouseRay,
                                            glm::vec3& outHitPos, bool& outHit) const;
         MCP::TerrainPick::Snapshot TerrainPickFromMcp(const MCP::TerrainPick::Request& request, bool submit) const;
         // The camera that drew the viewport, as a world ray (#607). Refuses in
@@ -288,7 +289,7 @@ namespace OloEngine
         // The pre-#717 path: march the CPU-side heightmap mirror in 1-unit
         // steps and bisect. Still the fallback, and still the reference the GPU
         // path's accuracy is measured against.
-        bool TerrainRaycastCPU(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+        bool TerrainRaycastCPU(Entity terrainEntity, const Ray& mouseRay, glm::vec3& outHitPos) const;
 
         // Process-wide A/B lever for GPU terrain picking, the twin of
         // TerrainChunkManager::IsGpuDrivenLODEnabled. Defaults to enabled unless

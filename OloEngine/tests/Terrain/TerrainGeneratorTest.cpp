@@ -4,15 +4,21 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
+#include "OloEngine/Terrain/TerrainTile.h"
+#include "OloEngine/Terrain/TerrainStreamer.h"
+#include "TestTempDir.h"
 
 #include <stb_image/stb_image_write.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -35,6 +41,92 @@
 // =============================================================================
 
 using namespace OloEngine;
+
+TEST(TerrainBrushFootprint, ReflectedTerrainPicksItsUndersideAndNeverRefinesBehindTheRay)
+{
+    TArray<f32> flat;
+    flat.Init(0.0f, 4);
+    auto data = TerrainData::FromCPUHeights(2, std::move(flat));
+    for (const f32 side : { 1.0f, -1.0f })
+    {
+        const glm::vec3 origin(50, side * 10.25f, 50), toward(0, -side, 0);
+        const auto hit = data->PickRay(origin, toward, { 100, 100 }, 1, 100.0f);
+        ASSERT_TRUE(hit);
+        EXPECT_NEAR(*hit, 10.25f, 0.003f);
+        EXPECT_FALSE(data->PickRay(origin, -toward, { 100, 100 }, 1, 100.0f));
+        EXPECT_FALSE(data->PickRay(origin, toward, { 100, 100 }, 1, 10.0f));
+    }
+    // Entering the tile below its height is not a crossing at its side wall.
+    EXPECT_FALSE(data->PickRay({ -0.5f, -2, 20 }, { 1, 0, 0 }, { 100, 100 }, 1, 50.0f));
+}
+
+TEST(TerrainBrushFootprint, RayFindsTheNearRootAndTangentWithinOneBilinearCell)
+{
+    auto data = TerrainData::FromCPUHeights(2, TArray<f32>{ 0, 1, 1, 0 });
+    const auto nearHit = data->PickRay({ 0, 0.375f, 0 }, { 1, 0, 1 }, { 1, 1 }, 1, 1);
+    ASSERT_TRUE(nearHit);
+    EXPECT_NEAR(*nearHit, 0.25f, 1.0e-6f);
+    const auto farHit = data->PickRay({ 0.5f, 0.375f, 0.5f }, { 1, 0, 1 }, { 1, 1 }, 1, 0.5f);
+    ASSERT_TRUE(farHit);
+    EXPECT_NEAR(*farHit, 0.25f, 1.0e-6f);
+    const auto tangent = data->PickRay({ 1, 0.5f, 1 }, { -1, 0, -1 }, { 1, 1 }, 1, 1);
+    ASSERT_TRUE(tangent);
+    EXPECT_NEAR(*tangent, 0.5f, 1.0e-6f);
+}
+
+TEST(TerrainBrushFootprint, TenWorldMetresOnADoubledXAxisCoversFiveLocalMetres)
+{
+    constexpr u32 res = 65;
+    TArray<f32> heights;
+    heights.Init(0.25f, res * res);
+    auto terrain = TerrainData::FromCPUHeights(res, std::move(heights));
+    const glm::mat4 model = glm::scale(glm::mat4(1.0f), { 2, 1, 1 });
+    const glm::vec3 hit{ 32, 1, 32 };
+    TerrainBrushSettings brush;
+    brush.Radius = 10;
+    brush.Falloff = 0;
+    const auto projection = TerrainBrushProjection::FromTerrain(model, hit.y, 4, *terrain);
+    const auto rect = TerrainBrush::Apply(*terrain, brush, hit, 64, 64, 4, 1, projection);
+    EXPECT_EQ(rect.X, 27u);
+    EXPECT_EQ(rect.Width, 11u);
+    EXPECT_EQ(rect.Y, 22u);
+    EXPECT_EQ(rect.Height, 21u);
+    const auto& result = terrain->GetHeightData();
+    EXPECT_GT(result[32 * res + 36], 0.25f);
+    EXPECT_FLOAT_EQ(result[32 * res + 38], 0.25f); // 12 world metres east
+    EXPECT_GT(result[41 * res + 32], 0.25f);       //  9 world metres north
+    EXPECT_FLOAT_EQ(result[43 * res + 32], 0.25f);
+}
+
+TEST(TerrainTileLoading, UnrepresentableLocalCameraDoesNotQueueAWrappedTile)
+{
+    TerrainStreamer streamer;
+    TerrainStreamerConfig config;
+    config.TileWorldSize = 1;
+    config.LoadRadius = 1;
+    streamer.Initialize(config);
+    streamer.Update({ std::numeric_limits<f32>::max(), 0, 0 }, 1);
+    EXPECT_EQ(streamer.GetLoadingTileCount(), 0u);
+    EXPECT_EQ(streamer.GetLoadedTileCount(), 0u);
+}
+
+TEST(TerrainTileLoading, WorkerPreparesFlatAndFileBackedSamplesWithoutAGraphicsContext)
+{
+    TerrainTile tile;
+    tile.CreateFlat(3u, 0.25f);
+    ASSERT_TRUE(tile.GetTerrainData());
+    EXPECT_FALSE(tile.GetTerrainData()->GetGPUHeightmap());
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(0.5f, 0.5f), 0.25f);
+
+    const auto file = Tests::TempFile("tile.png");
+    constexpr std::array<u8, 4> pixels{ 0, 255, 0, 255 };
+    ASSERT_NE(stbi_write_png(file.string().c_str(), 2, 2, 1, pixels.data(), 2), 0);
+    ASSERT_TRUE(tile.LoadFromFile(file.string()));
+    ASSERT_TRUE(tile.GetTerrainData());
+    EXPECT_FALSE(tile.GetTerrainData()->GetGPUHeightmap());
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(0.0f, 0.5f), 0.0f);
+    EXPECT_FLOAT_EQ(tile.GetTerrainData()->GetHeightAt(1.0f, 0.5f), 1.0f);
+}
 
 namespace
 {
