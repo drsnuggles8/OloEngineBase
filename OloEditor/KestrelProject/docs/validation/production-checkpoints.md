@@ -1,0 +1,29 @@
+# Integrated checkpoints and roadmap reconciliation
+
+Status: consolidated v1.0 draft for repository adoption, 2026-11-27. Approved directions below are full-game design unless explicitly scoped; candidate algorithms, exact values and validation plans are not approved implementation mandates.
+
+## Design contract
+
+Preserve full-game ambition and the current vertical-slice milestone unless explicitly revised. Build progressively playable integrated experiences rather than only isolated subsystems. Existing open and closed issues may conflict with the new design; audit actual code and issue acceptance criteria before proposing revisions. Reuse sound work and avoid duplicate ownership.
+
+Suggested sequence, not approved issue order or dates: first descent → functioning business → congestion problem → difficult winter → entire year → different mountain → connected resorts → growing empire. Steam/feedback preparation starts early in parallel where possible. The First Fun Prototype is a validation checkpoint, not a replacement milestone.
+
+## Decision records
+
+<a id="aud-18"></a>
+
+### AUD-18
+
+**Disposition:** Accepted with owner concern.
+
+Preserve ambitious full-game vision and existing June 30, 2027 vertical slice unless explicitly revised. Organize work around progressively playable integrated checkpoints. Owner notes existing GitHub issues no longer fully reflect approved design; audit both completed and open work against consolidated specifications and actual repository state, not just issue titles. Reuse sound work, document contradictions and dependencies, and propose changes before revising milestone or backlog. No new issue order/dates approved here. Public demo/release strategy remains deferred.
+
+## Validation and acceptance (proposed test focus)
+
+For each checkpoint define an executable play loop, technical evidence, human test plan and remaining risks. No backlog or milestone modifications in this package.
+
+## Related design decisions
+
+VISION.md, [V-01](playtesting.md#v-01), [V-03](playtesting.md#v-03), [V-17](automated-balancing.md#v-17), [AUD-16](steam-and-feedback.md#aud-16)
+
+See [decision index](../DECISIONS.md) and [open questions](../OPEN_QUESTIONS.md).
