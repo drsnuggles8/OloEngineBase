@@ -40,10 +40,12 @@ through `.claude/rules/`; for a symptom or a subsystem without a rule, ask the `
 rather than reading [agent-rules/README.md](../agent-rules/README.md) whole. The model and effort
 `HANDOVER.md` recommends are set at kickoff.
 
-**KESTREL gameplay task** (`HANDOVER.md` has a *Design context* section, or the task meets the
+**KESTREL gameplay task** (`HANDOVER.md` has a *Design context* section other than
+`Design context: engine-only — <reason>`, or the task meets the
 [agent guide's](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#when-this-guide-applies) test):
 read the guide and the design documents its *What to read* list names, and complete *Design context*
-if the handover lacks it. Any other task leaves the game-design documents unopened.
+if the handover lacks it. Any other task, an engine-only one included, leaves the game-design
+documents unopened and owes no *Design validation* section.
 
 Confirm you are in the worktree, not the base repo, and that the guards are live:
 
@@ -403,9 +405,10 @@ You may **not** report the task done while any of these is false:
 6. **Every bug you found is accounted for.** Each is either a commit listed under *Found and fixed*,
    or an issue listed under *Filed, not fixed* whose body carries the `Not fixed in #<PR> because:`
    line with one of the four Phase 1a reasons. A bug mentioned only in prose fails this.
-7. **A KESTREL gameplay PR has a complete *Design validation* section**: the decision IDs applied,
-   the player experience, technical and player-facing acceptance with results, and a design status.
-   Human validation still owed is stated with its question, and is not a failure (decision V-17).
+7. **A KESTREL gameplay PR has a complete *Design validation* section**: every field of the
+   [design-acceptance block](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block),
+   with results. Human validation still owed is stated with its question, and is not a failure
+   (decision V-17).
    Agent play presented as playtesting, or an approved decision changed without the owner's recorded
    approval, fails this.
 

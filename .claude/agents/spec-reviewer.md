@@ -47,15 +47,16 @@ push or comment.
    are a finding only if they are unexplained.
 6. **Closing the loop**: the source `docs/` checkbox or `// TODO` the task came from is updated in
    the diff, and `Closes #N` is used only when the PR completes the issue.
-7. **KESTREL design**: if `HANDOVER.md` has a *Design context* section, or the diff touches
-   `OloEditor/KestrelProject/` outside `docs/archive/`, read
+7. **KESTREL design**: in every task, any change under `OloEditor/KestrelProject/docs/archive/` is a
+   finding; the snapshots are frozen. The rest of this check runs only if `HANDOVER.md` has a
+   *Design context* section other than `Design context: engine-only — <reason>`, or the diff touches
+   `OloEditor/KestrelProject/` outside `docs/`. Then read
    `OloEditor/KestrelProject/docs/AGENT_GUIDE.md` and the decision records the section cites
    (look IDs up in `DECISIONS.md`). Findings: no *Design validation* section in the PR body, or one
-   missing the decision IDs, the player experience, technical and player-facing acceptance with
-   results, or a design status; agent runs described as human playtesting; behaviour that contradicts a cited
-   decision, or a changed decision record, open question or tunable without the owner's approval cited
-   in the commit or issue; any edit under `docs/archive/`. Human validation still owed, and stated, is
-   not a finding. Skip this check for every other task.
+   missing any of the guide's ten design-acceptance fields; agent runs described as human playtesting;
+   behaviour that contradicts a cited decision; a changed decision record, open question or tunable
+   without the owner's approval cited in the commit or issue. Human validation still owed, and stated,
+   is not a finding.
 
 Do **not** report style preferences, naming opinions, speculative hardening, extra tests for cases
 that cannot happen, or refactors you would have liked. A reviewer asked for gaps will always find

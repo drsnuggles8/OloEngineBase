@@ -224,8 +224,9 @@ this conversation:
 - **Design context** (KESTREL tasks only: the `kestrel` label, the *KESTREL: vertical slice*
   milestone, or files under `OloEditor/KestrelProject/`): the design-acceptance block from
   [AGENT_GUIDE.md](../../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block),
-  meaning the decision IDs applied, the player experience, technical and player-facing acceptance, and a
-  validation plan that keeps technical verification apart from human design validation. Fill it by
+  all ten fields, among them the decision IDs applied, the player experience, technical and
+  player-facing acceptance, and a validation plan that keeps technical verification apart from human
+  design validation. Fill it by
   reading the guide's *What to read* list. For a KESTREL issue that is pure engine capability, write
   `Design context: engine-only — <reason>`. Leave the section out of every other task, and do not open
   the design documents for one.

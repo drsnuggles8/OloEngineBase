@@ -65,22 +65,29 @@ The [archive](archive/README.md) is for tracing a decision's history. It never s
 
 A gameplay task carries the [acceptance template](validation/acceptance-template.md) twice: as a
 **Design context** section in `HANDOVER.md`, written by `/start-work` §5a and completed in Phase 1 if the
-handover lacks it, and as a **Design validation** section in the PR body (task loop Phase 4). Both contain:
+handover lacks it, and as a **Design validation** section in the PR body (task loop Phase 4). Both contain
+the template's ten fields, in its order:
 
-1. **Decisions**: each applied ID with its disposition, the specifications read and the `EXP-nn` rows
-   touched. "None apply" is a finding to justify, not a default.
-2. **Player experience**: what the player should be able to do, and the hypothesis for why it is
+1. **Design references**: each applied decision ID with its disposition, the specifications read and the
+   `EXP-nn` rows touched. "None apply" is a claim to justify, not a default.
+2. **Player experience and hypothesis**: what the player should be able to do, and why it should be
    enjoyable, understandable and meaningful ([V-01](validation/playtesting.md#v-01)).
 3. **Scope**: the north-star capability it serves and the full-game parts deliberately left out.
-4. **Technical acceptance**: tests, invariants, performance, save/load, headless equivalence. Each one is a
+4. **Interactions and invariants**: authoritative state, commands, cost and rights, time, RNG, ownership,
+   saves, mod versions and accessibility, as far as the change reaches them.
+5. **Technical acceptance**: tests, invariants, performance, save/load, headless equivalence. Each one is a
    row in the task loop's verification matrix like any other cell.
-5. **Player-facing acceptance**: responsive controls, causes explained, readable presentation.
-6. **Validation plan**, in two separate parts: *technical verification* (what an agent runs) and *human
+6. **Player-facing acceptance**: responsive controls, causes explained, readable presentation.
+7. **Validation plan**, in two separate parts: *technical verification* (what an agent runs) and *human
    design validation* (the playtest question, who answers it, on which build).
-7. **Status**: technical `proposed` / `implemented` / `verified`; design `not ready` / `playtest-ready` /
+8. **Evidence**: in the HANDOVER, what will count as evidence; in the PR, the actual results and their
+   limits.
+9. **Status**: technical `proposed` / `implemented` / `verified`; design `not ready` / `playtest-ready` /
    `human-tested` / `design-validated` / `revision required`.
+10. **Risks and approvals**: outstanding risks and assumptions, and any design change that needs the
+    owner's approval.
 
-Issues filed or rewritten for gameplay work carry items 1 to 6 in the body, in addition to the
+Issues filed or rewritten for gameplay work carry fields 1 to 7 in the body, in addition to the
 repository's issue format and `olo-score` block.
 
 ## Evidence
@@ -99,12 +106,14 @@ repository's issue format and `olo-score` block.
 
 ## Editing these documents
 
-- Never edit a file in `archive/`; it is byte-identical to the v1.0 draft package.
+- Never edit a file in `archive/`; it is byte-identical to the v1.0 draft package, and
+  [archive/SHA256SUMS](archive/SHA256SUMS) records each file's hash.
 - A mechanical fix in a current document (a link, a path, a typo, a status line) needs no approval.
 - A change to a decision's content, a new decision or a resolved open question needs the owner's
   approval, cited in the commit message. A new decision gets a new ID, an `<a id>` anchor and a
   `### ID` heading in its topic document, and a row in `DECISIONS.md`. IDs are never reused or
   renumbered.
 - `pre-commit`'s `docs-consistency` hook checks every link and anchor in this tree, that every file is
-  reachable from [README.md](README.md), and that each decision has exactly one record and one
-  `DECISIONS.md` row pointing at it. It checks structure, not whether the design is right.
+  reachable from [README.md](README.md), that each decision has exactly one record and one
+  `DECISIONS.md` row pointing at it, and that no archived snapshot differs from its listed hash. It
+  checks structure, not whether the design is right.

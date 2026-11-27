@@ -1,0 +1,21 @@
+# SHA-256 of every archived snapshot, taken from KESTREL-game-design-v1.0-draft.zip (2026-11-27).
+# The snapshots are frozen: scripts/check_docs_consistency.py fails if one changes or an unlisted file appears.
+# Verify by hand with: sha256sum -c SHA256SUMS (from this directory).
+07da04cbbd5f1e7f9d8e53eafa97da791ba33a734f7b7c10eb39676de61fe0a7  KESTREL-consistency-audit-v0.1.md
+28da1972f3f76b857069500c994d12e6b37ada6e7cb0342dbf2dee7a9beca68c  KESTREL-consistency-audit-v0.2.md
+c039509462f2e54eedd5cf4a1da8314b6e91e2ffc85fa48e82113f0a4d31ac54  KESTREL-consistency-audit-v0.3.md
+0d31acae407d5b25b59917a59c0f9fd0d3d7e9f9853e58ed7be68559174960f5  KESTREL-consistency-audit-v0.4.md
+62b4996385346f71aaa51bbcd534cb0997aa798e239bbb4f93343016b001f94c  KESTREL-design-register-v0.10.md
+9171fb01b0c78a48074e14a4deb39fa80378aedbd9e849f5ab5ce8a7b70006a5  KESTREL-design-register-v0.11.md
+157d94e4d6903a11bac1e16194942eb17e508a347e16911fbf3cbfd45ae65ed2  KESTREL-design-register-v0.12.md
+80a3c4e8d517c9d4115fdca3900317ba1c4e8086d6545f28c50c92dbdf1ba7e3  KESTREL-design-register-v0.13.md
+faf01280d498f420df94b5cf5e8b77236e25914834092cf96c7cc014bc15faa0  KESTREL-design-register-v0.14.md
+3a9f3a1f12ac5db9e97235ab30985b9d6b7eef1616e41d5d751954e01c269aac  KESTREL-design-register-v0.15.md
+76b0d5f0008fad8d73c037c8763357a69f5de94b605c464feb698268910fa584  KESTREL-design-register-v0.2.md
+f16ba1d784f4a43b8339f0d26357b80dfcb78440ccd97b6a205de16e7dd1dc0b  KESTREL-design-register-v0.3.md
+b280072bf12e6594ad76084e63153527f0a9ab688dbd41163d6f896e2538d0c9  KESTREL-design-register-v0.4.md
+7e8c6042e673bbf481cac6b1bc7be423d2ec9adba4223af118fdcf1e3e5cb37d  KESTREL-design-register-v0.5.md
+e380a8ec09fa5cb169b6f04085f958ef54ad64d7433bb0ec427aea07a7b1392f  KESTREL-design-register-v0.6.md
+97cd5c88e0cc938666b46d76cd0bab4c578c1e49799a34f0618df84ccf4b2c18  KESTREL-design-register-v0.7.md
+764d10da29fee9f97645edba601b6e38173e77b42808d53b7bf5c0b137cd7357  KESTREL-design-register-v0.8.md
+dd114899dab5f96b5a99b0300ea1b93bc1d0999d6e2b07317e8ee170cc911acf  KESTREL-design-register-v0.9.md
