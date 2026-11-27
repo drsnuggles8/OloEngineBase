@@ -9,21 +9,27 @@ loop, including every engineering quality gate, applies to KESTREL work unchange
 
 ## When this guide applies
 
-A task is **KESTREL gameplay work** when any of these holds:
+This section is the one definition the other instruction files refer to.
 
-- its issue carries the `kestrel` label or sits in the *KESTREL: vertical slice* milestone, and the change
-  alters what a player can do, see, hear, decide or experience: rules, simulation, content, balance, UI,
-  audio, player-facing tools;
-- its diff changes a file under `OloEditor/KestrelProject/` outside `docs/`;
-- it edits these design documents.
+A **KESTREL task** is one whose issue carries the `kestrel` label or sits in the *KESTREL: vertical
+slice* milestone, or whose diff touches `OloEditor/KestrelProject/`. Every KESTREL task gets exactly one
+of three classifications, recorded in `HANDOVER.md` under *Design context*:
 
-**Engine-only work reads none of this.** A task with no `kestrel` label, no milestone membership and no
-file under `OloEditor/KestrelProject/` does not open the design corpus. A KESTREL-labelled issue whose
-change is purely an engine capability (the `OloEngine/` column of
-[ADR 0027 §3](../../../docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md#3-the-enginegame-boundary),
-such as terrain level of detail or crowd rendering) records that decision in `HANDOVER.md` as
-`Design context: engine-only — <reason>`, naming any decision that still constrains it (for example
-constitution principle 5: camera, rendering tier, frame rate and time speed never change gameplay).
+- **Gameplay work**: the change alters what a player can do, see, hear, decide or experience (rules,
+  simulation, content, balance, UI, audio, player-facing tools), wherever its files live, or it changes a
+  decision, an open question or a tunable in these design documents. *Design context* is the
+  [design-acceptance block](#the-design-acceptance-block), and the PR carries *Design validation*.
+- **Engine-only**: a pure engine capability with no player-facing change (the `OloEngine/` column of
+  [ADR 0027 §3](../../../docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md#3-the-enginegame-boundary),
+  such as terrain level of detail or crowd rendering). *Design context* is the one line
+  `Design context: engine-only — <reason>`, naming any decision that still constrains it (for example
+  constitution principle 5: camera, rendering tier, frame rate and time speed never change gameplay).
+- **Mechanical design-doc edit**: a link, path, typo, status line or navigation change in these
+  documents. *Design context* is the one line `Design context: mechanical doc edit`; follow
+  [Editing these documents](#editing-these-documents).
+
+Engine-only and mechanical tasks owe no *Design validation* section and need not read further than
+this. **A task that is not a KESTREL task reads none of this** and has no *Design context* section.
 
 ## What to read
 
@@ -52,7 +58,9 @@ The [archive](archive/README.md) is for tracing a decision's history. It never s
   ADR 0027 controls the engine/game boundary.
 - Agents may propose evidence-based design revisions; they may not change approved design, resolve an
   open question or promote a hypothesis or tunable to a requirement without the owner's approval
-  ([V-16](validation/automated-balancing.md#v-16), [V-24](validation/playtesting.md#v-24)). Ask the
+  ([V-16](validation/automated-balancing.md#v-16), [V-24](validation/playtesting.md#v-24)). That
+  approval is cited, as a link to or quote of the owner's words, in the commit message that makes the
+  change and in the PR body; nowhere else counts. Ask the
   owner when a product choice cannot be resolved from the specification, or when the design conflicts
   with an issue, the north star or an ADR; present evidence and options rather than silently changing it.
   In a task worktree this is a stop that only the user can clear.
@@ -87,8 +95,8 @@ the template's ten fields, in its order:
 10. **Risks and approvals**: outstanding risks and assumptions, and any design change that needs the
     owner's approval.
 
-Issues filed or rewritten for gameplay work carry fields 1 to 7 in the body, in addition to the
-repository's issue format and `olo-score` block.
+A gameplay issue an agent files carries fields 1 to 7 in its body, in addition to the repository's
+issue format and `olo-score` block. Existing issues are not rewritten to add them unless the owner asks.
 
 ## Evidence
 
@@ -106,11 +114,12 @@ repository's issue format and `olo-score` block.
 
 ## Editing these documents
 
-- Never edit a file in `archive/`; it is byte-identical to the v1.0 draft package, and
-  [archive/SHA256SUMS](archive/SHA256SUMS) records each file's hash.
+- Never edit an archived snapshot: a file listed in [archive/SHA256SUMS](archive/SHA256SUMS), which
+  records its hash in the v1.0 draft package. The archive's `README.md` (navigation) and the manifest
+  itself are not snapshots.
 - A mechanical fix in a current document (a link, a path, a typo, a status line) needs no approval.
 - A change to a decision's content, a new decision or a resolved open question needs the owner's
-  approval, cited in the commit message. A new decision gets a new ID, an `<a id>` anchor and a
+  approval, cited as the Authority section says. A new decision gets a new ID, an `<a id>` anchor and a
   `### ID` heading in its topic document, and a row in `DECISIONS.md`. IDs are never reused or
   renumbered.
 - `pre-commit`'s `docs-consistency` hook checks every link and anchor in this tree, that every file is
