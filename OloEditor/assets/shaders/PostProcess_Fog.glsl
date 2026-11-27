@@ -219,7 +219,8 @@ void main()
     float clampedDepth = max(viewDepth, froxelNear);
     float w = clamp(log2(clampedDepth / froxelNear) / froxelLogFN, 0.0, 1.0);
 
-    vec4 vol = texture(u_FroxelFogVolume, vec3(v_TexCoord, w));
+    // The volume spans the camera frustum in FRAME uv (#1537).
+    vec4 vol = texture(u_FroxelFogVolume, vec3(oloFrameUV(v_TexCoord), w));
     vec3 accumulatedLight = vol.rgb;
     float transmittance = vol.a;
 

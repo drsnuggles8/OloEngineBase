@@ -125,7 +125,7 @@ void main()
     // layer — sky rotation). Stable, and cheap to recompute here without
     // carrying depth through pass A.
     // -------------------------------------------------------------------------
-    vec4 ndc = vec4(v_TexCoord * 2.0 - 1.0, 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(v_TexCoord) * 2.0 - 1.0, 1.0, 1.0); // frame uv (#1537)
     vec4 worldFar = u_InverseViewProjection * ndc;
     worldFar.xyz /= worldFar.w;
     vec3 cameraPos = u_CameraPosition + u_RenderOrigin;

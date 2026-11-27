@@ -179,7 +179,8 @@ void main()
     // P[1][1] both arrive from the CPU rather than being assumed, which is what
     // makes the radius follow a resolution change and a field-of-view change
     // instead of only looking like it does — SkinDiffusionTest pins the same
-    // expression on the CPU side.
+    // expression on the CPU side at scale 1.0. Under a dynamic render scale the
+    // frame covers bounds.y of the target's rows (#1537).
     float targetHeight = u_SkinDiffusionPass.w * oloRenderScaleBounds().y;
     float radiusPixels = (supportMM * OLO_SKIN_MM_TO_WORLD) *
                          (0.5 * targetHeight * u_SkinDiffusionProjection.x) / max(centreDepth, 1e-4);

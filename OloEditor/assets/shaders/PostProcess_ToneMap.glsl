@@ -221,6 +221,9 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
 {
     // Step from the pixel toward the sun, covering `density` of the screen-space
     // distance over `samples` steps.
+    // The march runs in FRAME uv, the space sunUV is in; depth is read at the
+    // texture uv of each tap (#1537).
+    uv = oloFrameUV(uv);
     vec2 delta = (uv - sunUV) * (density / float(samples));
     vec2 coord = uv;
     float illum = 1.0;
@@ -233,7 +236,7 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
         // Explicit LOD 0: the march UV is data-dependent, so an implicit-derivative
         // sample inside the loop would be undefined; the depth texture has no mips.
         vec2 c = clamp(coord, 0.0, 1.0);
-        float depth = textureLod(u_DepthTexture, c, 0.0).r;
+        float depth = textureLod(u_DepthTexture, oloTextureUV(c), 0.0).r;
         float open = step(GODRAY_OPEN_DEPTH, depth); // 1 = clear toward sun, 0 = occluded
         // Localise the source around the sun so shafts radiate from it and fade out,
         // instead of the whole open sky lighting up uniformly (a white wash).
@@ -457,14 +460,15 @@ void main()
                                               u_UnderwaterRefraction.x * eyeSubmersion,
                                               u_UnderwaterRefraction.y,
                                               u_UnderwaterRefraction.z);
-        vec2 baseUV = clamp(v_TexCoord + off, 0.0, 1.0);
+        vec2 bounds = oloRenderScaleBounds(); // the rendered corner (#1537)
+        vec2 baseUV = clamp(v_TexCoord + off, vec2(0.0), bounds);
         float chroma = u_UnderwaterRefraction.w;
         if (chroma > 0.0)
         {
             vec2 cOff = off * chroma;
-            hdrColor.r = texture(u_Texture, clamp(baseUV + cOff, 0.0, 1.0)).r;
+            hdrColor.r = texture(u_Texture, clamp(baseUV + cOff, vec2(0.0), bounds)).r;
             hdrColor.g = texture(u_Texture, baseUV).g;
-            hdrColor.b = texture(u_Texture, clamp(baseUV - cOff, 0.0, 1.0)).b;
+            hdrColor.b = texture(u_Texture, clamp(baseUV - cOff, vec2(0.0), bounds)).b;
         }
         else
         {
