@@ -441,6 +441,15 @@ namespace OloEngine
 
     void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
+        // A host that never initialised C# scripting (a tool, the
+        // renderer-attached test process: #1796) still starts scenes. Their
+        // scripts cannot run, but the shared scene context the Lua bindings
+        // read through GetSceneContext must still name the running scene.
+        if (!s_Data)
+        {
+            s_TestSceneContext = scene;
+            return;
+        }
         s_Data->SceneContext = scene;
         s_TestSceneContext = nullptr;
     }
@@ -538,8 +547,10 @@ namespace OloEngine
 
     void ScriptEngine::OnRuntimeStop()
     {
-        s_Data->SceneContext = nullptr;
         s_TestSceneContext = nullptr;
+        if (!s_Data)
+            return;
+        s_Data->SceneContext = nullptr;
 
         s_Data->EntityInstances.clear();
         if (s_Data->ReloadOnSceneStop)
