@@ -36,9 +36,7 @@ namespace OloEngine
         {
             if (m_Context != scene)
             {
-                EndStroke();
-                if (m_ErosionSessionActive)
-                    EndContinuousErosionSession();
+                SettleEdits();
                 m_Context = scene;
                 m_HasBrushHit = false;
                 m_PaintTarget = entt::null;
@@ -49,6 +47,8 @@ namespace OloEngine
             m_CommandHistory = history;
         }
         void OnImGuiRender();
+        void SettleEdits();
+        void SetContinuousErosion(bool enabled);
 
         // Called from EditorLayer each frame with terrain hit info. Only runs while
         // the VIEWPORT is hovered, which is correct for a brush stroke and wrong for
@@ -81,7 +81,7 @@ namespace OloEngine
         {
             if (mode != m_EditMode)
             {
-                EndStroke();
+                SettleEdits();
                 m_EditMode = mode;
             }
         }
@@ -96,7 +96,7 @@ namespace OloEngine
         }
         [[nodiscard]] bool IsAcquiringStroke(bool mouseDown) const
         {
-            return mouseDown && !m_StrokeActive &&
+            return mouseDown && !m_StrokeActive && !m_StrokeInterrupted &&
                    (m_EditMode == TerrainEditMode::Sculpt || m_EditMode == TerrainEditMode::Paint);
         }
 
@@ -132,6 +132,7 @@ namespace OloEngine
         void UpdateContinuousErosion();
         // Push the settled stroke's undo command for the GPU path.
         void EndStroke();
+        void ReleaseStroke();
         void CommitGPUSculptStroke();
         void CommitGPUPaintStroke();
         // Close a continuous-erosion session: push its undo entry and bring the
@@ -193,6 +194,7 @@ namespace OloEngine
 
         // Stroke tracking for undo
         bool m_StrokeActive = false;
+        bool m_StrokeInterrupted = false;
         // Accumulated dirty region across entire stroke
         u32 m_StrokeDirtyX = 0;
         u32 m_StrokeDirtyY = 0;

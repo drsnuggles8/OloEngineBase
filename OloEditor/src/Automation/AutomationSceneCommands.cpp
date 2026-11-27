@@ -116,14 +116,8 @@ namespace OloEngine::Automation
         // not do (#1127). Ctrl-Z still reaches them -- undoing an undo is a redo --
         // so this is a statement about batching, not about reversibility.
         Register(registry, "olo_editor_undo", "Undo one editor operation. A scene save refuses to overwrite an externally modified file. Not usable as a transaction step.", Schema::Object().NoAdditional(), [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
-                 {
-                     const bool changed = history.CanUndo();
-                     history.Undo();
-                     return changed; }, AutomationUndo::HistoryControl);
+                 { return history.Undo(); }, AutomationUndo::HistoryControl);
         Register(registry, "olo_editor_redo", "Redo one editor operation. Saved scenes reuse the exact bytes originally saved. Not usable as a transaction step.", Schema::Object().NoAdditional(), [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
-                 {
-                     const bool changed = history.CanRedo();
-                     history.Redo();
-                     return changed; }, AutomationUndo::HistoryControl);
+                 { return history.Redo(); }, AutomationUndo::HistoryControl);
     }
 } // namespace OloEngine::Automation
