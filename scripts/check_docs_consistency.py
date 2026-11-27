@@ -8,26 +8,35 @@ prove that a sentence is true. A claim about what the renderer draws, how a term
 composed or what a benchmark measured still needs a behavioural test or a capture;
 passing this check is not evidence for any of that (issue #1357).
 
-Four checks. "Tracked" below also covers an untracked file that .gitignore does not
-exclude, so a new doc is checked before it is staged.
+Five checks. "Tracked" below also covers an untracked file that .gitignore does not
+exclude, so a new doc is checked before it is staged. A project documentation tree
+(PROJECT_DOC_TREES, e.g. KESTREL's game design under OloEditor/KestrelProject/docs/)
+gets checks 1 and 3 against its own index, and check 5.
 
 1. Every relative link and reference definition in a tracked Markdown file under
-   docs/, and in the root CLAUDE.md, AGENTS.md, README.md and CONTRIBUTING.md,
-   resolves to a tracked path. A `.md#anchor` link must name a heading of the target
+   docs/ or a project doc tree, and in the root CLAUDE.md, AGENTS.md, README.md and
+   CONTRIBUTING.md, resolves to a tracked path. A `.md#anchor` link must name a heading of the target
    (GitHub's slug rules) or an explicit `<a id="...">`.
 2. Every `docs/<path>.md` named in a tracked file outside docs/ (a source comment, a
    CMake option, a script, a tool's README) exists; a relative `../docs/x.md` is
    resolved against the file that cites it. The generated, git-ignored test
    catalogue is the one exception.
 3. Every tracked Markdown file under docs/ is reachable from docs/README.md by
-   following relative links. "Adding a doc? Add it here too." is the rule this
-   enforces; an evidence bundle linked from its analysis doc counts as reachable.
+   following relative links, and every one under a project doc tree from that tree's
+   README.md. "Adding a doc? Add it here too." is the rule this enforces; an evidence
+   bundle linked from its analysis doc counts as reachable.
 4. In the docs listed in CONTRACT_DOCS, every backticked source file name exists in
    the repository, and every `File.ext::Symbol` names a symbol that occurs in that
    file. These docs state current entry points, so a renamed test or deleted file
    there is a stale claim. Elsewhere the same check is mostly noise: dated reports
    name deleted files on purpose, and many docs cite vendor files that are not
    tracked.
+5. In a design decision index (DECISION_INDEXES), every row `| ID | ... | [ID](f.md#a) |`
+   names an ID no other row names, and its link points at the one current document
+   that defines the anchor; every decision heading (`### ID`) in the tree's current
+   documents has a row, and no ID or anchor is defined twice. The tree's archive/
+   holds historical snapshots and is exempt, since a decision appears in every
+   version of a register.
 
 The fixtures in SELF_TEST run first, every time: each plants one defect of one kind
 and the run fails if the check does not report it. That is the negative control;
@@ -49,6 +58,13 @@ INDEX = "docs/README.md"
 SELF = "scripts/check_docs_consistency.py"
 ROOT_DOCS = ("CLAUDE.md", "AGENTS.md", "README.md", "CONTRIBUTING.md")
 GENERATED_DOCS = re.compile(r"^docs/test-catalogue\.[a-z]+\.md$")
+# Project documentation trees outside docs/, each with its own index (checks 1 and 3).
+PROJECT_DOC_TREES = ("OloEditor/KestrelProject/docs/",)
+# Design decision indexes (check 5); the archive/ directory beside each is exempt.
+DECISION_INDEXES = ("OloEditor/KestrelProject/docs/DECISIONS.md",)
+DECISION_ID = r"[A-Z]+-\d+[a-z]?(?:–[A-Z]+-\d+[a-z]?)?"
+DECISION_ROW_RE = re.compile(r"^\|\s*(" + DECISION_ID + r")\s*\|.*\|\s*\[[^\]]*\]\(([^)#\s]+)#([^)\s]+)\)\s*\|\s*$")
+DECISION_HEADING_RE = re.compile(r"^\s{0,3}#{2,6}\s+(" + DECISION_ID + r")\s*$")
 
 # Docs that state the renderer's CURRENT contracts and their entry points (check 4).
 CONTRACT_DOCS = (
@@ -240,11 +256,13 @@ def check_cited_doc_paths(repo: Repo) -> list[str]:
     return errors
 
 
-def check_reachable(repo: Repo, docs: list[str]) -> list[str]:
-    if INDEX not in repo.tracked:
-        return [f"{INDEX}: the index is missing"]
-    reached = {INDEX}
-    queue = [INDEX]
+def check_reachable(repo: Repo, docs: list[str], index: str = INDEX) -> list[str]:
+    if not docs:
+        return []
+    if index not in repo.tracked:
+        return [f"{index}: the index is missing"]
+    reached = {index}
+    queue = [index]
     while queue:
         rel = queue.pop()
         for _, target in links_in(repo, rel):
@@ -252,7 +270,53 @@ def check_reachable(repo: Repo, docs: list[str]) -> list[str]:
             if path.endswith(".md") and path in repo.tracked and path not in reached:
                 reached.add(path)
                 queue.append(path)
-    return [f"{rel}: not reachable from {INDEX}; add it to the index" for rel in docs if rel not in reached]
+    return [f"{rel}: not reachable from {index}; add it to the index" for rel in docs if rel not in reached]
+
+
+def check_decision_index(repo: Repo, index: str) -> list[str]:
+    if index not in repo.tracked:
+        return []
+    tree = index.rsplit("/", 1)[0] + "/"
+    current = sorted(
+        t for t in repo.tracked
+        if t.startswith(tree) and t.endswith(".md") and t != index and not t.startswith(tree + "archive/")
+    )
+    errors = []
+    anchor_homes: dict[str, list[str]] = defaultdict(list)
+    heading_homes: dict[str, list[str]] = defaultdict(list)
+    for rel in current:
+        for number, line in prose_lines(repo.text(rel)):
+            for anchor in EXPLICIT_ANCHOR_RE.findall(line):
+                anchor_homes[anchor.lower()].append(rel)
+            heading = DECISION_HEADING_RE.match(line)
+            if heading:
+                heading_homes[heading.group(1)].append(f"{rel}:{number}")
+    for anchor, homes in sorted(anchor_homes.items()):
+        if len(homes) > 1:
+            errors.append(f"{index}: anchor '#{anchor}' is defined more than once: {', '.join(homes)}")
+    for decision, homes in sorted(heading_homes.items()):
+        if len(homes) > 1:
+            errors.append(f"{index}: decision {decision} has more than one record: {', '.join(homes)}")
+    rows: dict[str, int] = {}
+    for number, line in prose_lines(repo.text(index)):
+        row = DECISION_ROW_RE.match(line)
+        if not row:
+            continue
+        decision, target, anchor = row.groups()
+        if decision in rows:
+            errors.append(f"{index}:{number}: decision {decision} already has a row (line {rows[decision]})")
+        rows.setdefault(decision, number)
+        path, _ = resolve(index, target)
+        homes = anchor_homes.get(anchor.lower(), [])
+        if homes != [path]:
+            where = ", ".join(homes) if homes else "no current document"
+            errors.append(f"{index}:{number}: {decision} links {target}#{anchor}, but that anchor is defined in {where}")
+        if decision not in heading_homes:
+            errors.append(f"{index}:{number}: {decision} has no '### {decision}' record in a current document")
+    for decision, homes in sorted(heading_homes.items()):
+        if decision not in rows:
+            errors.append(f"{homes[0]}: decision {decision} has no row in {index}")
+    return errors
 
 
 def check_contract_names(repo: Repo) -> list[str]:
@@ -276,11 +340,20 @@ def check_contract_names(repo: Repo) -> list[str]:
 
 def run_checks(repo: Repo) -> list[str]:
     docs = sorted(t for t in repo.tracked if t.startswith("docs/") and t.endswith(".md"))
-    linked = docs + [d for d in ROOT_DOCS if d in repo.tracked]
-    return check_links(repo, linked) + check_cited_doc_paths(repo) + check_reachable(repo, docs) + check_contract_names(repo)
+    trees = {tree: sorted(t for t in repo.tracked if t.startswith(tree) and t.endswith(".md")) for tree in PROJECT_DOC_TREES}
+    linked = docs + [d for tree_docs in trees.values() for d in tree_docs] + [d for d in ROOT_DOCS if d in repo.tracked]
+    errors = check_links(repo, linked) + check_cited_doc_paths(repo) + check_reachable(repo, docs)
+    for tree, tree_docs in trees.items():
+        errors += check_reachable(repo, tree_docs, tree + "README.md")
+    for index in DECISION_INDEXES:
+        errors += check_decision_index(repo, index)
+    return errors + check_contract_names(repo)
 
 
 # One defect per fixture; `expect` is a substring the report must contain.
+_KD = PROJECT_DOC_TREES[0]
+_KD_INDEX = "# Decisions\n\n| Decision | Disposition | Record |\n|---|---|---|\n| X-01 | Accepted | [X-01](topic.md#x-01) |\n"
+_KD_TOPIC = '# Topic\n\n<a id="x-01"></a>\n\n### X-01\n\nText.\n'
 SELF_TEST = {
     "clean": ({}, None),
     "dead link": ({"docs/guides/a.md": "[x](gone.md)\n"}, "link target does not exist: gone.md"),
@@ -301,10 +374,41 @@ SELF_TEST = {
         {"docs/guides/renderer-support-matrix.md": "`T.cpp::OldName` pins it. [i](../README.md)\n", "tests/T.cpp": "TEST(S, NewName) {}\n"},
         "T.cpp has no symbol 'OldName'",
     ),
+    "project doc dead anchor": (
+        {_KD + "README.md": "# Design\n\n- [Decisions](DECISIONS.md)\n- [Topic](topic.md#x-99)\n"},
+        "no heading or anchor '#x-99' in " + _KD + "topic.md",
+    ),
+    "project doc orphan": ({_KD + "orphan.md": "# Orphan\n"}, _KD + "orphan.md: not reachable from " + _KD + "README.md"),
+    "decision row with no record": (
+        {_KD + "DECISIONS.md": _KD_INDEX + "| X-02 | Accepted | [X-02](topic.md#x-02) |\n"},
+        "X-02 links topic.md#x-02, but that anchor is defined in no current document",
+    ),
+    "decision row listed twice": ({_KD + "DECISIONS.md": _KD_INDEX + "| X-01 | Accepted | [X-01](topic.md#x-01) |\n"}, "decision X-01 already has a row"),
+    "decision record with no row": (
+        {_KD + "topic.md": _KD_TOPIC + '\n<a id="x-03"></a>\n\n### X-03\n\nMore.\n'},
+        "decision X-03 has no row in " + _KD + "DECISIONS.md",
+    ),
+    "decision recorded twice": (
+        {
+            _KD + "README.md": "# Design\n\n- [Decisions](DECISIONS.md)\n- [Topic](topic.md)\n- [Other](other.md)\n",
+            _KD + "other.md": _KD_TOPIC,
+        },
+        "anchor '#x-01' is defined more than once",
+    ),
+    "an archived copy of a decision is history, not a second record": (
+        {
+            _KD + "README.md": "# Design\n\n- [Decisions](DECISIONS.md)\n- [Topic](topic.md)\n- [Old](archive/old.md)\n",
+            _KD + "archive/old.md": _KD_TOPIC,
+        },
+        None,
+    ),
 }
 SELF_TEST_BASE = {
     "docs/README.md": "# Docs\n\n## Guides\n\n- [a](guides/a.md)\n",
     "docs/guides/a.md": "# A\n\n[back](../README.md#guides)\n",
+    _KD + "README.md": "# Design\n\n- [Decisions](DECISIONS.md)\n- [Topic](topic.md)\n",
+    _KD + "DECISIONS.md": _KD_INDEX,
+    _KD + "topic.md": _KD_TOPIC,
 }
 
 
