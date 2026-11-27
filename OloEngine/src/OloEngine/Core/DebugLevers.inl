@@ -227,6 +227,11 @@ OLO_LEVER_TOGGLE(VulkanTraceBuffers, "OLO_VK_TRACE_BUFFERS",
                  "time, and every index BIND's range, buffer and resolved addressFlags — the currency for "
                  "pairing a GPU fault address, or a validation message naming a handle, back to its buffer "
                  "(#1200).")
+OLO_LEVER_TOGGLE(VulkanPipelineStatistics, "OLO_VK_PIPELINE_STATS",
+                 "Enable VK_KHR_pipeline_executable_properties and log every Vulkan pipeline's per-stage "
+                 "driver statistics (registers, local memory, spills) when it is created — the measurement "
+                 "for a shader whose stack the driver cannot back (#1807). Off by default: capturing "
+                 "statistics can slow pipeline creation.")
 OLO_LEVER_TRISTATE(VulkanParallelRecording, "OLO_VK_PARALLEL_RECORDING",
                    "Record independent work items (shadow cascades, atlas entries) on task workers into secondary "
                    "command buffers (#806). \"0\" runs every RecordParallel region inline on the render thread — "

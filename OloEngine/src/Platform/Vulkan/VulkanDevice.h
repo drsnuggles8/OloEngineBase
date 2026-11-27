@@ -39,6 +39,7 @@
 
 #include <functional>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -363,6 +364,33 @@ namespace OloEngine
         // pending. (#691 — added to diagnose the foliage device
         // loss, kept as a permanent post-mortem instrument.)
         void LogDeviceFaultInfo() const;
+        // Levers::VulkanPipelineStatistics (#1807): pipelines are created with
+        // CAPTURE_STATISTICS, and CapturePipelineStatistics logs each
+        // executable's driver statistics and keeps the latest set per shader
+        // name — on NVIDIA the local-memory (stack) size that a device-lost
+        // scratch write points at. No-op when the lever is off.
+        struct PipelineStatistic
+        {
+            std::string Executable; ///< The driver's executable name, e.g. "FS".
+            std::string Name;       ///< The statistic, e.g. "Local Memory Size".
+            u64 Value = 0;          ///< Integer and boolean statistics only.
+        };
+        [[nodiscard]] bool IsPipelineStatisticsEnabled() const
+        {
+            return m_PipelineStatisticsEnabled;
+        }
+        void CapturePipelineStatistics(VkPipeline pipeline, const std::string& shaderName);
+        [[nodiscard]] std::vector<PipelineStatistic> GetCapturedPipelineStatistics(const std::string& shaderName) const;
+        // VK_NV_shader_sm_builtins' SM count and resident warps per SM, read
+        // only while pipeline statistics are on; 0 when unknown.
+        [[nodiscard]] u32 GetShaderSMCount() const
+        {
+            return m_ShaderSMCount;
+        }
+        [[nodiscard]] u32 GetShaderWarpsPerSM() const
+        {
+            return m_ShaderWarpsPerSM;
+        }
         // The two halves of LogDeviceFaultInfo, each behind its own extension.
         void LogDeviceFaultRecords() const;
         // Resolve one device-fault address to the object that owned it, using the
@@ -424,6 +452,11 @@ namespace OloEngine
         f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
+        bool m_PipelineStatisticsEnabled = false;
+        u32 m_ShaderSMCount = 0;
+        u32 m_ShaderWarpsPerSM = 0;
+        mutable std::mutex m_PipelineStatisticsMutex;
+        std::unordered_map<std::string, std::vector<PipelineStatistic>> m_CapturedPipelineStatistics;
         bool m_MemoryBudgetEnabled = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
