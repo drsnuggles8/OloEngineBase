@@ -112,9 +112,17 @@ namespace OloEngine::MCP::PassTimings
         QueueOverlap out;
         std::vector<std::pair<f64, f64>> graphics;
         std::vector<std::pair<f64, f64>> compute;
+        // The SumTopLevel rule: a sub-pass whose parent is in the list is
+        // inside that bracket and skipped; an orphan sub-pass is published
+        // top-level by BuildPassTimings, so it counts here too.
+        const auto parentPresent = [&gpuPasses](const std::string& parentName)
+        {
+            return std::any_of(gpuPasses.begin(), gpuPasses.end(), [&](const GpuPassEntry& candidate)
+                               { return !candidate.IsSubPass && candidate.Name == parentName; });
+        };
         for (const auto& pass : gpuPasses)
         {
-            if (pass.IsSubPass || !pass.Sample.IsValid())
+            if ((pass.IsSubPass && parentPresent(pass.ParentName)) || !pass.Sample.IsValid())
                 continue;
             const bool hasInterval = pass.HasOffsets && pass.EndMs >= pass.BeginMs;
             if (pass.AsyncBatch >= 0)
@@ -457,6 +465,12 @@ namespace OloEngine::MCP::PassTimings
                                       { "asyncComputeBusyMs", Round3(overlap.AsyncComputeBusyMs) },
                                       { "overlapMs", Round3(overlap.OverlapMs) },
                                       { "asyncComputeIntervals", overlap.AsyncComputeIntervals },
+                                      // Every offset is measured from the graphics queue's
+                                      // frame-begin stamp. An async-compute interval is
+                                      // placed on that axis assuming the device writes all
+                                      // queues' timestamps in one time domain; the engine
+                                      // does not use VK_KHR_calibrated_timestamps to prove it.
+                                      { "timeDomain", "assumesOneDeviceTimeDomain" },
                                       { "batches", std::move(batches) } };
         }
         // Parallel command recorder telemetry (#806). Counters go out as

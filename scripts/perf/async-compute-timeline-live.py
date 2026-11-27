@@ -93,7 +93,11 @@ def main() -> int:
             continue
         passes = [{k: p.get(k) for k in ('pass', 'queue', 'asyncBatch', 'gpuMs', 'beginMs', 'endMs')}
                   for p in t.get('passes', []) if p.get('gpuMs') is not None]
-        samples[key] = {'frameGpuMs': t.get('frame', {}).get('gpuMs'),
+        # asyncCompute comes from the last completed CPU frame, the timings from
+        # the resolved GPU frame 1-3 frames earlier: keep both identities.
+        samples[key] = {'gpuMeasurementFrameId': key,
+                        'currentFrameId': t.get('frame', {}).get('currentFrameId'),
+                        'frameGpuMs': t.get('frame', {}).get('gpuMs'),
                         'frameTimeMs': t.get('frame', {}).get('frameTimeMs'),
                         'asyncCompute': t.get('asyncCompute'), 'queueOverlap': t.get('queueOverlap'),
                         'passGpuTotalMs': t.get('passGpuTotalMs'), 'passes': passes}
@@ -112,7 +116,7 @@ def main() -> int:
                                                    'arguments': {'name': target, 'forceFrame': True, 'maxWidth': 4096}})
                 image = next((c for c in result.get('content', []) if c.get('type') == 'image'), None)
                 if result.get('isError') or image is None:
-                    captures[f'{path}/{target}'] = None
+                    captures[f'{path}/{target}'] = {'error': result.get('content')}
                     continue
                 file = args.capture_dir / f'Async_{args.arm}_{path}_{target}.png'
                 file.write_bytes(base64.b64decode(image['data']))
@@ -144,6 +148,10 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(out, indent=1), encoding='utf-8')
     print(json.dumps(summary, indent=1))
+    failed = [name for name, value in captures.items() if not isinstance(value, str)]
+    if failed:
+        print(f'capture failed: {failed}', file=sys.stderr)
+        return 1
     return 0
 
 

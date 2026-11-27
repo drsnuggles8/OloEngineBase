@@ -492,3 +492,23 @@ TEST(McpPassTimingsTest, QueueOverlapSkipsIntervalsWithoutOffsets)
     EXPECT_FALSE(overlap.Batches[0].HasOffsets);
     EXPECT_NEAR(overlap.Batches[0].PassGpuMs, 0.4, 1e-9);
 }
+
+// An orphan sub-pass (its parent was not timed this frame) is published
+// top-level by BuildPassTimings, so the queue accounting counts it too, by the
+// same rule SumTopLevel applies; a sub-pass whose parent is present does not.
+TEST(McpPassTimingsTest, QueueOverlapCountsOrphanSubPassesButNotNestedOnes)
+{
+    using OloEngine::GPUPassQueue;
+    GpuPassEntry orphan = Timed("Missing/Compute", 1.0, 2.0, GPUPassQueue::AsyncCompute);
+    orphan.IsSubPass = true;
+    orphan.ParentName = "Missing";
+    GpuPassEntry nested = Timed("ScenePass/Color", 0.5, 2.5, GPUPassQueue::Graphics);
+    nested.IsSubPass = true;
+    nested.ParentName = "ScenePass";
+    const std::vector<GpuPassEntry> passes{ Timed("ScenePass", 0.0, 3.0, GPUPassQueue::Graphics), nested, orphan };
+    const auto overlap = OloEngine::MCP::PassTimings::ComputeQueueOverlap(passes);
+    EXPECT_NEAR(overlap.GraphicsBusyMs, 3.0, 1e-9);
+    EXPECT_NEAR(overlap.AsyncComputeBusyMs, 1.0, 1e-9);
+    EXPECT_NEAR(overlap.OverlapMs, 1.0, 1e-9);
+    EXPECT_EQ(BuildPassTimings(passes, {}, MakeTotals())["queueOverlap"]["timeDomain"], "assumesOneDeviceTimeDomain");
+}

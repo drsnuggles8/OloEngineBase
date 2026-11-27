@@ -251,6 +251,8 @@ def main() -> int:
     unknown = [a for a in args.arms if a not in ARMS]
     if unknown:
         parser.error(f'unknown arms {unknown}; define them with --arm-def')
+    if args.capture and 'off' not in args.arms:
+        parser.error("--capture compares every arm with 'off'; include the off arm")
 
     editor = Editor(args.port)
     editor.tool('olo_viewport_set_size', width=1920, height=1080)
@@ -282,18 +284,20 @@ def main() -> int:
                             print(f"{scene_name:<10} {arm:<7} wall {cell['blocks'][-1]['summary']['recordingWallMs']:.3f} ms",
                                   flush=True)
                 if args.capture:
+                    # Every arm is compared with 'off' (the inline reference),
+                    # captured first whatever the timing order was.
                     reference = {}
-                    for arm in args.arms:
+                    for arm in ['off'] + [a for a in args.arms if a != 'off']:
                         editor.arm(arm)
                         editor.warm(args.warm_frames)
                         for target in args.capture:
                             image = editor.capture(target)
-                            if arm == args.arms[0]:
+                            if arm == 'off':
                                 reference[target] = image
                             cell['captures'].setdefault(target, {})[arm] = compare_images(reference.get(target), image)
                             # Same-arm repeat: the scene's own frame-to-frame noise floor.
-                            if arm == args.arms[0]:
-                                cell['captures'][target]['repeat:' + arm] = compare_images(image, editor.capture(target))
+                            if arm == 'off':
+                                cell['captures'][target]['repeat:off'] = compare_images(image, editor.capture(target))
             cell['foreignProcesses'] = list(watch.seen.values())
             arms_summary = {}
             for arm in args.arms:

@@ -13,9 +13,13 @@ offsets from the frame-begin timestamp. `olo_perf_pass_timings` publishes them p
 (`queue`, `asyncBatch`, `beginMs`, `endMs`) and a `queueOverlap` block: union busy time per queue,
 the time both queues had a bracket open (`overlapMs`, an upper bound on concurrency) and each
 batch's interval and summed pass time. The frame-begin stamp is on the graphics queue, so a
-compute-queue offset compares timestamps across queues; Vulkan defines that only within one time
-domain. On this device the offsets are consistent with the submission order (every compute
-interval sits between the graphics segment it waits on and the continuation that waits on it).
+compute-queue offset compares timestamps across queues, which assumes the device writes every
+queue's timestamps in one time domain. The engine does not establish that through
+`VK_KHR_calibrated_timestamps`, and `queueOverlap.timeDomain` says so
+(`assumesOneDeviceTimeDomain`). On this device the offsets are consistent with the submission
+order (every compute interval sits between the graphics segment it waits on and the continuation
+that waits on it), and the no-go does not rest on them alone: the frame GPU time rises by the
+batches' idle time and the submission code orders the queues by construction.
 
 ## Method
 
