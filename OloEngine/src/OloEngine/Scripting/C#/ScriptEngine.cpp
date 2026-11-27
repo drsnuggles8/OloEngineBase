@@ -571,11 +571,20 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
 
         UUID entityID = entity.GetUUID();
+        if (!s_Data)
+        {
+            // No engine: field values still round-trip through the scene
+            // (serialisation, undo) as the engine-less build's stub keeps them.
+            static std::unordered_map<UUID, ScriptFieldMap> s_FieldsWithoutEngine;
+            return s_FieldsWithoutEngine[entityID];
+        }
         return s_Data->EntityScriptFields[entityID];
     }
 
     std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
     {
+        if (!s_Data)
+            return {};
         return s_Data->EntityClasses;
     }
 
@@ -652,17 +661,21 @@ namespace OloEngine
 
     MonoImage* ScriptEngine::GetCoreAssemblyImage()
     {
-        return s_Data->CoreAssemblyImage;
+        return s_Data ? s_Data->CoreAssemblyImage : nullptr;
     }
 
     MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
     {
+        if (!s_Data)
+            return nullptr;
         OLO_CORE_ASSERT(s_Data->EntityInstances.contains(uuid));
         return s_Data->EntityInstances.at(uuid)->GetManagedObject();
     }
 
     MonoString* ScriptEngine::CreateString(const char* string)
     {
+        if (!s_Data || !s_Data->AppDomain)
+            return nullptr;
         return ::mono_string_new(s_Data->AppDomain, string);
     }
 
