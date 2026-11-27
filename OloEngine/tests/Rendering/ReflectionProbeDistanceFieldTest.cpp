@@ -22,6 +22,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -37,6 +38,32 @@ namespace OloEngine
 {
     namespace
     {
+        // The value of `#define <name> <token>` in GLSL source. The whole token
+        // must be one number: a prefix match would read "0.002e1" as 0.002.
+        f32 ParseGlslDefine(const std::string& src, std::string_view name)
+        {
+            std::regex const re(std::string{ "#define\\s+" } + std::string{ name } + R"(\s+(\S+))");
+            std::smatch m;
+            EXPECT_TRUE(std::regex_search(src, m, re)) << "missing #define " << name;
+            if (m.empty())
+            {
+                return -1.0f;
+            }
+            std::string const token = m[1].str();
+            sizet used = 0;
+            f32 value = -1.0f;
+            try
+            {
+                value = std::stof(token, &used);
+            }
+            catch (const std::exception&)
+            {
+                used = 0;
+            }
+            EXPECT_EQ(used, token.size()) << "#define " << name << " is not a plain number: " << token;
+            return value;
+        }
+
         // Analytic sphere room of radius R centred on the probe.
         struct SphereRoom
         {
@@ -348,27 +375,31 @@ namespace OloEngine
 
         auto const defineValue = [&src](std::string_view name) -> f32
         {
-            std::regex const re(std::string{ "#define\\s+" } + std::string{ name } + R"(\s+([0-9.]+))");
-            std::smatch m;
-            EXPECT_TRUE(std::regex_search(src, m, re)) << "missing #define " << name;
-            return m.empty() ? -1.0f : std::stof(m[1].str());
+            return ParseGlslDefine(src, name);
+        };
+        // A loop count must be a whole number, not just truncate to one.
+        auto const defineCount = [&defineValue](std::string_view name) -> u32
+        {
+            f32 const v = defineValue(name);
+            EXPECT_EQ(v, std::floor(v)) << name << " is not integral: " << v;
+            return static_cast<u32>(v);
         };
 
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_MARCH_ITERATIONS")), kProbeMarchIterations);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_MARCH_TAPS")), kProbeMarchTaps);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_REFINE_STEPS")), kProbeRefineSteps);
+        EXPECT_EQ(defineCount("OLO_PROBE_MARCH_ITERATIONS"), kProbeMarchIterations);
+        EXPECT_EQ(defineCount("OLO_PROBE_MARCH_TAPS"), kProbeMarchTaps);
+        EXPECT_EQ(defineCount("OLO_PROBE_REFINE_STEPS"), kProbeRefineSteps);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INSIDE_BIAS_ABS"), kProbeInsideBiasAbs);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INSIDE_BIAS_REL"), kProbeInsideBiasRel);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_MARCH_SLACK_REL"), kProbeMarchSlackRel);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_MARCH_SLACK_ABS"), kProbeMarchSlackAbs);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_REJECT_REL_MARGIN"), kProbeRejectRelMargin);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_REJECT_ABS_MARGIN"), kProbeRejectAbsMargin);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_REJECT_MIP")), kProbeRejectMip);
+        EXPECT_EQ(defineCount("OLO_PROBE_REJECT_MIP"), kProbeRejectMip);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_MISS_THRESHOLD"), kProbeDistanceMissThreshold);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_GAP_REFINE_STEPS")), kProbeGapRefineSteps);
+        EXPECT_EQ(defineCount("OLO_PROBE_GAP_REFINE_STEPS"), kProbeGapRefineSteps);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MARGIN"), kProbeInpaintMarginRadians);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_RING_COUNT")), kProbeInpaintRingCount);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_AZIMUTHS")), kProbeInpaintAzimuths);
+        EXPECT_EQ(defineCount("OLO_PROBE_INPAINT_RING_COUNT"), kProbeInpaintRingCount);
+        EXPECT_EQ(defineCount("OLO_PROBE_INPAINT_AZIMUTHS"), kProbeInpaintAzimuths);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_FIRST_RING"), kProbeInpaintFirstRing);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MATCH_ABS"), kProbeInpaintMatchAbs);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MATCH_REL"), kProbeInpaintMatchRel);
@@ -382,10 +413,7 @@ namespace OloEngine
         std::string const bakeSrc = bakeBuf.str();
         auto const bakeDefine = [&bakeSrc](std::string_view name) -> f32
         {
-            std::regex const re(std::string{ "#define\\s+" } + std::string{ name } + R"(\s+([0-9.]+))");
-            std::smatch m;
-            EXPECT_TRUE(std::regex_search(bakeSrc, m, re)) << "missing #define " << name;
-            return m.empty() ? -1.0f : std::stof(m[1].str());
+            return ParseGlslDefine(bakeSrc, name);
         };
         EXPECT_FLOAT_EQ(bakeDefine("OLO_PROBE_PEEL_EPSILON_ABS"), kProbePeelEpsilonAbs);
         EXPECT_FLOAT_EQ(bakeDefine("OLO_PROBE_PEEL_EPSILON_REL"), kProbePeelEpsilonRel);
@@ -537,6 +565,71 @@ namespace OloEngine
         EXPECT_FALSE(result.Occluded);
     }
 
+    TEST(ReflectionProbeRaymarch, AFreeOriginBracketsAWallTheFirstTapAlreadyCrossed)
+    {
+        // A wall at 5 m with nothing behind it, and a shading point 0.28 m in
+        // front of it. The first coarse tap (step ~0.36 m) already lies past
+        // the wall: bracketing from the first tap found no free sample and
+        // missed the wall the point faces. The origin itself is free.
+        auto const wall = [](const glm::vec3&) -> ProbeDistanceLayers
+        {
+            return { 5.0f, 6.0f, 6.0f };
+        };
+        glm::vec3 const p0(4.72f, 0.0f, 0.0f);
+        glm::vec3 const dir(1.0f, 0.0f, 0.0f);
+
+        auto const result = RaymarchProbeDistanceField(p0, dir, 6.0f, wall);
+        ASSERT_TRUE(result.Hit) << "the wall in front of the shading point was skipped";
+        EXPECT_FALSE(result.Occluded);
+        // The crossing carries the inside bias: r = 5 + 0.01 r.
+        EXPECT_NEAR(result.HitT, (5.0f / 0.99f) - 4.72f, 0.02f);
+    }
+
+    TEST(ReflectionProbeRaymarch, AnOccludersFarSideAcrossAThinGapIsNotTheHiddenWall)
+    {
+        // An occluder (5 .. 10.5 m) with a wall 0.1 m behind it, thinner than
+        // twice the inside bias. A ray from the gap back into the occluder
+        // crosses the biased d1 boundary at ~10.61 m, past the gap's
+        // midpoint 10.55 m: comparing the biased radius called it the hidden
+        // wall, found no ring match on the occluder and missed.
+        auto const occluder = [](const glm::vec3&) -> ProbeDistanceLayers
+        {
+            return { 5.0f, 10.5f, 10.6f };
+        };
+        glm::vec3 const p0(10.65f, 0.0f, 0.0f);
+        ASSERT_EQ(ClassifyProbeRayPoint(glm::length(p0), occluder(glm::vec3(1.0f, 0.0f, 0.0f))), ProbeRayPointKind::Gap);
+        glm::vec3 const dir(-1.0f, 0.0f, 0.0f);
+
+        auto const result = RaymarchProbeDistanceField(p0, dir, 10.6f, occluder);
+        ASSERT_TRUE(result.Hit);
+        EXPECT_FALSE(result.Occluded) << "the occluder's far side was read as the wall behind it";
+        EXPECT_NEAR(result.HitT, 10.65f - (10.5f / 0.99f), 0.02f);
+        EXPECT_GT(glm::dot(result.RadianceDirection, result.HitDirection), 0.9999f);
+    }
+
+    TEST(ReflectionProbeRaymarch, AHiddenHitNeverBorrowsTheSky)
+    {
+        // A narrow occluder cone around +X with a far wall 990 m behind it, and
+        // sky everywhere else. A ray from the gap runs out into the hidden
+        // wall at ~1000 m, where the ring search's tolerance spans ~60 m: the
+        // sky's 1000 m sentinel matched and the hit took the baked sky. The
+        // ray never saw the probe's side of the occluder, so it is a miss and
+        // the caller shades the live sky.
+        auto const cone = [](const glm::vec3& u) -> ProbeDistanceLayers
+        {
+            if (u.x > 0.999f)
+            {
+                return { 3.0f, 3.6f, 990.0f };
+            }
+            return { kProbeDistanceFar, kProbeDistanceFar, kProbeDistanceFar };
+        };
+        glm::vec3 const p0(500.0f, 0.0f, 0.0f);
+        ASSERT_EQ(ClassifyProbeRayPoint(500.0f, cone(glm::vec3(1.0f, 0.0f, 0.0f))), ProbeRayPointKind::Gap);
+
+        auto const result = RaymarchProbeDistanceField(p0, glm::vec3(1.0f, 0.0f, 0.0f), 990.0f, cone);
+        EXPECT_FALSE(result.Hit) << "the hidden hit took radiance from a sky texel";
+    }
+
     TEST(ReflectionProbeDistanceFieldTest, NormalizeLayersCollapsesNothingBehindToNoGap)
     {
         // Sky: every layer at the sentinel, no gap.
@@ -569,6 +662,27 @@ namespace OloEngine
         EXPECT_FLOAT_EQ(unordered.Behind, 9.0f);
     }
 
+    TEST(ReflectionProbeDistanceFieldTest, AFarSurfaceStaysBelowTheSentinelAfterTheHalfFloatUpload)
+    {
+        // The GPU array is RGBA16F; half spacing is 0.5 m between 512 and 1024.
+        auto const throughHalf = [](f32 v)
+        {
+            return glm::unpackHalf1x16(glm::packHalf1x16(v));
+        };
+        // The premise: an unclamped 998.9 m surface rounds up to the sentinel.
+        ASSERT_GE(throughHalf(998.9f), kProbeDistanceMissThreshold);
+
+        ProbeDistanceLayers const far = NormalizeProbeDistanceLayers(998.9f, 998.95f, 998.99f);
+        EXPECT_LT(throughHalf(far.Front), kProbeDistanceMissThreshold);
+        EXPECT_LT(throughHalf(far.Back), kProbeDistanceMissThreshold);
+        EXPECT_LT(throughHalf(far.Behind), kProbeDistanceMissThreshold);
+        EXPECT_LE(far.Front, far.Back);
+        // The clear value is still the sentinel after the upload.
+        ProbeDistanceLayers const sky = NormalizeProbeDistanceLayers(kProbeDistanceFar, kProbeDistanceFar, kProbeDistanceFar);
+        EXPECT_GE(throughHalf(sky.Front), kProbeDistanceMissThreshold);
+        EXPECT_GE(throughHalf(NormalizeProbeDistanceLayers(999.2f, 999.2f, 999.2f).Front), kProbeDistanceMissThreshold);
+    }
+
     TEST(ReflectionProbeDistanceFieldTest, LayeredFieldKeepsEveryLayerThroughTheMaxChain)
     {
         constexpr u32 kRes = 4;
@@ -577,17 +691,22 @@ namespace OloEngine
         for (sizet i = 0; i < kTexels; ++i)
         {
             mip0[(i * kProbeDistanceChannels) + 0u] = 2.0f + static_cast<f32>(i % 3u);
-            mip0[(i * kProbeDistanceChannels) + 1u] = 3.0f;
+            mip0[(i * kProbeDistanceChannels) + 1u] = 5.0f;
             mip0[(i * kProbeDistanceChannels) + 2u] = 20.0f; // a hidden wall beyond every d0
         }
+        // One texel of the sampled face (-Z, face 5), NOT its first, holds the
+        // face's largest d2: a reducer that copied the first texel instead of
+        // taking the maximum would lose it.
+        constexpr sizet kFarTexel = (5u * kRes * kRes) + (3u * kRes) + 2u;
+        mip0[(kFarTexel * kProbeDistanceChannels) + 2u] = 25.0f;
         auto field = ReflectionProbeDistanceField::CreateLayered(std::move(mip0), kRes);
         ASSERT_NE(field, nullptr);
         EXPECT_EQ(field->GetMipCount(), 3u); // 4, 2, 1
-        EXPECT_FLOAT_EQ(field->GetMaxFiniteDistance(), 20.0f) << "dMax must cover the d2 surfaces a march can hit";
+        EXPECT_FLOAT_EQ(field->GetMaxFiniteDistance(), 25.0f) << "dMax must cover the d2 surfaces a march can hit";
         ProbeDistanceLayers const top = field->SampleLayersNearest({ 0.0f, 0.0f, -1.0f }, 2);
         EXPECT_FLOAT_EQ(top.Front, 4.0f);
-        EXPECT_FLOAT_EQ(top.Back, 3.0f);
-        EXPECT_FLOAT_EQ(top.Behind, 20.0f);
+        EXPECT_FLOAT_EQ(top.Back, 5.0f);
+        EXPECT_FLOAT_EQ(top.Behind, 25.0f) << "the max chain must carry the face's largest d2 to the top mip";
         EXPECT_EQ(field->GetMip(1).size(), static_cast<sizet>(2u * 2u * 6u * kProbeDistanceChannels));
 
         // The single-distance constructor has no gap anywhere.

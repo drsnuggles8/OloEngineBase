@@ -157,22 +157,28 @@ bool oloProbeRaymarch(vec3 originProbeSpace, vec3 dir, float dMax, float layer, 
     float tMax = (dMax + length(originProbeSpace)) * OLO_PROBE_MARCH_SLACK_REL + OLO_PROBE_MARCH_SLACK_ABS;
     float stepT = tMax / float(OLO_PROBE_MARCH_ITERATIONS * OLO_PROBE_MARCH_TAPS);
 
-    // A solid sample only brackets a crossing after the march has SEEN a
-    // free one. A shading point the probe cannot see, and no gap explains,
-    // starts inside an occluder's radial cone, and accepting the first solid
-    // sample there reports a bogus hit ON the occluder's shell — leading
-    // solid samples are skipped instead (mirrors the CPU reference).
+    // The origin is classified first, and a free origin seeds the bracket
+    // whatever the first coarse tap is. An origin that reads Solid counts as
+    // free only if the first tap is: a shading point the probe cannot see,
+    // and no gap explains, starts inside an occluder's radial cone, and
+    // accepting the first solid sample there reports a bogus hit ON the
+    // occluder's shell — leading solid samples are skipped instead (mirrors
+    // the CPU reference).
     float tFree = -1.0;
     int freeKind = OLO_PROBE_KIND_FRONT;
     float tVisible = -1.0;
     float tSolid = -1.0;
     {
-        int first = oloProbeClassify(originProbeSpace, dir, stepT, layer);
-        if (first != OLO_PROBE_KIND_SOLID)
+        int origin = oloProbeClassify(originProbeSpace, dir, 0.0, layer);
+        if (origin == OLO_PROBE_KIND_SOLID)
         {
-            tFree = 0.0; // the t = 0 on-surface contract holds
-            freeKind = first;
-            if (first == OLO_PROBE_KIND_FRONT)
+            origin = oloProbeClassify(originProbeSpace, dir, stepT, layer);
+        }
+        if (origin != OLO_PROBE_KIND_SOLID)
+        {
+            tFree = 0.0;
+            freeKind = origin;
+            if (origin == OLO_PROBE_KIND_FRONT)
             {
                 tVisible = 0.0;
             }
@@ -269,7 +275,9 @@ bool oloProbeRaymarch(vec3 originProbeSpace, vec3 dir, float dMax, float layer, 
 
     // Past the middle of a gap the hit is on the d2 surface, hidden from the
     // probe; otherwise it is on the d0 shell (or the occluder's far side).
-    bool occluded = layers.z > layers.y && hitRadius > 0.5 * (layers.y + layers.z);
+    // The crossing sits a bias past its layer, so the bias comes off first.
+    float hitSurfaceRadius = hitRadius - max(OLO_PROBE_INSIDE_BIAS_ABS, hitRadius * OLO_PROBE_INSIDE_BIAS_REL);
+    bool occluded = layers.z > layers.y && hitSurfaceRadius > 0.5 * (layers.y + layers.z);
 
     // A crossing whose stored distance is the miss sentinel is the ray
     // leaving through SKY, not a surface hit — report a miss so the caller
@@ -299,7 +307,8 @@ bool oloProbeRaymarch(vec3 originProbeSpace, vec3 dir, float dMax, float layer, 
             {
                 float phi = float(k) * (6.28318530718 / float(OLO_PROBE_INPAINT_AZIMUTHS));
                 vec3 candidate = hitDirection * cos(angle) + (tangent * cos(phi) + bitangent * sin(phi)) * sin(angle);
-                if (abs(oloProbeLayers(candidate, layer).x - hitRadius) <= tolerance)
+                float candidateFront = oloProbeLayers(candidate, layer).x; // never a sky texel
+                if (candidateFront < OLO_PROBE_MISS_THRESHOLD && abs(candidateFront - hitRadius) <= tolerance)
                 {
                     radianceDirection = candidate;
                     inpainted = true;

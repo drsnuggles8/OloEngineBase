@@ -46,10 +46,13 @@
 //  - MIP CHAIN: strict 2x2 MAX-downsample per level and per layer
 //    (BuildNextMaxMip), never a box average and never
 //    glGenerateTextureMipmap. The only mip consumer is the cheap visibility
-//    reject, which reads d0 and needs an UPPER bound of distance over the
-//    footprint: "probe sees point iff |x-o| <= dist + margin" with a
-//    max-filtered dist can only over-admit (wasted march), never
-//    over-reject (missing reflection). The raymarch itself samples mip 0.
+//    reject, which reads d2 (the visibility-reject channel) and needs an
+//    UPPER bound of distance over the footprint: "probe sees point iff
+//    |x-o| <= dist + margin" with a max-filtered dist can only over-admit
+//    (wasted march), never over-reject (missing reflection). It reads d2, not
+//    d0, because a receiver in an occluder's gap is past d0 and in front of
+//    d2, and its reflection is exactly what the layers exist for; d2 >= d0
+//    everywhere, so the bound still holds. The raymarch itself samples mip 0.
 //  - MaxFiniteDistance (dMax) = max over mip-0 d0 and d2 values strictly
 //    below the miss threshold (far plane when every texel is sky). Any
 //    surface crossing of a ray starting at probe-space p0 satisfies
@@ -97,6 +100,12 @@ namespace OloEngine
 
     // Stored distances at or beyond this are "no surface" (sky).
     inline constexpr f32 kProbeDistanceMissThreshold = 0.999f * kProbeDistanceFar;
+
+    // The farthest a SURFACE is stored: the largest RGBA16F value below the
+    // miss threshold (half spacing is 0.5 between 512 and 1024). The bake
+    // clamps finite distances to it so none rounds up to the sentinel on upload.
+    inline constexpr f32 kProbeDistanceMaxSurface = 998.5f;
+    static_assert(kProbeDistanceMaxSurface < kProbeDistanceMissThreshold);
 
     // Two peeled layers count as one surface within this distance: the bake
     // discards a fragment closer than it to the previous layer.
@@ -367,24 +376,35 @@ namespace OloEngine
             return result;
         }
 
-        // t = 0 counts as free by contract (the shading point lies on the
-        // captured surface; the inside bias absorbs the quantisation) — but
-        // only until the samples say otherwise. A shading point the probe
-        // cannot SEE, and that no gap explains, starts inside an occluder's
-        // radial cone where |p| is already past the stored distance:
-        // accepting the first solid sample there reports a bogus hit ON the
-        // occluder's shell. So a solid sample only brackets a crossing after
-        // the march has actually SEEN a free sample.
+        // The ray origin is classified first: a shading point in front of d0
+        // or in a gap is free, whatever the first coarse tap is. Seeding the
+        // bracket from the first tap instead lost a wall the first tap had
+        // already crossed, and hid a thin occluder between t = 0 and a first
+        // tap in the gap.
+        //
+        // An origin that reads Solid still counts as free (the shading point
+        // lies on the captured surface; the inside bias absorbs the
+        // quantisation) — but only until the samples say otherwise. A shading
+        // point the probe cannot SEE, and that no gap explains, starts inside
+        // an occluder's radial cone where |p| is already past the stored
+        // distance: accepting the first solid sample there reports a bogus hit
+        // ON the occluder's shell. So from a Solid origin, a solid sample only
+        // brackets a crossing after the march has actually SEEN a free sample.
         f32 const step = tMax / static_cast<f32>(kProbeMarchSteps);
         f32 tFree = -1.0f;
         ProbeRayPointKind freeKind = ProbeRayPointKind::Front;
         f32 tVisible = -1.0f; // last t known to lie in front of d0
         f32 tSolid = -1.0f;
-        if (ProbeRayPointKind const first = classifyAt(step); first != ProbeRayPointKind::Solid)
+        ProbeRayPointKind origin = classifyAt(0.0f);
+        if (origin == ProbeRayPointKind::Solid)
         {
-            tFree = 0.0f; // the t = 0 contract holds — normal bracketing
-            freeKind = first;
-            if (first == ProbeRayPointKind::Front)
+            origin = classifyAt(step);
+        }
+        if (origin != ProbeRayPointKind::Solid)
+        {
+            tFree = 0.0f;
+            freeKind = origin;
+            if (origin == ProbeRayPointKind::Front)
             {
                 tVisible = 0.0f;
             }
@@ -478,8 +498,12 @@ namespace OloEngine
 
         // A hit past the middle of a gap is on the d2 surface, hidden from
         // the probe; otherwise it is on the d0 shell (or on the occluder's far
-        // side entered from the gap, which shades like its near side).
-        bool const occluded = layers.Behind > layers.Back && hitRadius > 0.5f * (layers.Back + layers.Behind);
+        // side entered from the gap, which shades like its near side). Every
+        // crossing sits a bias PAST its layer (ClassifyProbeRayPoint), so the
+        // bias comes off before the comparison: in a gap thinner than twice
+        // the bias, the biased d1 crossing already lies past the midpoint.
+        f32 const hitSurfaceRadius = hitRadius - glm::max(kProbeInsideBiasAbs, hitRadius * kProbeInsideBiasRel);
+        bool const occluded = layers.Behind > layers.Back && hitSurfaceRadius > 0.5f * (layers.Back + layers.Behind);
         f32 const surface = occluded ? layers.Behind : layers.Front;
 
         // A crossing whose stored distance is the miss sentinel is the ray
@@ -510,7 +534,10 @@ namespace OloEngine
                     f32 const phi = static_cast<f32>(k) * (6.28318530718f / static_cast<f32>(kProbeInpaintAzimuths));
                     glm::vec3 const candidate = (hitDirection * glm::cos(angle)) +
                                                 (((tangent * glm::cos(phi)) + (bitangent * glm::sin(phi))) * glm::sin(angle));
-                    if (glm::abs(layersAlong(candidate).Front - hitRadius) <= tolerance)
+                    // Never a sky texel: at a far hit the tolerance spans
+                    // tens of metres and would take the baked sky.
+                    f32 const candidateFront = layersAlong(candidate).Front;
+                    if (candidateFront < kProbeDistanceMissThreshold && glm::abs(candidateFront - hitRadius) <= tolerance)
                     {
                         radianceDirection = candidate;
                         inpainted = true;

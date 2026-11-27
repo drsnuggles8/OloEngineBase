@@ -178,13 +178,16 @@ the stretch survived the layers until the reads were nearest. A per-bind
 (`RendererAPI::BindTexture`). Snapping each read to its texel centre in GLSL
 works too, but doubled the probe's GL Forward cost.
 
-**A hit on a hidden `d2` surface takes radiance from the same surface, not
-from the occluder.** The probe's radiance in that direction is the
-occluder's, and the last visible point on the ray is usually a different
-surface (the corridor's mirror floor, which reflects the pillar). The march
-searches rings of directions around the hit for one whose front distance
-matches the hit's (`kProbeInpaintRingCount` and friends), and falls back to
-the visible point stepped off the silhouette.
+**A hit on a hidden `d2` surface borrows radiance from a nearby direction at
+the same distance, never from the occluder.** The probe's radiance in that
+direction is the occluder's, and the last visible point on the ray is usually
+a different surface (the corridor's mirror floor, which reflects the pillar).
+The march searches rings of directions around the hit and takes the first
+whose front distance is within tolerance of the hit's
+(`kProbeInpaintRingCount` and friends); with none, it falls back to the
+visible point stepped off the silhouette. Both are approximations: a
+different surface at a similar distance passes the match, and the fallback
+is the last visible side of the ray. Sky texels never match.
 
 **`ReflectionProbeArray` keys uploaded layers by `EnvironmentMap`.** Calling
 `SetProbeDistanceField` on a map already resident uploads nothing, and an

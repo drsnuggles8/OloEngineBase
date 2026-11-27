@@ -155,8 +155,15 @@ namespace OloEngine
         auto const clampDistance = [](f32 d)
         {
             // Geometry closer than the near plane was clipped anyway;
-            // non-finite values must never reach the field.
-            return std::isfinite(d) ? std::clamp(d, kProbeDistanceNear, kProbeDistanceFar) : kProbeDistanceFar;
+            // non-finite values must never reach the field. A surface stays a
+            // surface after the RGBA16F upload: a finite distance just under
+            // the miss threshold rounds UP to it in half precision (998.9 ->
+            // 999.0), so it is held at the largest half below the threshold.
+            if (!std::isfinite(d) || d >= kProbeDistanceMissThreshold)
+            {
+                return kProbeDistanceFar;
+            }
+            return std::clamp(d, kProbeDistanceNear, kProbeDistanceMaxSurface);
         };
         ProbeDistanceLayers layers;
         layers.Front = clampDistance(front);

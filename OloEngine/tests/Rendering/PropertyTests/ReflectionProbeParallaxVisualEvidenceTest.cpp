@@ -941,15 +941,22 @@ namespace OloEngine::Tests
         // array; their difference is the gap searches the layers trigger.
         {
             auto& pool = GPUPassTimerPool::GetInstance();
+            // Only frames rendered in the arm's own state, each once: the pool
+            // publishes the newest frame whose queries resolved, which can be a
+            // frame rendered before the arm switched the probe or its field.
             const auto medianFrameMs = [&](u32 frames)
             {
+                u64 lastFrame = pool.GetCurrentFrameNumber();
                 std::vector<f64> samples;
-                for (u32 i = 0; i < frames; ++i)
+                for (u32 i = 0; i < frames * 2u && samples.size() < frames; ++i)
                 {
                     RunEditorFrames(camera, 1u);
                     const auto timings = pool.GetLastFrameTimings();
-                    if (timings.Frame.IsValid())
+                    if (timings.Frame.IsValid() && timings.FrameNumber > lastFrame)
+                    {
+                        lastFrame = timings.FrameNumber;
                         samples.push_back(timings.Frame.GpuMs);
+                    }
                 }
                 if (samples.empty())
                     return std::nan("");
