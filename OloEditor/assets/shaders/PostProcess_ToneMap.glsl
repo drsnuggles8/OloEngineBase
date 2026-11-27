@@ -42,6 +42,8 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #include "include/SkyDepth.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). The BODY below is
@@ -344,7 +346,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     // Reconstruct the world position of the opaque geometry (or far plane) at
     // this pixel; the segment between the camera and it that lies underwater is
     // what absorbs light.
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldH = u_UnderwaterInvViewProj * ndc;
     vec3 worldPos = worldH.xyz / worldH.w;
 
@@ -362,7 +364,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     float wDepth = min(min(wTaps.x, wTaps.y), min(wTaps.z, wTaps.w));
     if (!oloDepthIsSky(wDepth))
     {
-        vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
+        vec4 sNdc = vec4(oloFrameUV(uv) * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
         vec3 surface = sH.xyz / sH.w;
         gradient = underwaterPixelSurfaceGradient(surface);
