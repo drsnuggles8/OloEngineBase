@@ -3092,20 +3092,55 @@ namespace OloEngine::Tests
             }
         }
 
+        // LOOK AT IT (rule 1 of the visual criteria): the hand-over from each
+        // coat's open side, cards and strands, enlarged, under the sky alone.
+        const auto captureCell = [&](SubjectRig& s, const char* path)
+        {
+            const Stop& stop = stops[2];
+            const glm::vec3 away =
+                glm::normalize(glm::vec3(&s == &m_ShortCoat ? -directions[0].Away.x : directions[0].Away.x,
+                                         directions[0].Away.y, directions[0].Away.z));
+            const glm::vec3 target = s.Position + glm::vec3(0.0f, 1.15f, 0.0f);
+            const View view{ target + away * stop.Distance, target, 40.0f };
+            const u32 half = std::max(24u, static_cast<u32>(220.0f * 5.0f / stop.Distance));
+            const u32 scale = std::min(std::max(2u, 360u / half), 8u);
+            auto& lod = s.Coat.GetComponent<GroomLodComponent>();
+            for (const bool ladder : { true, false })
+            {
+                lod.m_Enabled = ladder;
+                ColdHistory();
+                std::vector<u8> frame;
+                Capture("", view, frame);
+                WriteEnlargedCrop(std::string(ladder ? "GroomAnimalsSky" : "GroomAnimalsSkyOff") + "_GL_" + path +
+                                      "_" + s.Tag + "_" + stop.Name + "_Crop",
+                                  frame, kWidth / 2u - half, kHeight / 2u - half * 9u / 16u, half * 2u, half * 9u / 8u,
+                                  scale);
+            }
+            lod.m_Enabled = true;
+        };
+        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        {
+            captureCell(*s, "Forward");
+            ASSERT_FALSE(HasFatalFailure());
+        }
+
         // THE OTHER TWO PATHS: the ambient is shaded in the strand pass on
         // every path, so the card cell from each coat's open side is held on
         // Deferred and Forward+ too (the volumes stay converged).
         for (const RenderingPath path : { RenderingPath::Deferred, RenderingPath::ForwardPlus })
         {
-            SCOPED_TRACE(path == RenderingPath::Deferred ? "Deferred" : "ForwardPlus");
+            const char* pathName = path == RenderingPath::Deferred ? "Deferred" : "ForwardPlus";
+            SCOPED_TRACE(pathName);
             SetPath(path);
-            std::printf("[groom-animals] sky shadow path %s\n", path == RenderingPath::Deferred ? "Deferred" : "ForwardPlus");
+            std::printf("[groom-animals] sky shadow path %s\n", pathName);
             for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
             {
                 SCOPED_TRACE(s->Name);
                 const Cell c = measureCell(*s, stops[2], directions[0]);
                 ASSERT_FALSE(HasFatalFailure());
                 hold(*s, c, false);
+                ASSERT_FALSE(HasFatalFailure());
+                captureCell(*s, pathName);
                 ASSERT_FALSE(HasFatalFailure());
             }
         }
