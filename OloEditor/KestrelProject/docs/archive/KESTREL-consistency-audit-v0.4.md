@@ -1,0 +1,90 @@
+# KESTREL — cross-workshop consistency audit v0.4
+
+Initial audit date: 2026-11-26. Updated: 2026-11-27. Original source: [design register v0.12](KESTREL-design-register-v0.12.md). This is a first-pass design audit, not an approved design revision, exhaustive implementation review or milestone change. Recommendations remain proposals. Priorities describe when a contract needs to be settled, not GitHub issue scores.
+
+## A. Resolve before dependent core implementations harden
+
+| ID | Decision references | Tension or open contract | Proposed resolution / validation |
+|---|---|---|---|
+| AUD-01 | C-07, T-05, E-01, V-15 | Instant construction, configurable refunds and live revenue can enable money duplication or invalid state rollback. | Separate editing/uncommitted plans, recent refundable commands and demolition/salvage. Confirm a refund eligibility rule tied to irreversible gameplay effects, rather than a render frame or wall-clock timer. Test build-operate-refund, redo, ownership transfer, save/reload and price changes. Exact refund percentages remain owner-configurable. |
+| AUD-02 | T-01–T-04, G-17, E-09, W-04 | One-hour years, believable skiing days, off-season advancement and speed invariance are competing pacing demands. | Canonical simulated time, explicit event timestamps, named random streams, fixed/scheduled updates; visual interpolation independent. Advance to events by processing equivalent authoritative events. Test timing configurations in labs and preserve off-season cash, snow, debt, maintenance and research. A true approximation must be a separately selected simulation mode, not a speed button side effect. |
+| AUD-03 | G-12, G-16–G-17, U-15, U-17 | Individual guest state, realistic motion and 5,000 guests must fit target hardware without camera-dependent economics. Earlier #1747 camera-distance simulation proposal conflicts with strict camera invariance. | Authoritative guest/queue/risk decisions independent of rendering LOD; batch compact state and use different fixed update cadences by gameplay need, not camera position. Camera controls visual detail only. Benchmark before aggregating active guests. Compare identical action streams across camera paths, presets, speeds and save/reloads. |
+| AUD-04 | C-02, C-09, G-05–G-08, G-14, W-10 | Geometry, named pistes, segment difficulty, temporary closures and return paths need compatible semantics. Misleading ratings can cause guest harm; incentives must not reward this. | Separate editable geometry/corridor, canonical directed segment graph and named run/advertised rating. Respect legal access, current conditions and group skill. Define safety closure and warnings; distinguish perceived from actual difficulty. Staff transport is available independent of payment; decide fees and accountability separately. Test branches, grade-separated crossings and last-lift timing. |
+| AUD-05 | W-03–W-08, G-17, U-15 | Deep snow simulation over 100 km², skier wear and visible snow must coexist with memory/time budgets. | Maintain mass/depth/surface state at gameplay-appropriate spatial resolution, refine around infrastructure as a deterministic world property. Render detailed tracks and surface features from state; do not let visibility determine wear or snowmaking. Validate against climate/snow observations with documented uncertainty, and benchmark storage/update costs. |
+| AUD-06 | E-02–E-03, E-08–E-14, A-04–A-07 | Facility ownership, debt, pooled tickets, acquisition value and capital transfers need one accounting model. | Design a transaction ledger and asset ownership model first. Distinguish turnover, operator revenue, rent, loan principal, interest, capex, cash and profit. Define liabilities transferred, revenue allocation and conservation. Use one game currency with price index; assess real purchasing power consistently. |
+| AUD-07 | D-002, A-01, A-03, A-06–A-07, A-13, S-14 | A region is not a resort or company; acquisitions and partnerships must not require duplicating maps or entities. | Establish stable IDs and separate physical networks, land rights, operators, ownership, commercial access and simulation clocks. One coherent clock and guest market per directly connected/competing region. Do not implement full empire now merely to establish these contracts. |
+
+## B. Resolve through targeted gameplay prototypes
+
+| ID | Decision references | Tension or open contract | Proposed resolution / validation |
+|---|---|---|---|
+| AUD-08 | T-08, A-12–A-15, E-13–E-14 | Global versus local clocks, frozen/simplified resorts, shared expertise and finance can produce time-arbitrage. | Publish a compatibility matrix. Candidate standard global mode: coherent regional dates and delegated operations; independent mode: frozen regions and local ledgers with explicit sharing rules. Simplified revenue is an explicit relaxed rule, not risk-free free cash by default. Define transfers, inflation, debt, research, events and state transitions; connected rivals cannot freeze independently. Owner has accepted choices, not these defaults. |
+| AUD-09 | T-06, P-04–P-07, P-11, A-14 | Historical gates, early adoption, shared expertise and practical learning can create waiting, grinding or future technology leakage. | Distinguish commercial availability, expertise and local capability. Test research pacing with playable options within each era; diminishing returns from actual useful operations, not asset spam. Technology tree ends, play continues; era locking and speculative future remain open. |
+| AUD-10 | A-04–A-05, A-08–A-11, S-07, P-08 | Scarce acquisitions/hosting opportunities and capable AI can create urgency that undermines a relaxed building game. | Use transparent bids and seller/organizer criteria, adequate simulated response windows, nonmodal filtered notifications and no guaranteed wins. No hidden player-targeting or subsidies. AI shares gameplay command validation; compare strategies/personality and skill independently. |
+| AUD-11 | E-10, E-12, A-16, S-13, W-16 | Consequences for mismanagement, rescue funding, loss of ownership and continuation must coexist with no destructive disasters. | Define financial distress/recovery/insolvency separately from operational weather hazards. Make severe ownership loss opt-in, communicated and tied to sustained mismanagement. Do not introduce disasters destroying infrastructure or surprise hostile takeovers. Test bailout and strategic bankruptcy exploits. |
+| AUD-12 | S-02–S-04, S-14–S-17, P-18–P-21 | Scenario onboarding gates, optional medals, settings changes, mods and save import can undermine objective integrity. | Separate standard sandbox freedom from official scenario rules and achievement eligibility. Preserve rule versions and provenance. Allow completed scenario to start a new empire; cross-save asset import into standard competitive saves remains unresolved. Test objective exploits, sustained measures and failure/continuation. |
+| AUD-13 | P-03, C-10, U-07–U-09, P-21 | Rejected/deferred persistent development projects versus approved planning and blueprint sharing. | Keep previews, editable geometry, reusable templates and cost/feasibility estimates; do not assume persistent multi-project financial commitments are approved. Revalidate every actual placement against current rules and terrain. |
+| AUD-14 | U-04, U-09–U-13, U-22 | Minimal HUD, many overlays, competing advisor opinions and changing historical themes may make information inconsistent or stale. | Shared UI semantics, compact contextual views, theme tokens and consistent control layouts. Advisors share facts but differ in preferences; suppress repetition. Generate encyclopedia facts from versioned definitions, review explanations and test examples. Do not revive the rejected HUD concept as a baseline. |
+| AUD-15 | W-06–W-07, E-05–E-06, U-11, A-12 | Automation can either remove chores or remove the gameplay itself; overlapping policies may produce confusing behavior. | Explain effective settings, inherited defaults and explicit overrides. Make interventions purposeful. Test that manual optimization can benefit skilled players without mandatory clicking and that managers do not alter valued infrastructure without permission. |
+
+## C. Production and validation risks
+
+- AUD-16 (V-04–V-10, V-21): Steam-only external testing makes repeatable build distribution an early dependency. Verify actual Steam setup and publishing prerequisites. Use lightweight private feedback/diagnostics and opt-in telemetry; do not assume the public repo can hold raw user data. No paid tester budget, no mandatory moderated sessions. Small self-selected samples support discovery, not population estimates.
+- AUD-17 (D-006, S-16, P-20–P-21, U-12): moddability and a reliable encyclopedia require versioned schemas, stable IDs, migration rules and documented content validation. Do not confuse public engine development with a decision on game code, content licenses or untrusted executable mods. Defer those choices explicitly.
+- AUD-18 (D-001–D-009, V-01–V-24): preserve distinction between full-game ambition and current vertical slice. Current north star describes one Alpine mountain, sandbox only, early era, June 30 2027 and target hardware. Full-game commitments such as multiple maps, autonomous empire AI and sporting events do not automatically change the critical path. A core-loop playtest checkpoint is a proposed sequencing change, not an approved milestone revision. Keep demo/release strategy deferred.
+- AUD-19 (V-02, V-13–V-18): automated balance and human validation are different. Headless runner must execute the same rules; use versioned test fixtures, common random numbers where suitable and independent validation seeds. Do not equate profit maximization, screenshot checks or hours played with fun. Track technical and human evidence independently.
+- AUD-20 (W-02, W-03, W-14, U-13): real geography, climate, reports, geological data, historical reference, event branding and models have differing coverage/rights/accuracy. Record provenance, licenses, uncertainty, authored changes and eras; avoid presenting fictional approximations as actual data. Exact maps and branded events not selected.
+
+## Recommended next step
+
+Consolidate v0.12 into modular repository-ready Markdown specifications with stable decision IDs, an index, explicit status and cross-links. Retain the original register as historical evidence. Prioritize AUD-01–07 when reviewing imminent implementation, but do not require resolution of all twenty findings before prototyping. Owner approval is required for new game-design choices and any revision to the north star. No changes to GitHub or Steam were made in preparing this audit.
+
+
+## Review A disposition — 2026-11-27
+
+The owner has reviewed AUD-01–AUD-08; see [register v0.13](KESTREL-design-register-v0.13.md), section 17, for authoritative owner decisions and qualifications. The proposals in the original tables above are preserved for history and superseded where inconsistent with these dispositions.
+
+- AUD-01: Accepted red/closed, yellow/test, green/open lifecycle. First opening is the operational refund boundary; returning to closed/testing does not restore construction undo. Transaction safety for pre-opening world effects, dependent builds, refund rates and testing UX remains to be specified/prototyped.
+- AUD-02: Accepted continuous calendar, five speed levels and configurable intelligent advancement. Explicitly **no player-configurable calendar compression/pacing**. One-hour year is an internal playtest target, not a fixed guarantee. Preserve consequences across fast-forward.
+- AUD-03: Accepted preserved randomness by default, optional reseed, replay and nonpunitive lineage metadata. **No Ironman mode**. Independent RNG domains are a preferred implementation direction.
+- AUD-04: Accepted separate corridor/graph/named piste representations and guest/operator recovery responsibility.
+- AUD-05: Accepted gameplay-driven multiresolution snow; benchmark adaptive grid and hybrid operational fields, conserving mass and preventing duplicated state.
+- AUD-06: Accepted rigorous internal accounting, straightforward player UI.
+- AUD-07: Accepted independent ownership, operation, building rights and commercial access.
+- AUD-08: Accepted all three presets for playtesting; cross-era accounting, sharing and transitions remain open. One clock per coherent connected/competing region.
+
+Owner risk priority: time (AUD-02), empire clocks (AUD-08), undo (AUD-01). Documentation belongs within `OloEditor/KestrelProject/docs/`. Review B (AUD-09–AUD-15) and Review C (AUD-16–AUD-20) remain open. No GitHub or implementation changes made.
+
+
+## Review B disposition — 2026-11-27
+
+Owner reviewed AUD-09–AUD-15. See [register v0.14](KESTREL-design-register-v0.14.md), section 18, for the detailed dispositions. Earlier proposals are retained as history and superseded where inconsistent.
+
+| ID | Disposition | Remaining validation |
+|---|---|---|
+| AUD-09 | Accepted research as new capabilities, manufacturer cooperation and early adoption; no gating basic usability/automation. | Research pacing, useful choices, practical learning without grinding. |
+| AUD-10 | Accepted with owner emphasis on difficulty-based selection of friendly versus aggressive competitors, inspired by Anno. Real competition under shared rules. | Personality versus skill, presets, deadlines, opportunity alerts; no hidden advantage. |
+| AUD-11 | Accepted conditional recovery as a way to help newer/slower-learning players, not a min-max strategy. | Terms, eligibility, insolvency transitions and repeat-assistance exploit tests. |
+| AUD-12 | Accepted no anti-cheat, with transparent official-completion restrictions for relevant rule/content modifications. | Eligibility matrix, messaging before changes, versioning and customized completion. |
+| AUD-13 | Accepted nonbinding reusable blueprints, revalidated at construction. | Terrain, rights, price, technology, dependency and import tests. |
+| AUD-14 | Accepted shared authoritative information, consistent interactions, historical themes and documentation checks. | Theme UX and encyclopedia accuracy tests; advisor opinions may differ, facts may not. |
+| AUD-15 | Accepted competent automation, customizable policies and optional expert intervention. | Workload, strategy quality, override clarity and delegated authority. |
+
+Reviews A and B are discussed (15 of 20 findings); accepted directions still require implementation and validation. Review C remains open. No GitHub changes or milestone revision.
+
+
+## Review C disposition — 2026-11-27
+
+Owner reviewed AUD-16–AUD-20; see [register v0.15](KESTREL-design-register-v0.15.md), section 19, for detailed dispositions. Original proposals remain as history; the latest dispositions take precedence.
+
+| ID | Disposition | Remaining work |
+|---|---|---|
+| AUD-16 | Accepted, explicitly very early/high priority: automate Steam distribution and smooth in-game feedback collection. | Verify actual Steam access/configuration, repeatable packaging and deployment, private data storage and consent. Owner-approved promotion; external playtesting only via Steam. |
+| AUD-17 | Accepted versioned parseable official/community content, stable IDs, validation and migration. Owner asks about edited-file cheating. | Proposed semantic gameplay fingerprints and official manifests, content provenance in saves/telemetry, scenario-specific eligibility warnings and customized completion; no intrusive anti-cheat (AUD-12). Exact format, hashing, signing, allowed modifications, migration and executable extension policy remain open. Local checks are not tamper-proof. |
+| AUD-18 | Accepted integrated playable checkpoints and existing milestone distinction; owner observes current GitHub issues no longer fully reflect the agreed design. | Consolidate then inspect actual implementation and both closed/open issues; identify reuse, gaps, conflicts and propose backlog reconciliation. No milestone or issue changes here. |
+| AUD-19 | Accepted same authoritative rules for game/headless/labs/replay, independent technical and human validation. | Implement and verify equivalence, benchmarks and evidence tracking; no automated metric proves fun. |
+| AUD-20 | Accepted reproducible real-data-based content with documented provenance, uncertainty, adjustments and rights. | Verify specific sources, historical applicability, processing and commercial redistribution rights; retain fictional map option. |
+
+### Audit completion and next step
+
+20 of 20 findings discussed; accepted directions still require implementation and validation. Content integrity mechanism above is a proposal answering the owner's question, not a finalized security specification. Consolidate v0.15 under `OloEditor/KestrelProject/docs/` with traceable decisions and an explicit open-question/experiment register. Preserve original workshop and audit history. Review actual repository state and roadmap only after consolidation; do not silently alter the June 30, 2027 milestone. No changes to GitHub, Steam or implementation have been performed.
