@@ -163,6 +163,17 @@ namespace OloEngine
         {
             return m_MemoryBudgetEnabled;
         }
+        // HDR display output (#1353). The instance extension is what makes a
+        // surface report its HDR10 / extended-sRGB colour spaces at all; the
+        // device extension carries the HDR10 mastering metadata.
+        [[nodiscard]] bool IsSwapchainColorspaceEnabled() const
+        {
+            return m_SwapchainColorspaceEnabled;
+        }
+        [[nodiscard]] bool IsHdrMetadataEnabled() const
+        {
+            return m_HdrMetadataEnabled;
+        }
         // ENABLED on the logical device (not merely supported by the physical
         // one) — the facade's SupportsInt64ShaderAtomics must report what a
         // shader can actually use.
@@ -425,6 +436,8 @@ namespace OloEngine
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
         bool m_MemoryBudgetEnabled = false;
+        bool m_SwapchainColorspaceEnabled = false;
+        bool m_HdrMetadataEnabled = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
         /// reached — the one thing VK_EXT_device_fault's address records do not

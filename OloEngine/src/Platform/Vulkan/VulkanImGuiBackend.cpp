@@ -281,7 +281,8 @@ namespace OloEngine
                                                                         const VkImageView backbufferView,
                                                                         const VkExtent2D extent,
                                                                         const RHI::ResourceHandle backbufferHandle,
-                                                                        const bool backbufferWritten)
+                                                                        const bool backbufferWritten,
+                                                                        const RHI::Access unwrittenFinalAccess)
     {
         if (!s_Initialized)
         {
@@ -404,9 +405,28 @@ namespace OloEngine
         toPresent.Range.BaseLayer = 0u;
         toPresent.Range.LayerCount = 1u;
         toPresent.Before = RHI::Access::ColorAttachmentWrite;
-        toPresent.After = RHI::Access::Present;
+        toPresent.After = unwrittenFinalAccess;
         api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toPresent, 1 });
         return OverlayResult::DrawnAndPresented;
+    }
+
+    void VulkanImGuiBackend::OnBackbufferFormatChanged()
+    {
+        if (!s_Initialized)
+        {
+            return;
+        }
+        const auto* context = VulkanContext::Get();
+        if (context != nullptr && static_cast<VkFormat>(context->GetSwapchainColorFormat()) == s_SwapchainFormat)
+        {
+            return;
+        }
+        Shutdown();
+        if (!Init())
+        {
+            OLO_CORE_WARN("[ImGui/Vulkan] re-initialisation after a backbuffer format change failed — the UI "
+                          "stays hidden until the next successful Init");
+        }
     }
 
     void VulkanImGuiBackend::Shutdown()

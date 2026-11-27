@@ -367,6 +367,14 @@ namespace OloEngine
                 instanceExtensions.push_back(name);
             }
         }
+        // HDR display output (#1353): without it a surface reports only the
+        // sRGB non-linear colour space, and the HDR10 / scRGB routes are not
+        // offered even on an HDR display. Optional: SDR needs nothing from it.
+        m_SwapchainColorspaceEnabled = extensionAvailable(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        if (m_SwapchainColorspaceEnabled)
+        {
+            instanceExtensions.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        }
         std::vector<const char*> instanceLayers;
 
         VkApplicationInfo appInfo{};
@@ -720,6 +728,7 @@ namespace OloEngine
         bool hasRayPipelineExtension = false;
         bool hasCheckpointsExtension = false;
         bool hasMemoryBudgetExtension = false;
+        bool hasHdrMetadataExtension = false;
         bool hasAddressBindingExtension = false;
         bool hasDiagnosticsConfigExtension = false;
         {
@@ -736,6 +745,7 @@ namespace OloEngine
             hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             hasMemoryBudgetExtension = listed(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            hasHdrMetadataExtension = listed(VK_EXT_HDR_METADATA_EXTENSION_NAME);
             hasAddressBindingExtension = listed(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
             hasDiagnosticsConfigExtension = listed(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
@@ -978,6 +988,14 @@ namespace OloEngine
             deviceExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
         }
         m_MemoryBudgetEnabled = hasMemoryBudgetExtension;
+        // HDR10 mastering metadata (#1353, vkSetHdrMetadataEXT). It needs a
+        // swapchain to describe, so it is enabled only beside VK_KHR_swapchain's
+        // instance-side colour spaces; no feature struct.
+        if (hasHdrMetadataExtension && m_SwapchainColorspaceEnabled)
+        {
+            deviceExtensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+        }
+        m_HdrMetadataEnabled = hasHdrMetadataExtension && m_SwapchainColorspaceEnabled;
 
         // Aftermath is armed BEFORE vkCreateDevice on purpose: the driver reads
         // its state at device creation, so arming later yields a dump with no

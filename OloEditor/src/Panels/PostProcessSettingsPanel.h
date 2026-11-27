@@ -31,6 +31,8 @@ namespace OloEngine
         // part of PostProcessSettings and therefore deliberately outside this
         // panel's scene-undo snapshot — see AccessibilitySettings.h.
         static void DrawAccessibilitySection();
+        // HDR display output preferences and the backend's diagnosed mode (#1353).
+        static void DrawDisplayOutputSection();
         void DrawChromaticAberrationSection() const;
         void DrawColorGradingSection() const;
         void DrawFXAASection() const;

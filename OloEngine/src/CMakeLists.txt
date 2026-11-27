@@ -819,6 +819,9 @@
 		# Runtime backend selection (--rhi= / config fallback, ADR 0011 §2, #691 Phase 4)
 		"OloEngine/Renderer/BackendSelection.cpp"
 		"OloEngine/Renderer/BackendSelection.h"
+		# HDR display output: selection, scene-to-display mapping, persistence (#1353)
+		"OloEngine/Renderer/DisplayOutput.cpp"
+		"OloEngine/Renderer/DisplayOutput.h"
 		# RHI vocabulary (issue #691 Phases 1-2, ADR 0011). No longer
 		# declaration-only: RHIResourceRegistry.{h,cpp} mints the generation-checked
 		# RHI::ResourceHandle (defined in RHITypes.h) that the Platform/OpenGL
@@ -2149,6 +2152,7 @@ if(WIN32)
 	list(APPEND SOURCES
 		"Platform/Windows/WindowsBuildPipeline.cpp"
 		"Platform/Windows/WindowsCrashReporter.cpp"
+		"Platform/Windows/WindowsDisplayInfo.cpp"
 		"Platform/Windows/WindowsEvent.h"
 		"Platform/Windows/WindowsSemaphore.h"
 		"Platform/Windows/WindowsInput.cpp"
@@ -2165,6 +2169,7 @@ elseif(UNIX AND NOT APPLE)
 	list(APPEND SOURCES
 		"Platform/Linux/LinuxBuildPipeline.cpp"
 		"Platform/Linux/LinuxCrashReporter.cpp"
+		"Platform/Linux/LinuxDisplayInfo.cpp"
 		"Platform/Linux/LinuxEvent.h"
 		"Platform/Linux/LinuxSemaphore.h"
 		"Platform/Linux/LinuxInput.cpp"

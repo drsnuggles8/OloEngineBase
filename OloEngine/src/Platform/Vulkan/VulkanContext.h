@@ -15,6 +15,8 @@ namespace OloEngine
     // leaks exactly as much as glad/gl.h (rhi-abstraction-boundary.md §2), and
     // GraphicsContext.cpp — engine code — includes this header for the factory.
     struct VulkanContextData;
+    struct DisplayCapabilities;
+    struct DisplayOutputSelection;
 
     // #691 bring-up: instance / device / swapchain / per-frame sync, and a
     // SwapBuffers() that clears the backbuffer to a fixed colour and presents.
@@ -192,7 +194,15 @@ namespace OloEngine
         // three return 0 while no swapchain exists (minimised).
         [[nodiscard]] u32 GetSwapchainImageCount() const;
         [[nodiscard]] u32 GetSwapchainMinImageCount() const;
+        // The format the ENGINE renders the backbuffer in. In an HDR output
+        // mode (#1353) that is the RGBA16F composition image, not the
+        // presentable image, whose own format GetPresentFormat returns.
         [[nodiscard]] u32 GetSwapchainColorFormat() const;
+        [[nodiscard]] u32 GetPresentFormat() const;
+        // A presentable image as an RHI handle: what the display is sent. The
+        // windowless target's image 0 ends each frame TransferRead, so a test
+        // reads the display-encoded frame back through it (#1353).
+        [[nodiscard]] RHI::ResourceHandle GetPresentImageHandle(u32 index = 0) const;
 
         // The fixed bring-up clear colour (classic XNA cornflower blue — instantly
         // recognisable as "a cleared backbuffer", and nothing the GL editor draws).
@@ -215,6 +225,21 @@ namespace OloEngine
         // slots so SwapBuffers indexes it exactly like an acquired image.
         void CreateOffscreenTarget();
         void DestroyOffscreenTarget();
+
+        // --- HDR display output (#1353) -------------------------------------
+        // True when the swapchain must be recreated for the display output: a
+        // display change, or a preference that now resolves to another mode.
+        // A luminance-only change is republished in place and returns false.
+        [[nodiscard]] bool DisplayOutputNeedsRecreate();
+        // Records the selection, sets the engine's backbuffer format, makes the
+        // composition image for an HDR mode, and publishes to DisplayOutput.
+        void ApplyDisplayOutput(const DisplayOutputSelection& selection, const DisplayCapabilities& caps);
+        // vkSetHdrMetadataEXT for an HDR swapchain, where the device offers it.
+        void ApplyHdrMetadata();
+        void CreateCompositionTarget();
+        void DestroyCompositionTarget();
+        // Composition -> the published backbuffer (the acquired image).
+        void RecordDisplayEncode();
 
         GLFWwindow* m_WindowHandle;
         OffscreenTarget m_OffscreenTarget{};

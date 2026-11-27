@@ -7,6 +7,15 @@
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
@@ -68,6 +77,44 @@ namespace OloEngine
                 throw std::runtime_error(std::string("Vulkan bring-up: ") + what + " failed (VkResult " +
                                          std::to_string(static_cast<int>(result)) + ")");
             }
+        }
+
+        // HDR display output (#1353): the presentable pair for each mode, and
+        // the format the frame is composed in before the display encode.
+        constexpr VkFormat kCompositionFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+        [[nodiscard]] constexpr VkFormat PresentFormatFor(const DisplayOutputMode mode)
+        {
+            switch (mode)
+            {
+                case DisplayOutputMode::HDR10:
+                    return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+                case DisplayOutputMode::ScRGB:
+                    return VK_FORMAT_R16G16B16A16_SFLOAT;
+                case DisplayOutputMode::SDR:
+                    break;
+            }
+            return VK_FORMAT_B8G8R8A8_UNORM;
+        }
+
+        [[nodiscard]] constexpr VkColorSpaceKHR ColorSpaceFor(const DisplayOutputMode mode)
+        {
+            switch (mode)
+            {
+                case DisplayOutputMode::HDR10:
+                    return VK_COLOR_SPACE_HDR10_ST2084_EXT;
+                case DisplayOutputMode::ScRGB:
+                    return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+                case DisplayOutputMode::SDR:
+                    break;
+            }
+            return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        }
+
+        [[nodiscard]] bool SurfaceOffers(const std::vector<VkSurfaceFormatKHR>& formats, const DisplayOutputMode mode)
+        {
+            return std::ranges::any_of(formats, [mode](const VkSurfaceFormatKHR& f)
+                                       { return f.format == PresentFormatFor(mode) && f.colorSpace == ColorSpaceFor(mode); });
         }
     } // namespace
 
@@ -166,6 +213,27 @@ namespace OloEngine
         // The memory behind the one context-owned image that SwapchainImages[0]
         // holds in place of a swapchain's. Null in a windowed context.
         VmaAllocation OffscreenAllocation = VK_NULL_HANDLE;
+
+        // --- HDR display output (#1353) ------------------------------------
+        // SwapchainFormat above is the format the ENGINE renders the backbuffer
+        // in (FinalRenderPass, the ImGui pipeline, "pipelines built against the
+        // backbuffer"). In SDR that is the presentable image's own format. In an
+        // HDR mode the frame and the UI are composed into CompositionImage
+        // (RGBA16F, the composition space of DisplayOutput.h) and the display
+        // encode writes the presentable images, whose format is PresentFormat.
+        DisplayOutputMode OutputMode = DisplayOutputMode::SDR;
+        VkFormat PresentFormat = VK_FORMAT_UNDEFINED;
+        VkColorSpaceKHR PresentColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        DisplayCapabilities DisplayCaps;
+        DisplayOutputSelection DisplaySelection;
+        /// The DisplayOutput settings generation the swapchain was made for.
+        u64 DisplaySettingsGeneration = 0;
+        VkImage CompositionImage = VK_NULL_HANDLE;
+        VmaAllocation CompositionAllocation = VK_NULL_HANDLE;
+        VkImageView CompositionView = VK_NULL_HANDLE;
+        RHI::ScopedResourceHandle CompositionHandle;
+        Ref<Shader> DisplayEncodeShader;
+        Ref<UniformBuffer> DisplayEncodeUBO;
     };
 
     VulkanContext::VulkanContext(GLFWwindow* windowHandle)
@@ -196,6 +264,10 @@ namespace OloEngine
             // Join the PSO workers and save the manifest before the pipelines
             // they create are released below (#1345).
             VulkanPipelinePrecache::Get().Stop();
+            // The display encode's shader and UBO (#1353) retire through the
+            // reclaim drains below like every other engine resource.
+            d.DisplayEncodeShader.Reset();
+            d.DisplayEncodeUBO.Reset();
 
             // The frame arena's slot buffers enqueue into the deferred-reclaim
             // queue; drain it NOW, while the device is provably idle — nothing
@@ -421,14 +493,42 @@ namespace OloEngine
         vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, d.Surface, &formatCount, nullptr);
         std::vector<VkSurfaceFormatKHR> formats(formatCount);
         vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, d.Surface, &formatCount, formats.data());
-        VkSurfaceFormatKHR surfaceFormat = formats.at(0);
-        for (const VkSurfaceFormatKHR& format : formats)
+
+        // HDR display output (#1353): what this surface and the display under
+        // the window can do, and the mode the user's preference resolves to.
+        // Every swapchain (re)creation re-asks, so a resize, a fullscreen
+        // switch, a move to another monitor or an OS HDR toggle (the last two
+        // via PollPlatformDisplayChange) all land on a freshly diagnosed mode.
+        DisplayCapabilities displayCaps;
+        if (d.Device.IsSwapchainColorspaceEnabled())
         {
-            if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
-                format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            displayCaps.BackendHasHdrRoute = true;
+            displayCaps.OffersHDR10 = SurfaceOffers(formats, DisplayOutputMode::HDR10);
+            displayCaps.OffersScRGB = SurfaceOffers(formats, DisplayOutputMode::ScRGB);
+        }
+        else
+        {
+            displayCaps.NoRouteReason = "the Vulkan instance offers no VK_EXT_swapchain_colorspace";
+        }
+        QueryPlatformDisplayInfo(m_WindowHandle, displayCaps);
+        const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, displayCaps);
+
+        VkSurfaceFormatKHR surfaceFormat = formats.at(0);
+        if (selection.Mode != DisplayOutputMode::SDR)
+        {
+            // SelectDisplayOutputMode only picks an HDR mode the surface offers.
+            surfaceFormat = { PresentFormatFor(selection.Mode), ColorSpaceFor(selection.Mode) };
+        }
+        else
+        {
+            for (const VkSurfaceFormatKHR& format : formats)
             {
-                surfaceFormat = format;
-                break;
+                if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
+                    format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                {
+                    surfaceFormat = format;
+                    break;
+                }
             }
         }
 
@@ -504,7 +604,8 @@ namespace OloEngine
         swapchainInfo.clipped = VK_TRUE;
 
         VkCheck(vkCreateSwapchainKHR(device, &swapchainInfo, nullptr, &d.Swapchain), "vkCreateSwapchainKHR");
-        d.SwapchainFormat = surfaceFormat.format;
+        d.PresentFormat = surfaceFormat.format;
+        d.PresentColorSpace = surfaceFormat.colorSpace;
         d.SwapchainExtent = extent;
 
         u32 actualImageCount = 0;
@@ -520,7 +621,7 @@ namespace OloEngine
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = d.SwapchainImages[i];
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            viewInfo.format = d.SwapchainFormat;
+            viewInfo.format = d.PresentFormat;
             viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
             VkCheck(vkCreateImageView(device, &viewInfo, nullptr, &d.SwapchainViews[i]), "vkCreateImageView (swapchain)");
         }
@@ -542,7 +643,7 @@ namespace OloEngine
         for (u32 i = 0; i < actualImageCount; ++i)
         {
             VulkanImageInfo info{};
-            info.Format = d.SwapchainFormat;
+            info.Format = d.PresentFormat;
             info.Width = extent.width;
             info.Height = extent.height;
             info.MipLevels = 1;
@@ -551,6 +652,186 @@ namespace OloEngine
             d.SwapchainImageHandles[i].Adopt(RHI::ResourceKind::Texture,
                                              reinterpret_cast<u64>(d.SwapchainImages[i]), RHI::Backend::Vulkan);
         }
+
+        ApplyDisplayOutput(selection, displayCaps);
+        ApplyHdrMetadata();
+        // An SDR <-> HDR switch changes the backbuffer format ImGui's pipeline
+        // was built for; a no-op otherwise (and before ImGui exists).
+        VulkanImGuiBackend::OnBackbufferFormatChanged();
+    }
+
+    void VulkanContext::ApplyDisplayOutput(const DisplayOutputSelection& selection, const DisplayCapabilities& caps)
+    {
+        VulkanContextData& d = *m_Data;
+        d.OutputMode = selection.Mode;
+        d.DisplayCaps = caps;
+        d.DisplaySelection = selection;
+        d.DisplaySettingsGeneration = DisplayOutput::GetSettingsGeneration();
+        // The engine renders the backbuffer in the composition format whenever
+        // a display encode follows; in SDR straight into the presentable image.
+        d.SwapchainFormat = selection.Mode == DisplayOutputMode::SDR ? d.PresentFormat : kCompositionFormat;
+        if (selection.Mode != DisplayOutputMode::SDR)
+        {
+            CreateCompositionTarget();
+        }
+        DisplayOutput::PublishActive(selection, caps);
+
+        const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+        OLO_CORE_INFO("[Vulkan] display output: {} (preference {}: {})", ToString(selection.Mode),
+                      ToString(DisplayOutput::GetSettings().Preference), *selection.Reason);
+        OLO_CORE_INFO("[Vulkan] display: {}; OS HDR {}; reported peak {:.1f} nits, full-frame {:.1f}, black {:.4f}; "
+                      "surface offers HDR10 {}, scRGB {}; mapping paper white {:.0f}, UI white {:.0f}, peak {:.0f}, "
+                      "black {:.4f} nits",
+                      caps.DisplayName.IsEmpty() ? "unknown" : *caps.DisplayName, ToString(caps.OsHdr), caps.PeakNits,
+                      caps.MaxFullFrameNits, caps.MinNits, caps.OffersHDR10, caps.OffersScRGB, mapping.PaperWhiteNits,
+                      mapping.UIWhiteNits, mapping.PeakNits, mapping.MinNits);
+    }
+
+    void VulkanContext::ApplyHdrMetadata()
+    {
+        VulkanContextData& d = *m_Data;
+        if (d.OutputMode == DisplayOutputMode::SDR || d.Swapchain == VK_NULL_HANDLE || !d.Device.IsHdrMetadataEnabled() ||
+            vkSetHdrMetadataEXT == nullptr)
+        {
+            return;
+        }
+        // The mastering display this content is graded for: the display's own
+        // primaries when it reports them, else the mode's container primaries.
+        const DisplayCapabilities& caps = d.DisplayCaps;
+        const bool reportsPrimaries = caps.RedPrimary.x > 0.0f && caps.GreenPrimary.y > 0.0f && caps.BluePrimary.x > 0.0f;
+        const bool rec2020 = d.OutputMode == DisplayOutputMode::HDR10;
+        const glm::vec2 red = reportsPrimaries ? caps.RedPrimary : (rec2020 ? glm::vec2(0.708f, 0.292f) : glm::vec2(0.64f, 0.33f));
+        const glm::vec2 green = reportsPrimaries ? caps.GreenPrimary : (rec2020 ? glm::vec2(0.170f, 0.797f) : glm::vec2(0.30f, 0.60f));
+        const glm::vec2 blue = reportsPrimaries ? caps.BluePrimary : (rec2020 ? glm::vec2(0.131f, 0.046f) : glm::vec2(0.15f, 0.06f));
+        const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+
+        VkHdrMetadataEXT metadata{};
+        metadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+        metadata.displayPrimaryRed = { red.x, red.y };
+        metadata.displayPrimaryGreen = { green.x, green.y };
+        metadata.displayPrimaryBlue = { blue.x, blue.y };
+        metadata.whitePoint = { 0.3127f, 0.3290f }; // D65, the white of both containers
+        metadata.maxLuminance = mapping.PeakNits;
+        metadata.minLuminance = mapping.MinNits;
+        // The tone map never emits above the peak, and a full frame of it is
+        // what the display reports it can hold.
+        metadata.maxContentLightLevel = mapping.PeakNits;
+        metadata.maxFrameAverageLightLevel =
+            caps.MaxFullFrameNits > 0.0f ? std::min(caps.MaxFullFrameNits, mapping.PeakNits) : mapping.PeakNits;
+        vkSetHdrMetadataEXT(d.Device.GetDevice(), 1, &d.Swapchain, &metadata);
+    }
+
+    void VulkanContext::CreateCompositionTarget()
+    {
+        VulkanContextData& d = *m_Data;
+        DestroyCompositionTarget();
+        const VkDevice device = d.Device.GetDevice();
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = kCompositionFormat;
+        imageInfo.extent = { d.SwapchainExtent.width, d.SwapchainExtent.height, 1u };
+        imageInfo.mipLevels = 1u;
+        imageInfo.arrayLayers = 1u;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        // What a presentable image is used for (attachment, the fallback's
+        // clear), plus SAMPLED for the display encode and TRANSFER_SRC so a
+        // capture can read the composed frame back.
+        imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        VkCheck(TrackedVmaCreateImage(d.Device.GetAllocator(), &imageInfo, &allocInfo, &d.CompositionImage,
+                                      &d.CompositionAllocation, nullptr),
+                "vmaCreateImage (HDR composition target)");
+        TrackedVmaSetAllocationName(d.Device.GetAllocator(), d.CompositionAllocation, "VulkanContext HDR composition target");
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = d.CompositionImage;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = kCompositionFormat;
+        viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        VkCheck(vkCreateImageView(device, &viewInfo, nullptr, &d.CompositionView), "vkCreateImageView (HDR composition target)");
+
+        VulkanImageInfo info{};
+        info.Format = kCompositionFormat;
+        info.Width = d.SwapchainExtent.width;
+        info.Height = d.SwapchainExtent.height;
+        info.MipLevels = 1;
+        info.ArrayLayers = 1;
+        VulkanImageInfoRegistry::Get().Register(d.CompositionImage, info);
+        d.CompositionHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(d.CompositionImage), RHI::Backend::Vulkan);
+    }
+
+    void VulkanContext::DestroyCompositionTarget()
+    {
+        // Callers guarantee the GPU is done with it: RecreateSwapchain and the
+        // destructor wait the device idle first.
+        VulkanContextData& d = *m_Data;
+        if (d.CompositionImage == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        if (d.CompositionView != VK_NULL_HANDLE)
+        {
+            vkDestroyImageView(d.Device.GetDevice(), d.CompositionView, nullptr);
+            d.CompositionView = VK_NULL_HANDLE;
+        }
+        d.CompositionHandle.Reset();
+        VulkanImageInfoRegistry::Get().Unregister(d.CompositionImage);
+        TrackedVmaDestroyImage(d.Device.GetAllocator(), d.CompositionImage, d.CompositionAllocation);
+        d.CompositionImage = VK_NULL_HANDLE;
+        d.CompositionAllocation = VK_NULL_HANDLE;
+    }
+
+    void VulkanContext::RecordDisplayEncode()
+    {
+        // Through the facade, like FinalRenderPass: the published backbuffer
+        // is the acquired image now, and the composition image is an ordinary
+        // sampled texture (FinalizeBackbufferForPresent left it there).
+        VulkanContextData& d = *m_Data;
+        if (!d.DisplayEncodeShader)
+        {
+            d.DisplayEncodeShader = Shader::Create("assets/shaders/DisplayEncode.glsl");
+        }
+        if (!d.DisplayEncodeUBO)
+        {
+            // UBO_USER_0 is pass-local: every pass that uses it refills it, so
+            // this one owns its own buffer instead of trusting what is bound.
+            d.DisplayEncodeUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        }
+
+        const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+        PostProcessUBOData params{};
+        params.Gamma = DisplayOutput::GetCompositionGamma();
+        params.DisplayMode = std::to_underlying(mapping.Mode);
+        params.DisplayPaperWhiteNits = mapping.PaperWhiteNits;
+        params.DisplayUIWhiteNits = mapping.UIWhiteNits;
+        params.DisplayPeakNits = mapping.PeakNits;
+        params.DisplayMinNits = mapping.MinNits;
+        d.DisplayEncodeUBO->SetData(&params, PostProcessUBOData::GetSize());
+
+        const RGCommandContext context;
+        context.ResetGraphicsStateToDefault();
+        context.BindDefaultFramebuffer();
+        context.SetViewport(0, 0, d.SwapchainExtent.width, d.SwapchainExtent.height);
+        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+        context.Clear();
+
+        d.DisplayEncodeUBO->Bind();
+        d.DisplayEncodeShader->Bind();
+        // FrameTransient: the composition image is replaced on every swapchain
+        // recreation, so no descriptor is memoised onto it.
+        context.BindTextureOrHeapOffset(0, d.CompositionHandle.Get(), RHI::HeapSlotLifetime::FrameTransient);
+        const auto fullscreen = MeshPrimitives::GetFullscreenTriangle();
+        fullscreen->Bind();
+        context.FlushHeapOffsets();
+        context.DrawIndexed(fullscreen);
     }
 
     void VulkanContext::DestroySwapchain()
@@ -583,11 +864,41 @@ namespace OloEngine
             VulkanImageInfoRegistry::Get().Unregister(image);
         }
         d.SwapchainImages.clear();
+        DestroyCompositionTarget();
         if (d.Swapchain != VK_NULL_HANDLE)
         {
             vkDestroySwapchainKHR(device, d.Swapchain, nullptr);
             d.Swapchain = VK_NULL_HANDLE;
         }
+    }
+
+    bool VulkanContext::DisplayOutputNeedsRecreate()
+    {
+        VulkanContextData& d = *m_Data;
+        // Another monitor or a changed OS display configuration: the
+        // capabilities themselves must be re-read, which CreateSwapchain does.
+        if (!IsOffscreen() && PollPlatformDisplayChange(m_WindowHandle))
+        {
+            OLO_CORE_INFO("[Vulkan] display configuration changed — re-selecting the output mode");
+            return true;
+        }
+        if (d.DisplaySettingsGeneration == DisplayOutput::GetSettingsGeneration())
+        {
+            return false;
+        }
+        const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, d.DisplayCaps);
+        if (selection.Mode != d.OutputMode)
+        {
+            return true;
+        }
+        // Same mode: only the luminances (or which preference led here) moved.
+        // The renderer reads the mapping every frame, so republishing is the
+        // whole change -- a slider drag must not recreate the swapchain.
+        d.DisplaySelection = selection;
+        d.DisplaySettingsGeneration = DisplayOutput::GetSettingsGeneration();
+        DisplayOutput::PublishActive(selection, d.DisplayCaps);
+        ApplyHdrMetadata();
+        return false;
     }
 
     void VulkanContext::RecreateSwapchain()
@@ -606,17 +917,30 @@ namespace OloEngine
         VulkanContextData& d = *m_Data;
         const VkDevice device = d.Device.GetDevice();
 
-        // B8G8R8A8_UNORM is the format CreateSwapchain picks wherever the
+        // The windowless target stands in for a surface that offers every
+        // route, so the HDR10 and scRGB paths -- composition, display encode,
+        // the presentable formats -- run headless exactly as they would on an
+        // HDR display (#1353). With no display there is no OS HDR state, so
+        // Auto resolves to SDR, and an explicit preference is honoured.
+        DisplayCapabilities caps;
+        caps.BackendHasHdrRoute = true;
+        caps.OffersHDR10 = true;
+        caps.OffersScRGB = true;
+        caps.DisplayName = "windowless target";
+        const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, caps);
+
+        // In SDR, B8G8R8A8_UNORM: the format CreateSwapchain picks wherever the
         // surface offers it, so a pipeline built against "the backbuffer"
         // (FinalRenderPass's) is built for the format a windowed session gets.
-        d.SwapchainFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        d.PresentFormat = PresentFormatFor(selection.Mode);
+        d.PresentColorSpace = ColorSpaceFor(selection.Mode);
         d.SwapchainExtent = { m_OffscreenTarget.Width, m_OffscreenTarget.Height };
         d.SwapchainMinImageCount = 1u;
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.format = d.SwapchainFormat;
+        imageInfo.format = d.PresentFormat;
         imageInfo.extent = { d.SwapchainExtent.width, d.SwapchainExtent.height, 1u };
         imageInfo.mipLevels = 1u;
         imageInfo.arrayLayers = 1u;
@@ -642,7 +966,7 @@ namespace OloEngine
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = d.SwapchainFormat;
+        viewInfo.format = d.PresentFormat;
         viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
         d.SwapchainViews.assign(1u, VK_NULL_HANDLE);
         VkCheck(vkCreateImageView(device, &viewInfo, nullptr, &d.SwapchainViews[0]), "vkCreateImageView (offscreen target)");
@@ -650,7 +974,7 @@ namespace OloEngine
         // Published exactly as CreateSwapchain publishes a presentable image.
         // No RenderFinished semaphores: nothing is presented.
         VulkanImageInfo info{};
-        info.Format = d.SwapchainFormat;
+        info.Format = d.PresentFormat;
         info.Width = d.SwapchainExtent.width;
         info.Height = d.SwapchainExtent.height;
         info.MipLevels = 1;
@@ -658,6 +982,8 @@ namespace OloEngine
         VulkanImageInfoRegistry::Get().Register(image, info);
         d.SwapchainImageHandles.resize(1u);
         d.SwapchainImageHandles[0].Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(image), RHI::Backend::Vulkan);
+
+        ApplyDisplayOutput(selection, caps);
     }
 
     void VulkanContext::DestroyOffscreenTarget()
@@ -678,6 +1004,7 @@ namespace OloEngine
         }
         d.SwapchainImages.clear();
         d.OffscreenAllocation = VK_NULL_HANDLE;
+        DestroyCompositionTarget();
     }
 
     bool VulkanContext::CanSubmitRenderGraphFenceSegments() const
@@ -1298,6 +1625,17 @@ namespace OloEngine
         return static_cast<u32>(m_Data->SwapchainFormat);
     }
 
+    u32 VulkanContext::GetPresentFormat() const
+    {
+        return static_cast<u32>(m_Data->PresentFormat);
+    }
+
+    RHI::ResourceHandle VulkanContext::GetPresentImageHandle(const u32 index) const
+    {
+        const auto& handles = m_Data->SwapchainImageHandles;
+        return index < handles.size() ? handles[index].Get() : RHI::ResourceHandle{};
+    }
+
     void VulkanContext::SetVSync(bool enabled)
     {
         if (m_VSync == enabled)
@@ -1373,6 +1711,14 @@ namespace OloEngine
                 RecreateSwapchain();
             }
 
+            // A display-output change (#1353): another monitor, an OS HDR toggle,
+            // or a preference that resolves to another mode. Same place and
+            // same reason as the vsync recreate above.
+            if (d.Swapchain != VK_NULL_HANDLE && DisplayOutputNeedsRecreate())
+            {
+                RecreateSwapchain();
+            }
+
             // The window has area but no swapchain exists: creation was skipped while
             // the surface was 0-sized (see CreateSwapchain). Recreate now; if the
             // surface still reports zero (caps lag the framebuffer), skip the frame.
@@ -1384,6 +1730,14 @@ namespace OloEngine
                     return;
                 }
             }
+        }
+        else if (DisplayOutputNeedsRecreate())
+        {
+            // The windowless target follows the display-output preference too
+            // (#1353), so a test can render the HDR routes headless.
+            vkDeviceWaitIdle(device);
+            DestroyOffscreenTarget();
+            CreateOffscreenTarget();
         }
 
         VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
@@ -1487,10 +1841,19 @@ namespace OloEngine
             // glBindFramebuffer(0)) resolves to it, and the lazy rendering
             // scope opens against it exactly as it does against a
             // VulkanFramebuffer. The publication dies with the recording.
-            api.SetFrameBackbuffer(d.SwapchainImageHandles[imageIndex].Get(), d.SwapchainViews[imageIndex],
-                                   d.SwapchainExtent.width, d.SwapchainExtent.height);
+            //
+            // HDR display output (#1353): the frame and the UI are composed into
+            // the composition image instead, and the display encode below writes
+            // the acquired image from it. Everything up to that encode sees the
+            // composition image as "the backbuffer", so no pass knows the mode.
+            const bool composeForEncode = d.OutputMode != DisplayOutputMode::SDR && d.CompositionImage != VK_NULL_HANDLE;
+            const RHI::ResourceHandle backbufferHandle =
+                composeForEncode ? d.CompositionHandle.Get() : d.SwapchainImageHandles[imageIndex].Get();
+            const VkImageView backbufferView = composeForEncode ? d.CompositionView : d.SwapchainViews[imageIndex];
+            const RHI::Access presentAccess = IsOffscreen() ? RHI::Access::TransferRead : RHI::Access::Present;
+            api.SetFrameBackbuffer(backbufferHandle, backbufferView, d.SwapchainExtent.width, d.SwapchainExtent.height);
             const GraphicsContext::FrameRenderTarget target{
-                d.SwapchainImageHandles[imageIndex].Get(),
+                backbufferHandle,
                 d.SwapchainExtent.width,
                 d.SwapchainExtent.height,
             };
@@ -1556,11 +1919,13 @@ namespace OloEngine
             // else would ever plug into.
             // The windowless mode has no UI: no ImGui renderer backend is
             // brought up against a target nobody looks at.
+            // In an HDR mode the composed image ends sampled, not presented:
+            // the display encode reads it next.
+            const RHI::Access composedAccess = composeForEncode ? RHI::Access::ShaderSampleRead : presentAccess;
             const VulkanImGuiBackend::OverlayResult overlay =
                 IsOffscreen() ? VulkanImGuiBackend::OverlayResult::Skipped
-                              : VulkanImGuiBackend::RecordOverlay(api, d.SwapchainViews[imageIndex], d.SwapchainExtent,
-                                                                  d.SwapchainImageHandles[imageIndex].Get(),
-                                                                  api.BackbufferWasWrittenThisRecording());
+                              : VulkanImGuiBackend::RecordOverlay(api, backbufferView, d.SwapchainExtent, backbufferHandle,
+                                                                  api.BackbufferWasWrittenThisRecording(), composedAccess);
 
             // Owning the present transition here (rather than asking the
             // callback for it) keeps swapchain-layout knowledge inside the
@@ -1568,8 +1933,7 @@ namespace OloEngine
             // it returns false ONLY when nothing touched the image, so the
             // fallback's UNDEFINED oldLayout can never discard real work.
             // The windowless target ends the frame readable instead.
-            rendered = api.FinalizeBackbufferForPresent(callbackRendered, IsOffscreen() ? RHI::Access::TransferRead
-                                                                                        : RHI::Access::Present);
+            rendered = api.FinalizeBackbufferForPresent(callbackRendered, composedAccess);
             if (overlay == VulkanImGuiBackend::OverlayResult::DrawnAndPresented)
             {
                 // The overlay cleared + drew the UI and transitioned the
@@ -1577,6 +1941,16 @@ namespace OloEngine
                 // so the clear-only fallback below must not run (it would
                 // clobber the UI via its UNDEFINED oldLayout).
                 rendered = true;
+            }
+            if (composeForEncode && rendered)
+            {
+                // The display encode: composition -> the acquired image, which
+                // becomes the backbuffer for this one draw. Its Finalize owns the
+                // present transition exactly as the SDR Finalize above does.
+                api.SetFrameBackbuffer(d.SwapchainImageHandles[imageIndex].Get(), d.SwapchainViews[imageIndex],
+                                       d.SwapchainExtent.width, d.SwapchainExtent.height);
+                RecordDisplayEncode();
+                rendered = api.FinalizeBackbufferForPresent(true, presentAccess);
             }
             api.EndRecording();
         }
@@ -1616,10 +1990,18 @@ namespace OloEngine
             depInfo.pImageMemoryBarriers = &toTransfer;
             vkCmdPipelineBarrier2(frame.Cmd, &depInfo);
 
+            // The bring-up colour is a composition-space value; in an HDR mode
+            // it is encoded as the display encode would (#1353), so the clear
+            // frame shows the same cornflower blue at UI white, not a PQ value
+            // read as a few nits.
+            const glm::vec3 clearRgb = EncodeCompositionForDisplay(
+                { kClearColor[0], kClearColor[1], kClearColor[2] },
+                ResolveDisplayMapping(d.OutputMode, DisplayOutput::GetSettings(), d.DisplayCaps),
+                DisplayOutput::GetCompositionGamma());
             VkClearColorValue clearColor{};
-            clearColor.float32[0] = kClearColor[0];
-            clearColor.float32[1] = kClearColor[1];
-            clearColor.float32[2] = kClearColor[2];
+            clearColor.float32[0] = clearRgb.r;
+            clearColor.float32[1] = clearRgb.g;
+            clearColor.float32[2] = clearRgb.b;
             clearColor.float32[3] = kClearColor[3];
             vkCmdClearColorImage(frame.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &fullColor);
 

@@ -4,8 +4,13 @@
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
+#include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include <GLFW/glfw3.h>
 #include <exception>
+#include <optional>
+#include <utility>
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
@@ -117,6 +122,224 @@ namespace OloEngine::MCP
                 }
                 return j; });
             return ToolResult::Structured(result);
+        }
+
+        // ---- olo_window_set / olo_window_get (main-marshaled; #1353) -----------
+        // The OS window, not the viewport: its client size, its position (which
+        // monitor holds it) and fullscreen on that monitor. These are what make
+        // the presenting backend recreate its swapchain and re-diagnose the
+        // display output, so a live session can drive resize, fullscreen <->
+        // windowed and monitor changes without a human at the keyboard.
+        Json WindowStateJson(GLFWwindow* window)
+        {
+            Json j;
+            int x = 0;
+            int y = 0;
+            int w = 0;
+            int h = 0;
+            int fbw = 0;
+            int fbh = 0;
+            ::glfwGetWindowPos(window, &x, &y);
+            ::glfwGetWindowSize(window, &w, &h);
+            ::glfwGetFramebufferSize(window, &fbw, &fbh);
+            j["x"] = x;
+            j["y"] = y;
+            j["width"] = w;
+            j["height"] = h;
+            j["framebufferWidth"] = fbw;
+            j["framebufferHeight"] = fbh;
+            GLFWmonitor* fullscreenMonitor = ::glfwGetWindowMonitor(window);
+            j["fullscreen"] = fullscreenMonitor != nullptr;
+            const DisplayCapabilities& caps = DisplayOutput::GetActiveCapabilities();
+            j["display"] = caps.DisplayName.IsEmpty() ? std::string("unknown") : caps.DisplayName.ToStdString();
+            return j;
+        }
+
+        // The monitor whose area holds most of the window: where fullscreen goes.
+        GLFWmonitor* MonitorUnderWindow(GLFWwindow* window)
+        {
+            int wx = 0;
+            int wy = 0;
+            int ww = 0;
+            int wh = 0;
+            ::glfwGetWindowPos(window, &wx, &wy);
+            ::glfwGetWindowSize(window, &ww, &wh);
+            int count = 0;
+            GLFWmonitor** monitors = ::glfwGetMonitors(&count);
+            GLFWmonitor* best = ::glfwGetPrimaryMonitor();
+            long long bestArea = -1;
+            for (int i = 0; i < count; ++i)
+            {
+                int mx = 0;
+                int my = 0;
+                ::glfwGetMonitorPos(monitors[i], &mx, &my);
+                const GLFWvidmode* mode = ::glfwGetVideoMode(monitors[i]);
+                if (mode == nullptr)
+                    continue;
+                const long long overlapW = std::max(0, std::min(wx + ww, mx + mode->width) - std::max(wx, mx));
+                const long long overlapH = std::max(0, std::min(wy + wh, my + mode->height) - std::max(wy, my));
+                if (overlapW * overlapH > bestArea)
+                {
+                    bestArea = overlapW * overlapH;
+                    best = monitors[i];
+                }
+            }
+            return best;
+        }
+
+        ToolResult Handle_WindowSet(IAutomationHost& host, const Json& args)
+        {
+            const auto intArg = [&args](const char* key) -> std::optional<int>
+            {
+                if (args.contains(key) && args[key].is_number_integer())
+                    return static_cast<int>(args[key].get<long long>());
+                return std::nullopt;
+            };
+            const std::optional<int> width = intArg("width");
+            const std::optional<int> height = intArg("height");
+            const std::optional<int> x = intArg("x");
+            const std::optional<int> y = intArg("y");
+            std::optional<bool> fullscreen;
+            if (args.contains("fullscreen") && args["fullscreen"].is_boolean())
+                fullscreen = args["fullscreen"].get<bool>();
+            if (width.has_value() != height.has_value() || x.has_value() != y.has_value())
+                return ToolResult::Error("Give width and height together, and x and y together.");
+
+            const Json result = host.MarshalRead([=]() -> Json
+                                                 {
+                Application* app = Application::TryGet();
+                if (app == nullptr)
+                    return Json{ { "__error", "No application window in this host." } };
+                auto* window = static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow());
+                if (window == nullptr)
+                    return Json{ { "__error", "The application has no native window." } };
+                if (fullscreen.has_value())
+                {
+                    if (*fullscreen)
+                    {
+                        GLFWmonitor* monitor = MonitorUnderWindow(window);
+                        const GLFWvidmode* mode = ::glfwGetVideoMode(monitor);
+                        if (mode != nullptr)
+                            ::glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+                    }
+                    else
+                    {
+                        // Back to windowed: the requested rect, else a centred
+                        // two-thirds of the monitor it was fullscreen on.
+                        GLFWmonitor* monitor = ::glfwGetWindowMonitor(window);
+                        int mx = 0;
+                        int my = 0;
+                        const GLFWvidmode* mode = monitor != nullptr ? ::glfwGetVideoMode(monitor) : nullptr;
+                        if (monitor != nullptr)
+                            ::glfwGetMonitorPos(monitor, &mx, &my);
+                        const int w = width.value_or(mode != nullptr ? mode->width * 2 / 3 : 1280);
+                        const int h = height.value_or(mode != nullptr ? mode->height * 2 / 3 : 720);
+                        const int px = x.value_or(mode != nullptr ? mx + (mode->width - w) / 2 : 100);
+                        const int py = y.value_or(mode != nullptr ? my + (mode->height - h) / 2 : 100);
+                        ::glfwSetWindowMonitor(window, nullptr, px, py, w, h, GLFW_DONT_CARE);
+                    }
+                }
+                if (!fullscreen.value_or(false) && ::glfwGetWindowMonitor(window) == nullptr)
+                {
+                    if (x.has_value())
+                        ::glfwSetWindowPos(window, *x, *y);
+                    if (width.has_value())
+                        ::glfwSetWindowSize(window, std::clamp(*width, 64, 16384), std::clamp(*height, 64, 16384));
+                }
+                return WindowStateJson(window); });
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        ToolResult Handle_WindowGet(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 {
+                Application* app = Application::TryGet();
+                if (app == nullptr || app->GetWindow().GetNativeWindow() == nullptr)
+                    return Json{ { "__error", "No application window in this host." } };
+                return WindowStateJson(static_cast<GLFWwindow*>(app->GetWindow().GetNativeWindow())); });
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_display_output_get / _set (main-marshaled; #1353) -------------
+        Json DisplayOutputJson()
+        {
+            const DisplayOutputSettings& s = DisplayOutput::GetSettings();
+            const DisplayOutputSelection& active = DisplayOutput::GetActiveSelection();
+            const DisplayCapabilities& caps = DisplayOutput::GetActiveCapabilities();
+            const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+            Json j;
+            j["preference"] = ToString(s.Preference);
+            j["paperWhiteNits"] = s.PaperWhiteNits;
+            j["uiWhiteNits"] = s.UIWhiteNits;
+            j["peakNitsOverride"] = s.PeakNitsOverride;
+            j["activeMode"] = ToString(active.Mode);
+            j["preferenceNotHonoured"] = active.PreferenceNotHonoured;
+            j["reason"] = active.Reason.ToStdString();
+            j["display"] = caps.DisplayName.IsEmpty() ? std::string("unknown") : caps.DisplayName.ToStdString();
+            j["osHdr"] = ToString(caps.OsHdr);
+            j["backendHasHdrRoute"] = caps.BackendHasHdrRoute;
+            j["noRouteReason"] = caps.NoRouteReason.ToStdString();
+            j["surfaceOffersHdr10"] = caps.OffersHDR10;
+            j["surfaceOffersScRgb"] = caps.OffersScRGB;
+            j["reportedPeakNits"] = caps.PeakNits;
+            j["reportedFullFrameNits"] = caps.MaxFullFrameNits;
+            j["reportedBlackNits"] = caps.MinNits;
+            j["mappingPaperWhiteNits"] = mapping.PaperWhiteNits;
+            j["mappingUiWhiteNits"] = mapping.UIWhiteNits;
+            j["mappingPeakNits"] = mapping.PeakNits;
+            j["mappingBlackNits"] = mapping.MinNits;
+            return j;
+        }
+
+        ToolResult Handle_DisplayOutputGet(IAutomationHost& host, const Json& /*args*/)
+        {
+            return ToolResult::Structured(host.MarshalRead([]() -> Json
+                                                           { return DisplayOutputJson(); }));
+        }
+
+        ToolResult Handle_DisplayOutputSet(IAutomationHost& host, const Json& args)
+        {
+            DisplayOutputSettings requested = DisplayOutput::GetSettings();
+            if (args.contains("preference"))
+            {
+                if (!args["preference"].is_string())
+                    return ToolResult::Error("'preference' is one of Auto, SDR, HDR10, scRGB.");
+                const std::string name = args["preference"].get<std::string>();
+                if (name == "Auto")
+                    requested.Preference = DisplayOutputPreference::Auto;
+                else if (name == "SDR")
+                    requested.Preference = DisplayOutputPreference::SDR;
+                else if (name == "HDR10")
+                    requested.Preference = DisplayOutputPreference::HDR10;
+                else if (name == "scRGB")
+                    requested.Preference = DisplayOutputPreference::ScRGB;
+                else
+                    return ToolResult::Error("'preference' is one of Auto, SDR, HDR10, scRGB.");
+            }
+            for (const auto& [key, field] : { std::pair<const char*, f32 DisplayOutputSettings::*>{ "paperWhiteNits", &DisplayOutputSettings::PaperWhiteNits },
+                                              { "uiWhiteNits", &DisplayOutputSettings::UIWhiteNits },
+                                              { "peakNitsOverride", &DisplayOutputSettings::PeakNitsOverride } })
+            {
+                if (args.contains(key))
+                {
+                    if (!args[key].is_number())
+                        return ToolResult::Error(std::string("'") + key + "' must be a number of nits.");
+                    requested.*field = args[key].get<f32>();
+                }
+            }
+            // Applied in memory only, like the editor panel before its Save: the
+            // backend re-selects at its next frame boundary, so the answer here
+            // is the request; call olo_display_output_get after a frame for the
+            // mode it resolved to.
+            return ToolResult::Structured(host.MarshalRead([requested]() -> Json
+                                                           {
+                DisplayOutput::SetSettings(requested);
+                return DisplayOutputJson(); }));
         }
 
         // ---- olo_screenshot (main-marshaled; GL readback) ----------------------
@@ -775,6 +998,121 @@ namespace OloEngine::MCP
                                     .Required({ "override" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ViewportSetSize;
+            registry.Register(std::move(tool));
+        }
+
+        const auto windowStateSchema = []
+        {
+            return Schema::Object()
+                .Prop("x", Schema::Int().Desc("Window position, screen coordinates."))
+                .Prop("y", Schema::Int())
+                .Prop("width", Schema::Int().Desc("Client size in screen coordinates."))
+                .Prop("height", Schema::Int())
+                .Prop("framebufferWidth", Schema::Int().Desc("Client size in pixels: what the swapchain is sized from."))
+                .Prop("framebufferHeight", Schema::Int())
+                .Prop("fullscreen", Schema::Bool())
+                .Prop("display", Schema::String().Desc("The display the presenting backend last diagnosed (DisplayOutput)."))
+                .Required({ "x", "y", "width", "height", "framebufferWidth", "framebufferHeight", "fullscreen", "display" });
+        };
+        {
+            ToolDef tool;
+            tool.Name = "olo_window_set";
+            tool.Toolset = "camera";
+            tool.Title = "Set the OS window's size, position or fullscreen";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Resize or move the editor's OS window, or switch it between windowed and fullscreen on the monitor "
+                "that holds it (issue #1353). Each change makes the presenting backend recreate its swapchain, and a "
+                "move to another monitor re-diagnoses the display output (olo_display_output_get). Not the viewport: "
+                "olo_viewport_set_size overrides the render size inside the window. Ephemeral, not saved.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("width", Schema::Int().Min(64).Max(16384).Desc("Client width; give with height."))
+                                   .Prop("height", Schema::Int().Min(64).Max(16384).Desc("Client height; give with width."))
+                                   .Prop("x", Schema::Int().Desc("Window x in screen coordinates; give with y. A position on another monitor moves the window there."))
+                                   .Prop("y", Schema::Int().Desc("Window y; give with x."))
+                                   .Prop("fullscreen", Schema::Bool().Desc("true = fullscreen at the native mode of the monitor holding the window; false = windowed (the given rect, else centred two-thirds)."))
+                                   .NoAdditional();
+            tool.OutputSchema = windowStateSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_WindowSet;
+            registry.Register(std::move(tool));
+        }
+        {
+            ToolDef tool;
+            tool.Name = "olo_window_get";
+            tool.Toolset = "camera";
+            tool.Title = "Get the OS window's size, position and fullscreen state";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description = "The editor's OS window: position, client and framebuffer size, fullscreen, and the display "
+                               "the presenting backend last diagnosed (issue #1353).";
+            tool.InputSchema = Schema::Object().NoAdditional();
+            tool.OutputSchema = windowStateSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_WindowGet;
+            registry.Register(std::move(tool));
+        }
+
+        const auto displayOutputSchema = []
+        {
+            return Schema::Object()
+                .Prop("preference", Schema::String().Desc("Auto, SDR, HDR10 or scRGB."))
+                .Prop("paperWhiteNits", Schema::Number())
+                .Prop("uiWhiteNits", Schema::Number())
+                .Prop("peakNitsOverride", Schema::Number().Desc("0 = the display's reported peak."))
+                .Prop("activeMode", Schema::String().Desc("The mode the presenting backend selected: SDR, HDR10 or scRGB."))
+                .Prop("preferenceNotHonoured", Schema::Bool())
+                .Prop("reason", Schema::String().Desc("Why the backend selected activeMode."))
+                .Prop("display", Schema::String())
+                .Prop("osHdr", Schema::String().Desc("on, off or unknown."))
+                .Prop("backendHasHdrRoute", Schema::Bool())
+                .Prop("noRouteReason", Schema::String())
+                .Prop("surfaceOffersHdr10", Schema::Bool())
+                .Prop("surfaceOffersScRgb", Schema::Bool())
+                .Prop("reportedPeakNits", Schema::Number())
+                .Prop("reportedFullFrameNits", Schema::Number())
+                .Prop("reportedBlackNits", Schema::Number())
+                .Prop("mappingPaperWhiteNits", Schema::Number())
+                .Prop("mappingUiWhiteNits", Schema::Number())
+                .Prop("mappingPeakNits", Schema::Number())
+                .Prop("mappingBlackNits", Schema::Number())
+                .Required({ "preference", "activeMode", "reason", "display", "osHdr", "backendHasHdrRoute" });
+        };
+        {
+            ToolDef tool;
+            tool.Name = "olo_display_output_get";
+            tool.Toolset = "camera";
+            tool.Title = "Get the HDR display output state";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "The display output (issue #1353): the user's preference and luminances, the mode the presenting "
+                "backend selected and why, what the surface and the display report (OS HDR state, peak/black nits), "
+                "and the mapping the tone map and display encode use this frame.";
+            tool.InputSchema = Schema::Object().NoAdditional();
+            tool.OutputSchema = displayOutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_DisplayOutputGet;
+            registry.Register(std::move(tool));
+        }
+        {
+            ToolDef tool;
+            tool.Name = "olo_display_output_set";
+            tool.Toolset = "camera";
+            tool.Title = "Set the HDR display output preference";
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Set the display output preference (Auto, SDR, HDR10, scRGB) and luminances (issue #1353), in memory "
+                "only, like the editor panel before Save. The backend re-selects at its next frame boundary and "
+                "recreates the swapchain only when the mode changes: read olo_display_output_get after a frame for "
+                "the mode it resolved to.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("preference", Schema::String().Desc("Auto, SDR, HDR10 or scRGB."))
+                                   .Prop("paperWhiteNits", Schema::Number().Desc("Scene reference white, 80..500 nits."))
+                                   .Prop("uiWhiteNits", Schema::Number().Desc("UI white, 80..500 nits."))
+                                   .Prop("peakNitsOverride", Schema::Number().Desc("0 = the display's peak; else 80..10000 nits."))
+                                   .NoAdditional();
+            tool.OutputSchema = displayOutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_DisplayOutputSet;
             registry.Register(std::move(tool));
         }
     }
