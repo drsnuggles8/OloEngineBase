@@ -3,28 +3,6 @@
 // One canonical identity and up to three mapped neighbour strategies. Support
 // is evaluated by inverse shifting each candidate, including visibility and
 // conditioning, even when that strategy's own random survivor was black.
-float PTMIS(PTPath candidate, PTPath canonical, PTPath neighbour, uint ownMapping, uint mask)
-{
-    float canonicalMass = canonical.State.y * candidate.State.z;
-    float total = canonicalMass;
-    float own = ownMapping == 0u ? canonicalMass : 0.0;
-    for (uint bit = 1u; bit <= 4u; bit *= 2u)
-    {
-        if ((mask & bit) == 0u)
-            continue;
-        PTPath inverse;
-        float inverseJ;
-        if (!PTShift(candidate, neighbour.Vertices[0], bit, inverse, inverseJ))
-            continue;
-        float mass = neighbour.State.y * inverse.State.z * inverseJ;
-        if (!PTFinite(mass) || mass < 0.0)
-            continue;
-        total += mass;
-        if (bit == ownMapping)
-            own = mass;
-    }
-    return total > 0.0 && PTFinite(total) ? own / total : 0.0;
-}
 void PTStream(inout PTPath selected, inout float total, PTPath candidate, float weight, inout OloPathSampler pathSampler)
 {
     if (!(weight > 0.0) || !PTFinite(weight) || !PTFinite(total + weight))
@@ -73,6 +51,16 @@ PTPath PTInitial(PTVertex receiver, uint pixel, inout OloPathSampler pathSampler
     }
     return selected;
 }
+// ONE PTShift CALLSITE, for the same reason PTShift has one PTMapOne callsite.
+// Each inlined shift carries a full map's worth of PTPath temporaries in local
+// memory. With a forward shift here and the inverse-support shifts in a
+// separate MIS helper, the fragment shader needed 21984 B of local memory per
+// thread; NVIDIA 621.14 backs at most 2^32 B across every resident thread
+// (21845 B on an RTX 4090), creates the pipeline anyway, and loses the device
+// on the first spill (#1807). Each strategy is four steps: phase 0 maps the
+// neighbour to this receiver (strategy 0 uses the canonical path as is), and
+// phases 1..3 inverse-shift that candidate under mappings 1, 2 and 4 for its
+// MIS support. Order, arithmetic and sampler consumption match the nested form.
 PTPath PTCombine(PTPath canonical, PTPath neighbour, uint mask, inout OloPathSampler pathSampler)
 {
     PTPath selected = canonical;
@@ -85,28 +73,68 @@ PTPath PTCombine(PTPath canonical, PTPath neighbour, uint mask, inout OloPathSam
     // Mapping enumeration does not create additional source proposals.
     if ((mask & 7u) != 0u)
         confidence += neighbour.State.y;
-    // Preserve canonical/reconnect/replay/hybrid order with one static MIS
-    // callsite. Each support query contains a full forward-and-inverse trace.
-    [[dont_unroll]] for (uint strategy = 0u; strategy < 4u; ++strategy)
+    PTPath candidate = canonical;
+    float jacobian = 1.0;
+    float sourceWeight = 0.0;
+    float supportTotal = 0.0;
+    float supportOwn = 0.0;
+    bool live = false;
+    [[dont_unroll]] for (uint step = 0u; step < 16u; ++step)
     {
+        uint strategy = step >> 2u;
+        uint phase = step & 3u;
         uint bit = strategy == 0u ? 0u : (1u << (strategy - 1u));
-        PTPath candidate = canonical;
-        float jacobian = 1.0;
-        float sourceWeight = canonical.State.x;
-        if (strategy == 0u)
+        uint supportBit = phase == 0u ? 0u : (1u << (phase - 1u));
+        if (phase == 0u)
         {
-            if (!PTSelected(canonical))
-                continue;
+            candidate = canonical;
+            jacobian = 1.0;
+            sourceWeight = canonical.State.x;
+            live = strategy == 0u ? PTSelected(canonical) : (PTSelected(neighbour) && (mask & bit) != 0u);
         }
-        else
+        else if (!live || (mask & supportBit) == 0u)
         {
-            if (!PTSelected(neighbour) || (mask & bit) == 0u)
-                continue;
-            if (!PTShift(neighbour, canonical.Vertices[0], bit, candidate, jacobian))
-                continue;
-            sourceWeight = neighbour.State.x;
+            supportBit = 0u;
         }
-        float m = PTMIS(candidate, canonical, neighbour, bit, mask);
+        bool needsShift = phase == 0u ? (live && strategy != 0u) : supportBit != 0u;
+        if (needsShift)
+        {
+            // Inputs are selected first so the shift below is the only callsite.
+            PTPath source = phase == 0u ? neighbour : candidate;
+            PTVertex receiver = phase == 0u ? canonical.Vertices[0] : neighbour.Vertices[0];
+            PTPath shifted;
+            float shiftJ;
+            bool mapped = PTShift(source, receiver, phase == 0u ? bit : supportBit, shifted, shiftJ);
+            if (phase == 0u)
+            {
+                live = mapped;
+                if (mapped)
+                {
+                    candidate = shifted;
+                    jacobian = shiftJ;
+                    sourceWeight = neighbour.State.x;
+                }
+            }
+            else if (mapped)
+            {
+                float mass = neighbour.State.y * shifted.State.z * shiftJ;
+                if (PTFinite(mass) && mass >= 0.0)
+                {
+                    supportTotal += mass;
+                    if (supportBit == bit)
+                        supportOwn = mass;
+                }
+            }
+        }
+        if (phase == 0u && live)
+        {
+            float canonicalMass = canonical.State.y * candidate.State.z;
+            supportTotal = canonicalMass;
+            supportOwn = bit == 0u ? canonicalMass : 0.0;
+        }
+        if (phase != 3u || !live)
+            continue;
+        float m = supportTotal > 0.0 && PTFinite(supportTotal) ? supportOwn / supportTotal : 0.0;
         float weight = m * candidate.State.z * sourceWeight * jacobian;
         if (weight > 0.0)
         {

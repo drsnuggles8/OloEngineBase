@@ -13,6 +13,7 @@
 #include "../PathTracing/ReferenceSceneFixtures.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRPTGPU.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
@@ -55,6 +56,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -62,6 +64,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -226,6 +229,10 @@ namespace OloEngine::Tests
             ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
             queryCompletion->SubmittedFence = m_Fence;
             const VkResult waited = vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs);
+            // A lost device names its faulting address through VK_EXT_device_fault;
+            // without this the case reports only "device lost" (#1807).
+            if (waited == VK_ERROR_DEVICE_LOST)
+                m_Device->LogDeviceFaultInfo();
             ASSERT_NE(waited, VK_TIMEOUT) << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
             ASSERT_EQ(waited, VK_SUCCESS) << "Vulkan submission failed while waiting for its fence";
             queryCompletion->Completed = true;
@@ -1186,5 +1193,73 @@ namespace OloEngine::Tests
                       << observed.y << ',' << observed.z << '\n';
         }
     }
+
+    // The replay shader's stack must fit what the driver backs (#1807). NVIDIA
+    // 621.14 reserves at most 4 GiB of shader local memory for the whole GPU:
+    // 2^32 B over every resident thread, 21845 B per thread on an RTX 4090.
+    // A pipeline whose frame is larger is still created, and its first spill
+    // writes to unbacked memory and loses the device. The fragment shader
+    // needed 21984 B when the acceptance draw failed; measured on the same
+    // card, padded variants at 21776 B ran and at 21904 B faulted. This case
+    // names the number instead of reporting "device lost". It needs the
+    // driver's statistics (VK_KHR_pipeline_executable_properties) and the SM
+    // layout (VK_NV_shader_sm_builtins), so it skips on any other device.
+    class ReSTIRPTDeviceStatistics : public ReSTIRPTDevice
+    {
+      public:
+        void SetUp() override
+        {
+            m_PreviousStatistics = Levers::VulkanPipelineStatistics();
+            Levers::SetVulkanPipelineStatistics(true);
+            ReSTIRPTDevice::SetUp();
+        }
+
+        void TearDown() override
+        {
+            ReSTIRPTDevice::TearDown();
+            Levers::SetVulkanPipelineStatistics(m_PreviousStatistics);
+        }
+
+      private:
+        bool m_PreviousStatistics = false;
+    };
+
+    TEST_F(ReSTIRPTDeviceStatistics, ReplayShaderLocalMemoryFitsWhatTheDriverBacks)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        if (!m_Device->IsPipelineStatisticsEnabled())
+            GTEST_SKIP() << "This device does not offer VK_KHR_pipeline_executable_properties";
+        if (m_Device->GetShaderSMCount() == 0u || m_Device->GetShaderWarpsPerSM() == 0u)
+            GTEST_SKIP() << "No VK_NV_shader_sm_builtins: the local-memory budget below is NVIDIA's";
+        const u64 residentThreads = static_cast<u64>(m_Device->GetShaderSMCount()) * m_Device->GetShaderWarpsPerSM() * 32u;
+        const u64 budget = (1ull << 32) / residentThreads;
+
+        // Creates the pipeline, and with it the statistics. An over-budget
+        // frame also loses the device here; the check below says why.
+        Rig rig;
+        ASSERT_NO_FATAL_FAILURE(BuildRig(rig));
+        Draw(rig, 0u, 3u, 3u);
+
+        std::optional<u64> localMemory;
+        for (const auto& statistic : m_Device->GetCapturedPipelineStatistics("ReSTIR_PT"))
+        {
+            if (statistic.Executable == "FS" && statistic.Name == "Local Memory Size")
+                localMemory = statistic.Value;
+        }
+        // Statistics and the SM layout are both available here, so a missing
+        // figure is a broken guard (a renamed stage or shader), not a device
+        // that cannot answer: fail rather than go quiet.
+        ASSERT_TRUE(localMemory.has_value())
+            << "no 'Local Memory Size' statistic for ReSTIR_PT's FS executable was captured";
+        // 621.14 reports the size with bit 36 set: a vertex shader with no
+        // local memory at all reports exactly 2^36.
+        const u64 bytes = *localMemory & ((1ull << 36) - 1u);
+        std::cout << "[restir-pt] fragment local memory " << bytes << " B per thread; budget " << budget << " B ("
+                  << m_Device->GetShaderSMCount() << " SMs x " << m_Device->GetShaderWarpsPerSM() << " warps)" << std::endl;
+        EXPECT_LE(bytes, budget) << "ReSTIR_PT's fragment shader needs " << bytes
+                                 << " B of local memory per thread; the driver backs " << budget
+                                 << " B, and the excess faults on the first spill (#1807)";
+    }
+
 #endif
 } // namespace OloEngine::Tests

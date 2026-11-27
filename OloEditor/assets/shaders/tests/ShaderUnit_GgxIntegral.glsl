@@ -29,7 +29,7 @@ layout(std430, binding = 1) writeonly buffer Cells   { float u_Cells[]; };
 uniform int u_ThetaSteps;
 uniform int u_PhiSteps;
 
-#include "include/MathCommon.glsl"
+#include "../include/MathCommon.glsl"
 
 void main()
 {
