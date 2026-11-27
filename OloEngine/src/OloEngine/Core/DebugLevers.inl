@@ -239,6 +239,10 @@ OLO_LEVER_INT(VulkanParallelMinPackets, "OLO_VK_PARALLEL_MIN_PACKETS", 0,
 OLO_LEVER_INT(VulkanParallelPacketsPerItem, "OLO_VK_PARALLEL_PACKETS_PER_ITEM", 1,
               "Override every bucket replay family's minimum packets per recording item (#1340). Unset keeps each "
               "family's default; the legacy policy is \"32\".")
+OLO_LEVER_INT(VulkanParallelShadowMinWork, "OLO_VK_PARALLEL_SHADOW_MIN_WORK", 0,
+              "Override the shadow pass's fork threshold (#1340): a region whose views x submitted casters is "
+              "below it records inline. Unset keeps the measured default; \"0\" forks every multi-view region, "
+              "the pre-#1340 behaviour.")
 OLO_LEVER_INT(VulkanParallelMaxItems, "OLO_VK_PARALLEL_MAX_ITEMS", 1,
               "Override every bucket replay family's maximum recording items per region (#1340), capped at 16. "
               "Unset keeps each family's default; the legacy policy is \"16\".")

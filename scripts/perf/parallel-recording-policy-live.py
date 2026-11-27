@@ -5,7 +5,8 @@ Every arm runs in the same process and binary; only console variables change:
     off     OLO_VK_PARALLEL_RECORDING=0 (every region inline)
     legacy  the pre-#1340 rule: fork any replay that splits into two items of
             at least 32 packets, up to 16 items (OLO_VK_PARALLEL_MIN_PACKETS=64,
-            OLO_VK_PARALLEL_PACKETS_PER_ITEM=32, OLO_VK_PARALLEL_MAX_ITEMS=16)
+            OLO_VK_PARALLEL_PACKETS_PER_ITEM=32, OLO_VK_PARALLEL_MAX_ITEMS=16,
+            OLO_VK_PARALLEL_SHADOW_MIN_WORK=0)
     policy  the shipped per-family defaults (every override unset)
 
 Blocks rotate the arm order (ABC, BCA, CAB, ...). Each block warms, then samples
@@ -55,11 +56,14 @@ SCENES = {
 
 ARMS = {
     'off': {'OLO_VK_PARALLEL_RECORDING': '0', 'OLO_VK_PARALLEL_MIN_PACKETS': 'unset',
-            'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset'},
+            'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset',
+            'OLO_VK_PARALLEL_SHADOW_MIN_WORK': 'unset'},
     'legacy': {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': '64',
-               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': '32', 'OLO_VK_PARALLEL_MAX_ITEMS': '16'},
+               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': '32', 'OLO_VK_PARALLEL_MAX_ITEMS': '16',
+               'OLO_VK_PARALLEL_SHADOW_MIN_WORK': '0'},
     'policy': {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': 'unset',
-               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset'},
+               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset',
+               'OLO_VK_PARALLEL_SHADOW_MIN_WORK': 'unset'},
 }
 
 # Passes no recording region touches: their CPU time is the host-drift control.
@@ -222,7 +226,7 @@ def main() -> int:
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--scenes', nargs='+', default=['dense', 'small', 'courtyard', 'integrated'], choices=list(SCENES))
-    parser.add_argument('--arm-def', nargs='*', default=[], metavar='NAME=MIN:PER_ITEM[:MAX_ITEMS]',
+    parser.add_argument('--arm-def', nargs='*', default=[], metavar='NAME=MIN:PER_ITEM[:MAX_ITEMS[:SHADOW_MIN_WORK]]',
                         help='extra arms overriding the levers, e.g. m4=256:64:4 (for threshold sweeps)')
     parser.add_argument('--arms', nargs='+', default=list(ARMS))
     parser.add_argument('--rounds', type=int, default=2, help='each round runs every rotation of the arm order once')
@@ -240,7 +244,8 @@ def main() -> int:
         fields = values.split(':')
         ARMS[name] = {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': fields[0],
                       'OLO_VK_PARALLEL_PACKETS_PER_ITEM': fields[1],
-                      'OLO_VK_PARALLEL_MAX_ITEMS': fields[2] if len(fields) > 2 else '16'}
+                      'OLO_VK_PARALLEL_MAX_ITEMS': fields[2] if len(fields) > 2 else '16',
+                      'OLO_VK_PARALLEL_SHADOW_MIN_WORK': fields[3] if len(fields) > 3 else '0'}
     unknown = [a for a in args.arms if a not in ARMS]
     if unknown:
         parser.error(f'unknown arms {unknown}; define them with --arm-def')
