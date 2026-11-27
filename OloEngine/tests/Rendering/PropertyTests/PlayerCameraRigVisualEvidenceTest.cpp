@@ -52,13 +52,16 @@
 //   * adding an EnvironmentMapComponent for ambient light made the character
 //     render as a MIRROR of the skybox (a photograph of sea and mountains)
 //     even at metallic 0 / roughness 1;
-//   * with that removed, the character is drawn from INSIDE (the first-person
-//     pose shows it) but not from a correctly-aimed camera 4 m behind.
-// That last one is the important part, and the second test below is the
-// one-switch control that settles it: an EDITOR camera posed at the exact same
-// eye sees exactly the same thing. So the character's absence at range is a
-// property of how this synthetic scene submits its primitive mesh, NOT of the
-// rig — and the two paths agreeing is asserted rather than assumed.
+//   * with that removed, the character was drawn from INSIDE (the first-person
+//     pose showed it) but not from a correctly-aimed camera 4 m behind.
+// That last one was the fixture, not the rig: the rig camera was left at
+// SceneCamera's default ORTHOGRAPHIC projection (near -1, far +1), so it drew
+// a 2 m slab of the world. The orange classifier also rejected the lit
+// character (about (184, 140, 72): r/g 1.31 against a 1.4 bound) in BOTH
+// frames, so the editor-camera control below "agreed" with a broken rig until
+// a lighting change moved a few pixels over the line (#1803). The camera is
+// now perspective, the classifier accepts the lit hue, and the control
+// asserts that both paths see the character rather than that they agree.
 //
 // The PNGs remain the human-readable evidence; the numbers above are what CI
 // enforces. No golden comparison: the exact pixels depend on the primitive
@@ -146,7 +149,11 @@ namespace OloEngine::Tests
                 // Red dominant over green, and far over blue — the signature of
                 // this albedo under any exposure. The small floor only rejects
                 // near-black pixels where the ratios are numerical noise.
-                if (r > 16.0 && r > g * 1.4 && r > b * 2.0)
+                // Lit through the ClosureV2 closure and the tone map, the
+                // (0.95, 0.35, 0.05) albedo lands near (184, 140, 72): r/g 1.31.
+                // Nothing else in the scene has r > g (ground and wall are
+                // blue-grey, the landmark is blue), so 1.15 still separates it.
+                if (r > 16.0 && r > g * 1.15 && r > b * 2.0)
                     ++hits;
                 ++total;
             }
@@ -274,6 +281,11 @@ namespace OloEngine::Tests
             {
                 auto& cc = m_Camera.AddComponent<CameraComponent>();
                 cc.Primary = true; // RunFrames renders from this
+                // SceneCamera defaults to ORTHOGRAPHIC with near -1 / far +1, and
+                // the perspective setters below do not change the type. Without
+                // this line the rig rendered a 2 m orthographic slab of the world:
+                // a thin floor band, no character, no landmark (#1803).
+                cc.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
                 cc.Camera.SetPerspectiveVerticalFOV(glm::radians(60.0f));
                 cc.Camera.SetPerspectiveNearClip(0.05f);
                 cc.Camera.SetPerspectiveFarClip(1000.0f);
@@ -480,7 +492,11 @@ namespace OloEngine::Tests
         CameraRig().m_BoomLength = 0.0f;
         CameraRig().m_PivotOffset = { 0.0f, 0.75f, 0.0f };
         CameraRig().m_Initialized = false; // adopt the new pose outright
-        PlayerRig().m_YawDeg = 180.0f;     // turn round to face the landmark
+        // Away from the wall the character backed into, towards the landmark:
+        // yaw 0 looks down -Z. This was 180, which faced the wall 2.2 m away;
+        // the orthographic camera hid that, and a perspective one filled the
+        // frame with flat wall (#1803).
+        PlayerRig().m_YawDeg = 0.0f;
         PlayerRig().m_PitchDeg = 0.0f;
 
         std::vector<u8> firstPersonFrame;
@@ -501,15 +517,11 @@ namespace OloEngine::Tests
 
     // A/B control for the captures above.
     //
-    // The rig captures show the character only from INSIDE it (the
-    // first-person pose); from a correctly-aimed camera 4 m behind, the frame
-    // is the clear colour. That is either "the rig camera path is wrong" or
-    // "this scene does not draw that mesh at that distance, whoever is
-    // looking". One switch separates them: pose an EDITOR camera at the exact
-    // same eye/orientation the rig produced and render through the editor path
-    // instead. Same pixels => the rig camera is fine and the gap is in how this
-    // synthetic scene submits its primitive mesh; different pixels => the rig
-    // is the difference and this test has found a real bug.
+    // Pose an EDITOR camera at the exact eye/orientation the rig produced and
+    // render through the editor path instead. The character stands 4 m ahead
+    // of both, so both must show it. "Both agree" alone is not enough: it was
+    // satisfied from the start by a rig camera that drew nothing and a classifier
+    // that missed the character in the editor frame too (#1803).
     TEST_F(PlayerCameraRigVisualEvidenceTest, EditorCameraAtTheRigPoseSeesTheSameThing)
     {
         std::vector<u8> rigFrame;
@@ -542,16 +554,17 @@ namespace OloEngine::Tests
                   << ")  orange=" << OrangePixelFraction(editorFrame)
                   << "  lumStd=" << LuminanceStdDev(editorFrame) << std::endl;
 
-        // Both paths must agree about whether the character is on screen. This
-        // is the assertion that would catch a rig placing the camera somewhere
-        // the numbers say is right but the view disagrees with.
-        const bool rigSeesCharacter = OrangePixelFraction(rigFrame) > 0.0005;
-        const bool editorSeesCharacter = OrangePixelFraction(editorFrame) > 0.0005;
-        EXPECT_EQ(rigSeesCharacter, editorSeesCharacter)
-            << "the rig camera and an editor camera at the SAME pose disagree about whether the "
-               "character is visible (rig "
-            << OrangePixelFraction(rigFrame) << " vs editor "
-            << OrangePixelFraction(editorFrame) << ") — the rig is placing or orienting the camera wrongly";
+        // Both paths must see the character. The editor half says the scene
+        // draws it at this pose; the rig half is the assertion that catches a
+        // rig placing or projecting the camera somewhere the numbers say is
+        // right but the view disagrees with.
+        EXPECT_GT(OrangePixelFraction(editorFrame), 0.005)
+            << "an editor camera at the rig's pose does not see the character 4 m ahead; see "
+            << controlOut.string();
+        EXPECT_GT(OrangePixelFraction(rigFrame), 0.005)
+            << "the rig camera does not see the character 4 m ahead (rig " << OrangePixelFraction(rigFrame)
+            << " vs editor " << OrangePixelFraction(editorFrame)
+            << ") — the rig is placing, orienting or projecting the camera wrongly";
     }
 
 } // namespace OloEngine::Tests
