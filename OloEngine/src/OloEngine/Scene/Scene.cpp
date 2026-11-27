@@ -3197,15 +3197,32 @@ namespace OloEngine
         // A root's parent frame is the world, so its authored values are its
         // world pose, bit for bit.
         const auto& local = m_Registry.get<TransformComponent>(entity);
-        WorldPose pose(local.Translation, local.GetRotation(), local.Scale);
-        if (ResolveTransformParent(entity) != entt::null)
-        {
-            const glm::mat4 world = ComputeWorldTransform(entity);
-            glm::quat rotation;
-            if (SplitWorldMatrix(world, pose.Position, rotation, pose.Scale, /*allowCollapsedAxis=*/true))
-                pose.Rotation = rotation;
-        }
-        return pose;
+        const entt::entity parent = ResolveTransformParent(entity);
+        if (parent == entt::null)
+            return WorldPose(local.Translation, local.GetRotation(), local.Scale);
+
+        const glm::mat4 world = ComputeWorldTransform(entity);
+        glm::vec3 position;
+        glm::quat rotation;
+        glm::vec3 scale;
+        if (SplitWorldMatrix(world, position, rotation, scale, /*allowCollapsedAxis=*/true))
+            return WorldPose(position, rotation, scale);
+
+        // Fewer than two axes survive (or the frame is not finite), so the
+        // composed basis holds no rotation. The authored local rotation is in
+        // the parent's frame, so compose the chain's rotations alone: the
+        // parent's world rotation, its bone's, then this entity's.
+        glm::quat chain = ComputeWorldTRS(parent).Rotation;
+        glm::vec3 unusedPosition;
+        glm::vec3 unusedScale;
+        if (glm::quat bone; SplitWorldMatrix(GetAttachmentBasis(entity, parent), unusedPosition, bone, unusedScale))
+            chain = chain * bone;
+        // Position and scale are the composed translation and column lengths.
+        // A non-finite parent leaves them non-finite: placement consumers
+        // check Math::IsFinite and refuse, rather than read a local value.
+        return WorldPose(glm::vec3(world[3]),
+                         glm::normalize(chain * local.GetRotation()),
+                         { glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])), glm::length(glm::vec3(world[2])) });
     }
 
     bool Scene::TrySetWorldPosition(entt::entity entity, const glm::vec3& position)

@@ -33,6 +33,7 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Pose.h"
@@ -46,9 +47,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <set>
+#include <limits>
+#include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace OloEngine::Tests
@@ -222,14 +225,19 @@ namespace OloEngine::Tests
     TEST(WorldPoseContract, OnlySolverReadbackVouchesForAWorldPose)
     {
         const fs::path repo = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-        const std::set<std::string, std::less<>> allowed = {
-            "OloEngine/src/OloEngine/Physics3D/JoltScene.cpp", // rigid body readback
-            "OloEngine/src/OloEngine/Scene/Scene.cpp",         // character controller readback
+        // Counted per call, not per file: both allowed files are large and
+        // read TransformComponent elsewhere, so a second call in either must
+        // fail here too.
+        const std::map<std::string, u32, std::less<>> allowed = {
+            { "OloEngine/src/OloEngine/Physics3D/JoltScene.cpp", 1u }, // rigid body readback
+            { "OloEngine/src/OloEngine/Scene/Scene.cpp", 1u },         // character controller readback
         };
 
-        std::set<std::string, std::less<>> callers;
+        std::map<std::string, u32, std::less<>> callers;
         u32 scanned = 0;
-        for (const fs::path& root : { repo / "OloEngine" / "src", repo / "OloEditor" / "src" })
+        const fs::path roots[] = { repo / "OloEngine" / "src", repo / "OloEditor" / "src", repo / "OloRuntime" / "src",
+                                   repo / "OloServer" / "src", repo / "OloEditor" / "KestrelProject" };
+        for (const fs::path& root : roots)
         {
             std::error_code ec;
             for (fs::recursive_directory_iterator it(root, ec), end; it != end; it.increment(ec))
@@ -238,11 +246,16 @@ namespace OloEngine::Tests
                 if (ec || !it->is_regular_file(entryEc) || entryEc)
                     continue;
                 const std::string extension = it->path().extension().string();
-                if (extension != ".cpp" && extension != ".h" && extension != ".inl")
+                if (extension != ".cpp" && extension != ".h" && extension != ".hpp" && extension != ".inl")
                     continue;
                 ++scanned;
-                if (ReadFile(it->path()).find("WorldPose::FromSimulation(") != std::string::npos)
-                    callers.insert(fs::relative(it->path(), repo).generic_string());
+                const std::string text = ReadFile(it->path());
+                constexpr std::string_view kCall = "WorldPose::FromSimulation(";
+                u32 count = 0;
+                for (sizet at = text.find(kCall); at != std::string::npos; at = text.find(kCall, at + kCall.size()))
+                    ++count;
+                if (count > 0)
+                    callers[fs::relative(it->path(), repo).generic_string()] = count;
             }
         }
 
@@ -251,7 +264,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(callers, allowed)
             << "WorldPose::FromSimulation vouches that a pose is already in world space. A new caller must "
                "read from a world-space source (a solver body), never from a TransformComponent; add it to "
-               "the allowed set here with the reason.";
+               "the allowed map here with the reason.";
     }
 
     // -----------------------------------------------------------------------
@@ -312,7 +325,7 @@ namespace OloEngine::Tests
             EXPECT_TRUE(scene->HasSingularParentFrame(child, /*planar=*/false));
         }
         {
-            SCOPED_TRACE("every axis collapsed: no world rotation exists, the authored one is kept");
+            SCOPED_TRACE("every axis collapsed: the basis holds no rotation, so the chain's rotations compose");
             auto scene = Ref<Scene>::Create();
             Entity parent = scene->CreateEntity("Collapsed");
             Author(parent, { 5.0f, 1.0f, -2.0f }, yaw, glm::vec3(0.0f));
@@ -322,7 +335,9 @@ namespace OloEngine::Tests
 
             const WorldPose pose = scene->ComputeWorldTRS(child);
             ExpectVec3Near(pose.Position, { 5.0f, 1.0f, -2.0f }, 1.0e-6f, "everything collapses onto the parent origin");
-            ExpectSameRotation(pose.Rotation, childRotation, "authored local rotation");
+            // Not the authored local rotation alone: that is parent-relative,
+            // the #1714 bug class this type exists to stop.
+            ExpectSameRotation(pose.Rotation, yaw * childRotation, "parent rotation, then the local one");
             ExpectVec3Near(pose.Scale, glm::vec3(0.0f), 0.0f, "scale");
 
             // A world-space write cannot be expressed in a singular frame,
@@ -331,6 +346,50 @@ namespace OloEngine::Tests
             EXPECT_FALSE(scene->TrySetWorldPosition(child, { 9.0f, 9.0f, 9.0f }));
             ExpectVec3Near(child.GetComponent<TransformComponent>().Translation, before, 0.0f, "local pose untouched");
         }
+    }
+
+    TEST(WorldPoseContract, NonFiniteParentGivesANonFinitePositionNotALocalOne)
+    {
+        // Placement consumers check Math::IsFinite and refuse such a pose
+        // (JoltRefusesABodyUnderANonFiniteParent). Before #1797 the split
+        // wrote the NaN position and then returned the local rotation.
+        const glm::quat yaw = glm::angleAxis(glm::radians(30.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        auto scene = Ref<Scene>::Create();
+        Entity parent = scene->CreateEntity("Broken");
+        Author(parent, { 5.0f, 1.0f, -2.0f }, yaw, { std::numeric_limits<f32>::quiet_NaN(), 1.0f, 1.0f });
+        Entity child = scene->CreateEntity("Child");
+        child.SetParent(parent);
+        Author(child, { 1.0f, 0.0f, 0.0f }, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(1.0f));
+
+        const WorldPose pose = scene->ComputeWorldTRS(child);
+        EXPECT_FALSE(Math::IsFinite(pose.Position));
+        ExpectSameRotation(pose.Rotation, yaw, "the chain's rotation is still finite and in world space");
+    }
+
+    TEST(WorldPoseContract, MirroredTwinsShareTheFrameButNotTheDecomposition)
+    {
+        // A root keeps its authored signs. A parented pose comes from the
+        // composed matrix, which cannot say which axis was mirrored, so the
+        // split puts the sign on Z (the convention physics writeback inverts).
+        // The frame both poses rebuild is the same. Choosing one convention for
+        // both is filed separately (see the PR's "Filed, not fixed").
+        auto scene = Ref<Scene>::Create();
+        Entity mirror = scene->CreateEntity("Mirror");
+        Author(mirror, { 3.0f, 0.0f, 0.0f }, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), { -1.0f, 1.0f, 1.0f });
+        Entity child = scene->CreateEntity("Child");
+        child.SetParent(mirror);
+        Entity twin = scene->CreateEntity("RootTwin");
+        Author(twin, { 3.0f, 0.0f, 0.0f }, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), { -1.0f, 1.0f, 1.0f });
+
+        const WorldPose parented = scene->ComputeWorldTRS(child);
+        const WorldPose root = scene->ComputeWorldTRS(twin);
+        const auto basis = [](const WorldPose& p)
+        { return glm::mat3_cast(p.Rotation) * glm::mat3(glm::scale(glm::mat4(1.0f), p.Scale)); };
+        for (int column = 0; column < 3; ++column)
+            ExpectVec3Near(basis(parented)[column], basis(root)[column], 1.0e-5f, "same rebuilt frame");
+        ExpectVec3Near(parented.Position, root.Position, 1.0e-6f, "position");
+        EXPECT_LT(root.Scale.x, 0.0f) << "root: the authored sign";
+        EXPECT_LT(parented.Scale.z, 0.0f) << "parented: the sign on Z";
     }
 
     TEST(WorldPoseContract, ComputeIsValidBeforeTheFirstPropagationAndGetIsNot)

@@ -33,9 +33,14 @@ namespace OloEngine
     //     a consumer that needs the exact affine frame uses
     //     Scene::ComputeWorldTransform.
     //   * Scale is the composed column lengths, with Z negated for a mirror.
+    //     A root keeps its authored values, signs included, so a mirrored root
+    //     and a mirrored parented twin rebuild the same frame from different
+    //     Rotation/Scale pairs.
     //   * Under a parent that collapses one axis, the two surviving axes still
-    //     define Rotation. When fewer survive, Rotation is the authored local
-    //     rotation, because no world rotation exists.
+    //     define Rotation. When fewer survive, the basis holds no rotation, so
+    //     Rotation composes the chain's rotations alone.
+    //   * A non-finite parent frame leaves Position and Scale non-finite.
+    //     Placement consumers check Math::IsFinite and refuse such a pose.
     class WorldPose
     {
       public:

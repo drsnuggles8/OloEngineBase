@@ -37,12 +37,18 @@ Issue #1797.
    Z = X x Y. Scale is the column lengths, with Z negated for a mirror. Under shear (a nonuniform
    parent above a rotated child) the rotation and scale are an approximation, so a consumer that
    needs the exact frame uses `ComputeWorldTransform`. Under a parent that collapses one axis, the
-   two surviving axes still define the rotation. When fewer survive there is no world rotation,
-   and `ComputeWorldTRS` keeps the authored local rotation.
-7. **Writeback under a singular parent leaves the local pose alone.** `TrySetWorldPosition` /
+   two surviving axes still define the rotation. When fewer survive the basis holds no rotation,
+   and `ComputeWorldTRS` composes the chain's rotations alone (parent world rotation, bone, local),
+   never the bare local rotation. A root keeps its authored values, signs included, so a mirrored
+   root and a mirrored parented twin rebuild the same frame from different rotation/scale pairs:
+   do not read a facing direction from `Rotation` alone on a mirrored entity.
+7. **A placement consumer refuses a non-finite pose.** A NaN or infinite parent frame leaves
+   `Position` and `Scale` non-finite. `JoltBody::CreateJoltBody` and
+   `JoltCharacterController::Create` check `Math::IsFinite`, log, and create nothing.
+8. **Writeback under a singular parent leaves the local pose alone.** `TrySetWorldPosition` /
    `TrySetWorldRotation` return `false`, and `SetPhysicsWorldPose` logs once through
    `ReportPhysicsWriteback`. Physics keeps world authority until the frame recovers (#1778).
-8. **Do not add a second propagation or cache.** `PropagateWorldTransforms` is the one hierarchy
+9. **Do not add a second propagation or cache.** `PropagateWorldTransforms` is the one hierarchy
    sweep. `WorldPose` is a 40-byte, trivially copyable value with the same layout as the struct it
    replaced, so the boundary adds no runtime work.
 
