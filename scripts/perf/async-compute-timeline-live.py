@@ -134,7 +134,12 @@ def main() -> int:
         'graphicsBusyMs': median([(r['queueOverlap'] or {}).get('graphicsBusyMs') for r in rows]),
         'asyncComputeBusyMs': median([(r['queueOverlap'] or {}).get('asyncComputeBusyMs') for r in rows]),
         'overlapMs': median([(r['queueOverlap'] or {}).get('overlapMs') for r in rows]),
-        'overlapMsMax': max(((r['queueOverlap'] or {}).get('overlapMs') or 0.0) for r in rows),
+        # null overlap = compute offsets withheld (no guaranteed shared
+        # timestamp domain): unknown, never counted as zero.
+        'overlapMsMax': max([v for v in ((r['queueOverlap'] or {}).get('overlapMs') for r in rows) if v is not None],
+                            default=None),
+        'framesWithOverlapUnavailable': sum(1 for r in rows if (r['queueOverlap'] or {}).get('overlapMs') is None),
+        'timeDomains': sorted({(r['queueOverlap'] or {}).get('timeDomain') or '' for r in rows} - {''}),
         'batchesOnComputeQueue': median([(r['asyncCompute'] or {}).get('batchesOnComputeQueue') for r in rows]),
         'batchesDeclined': median([(r['asyncCompute'] or {}).get('batchesDeclined') for r in rows]),
         'declineReasons': sorted({(r['asyncCompute'] or {}).get('declineReason') or '' for r in rows} - {''}),

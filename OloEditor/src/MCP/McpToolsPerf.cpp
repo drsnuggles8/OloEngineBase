@@ -507,6 +507,7 @@ namespace OloEngine::MCP
                 totals.AsyncCompute.OwnershipTransfers = ac.OwnershipTransfers;
                 totals.AsyncCompute.ComputeSubmits = ac.ComputeSubmits;
                 totals.AsyncCompute.DeclineReason = std::string(ac.DeclineReason);
+                totals.AsyncCompute.QueueTimestampsShareOneDomain = ac.QueueTimestampsShareOneDomain;
                 totals.GpuResultsAgeFrames = gpuFrame.AgeFrames;
                 totals.GpuMeasurementFrameId = gpuFrame.FrameNumber;
                 totals.CurrentFrameId = gpuFrame.CurrentFrameNumber;

@@ -1122,7 +1122,10 @@ namespace OloEngine
 
     RendererAPI::AsyncComputeFrameStats VulkanRendererAPI::GetAsyncComputeStats() const
     {
-        return m_AsyncComputeStats;
+        AsyncComputeFrameStats stats = m_AsyncComputeStats;
+        const auto* device = VulkanDevice::Get();
+        stats.QueueTimestampsShareOneDomain = device != nullptr && device->DoQueueTimestampsShareOneDomain();
+        return stats;
     }
 
     bool VulkanRendererAPI::WriteBufferDeviceAddress(const RHI::ResourceHandle destination, const u32 destinationOffset,

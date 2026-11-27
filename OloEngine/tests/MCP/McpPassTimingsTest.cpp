@@ -469,12 +469,43 @@ TEST(McpPassTimingsTest, QueueOverlapUnionsEachQueueAndIntersectsThem)
     EXPECT_EQ(overlap.Batches[0].Passes, 2u);
     EXPECT_EQ(overlap.Batches[1].Queue, GPUPassQueue::Graphics);
 
-    const Json o = BuildPassTimings(passes, {}, MakeTotals());
+    FrameTotals oneDomain = MakeTotals();
+    oneDomain.AsyncCompute.QueueTimestampsShareOneDomain = true;
+    const Json o = BuildPassTimings(passes, {}, oneDomain);
+    EXPECT_EQ(o["queueOverlap"]["timeDomain"], "oneDeviceTimeDomain");
     EXPECT_DOUBLE_EQ(o["queueOverlap"]["overlapMs"].get<double>(), 2.0);
+    EXPECT_FALSE(o["queueOverlap"].contains("withheldComputeOffsets"));
     EXPECT_EQ(o["queueOverlap"]["batches"].size(), 2u);
     EXPECT_EQ(o["passes"][2]["queue"], "asyncCompute");
     EXPECT_EQ(o["passes"][2]["asyncBatch"].get<int>(), 0);
     EXPECT_DOUBLE_EQ(o["passes"][2]["beginMs"].get<double>(), 2.0);
+
+    // Without a guaranteed shared domain the same frame places no compute
+    // pass on the graphics axis, and overlap is unknown, not zero.
+    const Json unverified = BuildPassTimings(passes, {}, MakeTotals());
+    const Json& q = unverified["queueOverlap"];
+    EXPECT_EQ(q["timeDomain"], "unverified");
+    EXPECT_TRUE(q["overlapMs"].is_null());
+    EXPECT_TRUE(q["asyncComputeBusyMs"].is_null());
+    EXPECT_EQ(q["withheldComputeOffsets"].get<int>(), 2);
+    EXPECT_TRUE(q.contains("overlapUnavailableReason"));
+    EXPECT_FALSE(unverified["passes"][2].contains("beginMs"));
+    EXPECT_FALSE(q["batches"][0].contains("beginMs"));
+    EXPECT_DOUBLE_EQ(unverified["passes"][0]["beginMs"].get<double>(), 1.0); // graphics offsets stay
+    EXPECT_DOUBLE_EQ(q["graphicsBusyMs"].get<double>(), 3.5);
+}
+
+// A frame with no compute-queue work needs no cross-queue comparison: its
+// zero overlap stands even when the domain is unverified.
+TEST(McpPassTimingsTest, QueueOverlapWithoutComputeWorkNeedsNoSharedDomain)
+{
+    using OloEngine::GPUPassQueue;
+    const std::vector<GpuPassEntry> passes{ Timed("ShadowPass", 1.0, 3.0, GPUPassQueue::Graphics),
+                                            Timed("GTAOPass", 3.0, 3.5, GPUPassQueue::Graphics, 0) };
+    const Json q = BuildPassTimings(passes, {}, MakeTotals())["queueOverlap"];
+    EXPECT_EQ(q["timeDomain"], "unverified");
+    EXPECT_DOUBLE_EQ(q["overlapMs"].get<double>(), 0.0);
+    EXPECT_FALSE(q.contains("withheldComputeOffsets"));
 }
 
 // An interval without offsets (an unreadable frame-begin stamp) is never
@@ -510,5 +541,5 @@ TEST(McpPassTimingsTest, QueueOverlapCountsOrphanSubPassesButNotNestedOnes)
     EXPECT_NEAR(overlap.GraphicsBusyMs, 3.0, 1e-9);
     EXPECT_NEAR(overlap.AsyncComputeBusyMs, 1.0, 1e-9);
     EXPECT_NEAR(overlap.OverlapMs, 1.0, 1e-9);
-    EXPECT_EQ(BuildPassTimings(passes, {}, MakeTotals())["queueOverlap"]["timeDomain"], "assumesOneDeviceTimeDomain");
+    EXPECT_EQ(BuildPassTimings(passes, {}, MakeTotals())["queueOverlap"]["timeDomain"], "unverified");
 }

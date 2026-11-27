@@ -430,6 +430,10 @@ namespace OloEngine
             /// Why the last decline happened; empty when nothing declined.
             /// A view over a string literal — no allocation, no lifetime.
             std::string_view DeclineReason;
+            /// The device guarantees one timestamp time domain across its
+            /// queues (Vulkan: calibrated timestamps enabled), so async-compute
+            /// pass offsets compare with the graphics queue's (#1341).
+            bool QueueTimestampsShareOneDomain = false;
         };
         [[nodiscard]] virtual AsyncComputeFrameStats GetAsyncComputeStats() const
         {

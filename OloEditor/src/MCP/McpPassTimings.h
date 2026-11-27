@@ -233,6 +233,10 @@ namespace OloEngine::MCP::PassTimings
         u32 OwnershipTransfers = 0;
         u32 ComputeSubmits = 0;
         std::string DeclineReason;
+        // The device guarantees one timestamp domain across queues (#1341).
+        // Without it an async-compute offset cannot be placed on the graphics
+        // queue's frame axis, so BuildPassTimings withholds those offsets.
+        bool QueueTimestampsShareOneDomain = false;
     };
 
     struct FrameTotals
@@ -310,10 +314,30 @@ namespace OloEngine::MCP::PassTimings
     // It used to be re-derived here by looking for a '/' in the name, so a pass
     // whose own name contained a slash was misfiled as somebody's sub-pass and
     // its GPU time silently left out of the frame total.
-    [[nodiscard]] inline Json BuildPassTimings(const std::vector<GpuPassEntry>& gpuPasses,
+    [[nodiscard]] inline Json BuildPassTimings(const std::vector<GpuPassEntry>& measuredPasses,
                                                const std::vector<CpuPassEntry>& cpuPasses,
                                                const FrameTotals& totals)
     {
+        // #1341: every offset is measured from the graphics queue's frame-begin
+        // stamp. An async-compute pass's offset compares timestamps across
+        // queues, which Vulkan defines only when the device guarantees one time
+        // domain (calibrated timestamps). Without that guarantee those offsets
+        // are withheld here, so neither the pass list nor queueOverlap places
+        // compute work on an axis it may not share.
+        const bool oneTimeDomain = totals.AsyncCompute.QueueTimestampsShareOneDomain;
+        u32 withheldComputeOffsets = 0;
+        std::vector<GpuPassEntry> gpuPasses = measuredPasses;
+        if (!oneTimeDomain)
+        {
+            for (auto& pass : gpuPasses)
+            {
+                if (pass.Queue == GPUPassQueue::AsyncCompute && pass.HasOffsets)
+                {
+                    pass.HasOffsets = false;
+                    ++withheldComputeOffsets;
+                }
+            }
+        }
         Json passes = Json::array();
         // The total comes from the pool's own rule, not a loop of this file's:
         // a sub-pass whose parent is in the list is inside that bracket and
@@ -461,17 +485,27 @@ namespace OloEngine::MCP::PassTimings
                 }
                 batches.push_back(std::move(b));
             }
-            o["queueOverlap"] = Json{ { "graphicsBusyMs", Round3(overlap.GraphicsBusyMs) },
-                                      { "asyncComputeBusyMs", Round3(overlap.AsyncComputeBusyMs) },
-                                      { "overlapMs", Round3(overlap.OverlapMs) },
-                                      { "asyncComputeIntervals", overlap.AsyncComputeIntervals },
-                                      // Every offset is measured from the graphics queue's
-                                      // frame-begin stamp. An async-compute interval is
-                                      // placed on that axis assuming the device writes all
-                                      // queues' timestamps in one time domain; the engine
-                                      // does not use VK_KHR_calibrated_timestamps to prove it.
-                                      { "timeDomain", "assumesOneDeviceTimeDomain" },
-                                      { "batches", std::move(batches) } };
+            Json queueOverlap{ { "graphicsBusyMs", Round3(overlap.GraphicsBusyMs) },
+                               { "asyncComputeBusyMs", Round3(overlap.AsyncComputeBusyMs) },
+                               { "overlapMs", Round3(overlap.OverlapMs) },
+                               { "asyncComputeIntervals", overlap.AsyncComputeIntervals },
+                               // "oneDeviceTimeDomain": the device guarantees it
+                               // (Vulkan calibrated timestamps enabled).
+                               // "unverified": compute-queue offsets are withheld.
+                               { "timeDomain", oneTimeDomain ? "oneDeviceTimeDomain" : "unverified" },
+                               { "batches", std::move(batches) } };
+            if (withheldComputeOffsets > 0)
+            {
+                // Compute work ran, but its place on the frame axis is
+                // unknown: zero would claim "no overlap" without evidence.
+                queueOverlap["overlapMs"] = nullptr;
+                queueOverlap["asyncComputeBusyMs"] = nullptr;
+                queueOverlap["withheldComputeOffsets"] = withheldComputeOffsets;
+                queueOverlap["overlapUnavailableReason"] =
+                    "the device does not guarantee one timestamp domain across queues (no calibrated timestamps), "
+                    "so async-compute offsets cannot be placed on the graphics queue's frame axis";
+            }
+            o["queueOverlap"] = std::move(queueOverlap);
         }
         // Parallel command recorder telemetry (#806). Counters go out as
         // integers. The block is always present (zeros on a backend that never

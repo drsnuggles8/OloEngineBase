@@ -942,6 +942,48 @@ TEST(VulkanAsyncComputeDevice, AnUnsetLeverKeepsTheBatchOnTheGraphicsQueueAndSay
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
+// #1341: the GPU queue timeline places compute-queue passes on the graphics
+// queue's frame axis, which Vulkan defines only when the device supports
+// calibrated timestamps (one time domain for all queues). The device enables
+// the extension whenever the physical device lists it, and the RHI stats say
+// so; a device without it reports the comparison as unverified.
+TEST(VulkanAsyncComputeDevice, QueueTimestampsShareOneDomainExactlyWhenCalibratedTimestampsAreListed)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+
+    ScopedHiddenVulkanWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanContext context(window.Get());
+    try
+    {
+        context.Init();
+    }
+    catch (const std::exception& e)
+    {
+        GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+    }
+    RenderCommand::Init();
+    auto* device = VulkanDevice::Get();
+    ASSERT_NE(device, nullptr);
+
+    u32 count = 0u;
+    vkEnumerateDeviceExtensionProperties(device->GetPhysicalDevice(), nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> available(count);
+    vkEnumerateDeviceExtensionProperties(device->GetPhysicalDevice(), nullptr, &count, available.data());
+    const bool listed = std::ranges::any_of(available, [](const VkExtensionProperties& p)
+                                            {
+        const std::string_view name(p.extensionName);
+        return name == VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME || name == VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME; });
+
+    EXPECT_EQ(device->DoQueueTimestampsShareOneDomain(), listed);
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    EXPECT_EQ(api.GetAsyncComputeStats().QueueTimestampsShareOneDomain, listed)
+        << "olo_perf_pass_timings reads the flag through the RHI stats";
+}
+
 // #1341: early submission cannot strand the release halves. While a batch is
 // open the graphics buffer is parked, holding the releases the batch's
 // transfers append; a render-graph fence segment submitted then would end the

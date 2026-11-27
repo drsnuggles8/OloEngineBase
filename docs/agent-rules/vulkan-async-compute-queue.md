@@ -120,7 +120,9 @@ Read the counters through `olo_perf_pass_timings`; a session that expects overla
   (Courtyard, three batches): 0 ms of overlap, +2.3 ms of GPU frame time
   ([vulkan-async-compute-overlap-1341.md](../analysis/vulkan-async-compute-overlap-1341.md)).
   `OLO_VK_ASYNC_COMPUTE=1` crosses; unset declines with a named reason. Read
-  `queueOverlap.overlapMs` in `olo_perf_pass_timings` before claiming a gain from the queue.
+  `queueOverlap.overlapMs` in `olo_perf_pass_timings` before claiming a gain from the queue; it is
+  null (`timeDomain: unverified`) on a device without calibrated timestamps, where queues are not
+  guaranteed one timestamp domain.
 - **It does not reorder passes.** The compute hoist in `RenderGraph::HoistComputePasses` decides
   what may run early and it respects every dependency edge, including the resource-derived ones.
   Async compute overlaps what the schedule already allows to overlap; it does not create the
