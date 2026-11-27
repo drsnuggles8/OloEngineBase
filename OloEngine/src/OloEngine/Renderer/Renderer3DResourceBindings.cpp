@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
+#include <glm/gtc/epsilon.hpp>
+
 namespace OloEngine
 {
     auto Renderer3D::GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*
@@ -130,7 +132,15 @@ namespace OloEngine
             return;
         }
 
+        const glm::vec2 previousBounds = s_Data.RGraph->GetRenderScaleBounds();
         s_Data.RGraph->SetRenderScale(scale);
+        // The retained occlusion pyramid holds last frame's depth in the old
+        // corner; mapped through the new bounds it would cull against the wrong
+        // texels, so a bounds change drops it until the next frame rebuilds it.
+        if (glm::any(glm::epsilonNotEqual(previousBounds, s_Data.RGraph->GetRenderScaleBounds(), 1.0e-6f)))
+        {
+            s_Data.View.OcclusionHZBValid = false;
+        }
 
         // Upload immediately so the DRS UBO reflects the new scale even if called
         // outside the normal `RenderPipeline::PrepareFrame(...)` path (e.g. from
