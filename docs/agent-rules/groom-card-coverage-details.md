@@ -93,6 +93,32 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    `tools/dog-authoring/set_card_tier.py` re-authors a committed archive's cell. Widening the fibre
    lobes by the members' tangent spread does not help: 0.25 rad moved the step 1.2%.
 
+10. **A card's sky is its members' visibility-weighted mean, not its outer strand's (#1625).** The
+    ambient march runs along the fibre's eye-facing normal, nearly the view direction, so a member
+    the eye sees well also sees the sky well. With the lock uniform between its viewer-side surface
+    and its axis and q the transmittance of that front half, the mean is (1 + q^2) / 2 of what the
+    surface sees in front and q^2 of what the far-side surface sees behind
+    (`oloGroomLockFrontTransmittance`, `GroomStrand.glsl`). The surface is 0.6 of the cooked
+    (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the members'
+    covered width, not the lock's depth along the sky. Sun off, uniform sky, converged volume, card
+    over strand sky shadow on both horses from four directions
+    (`GroomAnimalsAcceptanceEvidenceTest.TheCardTierShadowsTheSkyAsItsStrandsDo`):
+
+    | march from | lock share | short coat | long coat |
+    |---|---|---|---|
+    | the drawn tube's surface (rule 4a) | none | 1.33-1.88 | 1.04-1.18 |
+    | the axis | none | 0.50-0.69 | 0.91-0.95 |
+    | 1.0 x cooked radius | yes | 0.99-1.17 | 0.97-1.00 |
+    | 0.75 x | yes | 0.97-1.10 | 0.96-0.98 |
+    | **0.6 x** | yes | **0.95-1.05** | **0.95-0.98** |
+    | 0.5 x | yes | 0.92-1.01 | 0.93-0.96 |
+
+    The short coat's residue at 1.0 x was its mane and tail alone (body-only coat 0.97-1.00,
+    long-hair-only 1.09-1.23). A strand's radius is under half a march step, so the strand tier skips
+    the second march and is unchanged. Rule 4a still holds for every light. At the SHIPPED coat-shadow
+    LOD the short coat is inside one voxel and the cards still keep up to 2x its sky (#1815), so
+    `GroomAnimalsAcceptanceEvidenceTest`'s coverage case keeps its black sky.
+
 ## Measured
 
 `TheCoatKeepsItsCoverageFromNearToFar`, GL, frozen pose, ladder on / off, after #1533 (rule 4a,
