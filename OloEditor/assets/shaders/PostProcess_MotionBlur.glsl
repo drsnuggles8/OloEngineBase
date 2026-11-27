@@ -161,12 +161,15 @@ void main()
     vec3 result = texture(u_Texture, v_TexCoord).rgb;
     float totalWeight = 1.0;
 
+    // Half a texel inside the rendered corner: a tap clamped to the frame edge
+    // must not blend in the first texel of the unrendered margin.
+    vec2 sampleMax = oloRenderScaleBounds() - 0.5 / vec2(textureSize(u_Texture, 0));
     int numSamples = u_MotionBlurSamples;
     for (int i = 1; i < numSamples; i++)
     {
         float t = float(i) / float(numSamples - 1) - 0.5; // [-0.5, 0.5]
         vec2 sampleUV = v_TexCoord + velocity * t;
-        sampleUV = clamp(sampleUV, vec2(0.0), oloRenderScaleBounds());
+        sampleUV = clamp(sampleUV, vec2(0.0), sampleMax);
         result += texture(u_Texture, sampleUV).rgb;
         totalWeight += 1.0;
     }

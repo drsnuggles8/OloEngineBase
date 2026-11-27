@@ -759,7 +759,9 @@ void main()
     float refrHeightFactor = u_DepthRefractionParams.z;
 
     vec2 refractionOffset = normal.xz * refrDistortion * (1.0 + v_WaveHeight * refrHeightFactor);
-    vec2 refractionUV = clamp(screenUV + refractionOffset, vec2(0.001), oloRenderScaleBounds() - vec2(0.001));
+    // The offset is a distortion of the FRAME; screenUV is a texture uv, so the
+    // offset scales with the bounds or it doubles at scale 0.5 (#1537).
+    vec2 refractionUV = clamp(screenUV + oloTextureUV(refractionOffset), vec2(0.001), oloRenderScaleBounds() - vec2(0.001));
     vec3 refractionSample = texture(u_RefractionTexture, refractionUV).rgb;
 
     vec3 refrTint = u_RefractionColor.rgb;
