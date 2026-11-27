@@ -113,6 +113,7 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     | 0.75 x | yes | 0.97-1.10 | 0.96-0.98 |
     | **0.6 x** | yes | **0.95-1.05** | **0.95-0.98** |
     | 0.5 x | yes | 0.92-1.01 | 0.93-0.96 |
+    | 0.6 x, gated on the card tier (shipped) | yes | 0.95-1.05 | 0.94-0.96 |
 
     The short coat's residue at 1.0 x was its mane and tail alone (body-only coat 0.97-1.00,
     long-hair-only 1.09-1.23). A strand's radius is under half a march step, so the strand tier skips

@@ -968,7 +968,8 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // over strand sky shadow on both horses from four directions
 // (GroomAnimalsAcceptanceEvidenceTest.TheCardTierShadowsTheSkyAsItsStrandsDo):
 // 0.4 -> 0.84-0.96, 0.5 -> 0.92-1.01, 0.6 -> 0.95-1.05, 0.75 -> 0.96-1.10,
-// 1 -> 0.97-1.17; the long coat alone 0.92-1.05 throughout. With no lock share
+// 1 -> 0.97-1.17; the long coat alone 0.92-1.05 throughout (a size-gated
+// share; gated on the tier as below, 0.6 reads 0.94-1.05). With no lock share
 // and the march from the drawn tube's surface (rule 4a, which still holds for
 // every light), the short coat's cards kept 1.33-1.88x their strands' sky.
 //
