@@ -10671,6 +10671,14 @@ namespace OloEngine::Tests
             (void)profile->SetParameters(unfiltered);
         }
         const Peaks control = measure((TestRenderBackend::EvidenceName("DogWetGlints") + "Forward_Unfiltered"));
+        // The same control with the sharpen off: what the pixels beside each
+        // firefly read before the sharpen touched them.
+        auto& post = Renderer3D::GetPostProcessSettings();
+        const f32 sharpness = post.TAASharpness;
+        post.TAASharpness = 0.0f;
+        const Peaks unsharpened =
+            measure((TestRenderBackend::EvidenceName("DogWetGlints") + "Forward_UnfilteredUnsharpened"));
+        post.TAASharpness = sharpness;
         for (auto& [profile, parameters] : authored)
         {
             (void)profile->SetParameters(parameters);
@@ -10690,12 +10698,18 @@ namespace OloEngine::Tests
             << "the control: with every strength at 0 the glints should break the ceiling, or the test measures nothing";
         // AND A FIREFLY DOES NOT PRINT BLACK. The control's glints stand in for
         // any bright sample; the sharpen held inside its 3x3 range leaves the
-        // pixels round one in its bloom (190-255 measured), where unbounded it
-        // drove them to 0.
-        std::printf("[dog] darkest presented pixel within 3 of a firefly (strength 0): %u of 255\n",
-                    control.DarkestBesideAFirefly);
-        EXPECT_GE(control.DarkestBesideAFirefly, 64u)
-            << "a pixel beside a firefly printed (near-)black: TAA's sharpen undershot its neighbourhood";
+        // pixels round one where they were, where unbounded it drove them to 0.
+        // MEASURED AGAINST THE SAME FRAMES UNSHARPENED, not against a fixed
+        // floor: the glints land on the wet nose and lips, whose leather is
+        // near-black of itself (58 of 255 beside a glint; the first
+        // measurement, on lighter skin, read 190-255).
+        std::printf("[dog] darkest presented pixel within 3 of a firefly (strength 0): %u of 255 sharpened, %u "
+                    "unsharpened\n",
+                    control.DarkestBesideAFirefly, unsharpened.DarkestBesideAFirefly);
+        EXPECT_LT(unsharpened.DarkestBesideAFirefly, 255u) << "the unsharpened control saw no firefly to measure beside";
+        EXPECT_GE(control.DarkestBesideAFirefly + 12u, unsharpened.DarkestBesideAFirefly)
+            << "a pixel beside a firefly printed darker than it was unsharpened: TAA's sharpen undershot its "
+               "neighbourhood";
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
     }
 
