@@ -61,6 +61,9 @@ void main()
 // variants cannot disagree about which texture is which — and the shader BODY
 // below is unchanged between them. Inert without OLO_BINDLESS.
 #include "include/BindlessHeap.glsl"
+// History lives in the [0, bounds) corner under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
+#define OLO_TEMPORAL_HISTORY_BOUNDS oloRenderScaleBounds()
 
 #ifdef OLO_BINDLESS
 #define u_Current OLO_HEAP_TEX_2D(0)

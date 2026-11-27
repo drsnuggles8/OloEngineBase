@@ -173,7 +173,7 @@ OloSurfaceHistoryRecord MakeReSTIRGISurface(vec4 packedSurface, vec2 motion)
 //     exactly the origin 1024 m out.
 vec3 PreviousShadingPoint(vec2 prevUV, float prevViewDepth)
 {
-    vec4 clip = vec4(oloFrameUV(prevUV) * 2.0 - 1.0, 0.0, 1.0);
+    vec4 clip = vec4(prevUV * 2.0 - 1.0, 0.0, 1.0);
     vec4 unprojected = u_PrevInvProjection * clip;
     vec3 onRay = unprojected.xyz / unprojected.w;
     // Scaled so that z == -1, then stretched to the stored linear depth.
@@ -226,8 +226,7 @@ void main()
         OloLoadGBufferSurface(v_TexCoord, depth, packedNormal, packedAlbedo);
     const vec3 viewDirection = normalize((u_InvView * vec4(0.0, 0.0, 0.0, 1.0)).xyz - surface.Position);
 
-    // A frame-uv delta, scaled to texture uv (#1537, include/RenderScaleBounds.glsl).
-    const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy * oloRenderScaleBounds();
+    const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy;
     const vec2 prevUV = v_TexCoord - velocity;
     // The history pixel the reprojection lands in, at its texel centre. Every
     // history read below and the previous shading point use it, so they all

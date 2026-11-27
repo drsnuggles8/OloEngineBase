@@ -74,6 +74,9 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+// History lives in the [0, bounds) corner under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
+#define OLO_TEMPORAL_HISTORY_BOUNDS oloRenderScaleBounds()
 
 #ifdef OLO_BINDLESS
 #define u_StochasticSignal OLO_HEAP_TEX_2D(0)
