@@ -113,7 +113,8 @@ void main()
     // RCAS limiter assumes [0, 1]. Normalise the ring by its own peak and
     // scale back; in SDR the scale is exactly 1.0 and the output is unchanged.
     vec3 ringMax = max(max(max(b, d), max(e, f)), h);
-    float hdrScale = max(1.0, max(ringMax.r, max(ringMax.g, ringMax.b)));
+    // Capped at FP16's largest finite value, as in CAS.
+    float hdrScale = clamp(max(ringMax.r, max(ringMax.g, ringMax.b)), 1.0, 65504.0);
     b /= hdrScale;
     d /= hdrScale;
     e /= hdrScale;

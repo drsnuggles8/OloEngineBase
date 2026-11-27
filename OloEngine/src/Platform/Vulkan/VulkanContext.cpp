@@ -905,6 +905,14 @@ namespace OloEngine
             OLO_CORE_INFO("[Vulkan] display configuration changed — re-selecting the output mode");
             return true;
         }
+        // A hot reload fixed the encode shader: reopen the HDR route.
+        if (d.DisplayEncodeUnavailable && d.DisplayEncodeShader &&
+            d.DisplayEncodeShader->GetCompilationStatus() == ShaderCompilationStatus::Ready)
+        {
+            d.DisplayEncodeUnavailable = false;
+            OLO_CORE_INFO("[Vulkan] DisplayEncode.glsl compiles again — HDR output is available");
+            return true;
+        }
         // The encode shader failed: leave the HDR mode for SDR (CreateSwapchain
         // reports why).
         if (d.DisplayEncodeUnavailable && d.OutputMode != DisplayOutputMode::SDR)

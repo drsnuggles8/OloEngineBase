@@ -108,7 +108,9 @@ void main()
     // In SDR the peak is <= 1, the scale is exactly 1.0, and dividing and
     // multiplying by 1.0 are exact: the SDR output is bit for bit unchanged.
     vec3 hoodMax = max(max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h))), i);
-    float hdrScale = max(1.0, max(hoodMax.r, max(hoodMax.g, hoodMax.b)));
+    // Capped at FP16's largest finite value: an overflowed (+Inf) texel must
+    // not turn the whole neighbourhood into Inf/Inf = NaN.
+    float hdrScale = clamp(max(hoodMax.r, max(hoodMax.g, hoodMax.b)), 1.0, 65504.0);
     a /= hdrScale;
     b /= hdrScale;
     c /= hdrScale;

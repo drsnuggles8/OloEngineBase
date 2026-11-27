@@ -118,8 +118,9 @@ namespace OloEngine
         GLFWAPI::glfwSwapBuffers(m_WindowHandle);
         // A preference change or a display change (another monitor, an OS HDR
         // toggle) re-runs the selection, so the panel and the log stay current.
-        if (m_DisplaySettingsGeneration != DisplayOutput::GetSettingsGeneration() ||
-            PollPlatformDisplayChange(m_WindowHandle))
+        // The poll runs every frame, so a display change is seen once.
+        const bool displayChanged = PollPlatformDisplayChange(m_WindowHandle);
+        if (displayChanged || m_DisplaySettingsGeneration != DisplayOutput::GetSettingsGeneration())
             PublishDisplayOutput();
     }
 

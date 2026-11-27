@@ -332,9 +332,12 @@ namespace OloEngine::MCP
             {
                 if (args.contains(kNitsKeys[k]))
                 {
-                    if (!args[kNitsKeys[k]].is_number())
-                        return ToolResult::Error(std::string("'") + kNitsKeys[k] + "' must be a number of nits.");
-                    nits[k] = args[kNitsKeys[k]].get<f32>();
+                    // As a double first: a JSON number past FLT_MAX narrowed to f32
+                    // is undefined, and floats from the network are validated.
+                    const f64 value = args[kNitsKeys[k]].is_number() ? args[kNitsKeys[k]].get<f64>() : 0.0;
+                    if (!args[kNitsKeys[k]].is_number() || !std::isfinite(value) || value < 0.0 || value > 1.0e6)
+                        return ToolResult::Error(std::string("'") + kNitsKeys[k] + "' must be a finite number of nits.");
+                    nits[k] = static_cast<f32>(value);
                 }
             }
             // Applied in memory only, like the editor panel before its Save: the

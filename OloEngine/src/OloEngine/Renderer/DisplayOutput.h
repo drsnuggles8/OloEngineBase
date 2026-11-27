@@ -122,6 +122,10 @@ namespace OloEngine
         }
     };
 
+    // operator== above lists every field by hand: a new field must be added to
+    // it, or its change never wakes the swapchain re-selection.
+    static_assert(sizeof(DisplayOutputSettings) == 16, "DisplayOutputSettings changed: update its operator==");
+
     inline constexpr f32 kMinWhiteNits = 80.0f;
     inline constexpr f32 kMaxWhiteNits = 500.0f;
     inline constexpr f32 kMaxPqNits = 10000.0f;

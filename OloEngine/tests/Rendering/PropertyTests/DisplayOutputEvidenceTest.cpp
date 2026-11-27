@@ -283,7 +283,7 @@ namespace OloEngine::Tests
         // As Render, with CAS and colour-vision adaptation running: the
         // presented composite is ColorBlindColor, the last stage before the
         // backbuffer. Returns the final composite only.
-        void RenderWithDisplayRangeStages(RenderingPath path, std::vector<f32>& finalComposite)
+        void RenderWithDisplayRangeStages(RenderingPath path, std::vector<f32>& scene, std::vector<f32>& finalComposite)
         {
             auto& renderer = Renderer3D::GetRendererSettings();
             renderer.Path = path;
@@ -292,11 +292,34 @@ namespace OloEngine::Tests
             camera.SetViewportSize(static_cast<f32>(kSize), static_cast<f32>(kSize));
             camera.SetPose({ 0.0f, 0.0f, kCameraDistance }, 0.0f, 0.0f);
             RunEditorFrames(camera, 3);
-            ASSERT_TRUE(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UpscalerColor)) << "CAS did not run";
+            // Resolving a name proves nothing about THIS frame (a name stays
+            // resolvable from an earlier graph); the callers prove the stages ran
+            // from the pixels instead (StagePixelsChanged).
             const auto adapted = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ColorBlindColor);
-            ASSERT_TRUE(adapted) << "colour-vision adaptation did not run";
+            const auto sceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(adapted && sceneFb);
+            ReadbackRgbaFloat(sceneFb->GetColorAttachmentHandle(0), kSize, kSize, scene);
             ReadbackRgbaFloat(adapted->GetColorAttachmentHandle(0), kSize, kSize, finalComposite);
             ASSERT_EQ(finalComposite.size(), static_cast<sizet>(kSize) * kSize * 4u);
+        }
+
+        // Pixels the display-range stages moved off the no-stage mapping: CAS
+        // sharpens every patch edge and the adaptation remaps the colour
+        // patches, so a frame where they ran this time has thousands.
+        [[nodiscard]] static u32 StagePixelsChanged(const std::vector<f32>& scene, const std::vector<f32>& composite,
+                                                    const DisplayMapping& mapping)
+        {
+            u32 changed = 0;
+            for (u32 y = 0; y < kSize; ++y)
+                for (u32 x = 0; x < kSize; ++x)
+                {
+                    const glm::vec3 s = glm::max(At(scene, x, y), glm::vec3(0.0f));
+                    const glm::vec3 expected = mapping.IsHdr()
+                                                   ? NitsToComposition(ToneMapForHdrDisplay(s, mapping, false), mapping, kGamma)
+                                                   : glm::pow(s / (s + glm::vec3(1.0f)), glm::vec3(1.0f / kGamma));
+                    changed += MaxAbs(At(composite, x, y) - expected) > 4.0f / 255.0f ? 1u : 0u;
+                }
+            return changed;
         }
 
         void Render(RenderingPath path, Capture& out)
@@ -316,11 +339,9 @@ namespace OloEngine::Tests
             for (const auto name : { ResourceNames::BloomColor, ResourceNames::FXAAColor, ResourceNames::VignetteColor,
                                      ResourceNames::TAAColor })
                 ASSERT_FALSE(Renderer3D::ResolveFrameGraphFramebuffer(name)) << name << " ran; the chain is not per-pixel";
-            // Sharpening by its setting: after a cell that ran CAS, the
-            // UpscalerColor NAME keeps resolving from the earlier graph, so its
-            // absence is not a usable check. A sharpen that did run would fail
-            // the per-pixel relations below.
-            ASSERT_FALSE(Renderer3D::GetPostProcessSettings().CASEnabled);
+            // No UpscalerColor check: after a cell that ran CAS that NAME keeps
+            // resolving from the earlier graph. A sharpen that did run here
+            // fails the SDR/HDR cells' per-pixel relations instead.
 
             const auto scene = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             const auto composite = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
@@ -495,9 +516,6 @@ namespace OloEngine::Tests
         HdrCell(RenderingPath::Deferred, DisplayOutputMode::ScRGB);
     }
 
-    // A mode switch must not change scene transport: the scene-referred
-    // radiance is identical with the output in SDR and in HDR10, and the
-    // switch back restores the SDR composite exactly.
     // SDR with the display-range stages on: hashed for the master-shader A/B
     // (CAS, RCAS, colour-blind and tone map swapped back), so the stages this
     // branch touched are proven bit-identical in SDR too.
@@ -505,8 +523,11 @@ namespace OloEngine::Tests
     {
         SelectMode(DisplayOutputMode::SDR);
         EnableDisplayRangeStages();
+        std::vector<f32> scene;
         std::vector<f32> composite;
-        ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, composite));
+        ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, scene, composite));
+        EXPECT_GT(StagePixelsChanged(scene, composite, DisplayOutput::GetActiveMapping()), 1000u)
+            << "CAS and the adaptation did not run this frame";
         const std::vector<u8> rgba8 = ToRgba8(composite);
         ASSERT_NO_FATAL_FAILURE(WritePng("DisplayOutputSdrStages_Forward", rgba8));
         std::cout << "[ DISPLAY ] " << TestRenderBackend::EvidenceName("DisplayOutputSdrStages_Forward") << " fnv1a=" << std::hex
@@ -520,10 +541,12 @@ namespace OloEngine::Tests
     {
         SelectMode(DisplayOutputMode::HDR10);
         EnableDisplayRangeStages();
+        std::vector<f32> scene;
         std::vector<f32> composite;
-        ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, composite));
+        ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, scene, composite));
         ASSERT_TRUE(DisplayOutput::GetActiveMapping().IsHdr());
         const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+        EXPECT_GT(StagePixelsChanged(scene, composite, mapping), 1000u) << "CAS and the adaptation did not run this frame";
         // grey 12 (2436 scene nits) maps to ~569 nits: composition ~1.78.
         const auto [x, y] = PatchPixel(6);
         const glm::vec3 c = At(composite, x, y);
@@ -536,6 +559,9 @@ namespace OloEngine::Tests
         ASSERT_NO_FATAL_FAILURE(WritePng("DisplayOutputHDR10Stages_Forward", ToRgba8(composite)));
     }
 
+    // A mode switch must not change scene transport: the scene-referred
+    // radiance is identical with the output in SDR and in HDR10, and the
+    // switch back restores the SDR composite exactly.
     TEST_F(DisplayOutputEvidence, ModeSwitchLeavesSceneTransportAlone)
     {
         SelectMode(DisplayOutputMode::SDR);
