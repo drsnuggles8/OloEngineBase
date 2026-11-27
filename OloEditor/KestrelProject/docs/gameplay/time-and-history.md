@@ -6,7 +6,7 @@ Status: consolidated v1.0 draft, adopted into the repository 2026-11-27 as docum
 
 All ordinary play uses one continuous calendar with pause, five speeds and configurable intelligent advancement. Player-selectable calendar compression and day/year pacing are rejected. Internal experiments may vary parameters; one hour per year is a hypothesis, not a guarantee. Process intervening consequences, including nights and off-season, rather than silently removing them. Decouple animation and authoritative simulation.
 
-Preserve RNG state by default, support optional future reseeding and diagnostic save lineage. No Ironman mode or ordinary reload penalties. Replay from a versioned initial state and timestamped commands; same seed/actions must give equivalent authoritative results across camera, speed, presets, save/load and headless execution. Keyed independent streams are a candidate, not a mandated algorithm.
+Preserve RNG state by default, support optional future reseeding and diagnostic save lineage. No Ironman mode or ordinary reload penalties. Replay from a versioned initial state and timestamped commands; same seed/actions must give equivalent authoritative results across camera, speed, presentation presets, save/load and headless execution. A change of regional ruleset, such as simplified or frozen inactive-region operation ([T-08](#t-08), [T-11](#t-11)), is a different ruleset and need not replay equivalently (owner clarification, 2026-11-27). Keyed independent streams are a candidate, not a mandated algorithm.
 
 ## Decision records
 
