@@ -925,10 +925,14 @@ float oloGroomCoatTauAndBodyFrom(vec3 worldDir, float startRadius, bool countBod
 	float start = max(startRadius, 0.0);
 	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_AT_REST) != 0)
 	{
-		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * worldDir));
+		// `start` is in world metres and the rest volume is in the coat's
+		// object space: a scaled coat moves the start by the transform's own
+		// length along `worldDir` (the quaternion keeps it).
+		vec3 dirScaled = mat3(u_GroomCoatWorldToObject) * worldDir;
+		vec3 dirObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, dirScaled));
 		vec2 depths = oloGroomCoatOpticalDepthAndBodyObject(
 		    u_GroomCoatVolume, u_GroomCoatBody, u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
-		    v_CoatRestPos + dirObject * start, dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x,
+		    v_CoatRestPos + dirObject * (start * length(dirScaled)), dirObject, u_GroomCoatInvExtent.w, u_GroomCoatModes.x,
 		    countBody && oloGroomCoatHoldsBody());
 		bodyTau = depths.y;
 		return depths.x;
@@ -1652,8 +1656,10 @@ OloGroomShading oloGroomShadeFibre()
 		float behindBodyShadow = 1.0;
 		if (envBody)
 		{
-			vec3 envObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, mat3(u_GroomCoatWorldToObject) * envDir));
-			float envTube = oloGroomLockSkyDepth();
+			vec3 envScaled = mat3(u_GroomCoatWorldToObject) * envDir;
+			vec3 envObject = normalize(oloGroomQuatRotate(v_CoatRestFrame, envScaled));
+			// World metres to the rest volume's object units, as in the march.
+			float envTube = oloGroomLockSkyDepth() * length(envScaled);
 			vec3 frontUvw = (v_CoatRestPos + (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
 			vec3 behindUvw = (v_CoatRestPos - (envObject * envTube) - u_GroomCoatBoundsMin.xyz) * u_GroomCoatInvExtent.xyz;
 			envBodyShadow = oloGroomBodySkyVisibility(texture(u_GroomCoatBody, frontUvw), envObject);
