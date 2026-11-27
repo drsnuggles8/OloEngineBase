@@ -59,7 +59,7 @@
 // Slots mirror ShaderBindingLayout::TEX_REFLECTION_PROBE_* — published once
 // per frame by ReflectionProbeArray::BindForShading.
 layout(binding = 14) uniform samplerCubeArray u_ProbeRadianceArray; // prefilter chains (roughness mips)
-layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial d0 / d1 / d2 + max-mips, bound NEAREST (#1804)
+layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial d0 / d1 / d2 + max-mips; mip 0 read at texel centres (#1804)
 
 // Mirrors UBOStructures::ReflectionProbeUBO (and ReflectionProbeCull.comp).
 struct OloReflectionProbe
@@ -434,7 +434,11 @@ vec4 oloSampleReflectionProbes(vec3 worldPos, vec3 N, vec3 R, float radianceLod,
         // Cheap reject (max-mip = conservative upper bound): if even the
         // largest distance in the cone toward the point is closer than the
         // point, the probe cannot see it — occluded, skip before marching.
-        float coneMax = textureLod(u_ProbeDistanceArray, vec4(toPoint, probe.Params.w), OLO_PROBE_REJECT_MIP).r;
+        // d2 (.b), not d0: a receiver in an occluder's gap (a wall behind a
+        // pillar) is past d0 but in front of d2, and the march handles it
+        // (#1804). d2 = d1 >= d0 where there is no gap, so this stays an upper
+        // bound and can only admit more.
+        float coneMax = textureLod(u_ProbeDistanceArray, vec4(toPoint, probe.Params.w), OLO_PROBE_REJECT_MIP).b;
         if (pointDistance > coneMax * OLO_PROBE_REJECT_REL_MARGIN + OLO_PROBE_REJECT_ABS_MARGIN)
         {
             continue;
