@@ -93,9 +93,11 @@ on:
       - '.github/workflows/vulkan-software.yml'
       - 'OloEngine/src/Platform/Vulkan/VulkanCapabilities.*'
       - 'scripts/vulkan_ray_query_coverage.py'
-      # The windowless frame bracket and the test process that drives it (#1556).
-      - 'OloEngine/src/Platform/Vulkan/VulkanContext.*'
-      - 'OloEngine/tests/Rendering/PropertyTests/TestRenderBackend.*'
+      # The scene suite's filter (#1556): a typo here can leave the scene step
+      # selecting nothing. VulkanContext.* and TestRenderBackend.* are NOT
+      # listed, deliberately: they are code this job tests, not the job itself,
+      # so a PR touching them is per-PR gating the header above rules out. The
+      # nightly covers them. Listing them put every Vulkan PR behind a 3-6 h job.
       - 'OloEngine/tests/vulkan_scene_filter.txt'
       # The key of the compiler cache this job restores (#1705). A change here
       # can leave the job restoring nothing and building cold, which is the
