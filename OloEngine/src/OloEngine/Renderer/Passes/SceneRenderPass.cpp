@@ -546,10 +546,12 @@ namespace OloEngine
         // blocks read another region's cluster — point and spot lights
         // vanished in rectangles on Forward+ and Deferred while Forward, which
         // walks the light array, stayed correct.
-        {
-            const auto& targetSpec = renderFB->GetSpecification();
-            forwardPlus.Resize(targetSpec.Width, targetSpec.Height);
-        }
+        //
+        // The ACTIVE viewport, not the specification: a dynamic render scale
+        // (#1537) draws into the [0, render) corner of the same storage, and a
+        // grid sized to the storage sends every fragment to the cluster of a
+        // point 1/scale further out.
+        forwardPlus.Resize(renderFB->GetActiveViewportWidth(), renderFB->GetActiveViewportHeight());
         if (forwardPlus.ShouldUseForwardPlus())
         {
             // Sub-pass bracket (issue #720): isolates LightCulling.comp's GPU-ms
@@ -594,8 +596,11 @@ namespace OloEngine
         // Forward+ is inactive.
         {
             auto& reflectionProbes = Renderer3D::GetReflectionProbes();
-            u32 const vpWidth = m_Target ? m_Target->GetSpecification().Width : 0;
-            u32 const vpHeight = m_Target ? m_Target->GetSpecification().Height : 0;
+            // The ACTIVE viewport: the probe clusters tile the rendered frame,
+            // which a dynamic render scale draws into the [0, render) corner
+            // (#1537); the spec is only the storage.
+            u32 const vpWidth = m_Target ? m_Target->GetActiveViewportWidth() : 0;
+            u32 const vpHeight = m_Target ? m_Target->GetActiveViewportHeight() : 0;
             reflectionProbes.PrepareFrame(Renderer3D::GetViewMatrix(),
                                           Renderer3D::GetProjectionMatrix(),
                                           vpWidth, vpHeight);
