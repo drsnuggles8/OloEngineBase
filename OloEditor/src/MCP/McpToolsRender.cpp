@@ -7572,7 +7572,6 @@ namespace OloEngine::MCP
                 { "sphereAreaLights", stats.SphereAreaLights },
             };
             report["materials"] = Json{
-                { "legacyMaterials", stats.LegacyMaterials },
                 { "texturesAvailable", stats.TexturesAvailable },
                 { "hitsShadedUntextured", stats.HitsShadedUntextured },
                 { "maskedGeometryTracedAsSolid", stats.MaskedGeometryTracedAsSolid },
@@ -10477,7 +10476,6 @@ namespace OloEngine::MCP
                                         .Prop("punctualLightsBeyondShaderBound", Schema::Int().Min(0))
                                         .Prop("sphereAreaLights", Schema::Int().Min(0)))
                     .Prop("materials", Schema::Object()
-                                           .Prop("legacyMaterials", Schema::Int().Min(0))
                                            .Prop("texturesAvailable", Schema::Bool())
                                            .Prop("hitsShadedUntextured", Schema::Bool())
                                            .Prop("maskedGeometryTracedAsSolid", Schema::Bool())

@@ -130,7 +130,7 @@ void main()
     o_GBufferAlbedo   = vec4(u_WindWeights.w > 0.5 ? vec3(0.0) : card.Albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(worldN), roughness, ao);
     o_GBufferEmissive = vec4(u_WindWeights.w > 0.5 ? card.Albedo : vec3(0.0),
-                             u_WindWeights.w > 0.5 ? 1.0 : isLeaf ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY,
+                             u_WindWeights.w > 0.5 ? 1.0 : isLeaf ? oloEncodeGBufferPbrFlagsEx(
                                                                  OLO_MATERIAL_KIND_FOLIAGE,
                                                                  int(u_LeafIds.x + 0.5))
                                     : 0.0); // debug sets unlit bit 0

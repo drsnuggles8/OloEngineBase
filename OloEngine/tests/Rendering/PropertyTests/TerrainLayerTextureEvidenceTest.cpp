@@ -617,6 +617,21 @@ namespace OloEngine::Tests
         ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, after));
         ASSERT_EQ(after.m_HitEntity, m_Terrain.GetUUID());
         EXPECT_NEAR(after.m_Position.y, before.m_Position.y, 0.01f);
+
+        // An origin rebase moves the native body. The recorded simulation pose
+        // an interpolated rebuild reads must move with it, not put it back.
+        const glm::vec3 shift(0, 7, 0);
+        GetScene().RebaseOrigin(shift);
+        terrain.m_NeedsRebuild = true;
+        // A zero step keeps the half-filled accumulator: still no physics tick.
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.0f, dt); });
+        ASSERT_NEAR(GetScene().GetRenderInterpolationAlpha(), 0.5f, 1.0e-4f);
+        SceneQueryHit rebased;
+        ray.m_Origin += shift;
+        ASSERT_TRUE(GetScene().GetPhysicsScene()->CastRay(ray, rebased));
+        ASSERT_EQ(rebased.m_HitEntity, m_Terrain.GetUUID());
+        EXPECT_NEAR(rebased.m_Position.y, before.m_Position.y + shift.y, 0.01f);
     }
 
     TEST_P(TerrainLayerTextureEvidence, StreamedTileAndShoreDepthFollowTheCarrier)
@@ -689,6 +704,9 @@ namespace OloEngine::Tests
                 TestScene.OnPhysics3DStop();
             }
         } const stopPhysics{ GetScene() };
+        // The tile was resident before physics started. The first step must
+        // collide with it without waiting for a render to reconcile it.
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 1, -1));
         // A live LOD setting must reach an already-resident tile, including
         // the OLO_TERRAIN_CPU_LOD process which never consumes the GPU uniform.
         terrain.m_TargetTriangleSize = 17.0f;
@@ -751,6 +769,15 @@ namespace OloEngine::Tests
         EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 1, -1));
         EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
         ASSERT_NO_FATAL_FAILURE(checkShore(target + glm::vec3(0, 2, 0)));
+
+        // A render without a physics step installs the single field before
+        // physics has a chance to reconcile the old resident tiles.
+        terrain.m_StreamingEnabled = false;
+        terrain.m_NeedsRebuild = true;
+        RunInFrame([&]
+                   { GetScene().OnUpdateRuntimeFixed(0.0f, 1.0f / 60.0f); });
+        EXPECT_TRUE(GetScene().GetPhysicsScene()->HasTerrainBody(m_Terrain.GetUUID()));
+        EXPECT_FALSE(GetScene().GetPhysicsScene()->HasTerrainTileBody(m_Terrain.GetUUID(), 2, -1));
     }
 
     TEST_P(TerrainLayerTextureEvidence, FoliageAndTerrainDrawAtTheRootTwinsPose)

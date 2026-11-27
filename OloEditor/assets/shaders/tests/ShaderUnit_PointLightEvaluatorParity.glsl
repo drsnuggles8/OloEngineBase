@@ -45,7 +45,7 @@ struct ProbeSurface
 {
     vec4 PositionAndRoughness; // xyz = shaded point, w = roughness
     vec4 NormalAndMetallic;    // xyz = normal (unnormalised ok), w = metallic
-    vec4 CameraAndModel;       // xyz = camera position, w = PBR model
+    vec4 CameraPosition;       // xyz = camera position, w = PBR model
     vec4 Albedo;
 };
 layout(std430, binding = 41) readonly buffer ProbeSurfaces { ProbeSurface probeSurfaces[]; };
@@ -58,20 +58,19 @@ void main()
 
     vec3 worldPos = s.PositionAndRoughness.xyz;
     vec3 N = normalize(s.NormalAndMetallic.xyz);
-    vec3 V = normalize(s.CameraAndModel.xyz - worldPos);
-    int pbrModel = int(s.CameraAndModel.w + 0.5);
+    vec3 V = normalize(s.CameraPosition.xyz - worldPos);
 
     OloSurfaceLighting lit;
     if (row == 0)
     {
         lit = oloSkinLightContributionSplit(probeLoopLights[column], N, V, s.Albedo.rgb, s.NormalAndMetallic.w,
-                                            s.PositionAndRoughness.w, worldPos, pbrModel, vec2(0.0, 1.0));
+                                            s.PositionAndRoughness.w, worldPos, vec2(0.0, 1.0));
     }
     else
     {
         // Any positive depth: the probe's grid has one slice.
         lit = fplusEvaluateTileLightsSplit(N, V, worldPos, s.Albedo.rgb, s.NormalAndMetallic.w,
-                                           s.PositionAndRoughness.w, 1.0, pbrModel, vec2(0.0, 1.0), vec4(0.0));
+                                           s.PositionAndRoughness.w, 1.0, vec2(0.0, 1.0), vec4(0.0));
     }
     o_Result = vec4(oloSurfaceLightingSum(lit), 1.0);
 }

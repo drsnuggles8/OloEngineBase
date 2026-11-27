@@ -61,29 +61,27 @@ namespace OloEngine::RendererSupport
 
     [[nodiscard]] constexpr Request MakeMaterialCoverageRequest(
         Geometry geometry, MaterialFamily category, OloEngine::MaterialKind kind,
-        PBRModel model, Closure closure, bool thinTransmission = false,
+        Closure closure, bool thinTransmission = false,
         RenderingPath path = RenderingPath::Deferred)
     {
         Request request = MakeCoverageRequest(geometry, closure);
         request.SurfaceCategory = category;
         request.AuthoredKind = kind;
-        request.ClosureModel = model;
         request.ThinTransmission = thinTransmission;
         request.Path = path;
         return request;
     }
 
-    inline constexpr std::array<CoverageRow, 11> MaterialCoverageRows = { { { "generic-legacy-opaque", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "generic-v2-opaque", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::ClosureV2, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "skin-v2-opaque", MakeMaterialCoverageRequest(Geometry::SkinnedMesh, MaterialFamily::Skin, OloEngine::MaterialKind::Skin, PBRModel::ClosureV2, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "foliage-thin-transmission", MakeMaterialCoverageRequest(Geometry::Foliage, MaterialFamily::Foliage, OloEngine::MaterialKind::Foliage, PBRModel::ClosureV2, Closure::Opaque, true), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "water-matched-material", MakeMaterialCoverageRequest(Geometry::Water, MaterialFamily::Water, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "water-wrong-material", MakeMaterialCoverageRequest(Geometry::Water, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Opaque), RasterDevice, { Outcome::Unsupported, Reason::MaterialGeometryMismatch } },
-                                                                            { "groom-wrong-material", MakeMaterialCoverageRequest(Geometry::Groom, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Opaque), RasterDevice, { Outcome::Unsupported, Reason::MaterialGeometryMismatch } },
-                                                                            { "classic-masked-raster-shadow", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Masked), RasterDevice, { Outcome::Approximate, Reason::MaskedRasterShadowMissing } },
-                                                                            { "classic-blend-deferred", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::Legacy, Closure::Blended), RasterDevice, { Outcome::Supported, Reason::None } },
-                                                                            { "classic-refractive-forward", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::ClosureV2, Closure::Transmission, false, RenderingPath::Forward), RasterDevice, { Outcome::Approximate, Reason::TransmissionApproximation } },
-                                                                            { "classic-refractive-deferred", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, PBRModel::ClosureV2, Closure::Transmission), RasterDevice, { Outcome::Approximate, Reason::TransmissionApproximation } } } };
+    inline constexpr std::array<CoverageRow, 10> MaterialCoverageRows = { { { "generic-opaque", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
+                                                                            { "skin-opaque", MakeMaterialCoverageRequest(Geometry::SkinnedMesh, MaterialFamily::Skin, OloEngine::MaterialKind::Skin, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
+                                                                            { "foliage-thin-transmission", MakeMaterialCoverageRequest(Geometry::Foliage, MaterialFamily::Foliage, OloEngine::MaterialKind::Foliage, Closure::Opaque, true), RasterDevice, { Outcome::Supported, Reason::None } },
+                                                                            { "water-matched-material", MakeMaterialCoverageRequest(Geometry::Water, MaterialFamily::Water, OloEngine::MaterialKind::Generic, Closure::Opaque), RasterDevice, { Outcome::Supported, Reason::None } },
+                                                                            { "water-wrong-material", MakeMaterialCoverageRequest(Geometry::Water, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Opaque), RasterDevice, { Outcome::Unsupported, Reason::MaterialGeometryMismatch } },
+                                                                            { "groom-wrong-material", MakeMaterialCoverageRequest(Geometry::Groom, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Opaque), RasterDevice, { Outcome::Unsupported, Reason::MaterialGeometryMismatch } },
+                                                                            { "classic-masked-raster-shadow", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Masked), RasterDevice, { Outcome::Approximate, Reason::MaskedRasterShadowMissing } },
+                                                                            { "classic-blend-deferred", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Blended), RasterDevice, { Outcome::Supported, Reason::None } },
+                                                                            { "classic-refractive-forward", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Transmission, false, RenderingPath::Forward), RasterDevice, { Outcome::Approximate, Reason::TransmissionApproximation } },
+                                                                            { "classic-refractive-deferred", MakeMaterialCoverageRequest(Geometry::StaticMesh, MaterialFamily::Standard, OloEngine::MaterialKind::Generic, Closure::Transmission), RasterDevice, { Outcome::Approximate, Reason::TransmissionApproximation } } } };
 
     [[nodiscard]] constexpr Request MakePathCoverageRequest(
         Backend backend, RenderingPath path, u32 samples = 1,

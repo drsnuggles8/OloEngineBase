@@ -58,7 +58,7 @@ def prepare(args):
             entity['TagComponent']['Tag'] = 'PTCorner'+tag
             entity['TransformComponent'].update(Translation=position, Rotation=[0, 0, 0], Scale=scale)
             m = entity['MaterialComponent']
-            m.update(AlbedoColor=[.6, .6, .6], Metallic=0, Roughness=.8, PBRModel=1)
+            m.update(AlbedoColor=[.6, .6, .6], Metallic=0, Roughness=.8)
             if index == 0 and material == 'glossy':
                 m.update(Metallic=.6, Roughness=.12)
             scene['Entities'].append(entity)

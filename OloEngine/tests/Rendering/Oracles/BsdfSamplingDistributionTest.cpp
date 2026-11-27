@@ -4,20 +4,8 @@
 // densities derived independently of them (issue #1347, acceptance criteria 1
 // and 4).
 //
-// WHAT IS TESTED. Each engine sampler (SampleGGXVNDF, ImportanceSampleGGX,
-// CosineSampleHemisphere and the one-sample lobe mixture BSDF::Sample, for
-// ClosureV2 and Legacy) draws directions, and a goodness-of-fit test compares
-// them with an OracleDensity (BsdfOracleChecks.h) built from the oracle's
-// functions only (IndependentBsdfOracle.h: GgxD, GgxThetaCdf,
-// GgxVisibleNormalDensity, ReflectionJacobian). The engine's own densities
-// (PdfGGX, PdfGGXVNDF, BSDF::Pdf) are never the expectation:
-// ReferenceBRDFTest's GgxSamplingMatchesItsDensity and ClosureV2ConsistencyTest
-// integrate 1/pdf over Hammersley points, which shows a sampler and ITS OWN pdf
-// agree — a shared wrong alpha passes that. Here the engine pdf is itself
-// checked (EnginePdfEqualsTheOracleMixtureAtSampledDirections). The alpha
-// convention (alpha = roughness^2: the GGX definition in ReferenceBRDF.h and
-// ADR 0016) is decided by the oracle code below, not read back from the engine.
-//
+// Compare VNDF, cosine and their mixture to distributions built independently from the oracle.
+// Test the sampled directions and the claimed PDF separately at the authored roughness.
 // STATISTICAL ASSUMPTIONS (OracleStatistics.h is the convention; this is how
 // this file applies it):
 //
@@ -62,17 +50,6 @@
 //     tangential components (tan^2 = (x^2 + y^2) / z^2), so the test adds no
 //     cancellation the engine does not have.
 //
-// FINDING (found and fixed by this issue): ImportanceSampleGGX used to take
-// sin theta = sqrt(1 - cos^2) in f32 after cos = sqrt((1 - xi) / (1 + (a^2 -
-// 1) xi)). Near the pole cos^2 rounds to 1.0f, sin theta to exactly 0, and a
-// fraction 2^-25 / (alpha^2 + 2^-25) of all draws landed ON the normal — 0.47 %
-// at roughness 0.05 and 1.2 % at the Legacy sampling floor 0.04 — with the
-// rest quantised to a few thousand distinct cosines. This file's roughness
-// 0.05 families failed on it. The engine now forms sin^2 = a^2 xi / (1 + (a^2
-// - 1) xi), which has no cancellation; those families pass with the rest of
-// the grid, and ImportanceSampleGgxNoLongerCollapsesOntoTheNormalInF32 pins
-// the fix beside the pre-#1347 form (BsdfMutationDetectionTest M10 is the
-// same bug as a mutant of the chi-square check).
 //
 // Classification: L1 (pure CPU math; no GL, no scene).
 // =============================================================================
@@ -84,7 +61,6 @@
 #include "Rendering/Oracles/IndependentBsdfOracle.h"
 #include "Rendering/Oracles/OracleStatistics.h"
 
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 
 #include <gtest/gtest.h>
@@ -123,16 +99,15 @@ namespace OloEngine::Tests::Oracle
             { "metal", glm::dvec3(0.95, 0.64, 0.54), 1.0 },
             { "half metal", glm::dvec3(0.7), 0.5 },
         } };
-        constexpr u32 kMixtureModels = 2; // ClosureV2, Legacy
 
         // Every goodness-of-fit family this file runs (the Bonferroni count):
-        // 12 VNDF + 12 GGX + 2 cosine + 24 mixtures + 16 KS.
+        // 12 VNDF + 2 cosine + 12 mixtures + 8 KS.
         constexpr u32 kFamilyCount =
-            static_cast<u32>(kLobeRoughness.size() * kLobeCosV.size()) * 2u    // VNDF, GGX
-            + static_cast<u32>(kCosineCosV.size())                             // cosine
-            + kMixtureModels * 4u * static_cast<u32>(kMixtureRoughness.size()) // mixtures
-            + static_cast<u32>(kLobeRoughness.size()) * 2u * 2u;               // KS: 2 samplers x (t, phi)
-        static_assert(kFamilyCount == 66u);
+            static_cast<u32>(kLobeRoughness.size() * kLobeCosV.size())              // VNDF
+            + static_cast<u32>(kCosineCosV.size())                                  // cosine
+            + static_cast<u32>(kMixtureMaterials.size() * kMixtureRoughness.size()) // mixtures
+            + static_cast<u32>(kLobeRoughness.size()) * 2u;                         // KS: VNDF (t, phi)
+        static_assert(kFamilyCount == 34u);
 
         constexpr f64 kFileAlpha = 1.0e-2;
 
@@ -154,35 +129,14 @@ namespace OloEngine::Tests::Oracle
 
         // ---- oracle densities, from Oracle:: functions only ----------------
 
-        // The Legacy specular SAMPLER's alpha: the sampling roughness is the
-        // material roughness floored at MIN_ROUGHNESS 0.04 (the documented
-        // Legacy sampling policy, PBRClosureBSDF.h SamplingRoughness), squared
-        // by the GGX definition. The v2 alpha is Oracle::ClosureV2Alpha.
-        [[nodiscard]] f64 LegacySamplingAlpha(f64 roughness)
-        {
-            const f64 r = std::clamp(roughness, 0.04, 1.0);
-            return r * r;
-        }
-
-        [[nodiscard]] f64 SpecularAlpha(PBRModel model, f64 roughness)
-        {
-            return model == PBRModel::ClosureV2 ? ClosureV2Alpha(roughness) : LegacySamplingAlpha(roughness);
-        }
-
         // The one-sample mixture: pS p_spec + (1 - pS) cos / pi. pS is the
         // engine's lobe-selection POLICY (Engine::SpecularProbability) — an
         // input, not a model property: the mixture is unbiased for any pS in
         // (0, 1), so there is nothing to derive. The SHAPES are the oracle's:
-        // ClosureV2 samples the visible normals, Legacy the NDF.
-        [[nodiscard]] OracleDensity MixtureDensity(PBRModel model, f64 pS, f64 roughness)
+        // the specular draw samples visible normals.
+        [[nodiscard]] OracleDensity MixtureDensity(f64 pS, f64 roughness)
         {
-            const Shape specular = model == PBRModel::ClosureV2 ? Shape::VisibleNormal : Shape::NdfReflection;
-            return { Lobe{ specular, pS, SpecularAlpha(model, roughness) }, Lobe{ Shape::Cosine, 1.0 - pS, 1.0 } };
-        }
-
-        [[nodiscard]] const char* ModelName(PBRModel model)
-        {
-            return model == PBRModel::ClosureV2 ? "ClosureV2" : "Legacy";
+            return { Lobe{ Shape::VisibleNormal, pS, ClosureV2Alpha(roughness) }, Lobe{ Shape::Cosine, 1.0 - pS, 1.0 } };
         }
 
         // Runs one family through the shared check, asserts it passes, returns
@@ -227,21 +181,6 @@ namespace OloEngine::Tests::Oracle
             return { x, y };
         }
 
-        // The pre-#1347 engine form of ImportanceSampleGGX's inversion, kept
-        // as the paired negative control of the regression test below (and
-        // BsdfMutationDetectionTest M10). Verbatim from ReferenceBRDF.h before
-        // the fix, in the n = +z frame the engine's basis reduces to:
-        //   cosTheta = sqrt(max(0, (1 - xi.y) / (1 + (a^2 - 1) xi.y)));
-        //   sinTheta = sqrt(max(0, 1 - cosTheta^2));   <-- the cancellation
-        [[nodiscard]] glm::vec3 Pre1347GgxHalfVector(const glm::vec2& xi, f32 roughness)
-        {
-            const f32 a = roughness * roughness;
-            const f32 phi = 2.0f * PathTracing::kPi * xi.x;
-            const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / (1.0f + (a * a - 1.0f) * xi.y)));
-            const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-            return glm::normalize(glm::vec3(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta));
-        }
-
         [[nodiscard]] std::string Cell(f64 roughness, f64 cosV)
         {
             std::ostringstream s;
@@ -269,31 +208,6 @@ namespace OloEngine::Tests::Oracle
             }
         }
         std::cout << "[ VNDF ] smallest per-run p over the grid: " << smallest << '\n';
-    }
-
-    // =========================================================================
-    // 2. ImportanceSampleGGX reflected vs D(m) cos(m) / (4 v.m)
-    // =========================================================================
-
-    TEST(BsdfSamplingDistributionTest, GgxHalfVectorSamplerMatchesTheReflectedNdf)
-    {
-        // The adapter passes roughness straight to ImportanceSampleGGX (the
-        // Legacy mixture applies its 0.04 floor before calling it; that path
-        // is test 4), so the sampler is tested at the given roughness. The
-        // roughness 0.05 row failed before the #1347 fix (file header).
-        f64 smallest = 1.0;
-        for (f64 roughness : kLobeRoughness)
-        {
-            const f64 alpha = roughness * roughness;
-            for (f64 cosV : kLobeCosV)
-            {
-                smallest = std::min(smallest, ExpectDistribution(Engine::GgxReflectionSampler(roughness),
-                                                                 { Lobe{ Shape::NdfReflection, 1.0, alpha } },
-                                                                 Direction(cosV, 0.0), alpha,
-                                                                 "ImportanceSampleGGX, " + Cell(roughness, cosV)));
-            }
-        }
-        std::cout << "[ GGX ] smallest per-run p over the grid: " << smallest << '\n';
     }
 
     // =========================================================================
@@ -325,7 +239,7 @@ namespace OloEngine::Tests::Oracle
 
     namespace
     {
-        void ExpectMixtures(PBRModel model)
+        void ExpectMixtures()
         {
             // A Latin square over the views: one view per (material,
             // roughness), alternating, so every material and every roughness
@@ -341,34 +255,29 @@ namespace OloEngine::Tests::Oracle
                     const f64 roughness = kMixtureRoughness[ri];
                     const f64 cosV = kMixtureCosV[(mi + ri) % kMixtureCosV.size()];
                     const MaterialCase material{ named.Albedo, named.Metallic, roughness };
-                    const f64 pS = Engine::SpecularProbability(material, model);
+                    const f64 pS = Engine::SpecularProbability(material);
                     ASSERT_GT(pS, 0.0);
                     ASSERT_LT(pS, 1.0);
-                    const OracleDensity density = MixtureDensity(model, pS, roughness);
+                    const OracleDensity density = MixtureDensity(pS, roughness);
                     // Bins follow the specular lobe: that is where a wrong
                     // alpha, Jacobian or pS shows. The diffuse share lands
                     // mostly in the last t row; its shape is test 3's job.
                     const f64 binAlpha = density.front().Alpha;
                     std::ostringstream label;
-                    label << ModelName(model) << " BSDF::Sample, " << named.Name << ", " << Cell(roughness, cosV)
+                    label << "ClosureV2" << " BSDF::Sample, " << named.Name << ", " << Cell(roughness, cosV)
                           << ", pS " << pS;
-                    smallest = std::min(smallest, ExpectDistribution(Engine::BsdfSampler(material, model), density,
+                    smallest = std::min(smallest, ExpectDistribution(Engine::BsdfSampler(material), density,
                                                                      Direction(cosV, 0.0), binAlpha, label.str()));
                 }
             }
-            std::cout << "[ " << ModelName(model) << " mixture ] smallest per-run p over the grid: " << smallest
+            std::cout << "[ " << "ClosureV2" << " mixture ] smallest per-run p over the grid: " << smallest
                       << '\n';
         }
     } // namespace
 
     TEST(BsdfSamplingDistributionTest, ClosureV2MixtureMatchesTheOracleMixture)
     {
-        ExpectMixtures(PBRModel::ClosureV2);
-    }
-
-    TEST(BsdfSamplingDistributionTest, LegacyMixtureMatchesTheOracleMixture)
-    {
-        ExpectMixtures(PBRModel::Legacy);
+        ExpectMixtures();
     }
 
     // =========================================================================
@@ -391,56 +300,53 @@ namespace OloEngine::Tests::Oracle
         // Lambert in f32).
         constexpr u32 kDrawsPerCell = 20000u;
         constexpr f64 kUlp = 1.0 / 16777216.0; // 2^-24
-        for (PBRModel model : { PBRModel::ClosureV2, PBRModel::Legacy })
+        f64 worstRatio = 0.0;                  // |engine - oracle| / bound, worst over the grid
+        std::string worstWhere;
+        for (const NamedMaterial& named : kMixtureMaterials)
         {
-            f64 worstRatio = 0.0; // |engine - oracle| / bound, worst over the grid
-            std::string worstWhere;
-            for (const NamedMaterial& named : kMixtureMaterials)
+            for (f64 roughness : kMixtureRoughness)
             {
-                for (f64 roughness : kMixtureRoughness)
+                const MaterialCase material{ named.Albedo, named.Metallic, roughness };
+                const f64 pS = Engine::SpecularProbability(material);
+                const OracleDensity density = MixtureDensity(pS, roughness);
+                const f64 alpha = density.front().Alpha;
+                const SamplerFn sampler = Engine::BsdfSampler(material);
+                const PdfFn enginePdf = Engine::BsdfPdf(material);
+                for (f64 cosV : kMixtureCosV)
                 {
-                    const MaterialCase material{ named.Albedo, named.Metallic, roughness };
-                    const f64 pS = Engine::SpecularProbability(material, model);
-                    const OracleDensity density = MixtureDensity(model, pS, roughness);
-                    const f64 alpha = density.front().Alpha;
-                    const SamplerFn sampler = Engine::BsdfSampler(material, model);
-                    const PdfFn enginePdf = Engine::BsdfPdf(material, model);
-                    for (f64 cosV : kMixtureCosV)
+                    const glm::dvec3 v = Direction(cosV, 0.0);
+                    IidStream stream(kSamplingPlan.Runs.Seed(0) ^ 0x7'0000'0000ull);
+                    u32 accepted = 0;
+                    for (u32 i = 0; i < kDrawsPerCell; ++i)
                     {
-                        const glm::dvec3 v = Direction(cosV, 0.0);
-                        IidStream stream(kSamplingPlan.Runs.Seed(0) ^ 0x7'0000'0000ull);
-                        u32 accepted = 0;
-                        for (u32 i = 0; i < kDrawsPerCell; ++i)
+                        const std::optional<glm::dvec3> l = sampler(v, stream);
+                        if (!l)
+                            continue;
+                        ++accepted;
+                        const f64 got = enginePdf(v, *l);
+                        const f64 spec = density.front().Weight * LobePdf(density.front(), v, *l);
+                        const f64 expected = DensityPdf(density, v, *l);
+                        const glm::dvec3 m = HalfVector(v, *l);
+                        const f64 q = (1.0 - m.z * m.z) + alpha * alpha * m.z * m.z;
+                        const f64 bound = 1.0e-4 * expected + 32.0 * kUlp / q * spec;
+                        const f64 ratio = std::abs(got - expected) / bound;
+                        if (!std::isfinite(got) || ratio > worstRatio)
                         {
-                            const std::optional<glm::dvec3> l = sampler(v, stream);
-                            if (!l)
-                                continue;
-                            ++accepted;
-                            const f64 got = enginePdf(v, *l);
-                            const f64 spec = density.front().Weight * LobePdf(density.front(), v, *l);
-                            const f64 expected = DensityPdf(density, v, *l);
-                            const glm::dvec3 m = HalfVector(v, *l);
-                            const f64 q = (1.0 - m.z * m.z) + alpha * alpha * m.z * m.z;
-                            const f64 bound = 1.0e-4 * expected + 32.0 * kUlp / q * spec;
-                            const f64 ratio = std::abs(got - expected) / bound;
-                            if (!std::isfinite(got) || ratio > worstRatio)
-                            {
-                                worstRatio = std::isfinite(got) ? ratio : std::numeric_limits<f64>::infinity();
-                                std::ostringstream s;
-                                s << named.Name << ", " << Cell(roughness, cosV) << ", l " << Describe(*l)
-                                  << ": engine " << got << ", oracle " << expected << ", bound " << bound;
-                                worstWhere = s.str();
-                            }
+                            worstRatio = std::isfinite(got) ? ratio : std::numeric_limits<f64>::infinity();
+                            std::ostringstream s;
+                            s << named.Name << ", " << Cell(roughness, cosV) << ", l " << Describe(*l)
+                              << ": engine " << got << ", oracle " << expected << ", bound " << bound;
+                            worstWhere = s.str();
                         }
-                        EXPECT_GT(accepted, kDrawsPerCell / 2u) << ModelName(model) << ", " << named.Name;
                     }
+                    EXPECT_GT(accepted, kDrawsPerCell / 2u) << "ClosureV2" << ", " << named.Name;
                 }
             }
-            EXPECT_LE(worstRatio, 1.0) << ModelName(model) << " BSDF::Pdf differs from the oracle mixture at "
-                                       << worstWhere;
-            std::cout << "[ " << ModelName(model) << " pdf ] worst |engine - oracle| / f32 bound: " << worstRatio
-                      << " at " << worstWhere << '\n';
         }
+        EXPECT_LE(worstRatio, 1.0) << "ClosureV2" << " BSDF::Pdf differs from the oracle mixture at "
+                                   << worstWhere;
+        std::cout << "[ " << "ClosureV2" << " pdf ] worst |engine - oracle| / f32 bound: " << worstRatio
+                  << " at " << worstWhere << '\n';
     }
 
     // =========================================================================
@@ -495,19 +401,6 @@ namespace OloEngine::Tests::Oracle
         }
     } // namespace
 
-    TEST(BsdfSamplingDistributionTest, ImportanceSampleGgxThetaCdfAndAzimuthAreUniform)
-    {
-        // ImportanceSampleGGX draws m from D(m) cos(m) directly (no reflection,
-        // no rejection), in the n = +z frame.
-        for (f64 roughness : kLobeRoughness)
-        {
-            ExpectUniformMarginals([](f64 r, IidStream& stream)
-                                   { return PathTracing::ImportanceSampleGGX(NextXi(stream), Engine::kNormal,
-                                                                             static_cast<f32>(r)); },
-                                   "ImportanceSampleGGX", roughness);
-        }
-    }
-
     TEST(BsdfSamplingDistributionTest, VndfAtNormalIncidenceThetaCdfAndAzimuthAreUniform)
     {
         // At v = n the visible-normal density reduces to D cos [Heitz18 eq. 1]:
@@ -522,61 +415,6 @@ namespace OloEngine::Tests::Oracle
                                    { return PathTracing::SampleGGXVNDF(Engine::kNormal, Engine::kNormal,
                                                                        static_cast<f32>(r), NextXi(stream)); },
                                    "SampleGGXVNDF at v = n", roughness);
-        }
-    }
-
-    TEST(BsdfSamplingDistributionTest, ImportanceSampleGgxNoLongerCollapsesOntoTheNormalInF32)
-    {
-        // The #1347 fix, as a pair of predictions over the SAME uniforms.
-        //
-        // The pre-#1347 form X = (1 - xi) / (1 + (a^2 - 1) xi) = cos^2 theta =
-        // 1 / (1 + tan^2 theta), then sin = sqrt(1 - cos^2): X rounds to 1.0f
-        // when tan^2 < 2^-25 (half the f32 spacing below 1), and then cos = 1
-        // and sin = 0 exactly: h == n. Under D cos that happens with
-        // probability
-        //   P(tan^2 < 2^-25) = GgxThetaCdf(1 / sqrt(1 + 2^-25), alpha)
-        //                    = 2^-25 / (alpha^2 + 2^-25),
-        // asserted within a binomial 5-sigma band over 2M draws — the negative
-        // control: this test can see the collapse.
-        //
-        // The engine form sin^2 = a^2 xi / (1 + (a^2 - 1) xi) is a product and
-        // a quotient of positive numbers, with no cancellation: sin == 0
-        // exactly only if a^2 xi underflows or xi.y == 0. a^2 >= 2.56e-6 at the
-        // 0.04 floor and a nonzero f32 xi.y >= 2^-149, so the product
-        // underflows only for xi.y below ~2^-130; and a 24-bit f32 uniform is 0
-        // with probability 2^-24 (this stream's is f64 rounded to f32, finer
-        // still). The expected count on the normal is <= 2M x 2^-24 = 0.12;
-        // P(Poisson(0.12) >= 3) = 2.7e-4, so <= 2 is the bound.
-        constexpr u32 kDraws = 2000000u;
-        // EXACT zero is the event counted (sin theta rounded to 0, not "near
-        // the normal"), so classify the bits rather than compare with a
-        // tolerance: FP_ZERO is +0 and -0 and nothing else.
-        const auto isExactlyOnTheNormal = [](const glm::vec3& d)
-        { return std::fpclassify(d.x) == FP_ZERO && std::fpclassify(d.y) == FP_ZERO; };
-        for (f64 roughness : { 0.04, 0.05, 0.1 })
-        {
-            const f64 predicted = GgxThetaCdf(1.0 / std::sqrt(1.0 + std::ldexp(1.0, -25)), roughness * roughness);
-            IidStream stream(kSamplingPlan.Runs.Seed(0));
-            u32 engineOnTheNormal = 0;
-            u32 oldOnTheNormal = 0;
-            for (u32 i = 0; i < kDraws; ++i)
-            {
-                const glm::vec2 xi = NextXi(stream);
-                const glm::vec3 h = PathTracing::ImportanceSampleGGX(xi, Engine::kNormal, static_cast<f32>(roughness));
-                const glm::vec3 o = Pre1347GgxHalfVector(xi, static_cast<f32>(roughness));
-                engineOnTheNormal += isExactlyOnTheNormal(h) ? 1u : 0u;
-                oldOnTheNormal += isExactlyOnTheNormal(o) ? 1u : 0u;
-            }
-            const f64 oldFraction = static_cast<f64>(oldOnTheNormal) / kDraws;
-            const f64 sigma = std::sqrt(predicted * (1.0 - predicted) / kDraws);
-            EXPECT_LE(engineOnTheNormal, 2u)
-                << "roughness " << roughness << ": ImportanceSampleGGX put " << engineOnTheNormal << " of " << kDraws
-                << " half-vectors exactly on the normal — the pre-#1347 f32 collapse is back";
-            EXPECT_NEAR(oldFraction, predicted, 5.0 * sigma + 1.0e-6)
-                << "roughness " << roughness << ": the pre-#1347 form put " << oldOnTheNormal << " of " << kDraws
-                << " on the normal; predicted " << predicted * kDraws << " — the control no longer shows the collapse";
-            std::cout << "[ f32 collapse r " << roughness << " ] on the normal: engine " << engineOnTheNormal << " of "
-                      << kDraws << ", pre-#1347 form " << oldFraction << " (predicted " << predicted << ")\n";
         }
     }
 
@@ -628,9 +466,7 @@ namespace OloEngine::Tests::Oracle
             { "GGX r 1, cos v 0.05", { Lobe{ Shape::NdfReflection, 1.0, 1.0 } }, 0.05 },
             { "GGX r 0.3, cos v 0.5", { Lobe{ Shape::NdfReflection, 1.0, 0.09 } }, 0.5 },
             { "cosine, cos v 0.5", { Lobe{ Shape::Cosine, 1.0, 1.0 } }, 0.5 },
-            { "v2 mixture r 0.1, cos v 0.1, pS 0.1", MixtureDensity(PBRModel::ClosureV2, 0.1, 0.1), 0.1 },
-            { "Legacy mixture r 0.1, cos v 0.7, pS 0.5", MixtureDensity(PBRModel::Legacy, 0.5, 0.1), 0.7 },
-            { "Legacy mixture r 0.5, cos v 0.1, pS 0.9", MixtureDensity(PBRModel::Legacy, 0.9, 0.5), 0.1 },
+            { "v2 mixture r 0.1, cos v 0.1, pS 0.1", MixtureDensity(0.1, 0.1), 0.1 },
         };
         SamplingPlan finerPlan = kSamplingPlan;
         finerPlan.DepositBaseCells = 2u * kSamplingPlan.DepositBaseCells;

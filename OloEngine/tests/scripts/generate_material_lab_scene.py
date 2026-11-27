@@ -173,7 +173,6 @@ def material(albedo, metallic, roughness, emissive=None, albedo_map=None,
              normal_map=None):
     # AlbedoColor is LINEAR: it feeds Material::SetBaseColorFactor directly
     # (no sRGB decode) — see SceneSerializer.cpp's MaterialComponent reader.
-    # PBRModel: 1 = ClosureV2 on every material in the lab (issue #975).
     out = (
         "    MaterialComponent:\n"
         f"      AlbedoColor: {vec(albedo)}\n"
@@ -186,7 +185,6 @@ def material(albedo, metallic, roughness, emissive=None, albedo_map=None,
         out += f"      AlbedoMapPath: {albedo_map}\n"
     if normal_map is not None:
         out += f"      NormalMapPath: {normal_map}\n"
-    out += "      PBRModel: 1\n"
     return out
 
 
@@ -237,7 +235,7 @@ LAB_HEADER = """\
 #
 # A neutral studio for reading material response numerically:
 #
-#   * 10x10 sphere sweep centred on the origin (ClosureV2, PBRModel: 1).
+#   * 10x10 sphere sweep centred on the origin (ClosureV2).
 #     Roughness runs along +X (columns, 0 at x=-6.75 .. 1 at x=+6.75),
 #     metallic along +Z (rows, 0 at z=-6.75 far .. 1 at z=+6.75 near the
 #     camera). Values are index/9 so both axes REACH 0 and 1; tags are

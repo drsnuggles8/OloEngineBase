@@ -3244,24 +3244,37 @@ namespace OloEngine
     bool Scene::TrySetWorldForward(entt::entity entity, const glm::vec3& forward, const glm::vec3& up)
     {
         auto& local = m_Registry.get<TransformComponent>(entity);
+        glm::mat3 parentBasis(1.0f);
+        glm::quat candidate;
         if (ResolveTransformParent(entity) == entt::null)
         {
-            local.SetRotation(glm::quatLookAt(forward, up));
-            return true;
+            // Mirroring local Z reverses the mesh's visible forward axis.
+            candidate = glm::quatLookAt(std::copysign(1.0f, local.Scale.z) * forward, up);
         }
-        const glm::mat3 parentBasis(ComputeParentWorldTransform(entity));
-        const auto inverse = InverseParentBasis(parentBasis);
-        if (!inverse)
+        else
+        {
+            parentBasis = glm::mat3(ComputeParentWorldTransform(entity));
+            const auto inverse = InverseParentBasis(parentBasis);
+            if (!inverse)
+                return false;
+            const glm::dvec3 worldBack(-forward);
+            const f64 sign = std::copysign(1.0, local.Scale.z);
+            const glm::dvec3 back = glm::normalize(*inverse * worldBack) * sign;
+            // Cross products of inverse-transformed directions use the dual basis.
+            // This keeps the right axis precise even for strongly unequal scales.
+            const glm::dmat3 parent(parentBasis);
+            const f64 handedness = std::copysign(1.0, glm::determinant(parent));
+            const glm::dvec3 right = glm::normalize(glm::transpose(parent) * glm::cross(glm::dvec3(up), worldBack)) * (sign * handedness);
+            candidate = glm::quat(glm::quat_cast(glm::dmat3(right, glm::cross(back, right), back)));
+        }
+        // Validate the normalized f32 quaternion that SetRotation will store.
+        // The parent can amplify its rounding enough to reverse a heading.
+        const glm::vec3 localBack = glm::mat3_cast(glm::normalize(candidate))[2] * local.Scale.z;
+        const glm::dvec3 renderedBack(parentBasis * localBack);
+        const f64 length = glm::length(renderedBack);
+        if (!(length > 0.0) || !(glm::distance(-renderedBack / length, glm::dvec3(forward)) <= 1.0e-4))
             return false;
-        const glm::dvec3 worldBack(-forward);
-        const f64 sign = std::copysign(1.0, local.Scale.z);
-        const glm::dvec3 back = glm::normalize(*inverse * worldBack) * sign;
-        // Cross products of inverse-transformed directions use the dual basis.
-        // This keeps the right axis precise even for strongly unequal scales.
-        const glm::dmat3 parent(parentBasis);
-        const f64 handedness = std::copysign(1.0, glm::determinant(parent));
-        const glm::dvec3 right = glm::normalize(glm::transpose(parent) * glm::cross(glm::dvec3(up), worldBack)) * (sign * handedness);
-        local.SetRotation(glm::quat(glm::quat_cast(glm::dmat3(right, glm::cross(back, right), back))));
+        local.SetRotation(candidate);
         return true;
     }
 
@@ -4397,6 +4410,11 @@ namespace OloEngine
         {
             m_JoltScene->ShiftOrigin(shift);
         }
+        // Recorded terrain placements describe those bodies. An interpolated
+        // render rebuild or tile reconcile reads them before the next physics
+        // sync, so they move with the bodies. Rotation and shape basis are unchanged.
+        for (auto& [entity, frame] : m_TerrainCollisionFrames)
+            frame.Model[3] += glm::vec4(shift, 0.0f);
 
         // 3. Shift 2D (Box2D) bodies in the xy plane (2D bodies are authored from
         //    Translation.xy — see SceneStreamer::InitializeStreamedEntities).
@@ -9013,7 +9031,15 @@ namespace OloEngine
                 continue;
             const auto frame = CaptureTerrainCollisionFrame(entity, terrain.m_StreamingEnabled);
             if (frame.Streamed)
-                m_TerrainCollisionFrames[entity] = frame;
+            {
+                // Tiles already resident from edit mode need bodies before the
+                // first step: the per-step sync skips an unchanged placement, and
+                // otherwise only the next render would reconcile them.
+                TArray<Ref<TerrainTile>> ready;
+                if (terrain.m_Streamer)
+                    terrain.m_Streamer->GetReadyTiles(ready);
+                SyncStreamingTerrainCollision(ent, terrain, ready, frame);
+            }
             else
                 RebuildTerrainCollision(ent, terrain, frame);
         }
@@ -9177,6 +9203,9 @@ namespace OloEngine
 
     void Scene::RebuildTerrainCollision(Entity entity, TerrainComponent& terrain, const TerrainCollisionPlacement& frame)
     {
+        // A render-only rebuild can switch modes before the next physics tick.
+        // Retire the old tile bodies before recording a single-tile placement.
+        m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
         BuildTerrainCollisionBody(*m_JoltScene, entity, terrain, frame.ShapeBasis, glm::vec3(frame.Model[3]), frame.Rotation);
         if (m_JoltScene->HasTerrainBody(entity.GetUUID()))
         {
@@ -9268,7 +9297,6 @@ namespace OloEngine
             else if (previous == m_TerrainCollisionFrames.end() || previous->second.Streamed ||
                      TerrainShapeBasisChanged(previous->second.ShapeBasis, shapeBasis))
             {
-                m_JoltScene->DestroyTerrainTilesForEntity(entity.GetUUID());
                 RebuildTerrainCollision(entity, terrain, frame);
             }
             else
@@ -16713,6 +16741,9 @@ namespace OloEngine
                 const WaterComponent* fogWater = nullptr;
                 glm::mat4 fogWaterModel(1.0f);
                 bool fogWaterDrawsFFT = false;
+                // The fog tile's largest drawn displacement along its normal, as the
+                // render path bounds it for culling (wake excluded; added below).
+                f32 fogWaterWaveExtent = 0.0f;
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -16787,6 +16818,12 @@ namespace OloEngine
                         fogWater = &water;
                         fogWaterModel = GetWorldTransform(entity);
                         fogWaterDrawsFFT = fftActive;
+                        if (fftActive)
+                            fogWaterWaveExtent = std::max(2.0f * sanitizeParam(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f) *
+                                                              WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale),
+                                                          3.0f);
+                        else
+                            fogWaterWaveExtent = 2.0f * (std::isfinite(water.m_WaveAmplitude) ? std::clamp(water.m_WaveAmplitude, 0.0f, 100.0f) : 0.5f);
                         // Sanitize each colour component before clamping — glm::clamp
                         // passes NaN through, so a bad component would propagate into
                         // the fog UBO and break the tone-map pass. Replace non-finite
@@ -16872,15 +16909,16 @@ namespace OloEngine
                     eyeDepth = underwater.WaterSurfaceY - cameraPosition.y;
                     if (std::optional<WaterProbe::Volume> volume = fogWater ? WaterProbe::MakeVolume(fogWaterModel, *fogWater) : std::nullopt)
                     {
-                        // The probe is how PHYSICS sees the tile. Three places it can
-                        // differ from what is on screen, and here the screen decides:
+                        // The probe starts with the tile's physics settings.
+                        // Use the wave model and shared fields from the water draw:
                         //  * the shader draws the FFT sea only once its textures exist
                         //    (fftActive above) and Gerstner waves until then;
                         //  * an FFT sea drawn with no CPU proxy to sample has no height
                         //    to offer, and the still plane stands;
                         //  * the wake shapes every drawn tile alike, whether or not
                         //    buoyancy rides it: one set of tunables, the largest
-                        //    wake-enabled tile's, published above for this frame.
+                        //    wake-enabled tile's, published above for this frame;
+                        //  * every tile draws the winning shore field and breaker index.
                         const bool hasProxy = volume->m_OceanField != nullptr;
                         if (!fogWaterDrawsFFT)
                             volume->m_OceanField = nullptr;
@@ -16888,6 +16926,8 @@ namespace OloEngine
                         volume->m_WakeAffectsPhysics = drawnWake.m_Enabled;
                         volume->m_WakeHeightScale = drawnWake.m_Enabled ? drawnWake.m_HeightScale : 0.0f;
                         volume->m_WakeFlattenStrength = drawnWake.m_FlattenStrength;
+                        volume->m_Params.m_ShoreEnabled = WaterShoreDepthSystem::GetShaderParams().w > 0.0f;
+                        volume->m_Params.m_ShoreBreakerIndex = WaterShoreDepthSystem::GetShaderParams2().x;
                         if (!fogWaterDrawsFFT || hasProxy)
                         {
                             const f32 surfaceY = WaterProbe::SampleSurfaceY(
@@ -16905,6 +16945,18 @@ namespace OloEngine
                 // caustic scroll (mirrors the water surface's own wave time).
                 if (const auto frame = WaterSurface::SurfaceFrame::FromModel(fogWaterModel))
                     uwData.SurfaceGradient = glm::vec4(-frame->Normal.x / frame->Normal.y, -frame->Normal.z / frame->Normal.y, 0.0f, 0.0f);
+                // The depth capture holds every drawn tile. Only the fog tile's
+                // surface lies on the plane the gradient describes: over its
+                // footprint and within its wave band of that plane.
+                if (fogWater)
+                {
+                    const WaterWakeSettings& wake = Renderer3D::GetWaterWakeSettings();
+                    const f32 wakeExtent = wake.m_Enabled && std::isfinite(wake.m_HeightScale) ? std::abs(wake.m_HeightScale) : 0.0f;
+                    uwData.SurfaceGradient.z = UnderwaterFog::EyeTileSurfaceBand(fogWaterModel, fogWaterWaveExtent + wakeExtent);
+                    const auto rows = UnderwaterFog::MakeTileFootprintRows(fogWaterModel, fogWater->m_WorldSizeX, fogWater->m_WorldSizeZ);
+                    uwData.SurfaceTileU = rows.U;
+                    uwData.SurfaceTileV = rows.V;
+                }
                 uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, eyeDepth);
                 uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
                 uwData.RefractionParams = refractionParams;

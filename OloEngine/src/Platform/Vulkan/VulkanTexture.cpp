@@ -16,6 +16,7 @@
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
@@ -1307,16 +1308,21 @@ namespace OloEngine
             },
             &outcome);
 
-        if (api && outcome != VulkanOneShot::Outcome::NotSubmitted)
-            api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
-        if (ok)
+        if (outcome != VulkanOneShot::Outcome::NotSubmitted)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, device->GetSampledImageLayout());
+            // Submit's own scope closed before the outcome became available
+            // here. Publish this accepted image transition to both tracker
+            // views; unrelated recorded work has not necessarily executed.
+            if (api)
+            {
+                VulkanImageLayoutTracker::ImmediateExecutionScope submitted;
+                api->LayoutTracker().SetLayout(m_Image, whole, restingLayout);
+                submitted.MarkSubmitted();
+            }
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, restingLayout);
         }
-        else
-        {
+        if (!ok)
             OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips: mip chain submit failed");
-        }
     }
 
     bool VulkanTexture2D::UsesAlphaCoverageChain() const

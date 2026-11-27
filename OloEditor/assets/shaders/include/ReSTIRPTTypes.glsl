@@ -2,7 +2,7 @@
 #define OLO_RESTIR_PT_TYPES
 #define OLO_RESTIR_PT_FLAG_TEXTURES 1u
 #define OLO_RESTIR_PT_FLAG_ENVIRONMENT 2u
-#define OLO_RESTIR_PT_LAYOUT_VERSION 1u
+#define OLO_RESTIR_PT_LAYOUT_VERSION 2u
 #define OLO_RESTIR_PT_LAYOUT_BITS (OLO_RESTIR_PT_LAYOUT_VERSION << 16u)
 // Lineage.w: bit0 receiver exists, bit1 selected nonzero-target path exists,
 // bit2 the selected suffix came through temporal reuse. Spatial reuse carries
@@ -18,7 +18,7 @@ struct PTVertex
 {
     vec4 PositionRoughness;
     vec4 GeometricNormalMetallic;
-    vec4 ShadingNormalClosure;
+    vec4 ShadingNormal;
     vec4 Albedo;
     vec4 Incoming;
     vec4 Randoms;
@@ -104,7 +104,7 @@ PTVertex PTEmptyVertex()
     PTVertex v;
     v.PositionRoughness = vec4(0);
     v.GeometricNormalMetallic = vec4(0);
-    v.ShadingNormalClosure = vec4(0);
+    v.ShadingNormal = vec4(0);
     v.Albedo = vec4(0);
     v.Incoming = vec4(0);
     v.Randoms = vec4(0);

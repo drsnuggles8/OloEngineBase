@@ -71,7 +71,8 @@ namespace OloEngine
     //     (#1721) it would turn them back, under landmarks sited on the new
     //     ground. Refused like every other version.
     // 53: inline placements preserve their authored tint, picking ID and custom value.
-    static constexpr u32 kSaveGameFormatVersion = 53;
+    // 54: material and tile-material records omit the closure selector.
+    static constexpr u32 kSaveGameFormatVersion = 54;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

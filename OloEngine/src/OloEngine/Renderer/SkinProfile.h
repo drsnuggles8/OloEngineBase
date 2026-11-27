@@ -14,15 +14,7 @@
 // path carry a per-pixel PROFILE IDENTITY in a few bits instead of a parameter
 // block per pixel.
 //
-// WHY THE EVALUATION MODEL LIVES HERE AND IS NOT `MaterialKind`. The issue is
-// explicit that the KIND of a material must stay distinct from the VERSION of
-// the algorithm that evaluates it, and the engine already learned this once:
-// `PBRModel` (#975) exists because correcting a BRDF must not silently restate
-// every scene. `MaterialKind::Skin` says "this is skin" forever;
-// `SkinEvaluationModel` says "this profile was authored against transport
-// version N", and #1241's diffusion lands as version 1 without touching a
-// single material's kind. See
-// docs/adr/0024-material-kind-is-not-the-closure-version.md.
+// MaterialKind selects skin. The profile selects the transport algorithm.
 // =============================================================================
 
 #include "OloEngine/Asset/Asset.h"
@@ -1106,8 +1098,6 @@ namespace OloEngine
     // face names exactly seven (ReferenceHead, EyeIris, EyeTearLine, OralLip,
     // OralTongue, OralGum, OralEnamel), so a second character, a second eye
     // colour or a scarred variant ran out and its surface shaded as not-skin.
-    // The model field above the slot gives up the bit: it still holds 16
-    // closure models against the 2 that exist (PBRModel.h).
     inline constexpr u32 kSkinProfileSlotBits = 4;
     inline constexpr u32 kSkinProfileSlotNone = (1u << kSkinProfileSlotBits) - 1u; // 15
     inline constexpr u32 kMaxSkinProfileSlots = kSkinProfileSlotNone;              // slots 0..14

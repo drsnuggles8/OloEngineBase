@@ -138,13 +138,19 @@ namespace OloEngine
     }
 
     bool ProbeSceneCapture::CaptureFaces(Ref<Scene>& scene, const glm::vec3& position, u32 resolution,
-                                         TArray<DDGIMeshCaster>* casterSink, const FaceSink& onFace)
+                                         TArray<DDGIMeshCaster>* casterSink, const FaceSink& onFace, bool submitEachFace)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!scene || !onFace)
         {
             OLO_CORE_ERROR("ProbeSceneCapture::CaptureFaces: {}", !scene ? "scene is null" : "no face sink");
+            return false;
+        }
+        const bool explicitSubmit = submitEachFace && RendererAPI::GetAPI() == RendererAPI::API::Vulkan;
+        if (explicitSubmit && !RenderCommand::SupportsRenderGraphFenceSubmission())
+        {
+            OLO_CORE_ERROR("ProbeSceneCapture: Vulkan capture requires a frame recording");
             return false;
         }
 
@@ -214,6 +220,8 @@ namespace OloEngine
                 Renderer3D::SetAuxCasterSink(casterSink);
                 scene->RenderScene3D(captureCamera, FaceTransform(position, 0u));
             }
+            if (explicitSubmit && !SubmitFaceForReadback())
+                return false;
 
             // Resolved once: the target is stable across six same-size renders.
             if (auto const sceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); !sceneFb)
@@ -239,6 +247,12 @@ namespace OloEngine
                 {
                     scene->RenderScene3D(captureCamera, FaceTransform(position, face));
 
+                    if (explicitSubmit && !SubmitFaceForReadback())
+                    {
+                        captured = false;
+                        break;
+                    }
+
                     // The face's lit HDR radiance, read from the texture
                     // directly (no framebuffer-bound restriction).
                     bool const readOk = RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
@@ -258,5 +272,14 @@ namespace OloEngine
         }
 
         return captured;
+    }
+
+    bool ProbeSceneCapture::SubmitFaceForReadback()
+    {
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan || RenderCommand::SubmitRenderGraphFenceSegment())
+            return true;
+
+        OLO_CORE_ERROR("ProbeSceneCapture: Vulkan cannot submit the face from this recording point");
+        return false;
     }
 } // namespace OloEngine

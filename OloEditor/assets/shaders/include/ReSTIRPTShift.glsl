@@ -17,7 +17,7 @@ bool PTFinitePath(PTPath p)
         PTVertex v = p.Vertices[k];
         if (any(isnan(v.PositionRoughness)) || any(isinf(v.PositionRoughness)) ||
             any(isnan(v.GeometricNormalMetallic)) || any(isinf(v.GeometricNormalMetallic)) ||
-            any(isnan(v.ShadingNormalClosure)) || any(isinf(v.ShadingNormalClosure)) ||
+            any(isnan(v.ShadingNormal)) || any(isinf(v.ShadingNormal)) ||
             any(isnan(v.Randoms)) || any(isinf(v.Randoms)) || !PTFinite3(v.Albedo.rgb) || !PTFinite3(v.Incoming.xyz))
             return false;
         if (abs(dot(v.Incoming.xyz, v.Incoming.xyz) - 1.0) > 0.0002 ||

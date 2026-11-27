@@ -206,8 +206,6 @@ namespace OloEngine::Tests
             EXPECT_EQ(instance->MaterialGeneration, after.m_Generation);
             EXPECT_EQ(scene.FindMaterial(keyA), handleA) << "the neighbouring slot is untouched";
         };
-        materialB.m_ClosureVersion = 2;
-        expectIncompatible("closure version");
         materialB.m_Albedo = TextureRef(5, 1, 7);
         expectIncompatible("albedo texture added");
         materialB.m_Albedo.m_Handle.Generation = 2;

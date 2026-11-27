@@ -62,7 +62,6 @@ namespace OloEngine
             input.m_OcclusionStrength = material.GetOcclusionStrength();
             input.m_AlphaCutoff = material.GetAlphaCutoff();
             input.m_AlphaMode = static_cast<u32>(std::to_underlying(material.GetAlphaMode()));
-            input.m_ClosureVersion = static_cast<u32>(std::to_underlying(material.GetPBRModel()));
             // Material kind + skin profile (issue #1231). Resolved through the
             // same table the per-draw path uses, so an instance's record and its
             // UBO cannot name different profiles for one material; non-skin

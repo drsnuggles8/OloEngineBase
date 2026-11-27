@@ -43,6 +43,12 @@ while adding the reflection-probe visual test.
    moment one of them fires. `ReflectionProbeBaker::BakeProbe` currently does the plain form, with
    ~80 lines between set and restore — worth converting when you next touch it. The same guard
    should carry the window-size restoration, which has the identical problem.
+   Run Vulkan reflection-probe bakes inside the editor's frame recording callback.
+   Submit the warm-up and each face as a graph segment before the CPU reads
+   the face. The segment publishes the image layout, consumes the swapchain
+   acquire wait once and signals the renderer frame fence before the next
+   face needs to reuse an allocator slot. The readback can then borrow the
+   just-submitted layout even when the present pass already drew to the window.
 5. **Exclude the probe being baked from its own IBL override.** `ApplyReflectionProbeOverride`
    installs the dominant active probe's `m_BakedEnvironment` as the global IBL, so a **re-bake**
    feeds the probe's own previous bake back into the fresh capture — an infinity-mirror artifact
@@ -1222,25 +1228,14 @@ whole thing.
 
 Found on #1231 (skin material kind + profile).
 
-## A G-Buffer flags lane with an open-ended field cannot absorb a new one for free
+## The G-Buffer flags lane
 
-RT2's alpha carries the PBR closure model as *the whole rest of the lane* — no width, no mask — so
-appending a closure model is a one-line change in `PBRModel.h`. That property is what makes the
-field open-ended, and it means any NEW field has to go **below** it, which costs headroom: the lane
-is RGBA16F alpha, half is exact only to 2048, and each bit taken below the model halves what the
-model can carry exactly.
-
-#1231 took five bits (2 for the material kind, 3 for the skin profile slot) and
-`kPBRModelGBufferLaneMax` went from 1023 to 31. That is a legitimate trade and the static_assert in
-`PBRModel.h` is where it is enforced — but *notice it before you design the encoding*, because the
-alternative (putting the new fields above the model) silently gives the model a width and turns
-"append a closure model" back into a multi-file edit.
-
-The other half of the rule: every field below the open-ended one is fixed-width and must be
-**clamped on encode**. An out-of-range value in a fixed-width field carries into the field above it,
-so a bad profile slot would not produce a wrong profile — it would produce a wrong closure model.
-
-Found on #1231.
+RT2 alpha is an integer carried in RGBA16F. Bit 0 marks unlit, bits 1–2 select the kind,
+and bits 3–6 hold the profile slot. Clamp kind and slot before encoding. All current
+combinations fit exactly in half precision. `GBufferFlagsLaneTest` checks every pair
+through fp16 storage. An MSAA resolve chooses one sample's flags and averages emissive RGB.
+There is no per-material closure index. The skin and foliage tables interpret the slot
+according to the kind.
 
 ## A two-sided surface's shadow lookup must be biased along the LIT-side normal
 

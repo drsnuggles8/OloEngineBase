@@ -19,7 +19,6 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
@@ -86,33 +85,14 @@ namespace OloEngine::Tests
 
         // The deferred G-Buffer RT2 flags lane, hand-encoded because this
         // fixture substitutes synthetic texels for a real geometry pass. The
-        // layout is oloEncodeGBufferPbrFlagsEx in include/PBRCommon.glsl --
-        // `model * 64 + slot * 8 + kind * 2` -- and it is pinned end to end by
-        // GBufferFlagsLaneTest.EveryEncodableModelKindAndProfileRoundTripsUnTruncated.
-        // This is the only hand-written copy of the layout in the tree; every
-        // production writer calls the GLSL helper.
-        [[nodiscard]] constexpr f32 EncodeGBufferPbrFlags(PBRModel model, MaterialKind kind, u32 skinProfileSlot)
+        [[nodiscard]] constexpr f32 EncodeGBufferPbrFlags(MaterialKind kind, u32 skinProfileSlot)
         {
-            return static_cast<f32>(static_cast<i32>(model) * 64 + static_cast<i32>(skinProfileSlot) * 8 +
+            return static_cast<f32>(static_cast<i32>(skinProfileSlot) * 8 +
                                     static_cast<i32>(kind) * 2);
         }
 
-        // The lane MUST name ClosureV2. The CPU oracle shades this scene
-        // through ReferenceMaterial::Model and the GPU material table carries
-        // GPUSceneMaterial::ClosureVersion, both v2; a Legacy lane here shades
-        // the PRIMARY receiver with a different closure than every other vertex
-        // on the same path. That is issue #1288, and it hides on a diffuse arm
-        // because the Lambert term is the same expression in both closures:
-        // Legacy's distributionGGX clamps its DENOMINATOR (max(denom, EPSILON))
-        // while its sampling density (distributionGGXUnclampedNH) does not, so a
-        // near-specular lobe loses almost all of its energy in f/pdf and a
-        // rough one loses none. Before this constant the lane was the literal
-        // 2.0, which DID mean ClosureV2 until the #1231 flags layout gave the
-        // material kind and the skin-profile slot the five bits below the
-        // model; afterwards it decoded as Legacy and the metal furnace arm
-        // returned 1.45% of the reference integral.
-        constexpr f32 kClosureV2GBufferFlagsLane =
-            EncodeGBufferPbrFlags(PBRModel::ClosureV2, MaterialKind::Generic, kSkinProfileSlotNone);
+        constexpr f32 kGenericFlagsLane =
+            EncodeGBufferPbrFlags(MaterialKind::Generic, kSkinProfileSlotNone);
         bool ChangeToOloEditorDir()
         {
             namespace fs = std::filesystem;
@@ -245,8 +225,9 @@ namespace OloEngine::Tests
             ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
             ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
             queryCompletion->SubmittedFence = m_Fence;
-            ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs), VK_SUCCESS)
-                << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
+            const VkResult waited = vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs);
+            ASSERT_NE(waited, VK_TIMEOUT) << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
+            ASSERT_EQ(waited, VK_SUCCESS) << "Vulkan submission failed while waiting for its fence";
             queryCompletion->Completed = true;
             VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         }
@@ -262,6 +243,7 @@ namespace OloEngine::Tests
             Ref<StorageBuffer> EmptyEmitter;
             Ref<Shader> Program;
             Ref<UniformBuffer> Params;
+            Ref<UniformBuffer> Atmosphere;
             Ref<VertexArray> Triangle;
             Ref<Framebuffer> Target;
             std::array<Ref<Texture2D>, 5> GBuffer;
@@ -276,10 +258,9 @@ namespace OloEngine::Tests
             material.BaseColor = glm::vec3(0.65f, 0.55f, 0.45f);
             material.Roughness = roughness;
             material.Metallic = metallic;
-            material.Model = PBRModel::ClosureV2;
             if (closedCornell)
             {
-                const auto cornell = PathTracingFixtures::MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+                const auto cornell = PathTracingFixtures::MakeCornellBoxScene(18.0f);
                 for (auto original : cornell.Scene.GetMaterials())
                 {
                     if (glm::length(original.Emissive) < 1.0e-6f)
@@ -383,7 +364,6 @@ namespace OloEngine::Tests
                 gpuMaterial.RoughnessFactor = sourceMaterial.Roughness;
                 gpuMaterial.MetallicFactor = sourceMaterial.Metallic;
                 gpuMaterial.NormalScale = 1.0f;
-                gpuMaterial.ClosureVersion = static_cast<u32>(sourceMaterial.Model);
                 gpuMaterial.Flags = GPUSceneMaterialFlagActive;
                 gpuMaterial.StableIndex = static_cast<u32>(gpuMaterials.size());
                 gpuMaterial.Generation = 1u;
@@ -417,6 +397,12 @@ namespace OloEngine::Tests
             ASSERT_TRUE(rig.Program && rig.Program->IsReady()) << "Production PT shader must compile on a capable device";
             rig.Params = UniformBuffer::Create(sizeof(PT::Parameters), ShaderBindingLayout::UBO_RAY_TRACING);
             ASSERT_TRUE(rig.Params);
+            // GBufferRaySurface applies the shipping weather response when it
+            // reconstructs the receiver. This scene and its CPU oracle are dry.
+            const UBOStructures::AtmosphereShadingUBO dryWeather{};
+            rig.Atmosphere = UniformBuffer::Create(sizeof(dryWeather), ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
+            ASSERT_TRUE(rig.Atmosphere);
+            rig.Atmosphere->SetData(&dryWeather, sizeof(dryWeather));
             for (auto& paths : rig.Paths)
             {
                 paths = StorageBuffer::Create(kPixels * sizeof(PT::PathRecord), StorageBuffer::kNoBinding,
@@ -481,7 +467,7 @@ namespace OloEngine::Tests
             // optional wall is outside primary frustum but visible to bounce rays.
             const std::array<glm::vec4, 5> texels{ glm::vec4(depth), glm::vec4(material.BaseColor, metallic),
                                                    glm::vec4(0, 0, roughness, 1),
-                                                   glm::vec4(0, 0, 0, kClosureV2GBufferFlagsLane), glm::vec4(0) };
+                                                   glm::vec4(0, 0, 0, kGenericFlagsLane), glm::vec4(0) };
             std::array<std::vector<glm::vec4>, 5> imageData;
             for (sizet i = 0; i < imageData.size(); ++i)
                 imageData[i].assign(kPixels, texels[i]);
@@ -511,7 +497,7 @@ namespace OloEngine::Tests
                         imageData[0][pixel] = glm::vec4((hitClip.z / hitClip.w) * 0.5f + 0.5f);
                         imageData[1][pixel] = glm::vec4(hitMaterial.BaseColor, hitMaterial.Metallic);
                         imageData[2][pixel] = glm::vec4(oct, hitMaterial.Roughness, 1.0f);
-                        imageData[3][pixel] = glm::vec4(hitMaterial.Emissive, kClosureV2GBufferFlagsLane);
+                        imageData[3][pixel] = glm::vec4(hitMaterial.Emissive, kGenericFlagsLane);
                     }
                 }
             }
@@ -577,6 +563,7 @@ namespace OloEngine::Tests
                 api.DisableCulling();
                 rig.Program->Bind();
                 rig.Params->Bind();
+                rig.Atmosphere->Bind();
                 for (const auto& table : rig.Tables)
                     table->Bind();
                 const std::array<u32, 5> bindings{ 19u, 43u, 44u, 45u, 46u };
@@ -663,7 +650,6 @@ namespace OloEngine::Tests
             scene.BeginExtraction(1211u, glm::vec3(0.0f));
             scene.ExtractGeometry(geometryKey, geometry);
             GPUSceneMaterialInput material{};
-            material.m_ClosureVersion = static_cast<u32>(PBRModel::ClosureV2);
             material.m_RoughnessFactor = 0.5f;
             material.m_Flags = transmission ? GPUSceneMaterialFlagTransmission : 0u;
             scene.ExtractMaterial(materialKey, material);
@@ -824,7 +810,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(std::any_of(canonical.begin(), canonical.end(), [](const PT::PathRecord& path)
                                 { return (path.Lineage.w & 2u) != 0u; }));
 
-        for (const u32 version : { 0u, PT::kLayoutVersion + 1u })
+        for (const u32 version : { 0u, PT::kLayoutVersion - 1u, PT::kLayoutVersion + 1u })
         {
             SCOPED_TRACE(version);
             auto incompatible = history;

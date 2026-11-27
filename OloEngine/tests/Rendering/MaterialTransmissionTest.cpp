@@ -407,7 +407,7 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
 {
     // The header static_asserts this too, so this test is the readable
     // statement of the same contract: the physical scalars sit between the
-    // PBRModel selector and the trailing heap-offset lanes. Every .glsl
+    // padding and the trailing heap-offset lanes. Every .glsl
     // mirroring PBRMaterialProperties depends on both.
     //
     // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile

@@ -1,105 +1,43 @@
-# PBR closure v2 — a versioned Evaluate/Sample/Pdf contract, specified as pinned twin implementations
+# PBR closure and the Evaluate/Sample/Pdf contract
 
-Issue #975. The renderer's material closure gains an explicit version
-(`PBRModel { Legacy, ClosureV2 }`) and a three-function contract
-(`Evaluate` / `Sample` / `Pdf`) that raster lighting, the CPU reference path
-tracer (#709), and any future GPU path tracer / ReSTIR pass share (both exist
-now: the GPU reference path tracer, #1055, and the ReSTIR passes). This ADR
-records the decisions the issue asked to have recorded — where the version
-lives, what v2 is, how the one-specification problem is solved, and every
-deliberate clamp and approximation. It is the contract for all later transport
-estimators.
+**Decision, updated by #1497.** ClosureV2 is the engine's standard PBR closure. This
+supersedes #975's requirement to preserve Legacy pixels and offer a per-material selector.
+The CPU and GLSL implementations still share the contract and the generated energy tables.
 
----
+## 1. Material data and migration
 
-## 1. The version is PER-MATERIAL, and the default is the constructor default
+Every standard PBR material uses the same closure. Existing scene YAML loads through the
+normal material reader. The retired `PBRModel` key has no effect and disappears on save.
+The imported-material codec already stored the material inputs. Save-game format 54
+removes the model byte from materials and rejects format 53 at the file header.
 
-`PBRModel : u8 { Legacy = 0, ClosureV2 = 1 }` (`Renderer/PBRModel.h`) is a
-field on `Material`, copying the `MaterialType` precedent exactly. It travels:
+The per-draw UBO keeps padding at byte 92 and the GPU scene record keeps padding at
+byte 56 to preserve the offsets of later fields. In the deferred flags lane, bit 0
+marks unlit, bits 1–2 identify the material kind and bits 3–6 carry the profile slot.
+The fixed-function average resolve applies to emissive RGB. Flags resolve from one lit
+sample when available. The kind and profile keep their own meanings under MSAA.
 
-    Material::m_PBRModel
-      -> PODMaterialData::pbrModel            (command packet + its == cache key)
-      -> PBRMaterialUBO::PBRModel             (the former Pad2 lane; 144 B unchanged)
-      -> u_PBRModel in PBRMaterialProperties  (all 8 GLSL declaration sites)
-      -> forward: passed into calculateLightContribution / fplusEvaluateTileLights
-      -> deferred: bit 1 of the G-Buffer RT2 alpha "MaterialFlags" lane
-                   (bit 0 stays the unlit flag; Legacy still writes a = 0.0,
-                   so existing G-Buffer bytes are unchanged)
-      -> ReferenceMaterial::Model             (ReferenceSceneBuilder copies it)
+## 2. ClosureV2
 
-Serialization: scene YAML writes `PBRModel` only when non-Legacy (existing
-scenes stay byte-identical) and REJECTS an out-of-range index back to Legacy —
-a discriminated value must never saturate to a different valid model. Save-games
-append it version-gated (`kSaveGameFormatVersion` 24→25). The numbering is on
-disk: append, never renumber.
+1. Evaluate the GGX single-scatter lobe with height-correlated Smith visibility and
+   Schlick Fresnel at the half vector. The caller supplies the incident cosine.
+2. Clamp perceptual roughness to [0.04, 1] before forming `alpha = roughness²`.
+   The vector form of D uses the squared cross product to preserve a narrow highlight.
+   The specular sampler and its PDF use this same alpha.
+3. Restore single-scatter losses with the reciprocal Kulla–Conty term (§4).
+4. Couple Lambert diffuse to the directional albedo of the full specular lobe. For a
+   white dielectric the cosine integral of the combined closure equals one.
+5. Sample a mixture of diffuse cosine and GGX visible normals. The integrator divides
+   by the mixture density and uses that same density for MIS.
 
-There is deliberately NO global/scene default knob in this slice. "The project
-default is Legacy" is the constructor default; flipping the engine default is a
-later, deliberate decision that per the issue happens only after parity and
-visual review. A scene-level default would also have to survive `Scene::Copy`
-and both serializer sites — cost with no current consumer.
+## 3. Implementation and parity
 
-## 2. What ClosureV2 is (and Legacy stays, bit for bit)
-
-Legacy is the shipped Cook-Torrance closure, frozen: Schlick-GGX `k=(r+1)²/8`
-geometry, `max(denom, 1e-4)`-clamped GGX, `kD = 1 - F(H)` Lambert, no energy
-compensation. Every existing scene, golden and test keeps it.
-
-ClosureV2 differs in exactly five ways (PBRCommon.glsl "PBR CLOSURE V2"
-section; C++ twins in `ReferenceBRDF.h`):
-
-1. **One geometry term** — the height-correlated Smith *visibility* form
-   (`visibilitySmithGGXCorrelated`, #904's corrected `alpha = roughness²`).
-   Schlick-GGX stays reachable only through Legacy.
-2. **Near-mirror handling clamps ALPHA, not the denominator** —
-   `closureV2Roughness` clamps perceptual roughness to
-   `[MIN_ROUGHNESS = 0.04, 1]`, so `alpha ≥ 0.0016` and the *unclamped* NDF
-   (`distributionGGXUnclamped`) is finite everywhere. The lobe narrows and
-   brightens toward a mirror as authored roughness → 0 instead of collapsing
-   toward black.
-3. **Kulla-Conty multiple-scattering energy compensation**, driven by generated
-   Ess/E_avg tables (§4). Reciprocal by construction; closes the white furnace
-   exactly at F_avg = 1.
-4. **One D for Evaluate, Sample and Pdf.** Because the guard moved from the
-   denominator to alpha, the evaluated D *is* the sampled D *is* the density's
-   D. Legacy structurally cannot have this (its evaluation-side clamp must
-   never enter a density — see `DistributionGGXSamplingDensity`'s notes); v2's
-   consistency is by construction, which is the property path tracing and
-   ReSTIR actually depend on.
-5. **An energy-conserving diffuse weight** (issue #1479). The Lambert term is
-   weighted by the Kelemen / Kulla-Conty coupling
-   `(1 − E_spec(μv)) (1 − E_spec(μl)) / (1 − E_spec_avg)` instead of
-   Legacy's `1 − F(v·h)`, where `E_spec` is the Fresnel-aware directional
-   albedo of the whole specular lobe, read from the same generated table
-   (§4). A white dielectric then reflects exactly what it receives, where
-   `1 − F(v·h)` made it reflect up to 1.83× at grazing.
-
-The v2 sampler is the existing Heitz VNDF sampler + `G2/G1` weight (#706),
-reused not rewritten; the CPU side gains production-precision mirrors
-(`SampleGGXVNDF`, `PdfGGXVNDF`). The diffuse lobe stays cosine-sampled
-Lambert. The mixture (`SpecularLobeProbability`, clamped to [0.1, 0.9]) is
-shared with Legacy; §5 says why it did not move with the diffuse weight.
-
-## 3. One authoritative specification — pinned twins, not codegen
-
-The issue offered two strategies: generate C++ + GLSL from one description, or
-keep explicit twin implementations pinned by cross-language parity tests plus a
-formula ledger. **We chose the second**, because it is the mechanism the repo
-already trusts and polices (`ReferenceBRDFGpuParityTest`, THE ALPHA LEDGER,
-the #904/#926 history), and the issue says to extend rather than replace it.
-The contract's homes:
-
-* GLSL — `PBRCommon.glsl` "PBR CLOSURE V2": `closureV2Evaluate`,
-  `closureV2SampleBRDF`, `closureV2Pdf`.
-* C++ — `Renderer/PathTracing/PBRClosureBSDF.h`: `BSDF::Evaluate/Sample/Pdf`,
-  dispatching on `ReferenceMaterial::Model`. The Legacy branch is the former
-  PathTracer-internal code moved verbatim (the bit-identical render hashes pin
-  that move); the integrator consumes the contract through it.
-* The pins — the GPU parity probe extended over the v2 functions, the headless
-  ClosureV2 contract/consistency tests, and the energy-table recompute test.
-
-The ONE genuinely generated artifact is the energy table pair (§4), where a
-single generation procedure emits both languages' constants.
+`PBRCommon.glsl` owns the shader implementation. The CPU reference uses
+`ReferenceBRDF.h` through `BSDF::Evaluate`, `BSDF::Sample` and `BSDF::Pdf`.
+`ClosureV2GpuParityTest` and `ClosureV2SampleGpuParityTest` compare compiled shader
+outputs to the CPU twins. The independent BSDF oracles cover energy, reciprocity,
+sampling distributions and the mixture density. The energy table is generated once
+for both languages.
 
 ## 4. The energy tables
 
@@ -199,9 +137,14 @@ are symmetric in (v, l), so v2 stays reciprocal.
   true `1 − Ess` for μ ≥ 0.05 and 0.062 below it, where the loss peak at
   μ ≈ α is narrower than the first node spacings at low roughness; the
   averages row is within 2.8e-3 everywhere.
-* **Sphere-AREA lights shade v2 materials through the Legacy
-  representative-point evaluator** — Karis's normalization rescales D in a way
-  with no v2 derivation yet. Documented at the dispatch site.
+* **Sphere-area lights** use the light centre for diffuse and multiple scattering and
+  the direction to the Karis representative point for single scattering. The GGX peak is
+  `1 / (π α²)`. Broadening its apparent width to `α′ = min(1, α + radius / (2 distance))`
+  therefore scales peak height by `(α / α′)²`. Apply that factor to single scattering
+  with the original material visibility. Multiple scattering is broad and has no such
+  peak. At zero radius the representative direction becomes the centre direction and
+  the peak ratio is one.
+
 * **IBL/ambient stays split-sum with no multi-scatter term** in this slice;
   compensation applies to punctual direct lighting and the reference tracer.
 * The diffuse lobe is still SAMPLED cosine-weighted, and the lobe mixture
@@ -219,53 +162,18 @@ are symmetric in (v, l), so v2 stays reciprocal.
   capture shows this as a sharp N·V = 0 line, because it shades a hemisphere
   facing +z under a view vector 65° off it; real geometry meets it only in a
   silhouette sliver.
-* v2's `Pdf` reports 0 below the horizon (matching the Legacy convention);
-  `Sample` may produce a below-horizon direction with `Value = 0`, which the
-  one-sample estimator scores as a zero-contribution draw.
-* Terrain, voxel, water, foliage, particles and snow keep their existing
-  closures/paths regardless of model — per the issue's out-of-scope list.
-* ~~**The G-Buffer flags lane is not average-safe.**~~ **Fixed in #996, and no
-  longer a limitation.** It was: in the resolved-MSAA deferred mode (MSAA > 1
-  with per-sample lighting off — two non-default, session-local toggles) the
-  resolve averaged samples, and an averaged bitfield decodes wrongly at
-  silhouettes. `GBuffer::Resolve()` now keeps the average blit for RT2's
-  emissive RGB (which is what leaves a Legacy-only frame byte-identical) and
-  then runs `GBufferFlagsResolve.glsl`, which overwrites the alpha channel
-  alone with `texelFetch` of a **single sample** — the first lit one, so a pixel
-  a real surface covers is never read as unlit — a value some sample wrote, and
-  an exactly-defined fetch on both backends and every vendor, unlike the
-  averaged encoding whose half-way cases included an implementation-defined
-  `round()` tie-break. The same change removed the lane's single-bit model
-  ceiling: it carries the whole `PBRModel` index shifted past the unlit bit and
-  the decode is a plain `>> 1`, so appending a model can no longer truncate to
-  Legacy on the deferred path while Forward shades it correctly. The layout
-  still has exactly one executable home (`oloEncodeGBufferPbrFlags`) and one
-  decode site (`DeferredLightingShared.glsl`); the only remaining bound is
-  exact integer representation in RGBA16F, asserted at `kPBRModelGBufferLaneMax`
-  in `PBRModel.h`.
-* **Asset previews render their own closure regardless of model** —
-  `MaterialPreview.glsl` is a standalone closure copy that predates the
-  dispatch and does not include PBRCommon; the `MaterialAsset` lane and the
-  imported-material binary codec carry no `PBRModel` field (importers cannot
-  author one). Each site carries a comment pointing here.
+* The PDF returns zero below the horizon. A rejected draw counts as a zero contribution.
+* The forward, Forward+ and deferred paths use this closure for meshes, terrain, voxels
+  and the reflected lobe of foliage. Skin's layered surface and oral coat retain their
+  profile parameters. Material thumbnails use the same evaluator with their own light rig.
+  Water, fibre and unlit particles have separate shading models.
 
 ## 6. Consequences
 
-* The GPU reference path tracer (#1055) consumes `closureV2Sample/Pdf`
-  directly through `include/PathTracerBSDF.glsl`, dispatching on the
-  material's `ClosureVersion`; the density its MIS uses is the same function
-  the CPU integrator divides by, which is the entire point. The restricted
-  ReSTIR PT prototype (#1211) supports finite-width Legacy and v2 reflection
-  only. (Written as a future consumer; updated by #1357.)
-* Changing any v2 formula is a TWO-file edit (GLSL + C++ twin) — same law as
-  the Legacy BRDF, enforced by the same parity probe.
-* **v2 is not frozen.** Until it becomes the engine default, a defect in v2
-  is fixed in place — no ClosureV3, no compatibility flag, no frozen copy of
-  the old v2 — and the repo's own content (its scenes and goldens) is
-  rebased in the same change; #1478 and #1479 were the first such changes.
-  After it becomes the default the same holds, under the repo's
-  no-legacy-for-its-own-sake rule: the engine has no external users, so a
-  look change is migrated, not versioned around.
+* The GPU path tracer and ReSTIR PT use the same finite-width VNDF reflection and cosine
+  mixture as the CPU reference. Correct a closure formula in both languages, verify the
+  estimator and inspect affected golden images in the same change.
+
 * Regenerating the energy tables (e.g. to widen the grid) is a generator run
   emitting both files plus the recompute test keeping them honest. The
   generator is `tools/OloGgxEnergyTableGen` (issue #998) — build the target,
@@ -297,5 +205,3 @@ are symmetric in (v, l), so v2 stays reciprocal.
   structurally impossible, not merely tested for. Until #998 this bullet was
   aspirational — the tables were marked GENERATED with no generator checked
   in, and the recipe lived only as prose in the header comment.
-* Flipping any default — engine-wide, per-project, or per-import — is a new
-  decision with a golden rebake attached, not a follow-on cleanup.

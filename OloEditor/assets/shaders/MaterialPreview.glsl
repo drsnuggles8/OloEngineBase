@@ -97,6 +97,7 @@ layout(std140, binding = 34) uniform PreviewBlock
 // data side still calls the parameter "Metalness" (per glTF 2.0's
 // metallic-roughness convention).
 #include "include/BindlessHeap.glsl"
+#include "include/PBRCommon.glsl"
 #ifdef OLO_BINDLESS
 #define u_AlbedoMap OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
 #define u_RoughnessMap OLO_HEAP_TEX_2D(6)  // TEX_ROUGHNESS
@@ -118,59 +119,15 @@ const vec3  c_FillColor         = vec3(0.55, 0.6, 0.8);
 const vec3  c_RimDir            = normalize(vec3(0.0, 0.3, 1.0));
 const vec3  c_RimColor          = vec3(1.4, 1.3, 1.1);
 const vec3  c_AmbientColor      = vec3(0.045, 0.05, 0.06);
-const float c_PI                = 3.14159265359;
-
-// ---- GGX / Smith / Schlick helpers (Karis 2013 / UE4 PBR) ------------------
-
-float DistributionGGX(vec3 N, vec3 H, float roughness)
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float denom = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
-    return a2 / (c_PI * denom * denom);
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness)
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-    return NdotV / (NdotV * (1.0 - k) + k);
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
-{
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
-}
-
-vec3 FresnelSchlick(float cosTheta, vec3 F0)
-{
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-// ---- Direct lighting evaluation --------------------------------------------
 
 vec3 EvaluateDirectionalLight(vec3 N, vec3 V, vec3 lightDir, vec3 lightColor,
-                              vec3 albedo, float metallic, float roughness, vec3 F0)
+                              vec3 albedo, float metallic, float roughness)
 {
-    vec3 L = normalize(-lightDir);
-    vec3 H = normalize(V + L);
-
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-    vec3 specular = numerator / denominator;
-
-    vec3 kS = F;
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-
+    vec3 L = -lightDir;
     float NdotL = max(dot(N, L), 0.0);
-    return (kD * albedo / c_PI + specular) * lightColor * NdotL;
+    if (NdotL <= 0.0)
+        return vec3(0.0);
+    return closureV2Evaluate(N, V, L, albedo, metallic, roughness) * lightColor * NdotL;
 }
 
 void main()
@@ -194,12 +151,10 @@ void main()
     vec3 N = normalize(v_Normal);
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
     vec3 Lo = vec3(0.0);
-    Lo += EvaluateDirectionalLight(N, V, c_KeyDir, c_KeyColor, albedo, metallic, roughness, F0);
-    Lo += EvaluateDirectionalLight(N, V, c_FillDir, c_FillColor, albedo, metallic, roughness, F0);
-    Lo += EvaluateDirectionalLight(N, V, c_RimDir, c_RimColor, albedo, metallic, roughness, F0);
+    Lo += EvaluateDirectionalLight(N, V, c_KeyDir, c_KeyColor, albedo, metallic, roughness);
+    Lo += EvaluateDirectionalLight(N, V, c_FillDir, c_FillColor, albedo, metallic, roughness);
+    Lo += EvaluateDirectionalLight(N, V, c_RimDir, c_RimColor, albedo, metallic, roughness);
 
     // Cheap horizon-glow ambient: brightens silhouettes slightly,
     // approximates IBL contribution without paying a cubemap lookup.

@@ -30,6 +30,14 @@
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanContext.h"
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
+
+#include <cstdint>
+#endif
+
 #include <gtest/gtest.h>
 
 #include <functional>
@@ -217,4 +225,89 @@ namespace OloEngine::Tests
               { stagedAfterDrain = m_Readback.StageDeferred(MakeSource(99u), 0, kBytes); });
         EXPECT_TRUE(stagedAfterDrain);
     }
+
+#if OLO_WITH_VULKAN
+    // A mid-frame flush hands the reader the frame's writes. When its submit
+    // fails, the command-buffer reset throws the recorded commands away, and
+    // the layout transitions they held never happen: the next barrier must
+    // start from the layout the image is really in, the executed one. Once the
+    // queue accepts the recording its transitions do happen, even when the wait
+    // then fails, so a later rollback must not undo them.
+    TEST_F(StagedReadbackDeferredTest, AFlushPublishesExactlyTheLayoutsTheQueueAccepted)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "the mid-frame flush belongs to the Vulkan frame recording";
+        auto& tracker = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI()).LayoutTracker();
+        // Bookkeeping only: no barrier or Vulkan call names this handle, and it
+        // is forgotten inside the frame that registered it.
+        const auto image = reinterpret_cast<VkImage>(static_cast<std::uintptr_t>(0x0F1A5400u));
+        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+        constexpr VkImageLayout kResting = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        enum class Outcome
+        {
+            Rejected,
+            WaitFails,
+            Completes
+        };
+        struct Arm
+        {
+            bool Flushed = false;
+            u32 PendingInjection = 0u;
+            VkImageLayout Recorded = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkImageLayout Executed = VK_IMAGE_LAYOUT_UNDEFINED;
+            // After a second, rejected flush that records nothing new.
+            VkImageLayout RecordedAfterRollback = VK_IMAGE_LAYOUT_UNDEFINED;
+        };
+        const auto flush = [](Outcome outcome, u32& pending)
+        {
+            VulkanContext::SetFailNextFlushSubmitsForTesting(outcome == Outcome::Rejected ? 1u : 0u);
+            VulkanContext::SetFailNextFlushWaitsForTesting(outcome == Outcome::WaitFails ? 1u : 0u);
+            const bool flushed = VulkanContext::Get() != nullptr && VulkanContext::Get()->FlushFrameRecordingAndWait();
+            pending = VulkanContext::GetPendingFailNextFlushSubmitsForTesting() + VulkanContext::GetPendingFailNextFlushWaitsForTesting();
+            VulkanContext::SetFailNextFlushSubmitsForTesting(0u);
+            VulkanContext::SetFailNextFlushWaitsForTesting(0u);
+            return flushed;
+        };
+        const auto run = [&](Outcome outcome)
+        {
+            Arm arm;
+            RunInFrame([&]()
+                       {
+                           tracker.RegisterImage(image, 1u, 1u, 0u, kResting);
+                           tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_GENERAL);
+                           arm.Flushed = flush(outcome, arm.PendingInjection);
+                           arm.Recorded = tracker.CurrentLayout(image, range);
+                           arm.Executed = tracker.CurrentExecutedLayout(image, range);
+                           u32 ignored = 0u;
+                           (void)flush(Outcome::Rejected, ignored);
+                           arm.RecordedAfterRollback = tracker.CurrentLayout(image, range);
+                           tracker.ForgetImage(image); });
+            return arm;
+        };
+
+        const Arm rejected = run(Outcome::Rejected);
+        EXPECT_FALSE(rejected.Flushed);
+        EXPECT_EQ(rejected.PendingInjection, 0u) << "the flush must reach its submit for this test to mean anything";
+        EXPECT_EQ(rejected.Executed, kResting);
+        EXPECT_EQ(rejected.Recorded, kResting) << "a discarded transition is still recorded";
+
+        // Accepted, then the wait reports an error: the GPU still runs the work.
+        const Arm waitFailed = run(Outcome::WaitFails);
+        EXPECT_FALSE(waitFailed.Flushed);
+        EXPECT_EQ(waitFailed.PendingInjection, 0u) << "the flush must reach its wait for this test to mean anything";
+        EXPECT_EQ(waitFailed.Executed, VK_IMAGE_LAYOUT_GENERAL) << "an accepted transition was not published as executed";
+        EXPECT_EQ(waitFailed.Recorded, VK_IMAGE_LAYOUT_GENERAL);
+        EXPECT_EQ(waitFailed.RecordedAfterRollback, VK_IMAGE_LAYOUT_GENERAL) << "a later rollback undid an accepted transition";
+
+        // The same frame without an injection: the flush executes the
+        // transition, so both views move. A tracker that never recorded
+        // anything would pass the rejected assertions but not these.
+        const Arm accepted = run(Outcome::Completes);
+        ASSERT_TRUE(accepted.Flushed);
+        EXPECT_EQ(accepted.Recorded, VK_IMAGE_LAYOUT_GENERAL);
+        EXPECT_EQ(accepted.Executed, VK_IMAGE_LAYOUT_GENERAL);
+        EXPECT_EQ(accepted.RecordedAfterRollback, VK_IMAGE_LAYOUT_GENERAL);
+    }
+#endif
 } // namespace OloEngine::Tests

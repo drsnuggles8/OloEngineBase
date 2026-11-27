@@ -1,30 +1,27 @@
 # Skin material profiles
 
 What a `.oloskin` file holds, what units it is in, and how to look at the four outputs a skin
-surface exposes. Issue #1231; the design decision behind the three separate selectors is
+surface exposes. Issue #1231; the ownership of material kind and profile transport is recorded in
 [ADR 0024](../adr/0024-material-kind-is-not-the-closure-version.md).
 
 The scattering that consumes this profile is [skin diffusion](skin-diffusion.md) (issue #1241).
 What this page describes is the material/profile contract it reads and the separated
 diffuse/specular outputs it blurs.
 
-## The three selectors, and why they are three
+## Material kind and profile transport
 
 | Selector | Question | Set where |
 |---|---|---|
 | `MaterialKind` | What is this surface? `Generic` / `Snow` / `Skin` / `Foliage` | Material inspector → **Material Kind** |
-| `PBRModel` | Which version of the closure evaluates it? `Legacy` / `Closure V2` | Material inspector → **PBR Model** |
 | `SkinEvaluationModel` | Which version of the skin transport was this profile authored against? | The `.oloskin` file's `EvaluationModel` — 0 = split only, 1 = with diffusion |
 
 `Foliage` (issue #1234) is the fourth and last value the G-Buffer's two-bit kind field can carry, and
-it is the SECOND tenant of the three-bit profile-slot field this page's profiles use — read only under
+it is the SECOND tenant of the four-bit profile-slot field this page's profiles use — read only under
 its own kind, so the two can never collide on one pixel. See
 [the foliage leaf material](foliage-leaf-material.md); it deliberately does NOT reuse skin's transport.
 
-They are independent. A skin material shades with either closure version; correcting a BRDF does
-not change what a surface is; and #1241 shipped its transport version (`ScreenSpaceDiffusion`, 1)
-without touching a single material's kind — a profile stays at 0 until an author moves it, and no
-renderer setting overrides that.
+The surface uses ClosureV2 for its PBR lobe. Its profile selects the skin transport,
+including diffuse/specular split, screen-space diffusion and layered surface evaluation.
 
 ## Authoring a profile
 

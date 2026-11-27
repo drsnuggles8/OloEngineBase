@@ -622,7 +622,7 @@ namespace OloEngine::MCP
             if (const auto error = ReflectionProbeBake::ParseEntityName(args, entityName))
                 return ToolResult::Error(*error);
 
-            const Json result = host.MarshalRead(
+            const Json result = host.MarshalRenderWork(
                 [&host, entityName]() -> Json
                 { return BakeNamedReflectionProbe(host, entityName); },
                 kSceneControlTimeout);

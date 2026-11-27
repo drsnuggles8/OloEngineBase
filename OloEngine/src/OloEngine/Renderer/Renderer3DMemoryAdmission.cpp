@@ -340,6 +340,11 @@ namespace OloEngine
         return (after > releasedBytes ? after - releasedBytes : 0u) <= budget - reserve;
     }
 
+    bool Renderer3D::CanAllocateReplacement(u64 newBytes, u64 retiringBytes, u64 stagingBytes)
+    {
+        return Levers::RendererMemoryAdmissionOff() || ReplacementFits(newBytes, retiringBytes, stagingBytes);
+    }
+
     bool Renderer3D::ReplaceTextureContents(Ref<Texture2D> texture, Texture2D::DecodedImage image)
     {
         auto& state = s_Data.MemoryAdmission;
@@ -363,7 +368,7 @@ namespace OloEngine
         const u64 releasedBytes = RendererMemoryTracker::GetInstance().GetLiveBackingGpuBytes(handle).value_or(0u);
 
         const u64 uploadBytes = static_cast<u64>(image.Width) * image.Height * 4u;
-        if (Levers::RendererMemoryAdmissionOff() || ReplacementFits(newBytes, releasedBytes, uploadBytes))
+        if (CanAllocateReplacement(newBytes, releasedBytes, uploadBytes))
         {
             if (!texture->ApplyReload(image))
                 return false;

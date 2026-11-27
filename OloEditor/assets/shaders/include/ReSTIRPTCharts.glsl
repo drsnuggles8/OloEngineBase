@@ -21,45 +21,36 @@ bool PTBranchValid(PTVertex v)
     return PTOpen(v.Randoms.x) && PTOpen(v.Randoms.y) && PTOpen(v.Randoms.z) &&
            ((v.Randoms.x < PTProbability(v)) == (v.Randoms.w > 0.5)) && PTOpen(PTResidual(v));
 }
-OloRtHit PTHitFromVertex(PTVertex v)
-{
-    OloRtHit h;
-    h.Albedo = v.Albedo.rgb;
-    h.Metallic = v.GeometricNormalMetallic.w;
-    h.Roughness = v.PositionRoughness.w;
-    h.ClosureVersion = uint(v.ShadingNormalClosure.w);
-    return h;
-}
 vec3 PTEvaluate(PTVertex v, vec3 l)
 {
-    return PtEvaluateBRDF(PTHitFromVertex(v), v.ShadingNormalClosure.xyz, v.Incoming.xyz, l);
+    return closureV2Evaluate(v.ShadingNormal.xyz, v.Incoming.xyz, l,
+                             v.Albedo.rgb, v.GeometricNormalMetallic.w, v.PositionRoughness.w);
 }
 float PTMixture(PTVertex v, vec3 l)
 {
-    return PtBsdfPdf(PTHitFromVertex(v), v.ShadingNormalClosure.xyz, v.Incoming.xyz, l);
+    return closureV2Pdf(v.ShadingNormal.xyz, v.Incoming.xyz, l,
+                        v.Albedo.rgb, v.GeometricNormalMetallic.w, v.PositionRoughness.w);
 }
 float PTChartDensity(PTVertex v, vec3 l)
 {
-    vec3 n = v.ShadingNormalClosure.xyz;
+    vec3 n = v.ShadingNormal.xyz;
     vec3 view = v.Incoming.xyz;
     if (!PTBranchValid(v) || dot(n, l) <= 0.0 || dot(n, view) <= 0.0)
         return 0.0;
     float conditional = dot(n, l) * INV_PI;
     if (v.Randoms.w > 0.5)
-    {
-        vec3 h = normalize(view + l);
-        float r = closureV2Roughness(v.PositionRoughness.w);
-        conditional = uint(v.ShadingNormalClosure.w) == OLO_RT_CLOSURE_V2 ? distributionGGXUnclampedNH(n, h, r) / (4.0 * dot(n, view) * (1.0 + ggxSmithLambda(dot(n, view), r * r))) : PtLegacyPdfGGX(n, view, h, r);
-    }
+        conditional = closureV2SpecularPdf(n, view, l, v.PositionRoughness.w);
     float c = PTBranchMass(v) * conditional;
     return PTFinite(c) && c > 0.0 ? c : 0.0;
 }
 bool PTForward(PTVertex v, out vec3 l)
 {
     l = vec3(0);
-    if (!PTBranchValid(v) || dot(v.ShadingNormalClosure.xyz, v.Incoming.xyz) <= 0.0)
+    if (!PTBranchValid(v) || dot(v.ShadingNormal.xyz, v.Incoming.xyz) <= 0.0)
         return false;
-    ClosureV2Sample s = PtSampleBRDF(PTHitFromVertex(v), v.ShadingNormalClosure.xyz, v.Incoming.xyz, v.Randoms.x, v.Randoms.yz);
+    ClosureV2Sample s = closureV2SampleBRDF(v.ShadingNormal.xyz, v.Incoming.xyz, v.Albedo.rgb,
+                                          v.GeometricNormalMetallic.w, v.PositionRoughness.w,
+                                          v.Randoms.x, v.Randoms.yz);
     // Match the oracle's shading-normal hemisphere. Reconnection applies its
     // stronger geometric-front-side domain separately; imposing it on fresh
     // sampling would discard the oracle's normal-mapped transport.
@@ -75,7 +66,7 @@ bool PTInverseDirection(inout PTVertex v, vec3 l, float residual)
 {
     // Reconnection keeps the chart label and residual, but changes angular
     // uniforms. Random replay never invokes this inverse on sharp charts.
-    vec3 n = v.ShadingNormalClosure.xyz;
+    vec3 n = v.ShadingNormal.xyz;
     vec3 view = v.Incoming.xyz;
     if (!PTOpen(residual) || dot(n, l) <= 0.0 || dot(n, view) <= 0.0)
         return false;
@@ -97,27 +88,19 @@ bool PTInverseDirection(inout PTVertex v, vec3 l, float residual)
             return false;
         float r = closureV2Roughness(v.PositionRoughness.w);
         float alpha = r * r;
-        if (uint(v.ShadingNormalClosure.w) == OLO_RT_CLOSURE_LEGACY)
-        {
-            float sinSq = dot(h.xy, h.xy);
-            xi = vec2(PTAzimuth(h.xy), sinSq / (sinSq + alpha * alpha * h.z * h.z));
-        }
-        else
-        {
-            vec3 ve = vec3(dot(view, tangent), dot(view, bitangent), dot(view, n));
-            vec3 vh = normalize(vec3(alpha * ve.xy, ve.z));
-            float lenSq = dot(vh.xy, vh.xy);
-            vec3 t1 = lenSq > 0.0 ? vec3(-vh.y, vh.x, 0.0) / sqrt(lenSq) : vec3(1, 0, 0);
-            vec3 t2 = cross(vh, t1);
-            vec3 nh = normalize(vec3(h.xy / alpha, h.z));
-            float p1 = dot(nh, t1);
-            float rad = 1.0 - p1 * p1;
-            if (rad <= 0.0)
-                return false;
-            float s = 0.5 * (1.0 + vh.z);
-            float p2 = (dot(nh, t2) - (1.0 - s) * sqrt(rad)) / s;
-            xi = vec2(p1 * p1 + p2 * p2, PTAzimuth(vec2(p1, p2)));
-        }
+        vec3 ve = vec3(dot(view, tangent), dot(view, bitangent), dot(view, n));
+        vec3 vh = normalize(vec3(alpha * ve.xy, ve.z));
+        float lenSq = dot(vh.xy, vh.xy);
+        vec3 t1 = lenSq > 0.0 ? vec3(-vh.y, vh.x, 0.0) / sqrt(lenSq) : vec3(1, 0, 0);
+        vec3 t2 = cross(vh, t1);
+        vec3 nh = normalize(vec3(h.xy / alpha, h.z));
+        float p1 = dot(nh, t1);
+        float rad = 1.0 - p1 * p1;
+        if (rad <= 0.0)
+            return false;
+        float s = 0.5 * (1.0 + vh.z);
+        float p2 = (dot(nh, t2) - (1.0 - s) * sqrt(rad)) / s;
+        xi = vec2(p1 * p1 + p2 * p2, PTAzimuth(vec2(p1, p2)));
     }
     if (!PTOpen(xi.x) || !PTOpen(xi.y))
         return false;

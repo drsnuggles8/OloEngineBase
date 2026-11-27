@@ -132,8 +132,7 @@ void main()
     OloReSTIRSurface surface = OloReSTIRInvalidSurface();
     if (shadeable)
     {
-        surface = OloReSTIRLoadSurface(v_TexCoord, depth, packedNormal, packedAlbedo,
-                                       oloGBufferFlagsPbrModel(gbFlags));
+        surface = OloReSTIRLoadSurface(v_TexCoord, depth, packedNormal, packedAlbedo);
         // The #976 record for this pixel, written whether or not any candidate
         // survives: next frame's temporal draw needs the SURFACE to judge
         // validity, and a pixel whose reservoir is empty is exactly the pixel

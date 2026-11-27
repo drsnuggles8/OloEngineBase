@@ -2822,16 +2822,9 @@ namespace OloEngine
         OLO_PROPERTY(Name = "Metallic", Type = "float", Min = "0", Max = "1", Get = "comp.m_Material.GetMetallicFactor()", Set = "comp.m_Material.SetMetallicFactor({v})")
         OLO_PROPERTY(Name = "Roughness", Type = "float", Min = "0", Max = "1", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
         OLO_PROPERTY(Name = "Emissive", Type = "vec4", Get = "comp.m_Material.GetEmissiveFactor()", Set = "comp.m_Material.SetEmissiveFactor({v})")
-        // DELIBERATE C# EXEMPTION: the material's enum-shaped fields —
-        // AlphaMode, the #975 PBRModel closure selector and the #1231
-        // MaterialKind — remain outside the generated scripting API.
-        // Lua exposes pbrModel, materialKind and skinProfile (all with range
-        // rejection) because Lua is the runtime-tuning surface; extend the C#
-        // surface for all three together when a C# materials API grows past the
-        // four factors above.
+        // Lua and MCP expose material kind and skin profile. C# exposes the four factors above.
         // MCP diagnostics reuses the setter path without widening the C# API.
         OLO_PROPERTY(Name = "NormalScale", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetNormalScale()", Set = "comp.m_Material.SetNormalScale({v})", Min = "0")
-        OLO_PROPERTY(Name = "PBRModel", Type = "int", MCPOnly = "true", Get = "static_cast<int>(comp.m_Material.GetPBRModel())", Set = "comp.m_Material.SetPBRModel(static_cast<PBRModel>({v}))", Min = "0", Max = "1")
         OLO_PROPERTY(Name = "MaterialKind", Type = "int", MCPOnly = "true", Get = "static_cast<int>(comp.m_Material.GetMaterialKind())", Set = "comp.m_Material.SetMaterialKind(static_cast<MaterialKind>({v}))", Min = "0", Max = "3")
         OLO_PROPERTY(Name = "SkinProfile", Type = "ulong", MCPOnly = "true", Get = "comp.m_Material.GetSkinProfileHandle()", Set = "comp.m_Material.SetSkinProfileHandle({v})")
         OLO_PROPERTY(Name = "Transmission", Type = "float", MCPOnly = "true", Get = "comp.m_Material.GetTransmissionFactor()", Set = "comp.m_Material.SetTransmissionFactor({v})", Min = "0", Max = "1")
@@ -2850,9 +2843,7 @@ namespace OloEngine
         // triggers C2666. Compare the PBR factors bit-exactly via Math::BitwiseEqual
         // and the asset handle via u64. This is a hand-maintained PER-FIELD
         // list: a serialized Material field missing here makes its inspector
-        // edits invisible to undo (CLAUDE.md's copy/equality trap) — PBRModel
-        // is in for exactly that reason, and NormalScale + the five texture
-        // maps joined when #974 made them scene-serialized (`*MapPath` keys).
+        // edits invisible to undo.
         // Maps compare by PATH IDENTITY — the serialized property an edit
         // would change — not by texel content.
         auto operator==(const MaterialComponent& other) const -> bool
@@ -2867,20 +2858,10 @@ namespace OloEngine
                 return false;
             if (!Math::BitwiseEqual(m_Material.GetNormalScale(), other.m_Material.GetNormalScale()))
                 return false;
-            if (m_Material.GetPBRModel() != other.m_Material.GetPBRModel())
-                return false;
-            // Material kind + skin profile (issue #1231). In for the same reason
-            // PBRModel is: both are scene-serialized and inspector-editable, so
-            // a field missing here makes its edits invisible to undo and
-            // reverted by Play.
             if (m_Material.GetMaterialKind() != other.m_Material.GetMaterialKind())
                 return false;
             if (static_cast<u64>(m_Material.GetSkinProfileHandle()) != static_cast<u64>(other.m_Material.GetSkinProfileHandle()))
                 return false;
-            // Physical glTF material extensions (issue #970). In for the same
-            // reason PBRModel is: these are scene-serialized and inspector-
-            // editable, so a field missing here makes its edits invisible to
-            // undo and reverted by Play.
             if (!Math::BitwiseEqual(m_Material.GetTransmissionFactor(), other.m_Material.GetTransmissionFactor()))
                 return false;
             if (!Math::BitwiseEqual(m_Material.GetIOR(), other.m_Material.GetIOR()))

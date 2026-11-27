@@ -109,6 +109,13 @@ and the job hit GitHub's 6-hour limit with cases unrun. They moved to the hardwa
 `OloEngine-Tests_VulkanSceneHeavy`, beside `OloEngine-Tests_VulkanPipelineSeed`. Before adding a
 scene suite to the filter, time it on lavapipe; a suite measured in minutes goes to that entry.
 
+The single-view foliage stress test also runs there. It captures two six-frame sequences per
+round, with 40 rounds in each of nine arms. On
+[master run 45755461165](https://github.com/drsnuggles8/OloEngineBase/actions/runs/45755461165/job/139692936033),
+lavapipe completed seven arms with zero pixel differences before the 150-minute scene-step limit.
+The hardware entry retains every round and assertion. The other foliage cases still run in the
+shared lavapipe process.
+
 **Budget the job against the slowest hosted runner, and configure it only through
 `.github/actions/windows-ninja-configure`** (#1705). Runners differ ~10x in test speed: the Vulkan
 step took 9.2 min on a fast nightly and was still running at 75 min on a slow PR runner; both test

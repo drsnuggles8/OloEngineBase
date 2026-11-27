@@ -15,7 +15,7 @@
 // mutant fails is not evidence; a mutant that survives is a finding and would
 // be documented here as such, never deleted. Engine code is never edited — the
 // mutants live in this file only. Each mutant copies the CURRENT engine body
-// (M1 and M2 the vector overloads PdfGGXVNDF(n, v, h, r) / PdfGGX(n, v, h, r)
+// (M1 and M2 the vector overloads PdfGGXVNDF(n, v, h, r) / PdfGGXVNDF(n, v, h, r)
 // that BSDF::Pdf calls, M9 BSDF::Pdf itself), so it differs from its engine
 // control in the quoted line and nowhere else.
 //
@@ -24,8 +24,8 @@
 //  M1 VNDF pdf without G1(v)         | a VNDF pdf copied from D_v without its           | CheckPdfNormalisation vs 1 -            | the below-horizon mass is integrated from
 //     (PdfGGXVNDF(n, v, h, r))       | normaliser (pdf no longer integrates to the      | VndfBelowHorizonMass (the oracle's      | Heitz18 eq. 1 in f64 (tan-form D, Lambda
 //                                    | accepted-draw fraction; #975 contract)           | below-horizon D_v mass)                 | form G1), not from PdfGGXVNDF
-//  M2 PdfGGX without 1/(4 v.h)       | the missing reflection Jacobian (half-vector     | CheckPdfNormalisation vs the oracle's   | the accepted mass is an f64 quadrature of
-//     (PdfGGX(n, v, h, r))           | density used as a direction density)             | accepted D cos mass                     | D cos over half-vectors (Walter07 eq. 33)
+//  M2 VNDF without 1/(4 v.h)       | the missing reflection Jacobian (half-vector     | CheckPdfNormalisation vs the oracle's   | the accepted mass is an f64 quadrature of
+//     (PdfGGXVNDF(n, v, h, r))           | density used as a direction density)             | accepted visible-normal mass                     | D cos over half-vectors (Walter07 eq. 33)
 //  M3 VNDF sampler alpha = roughness | #706 / #904: roughness passed where alpha is     | CheckSamplingDistribution (chi-square)  | expected bin masses are deposited from the
 //                                    | expected (the ALPHA LEDGER in PBRCommon.glsl)    | vs a VisibleNormal lobe at alpha = r^2  | oracle's D_v and D cos CDF (Heitz18, Walter07)
 //  M4 ClosureV2 D at alpha = r       | #706 / #904: NDF on the wrong alpha convention   | CheckEvaluationAgainstModel vs          | Oracle::ClosureV2Brdf: tan-form D, Lambda
@@ -33,7 +33,7 @@
 //  M5 D Vis F / (4 NdotV NdotL)      | #904: the double divide — Vis already folds the  | CheckEvaluationAgainstModel + a white   | same model; the furnace integrates the
 //                                    | Cook-Torrance denominator in                     | furnace directional albedo > 1          | engine with the oracle's own quadrature
 //  M6 Fresnel at NdotV, not VdotH    | a "cheap" Fresnel that breaks Helmholtz          | CheckReciprocity                        | reciprocity is a law, not an implementation:
-//                                    | reciprocity (Legacy and ClosureV2 closures)      |                                         | it needs no second copy of the formula
+//                                    | reciprocity of the material closure      |                                         | it needs no second copy of the formula
 //  M7a-d reconnection Jacobian       | #1140 / #1169: inverted J, missing cosine or     | CheckReconnectionJacobian vs the ratio  | Van Oosterom-Strackee exact solid angles of a
 //        inverted / no cos / no d^2  | distance ratio, "no Jacobian" (J = 1)            | of two measured solid angles            | finite patch — no cos/d^2 transcription
 //        / J = 1                     |                                                  |                                         |
@@ -44,10 +44,6 @@
 //  M9 mixture pdf with pS = 0.5      | a MIS density written independently of the      | CheckSamplingDistribution vs the        | the chi-square counts the SAMPLER's draws;
 //     (BSDF::Pdf)                    | sampler it describes (PBRClosureBSDF.h header)   | oracle mixture Pdf() claims (pinned     | the claimed density is only what is tested
 //                                    |                                                  | pointwise to the mutant Pdf)            |
-//  M10 pre-#1347 ImportanceSampleGGX | A REAL BUG, found and fixed by #1347: sin theta  | CheckSamplingDistribution vs an         | expected bin masses are deposited from the
-//      sin = sqrt(1 - cos^2) in f32  | = sqrt(1 - cos^2) in f32 put 2^-25/(a^2+2^-25)   | NdfReflection lobe at alpha = r^2,      | oracle's D cos CDF in f64; the f32
-//                                    | of all draws exactly on the normal (1.2 % at the | roughness 0.04 and 0.05                 | cancellation exists only in the sampler
-//                                    | Legacy 0.04 floor)                               |                                         |
 //
 // Sample-size conventions are OracleStatistics.h's: 5 independent runs,
 // Bonferroni at family alpha 1e-3, IID pseudo-random draws only.
@@ -60,7 +56,6 @@
 #include "Rendering/Oracles/IndependentBsdfOracle.h"
 #include "Rendering/Oracles/OracleStatistics.h"
 
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 #include "OloEngine/Renderer/ReSTIR/ReservoirCore.h"
@@ -205,19 +200,18 @@ namespace OloEngine::Tests::Oracle
             return PathTracing::DistributionGGXSamplingDensity(n, h, roughness) / (4.0f * nDotV);
         }
 
-        // ---- M2: PathTracing::PdfGGX(n, v, h, r) without the reflection Jacobian
-        // engine: return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f) / (4.0f * vDotH);
-        // mutant: return DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f);
-        [[nodiscard]] f32 MutantPdfGGX_NoReflectionJacobian(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h,
-                                                            f32 roughness) noexcept
+        // ---- M2: PathTracing::PdfGGXVNDF(n, v, h, r) without the reflection Jacobian
+        // Undo the reflection Jacobian: score the outgoing ray with its half-vector density.
+        [[nodiscard]] f32 MutantVndfPdf_NoReflectionJacobian(const glm::vec3& n, const glm::vec3& v, const glm::vec3& h,
+                                                             f32 roughness) noexcept
         {
             const f32 vDotH = glm::dot(v, h);
             if (vDotH <= 0.0f)
                 return 0.0f;
-            return PathTracing::DistributionGGXSamplingDensity(n, h, roughness) * std::max(glm::dot(n, h), 0.0f);
+            return PathTracing::PdfGGXVNDF(n, v, h, roughness) * (4.0f * vDotH);
         }
 
-        // Adapters: Engine::VndfPdf / Engine::GgxReflectionPdf with the mutant
+        // Adapters: Engine::VndfPdf with the mutant
         // substituted for the engine call and nothing else changed.
         [[nodiscard]] PdfFn MutantVndfPdf(f64 roughness)
         {
@@ -241,7 +235,7 @@ namespace OloEngine::Tests::Oracle
                 if (lf.z <= 0.0f)
                     return 0.0;
                 const glm::vec3 h = glm::normalize(vf + lf);
-                return static_cast<f64>(MutantPdfGGX_NoReflectionJacobian(kNormal, vf, h, static_cast<f32>(roughness)));
+                return static_cast<f64>(MutantVndfPdf_NoReflectionJacobian(kNormal, vf, h, static_cast<f32>(roughness)));
             };
         }
 
@@ -356,43 +350,6 @@ namespace OloEngine::Tests::Oracle
             { return MutantClosureV2Brdf(mutation, m); };
         }
 
-        // ---- M6 (Legacy): PathTracing::CookTorranceBRDF, Fresnel at NdotV ---
-        // engine: const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
-        // mutant: const glm::vec3 f = FresnelSchlick(std::max(glm::dot(n, v), 0.0f), f0);
-        [[nodiscard]] glm::vec3 MutantCookTorranceBRDF_FresnelAtNdotV(const glm::vec3& n, const glm::vec3& v,
-                                                                      const glm::vec3& l, const glm::vec3& albedo,
-                                                                      f32 metallic, f32 roughness) noexcept
-        {
-            using namespace PathTracing;
-            const glm::vec3 h = glm::normalize(v + l);
-
-            glm::vec3 f0 = glm::vec3(kDefaultDielectricF0);
-            f0 = glm::mix(f0, albedo, metallic);
-
-            const f32 ndf = DistributionGGX(n, h, roughness);
-            const f32 g = GeometrySmith(n, v, l, roughness);
-            const glm::vec3 f = FresnelSchlick(std::max(glm::dot(n, v), 0.0f), f0);
-
-            const glm::vec3 numerator = ndf * g * f;
-            const f32 denominator = 4.0f * std::max(glm::dot(n, v), 0.0f) * std::max(glm::dot(n, l), 0.0f) + kEpsilon;
-            const glm::vec3 specular = numerator / denominator;
-
-            glm::vec3 kD = glm::vec3(1.0f) - f;
-            kD *= 1.0f - metallic;
-
-            return kD * albedo * kInvPi + specular;
-        }
-
-        [[nodiscard]] BrdfFn MutantLegacyBrdf_FresnelAtNdotV(const MaterialCase& m)
-        {
-            return [m](const glm::dvec3& v, const glm::dvec3& l)
-            {
-                return ToF64(MutantCookTorranceBRDF_FresnelAtNdotV(kNormal, ToF32(v), ToF32(l), ToF32(m.Albedo),
-                                                                   static_cast<f32>(m.Metallic),
-                                                                   static_cast<f32>(m.Roughness)));
-            };
-        }
-
         // ---- M7: ReSTIR::ReconnectionJacobian variants ----------------------
         enum class JacobianMutation
         {
@@ -500,68 +457,17 @@ namespace OloEngine::Tests::Oracle
 
             const glm::vec3 h = glm::normalize(v + l);
 
-            f32 pdfSpecular = 0.0f;
-            if (material.Model == PBRModel::ClosureV2)
-            {
-                pdfSpecular = PdfGGXVNDF(n, v, h, ClosureV2Roughness(material.Roughness));
-            }
-            else
-            {
-                pdfSpecular = PdfGGX(n, v, h, SamplingRoughness(material.Roughness));
-            }
+            const f32 pdfSpecular = PdfGGXVNDF(n, v, h, ClosureV2Roughness(material.Roughness));
 
             return pSpecular * pdfSpecular + (1.0f - pSpecular) * pdfDiffuse;
         }
 
-        [[nodiscard]] PdfFn MutantBsdfPdf(const MaterialCase& m, PBRModel model)
+        [[nodiscard]] PdfFn MutantBsdfPdf(const MaterialCase& m)
         {
-            const PathTracing::ReferenceMaterial material = Engine::ToReferenceMaterial(m, model);
+            const PathTracing::ReferenceMaterial material = Engine::ToReferenceMaterial(m);
             return [material](const glm::dvec3& v, const glm::dvec3& l)
             { return static_cast<f64>(MutantBsdfPdf_FixedLobeProbability(material, kNormal, ToF32(v), ToF32(l))); };
         }
-
-        // ---- M10: PathTracing::ImportanceSampleGGX before the #1347 fix ------
-        // engine: const f32 sinTheta = std::sqrt(std::max(0.0f, a * a * xi.y / denom));
-        // mutant: const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-        // Not an invented mutant: this was the shipped line until #1347 (see
-        // BsdfSamplingDistributionTest's FINDING).
-        [[nodiscard]] glm::vec3 MutantImportanceSampleGGX_Pre1347(const glm::vec2& xi, const glm::vec3& n,
-                                                                  f32 roughness) noexcept
-        {
-            using namespace PathTracing;
-            const f32 a = roughness * roughness;
-
-            const f32 phi = 2.0f * kPi * xi.x;
-            const f32 denom = 1.0f + (a * a - 1.0f) * xi.y;
-            const f32 cosTheta = std::sqrt(std::max(0.0f, (1.0f - xi.y) / denom));
-            const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-
-            const glm::vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
-
-            glm::vec3 tangent;
-            glm::vec3 bitangent;
-            OrthonormalBasis(n, tangent, bitangent);
-            return glm::normalize(tangent * h.x + bitangent * h.y + n * h.z);
-        }
-
-        // Engine::GgxReflectionSampler with the mutant substituted.
-        [[nodiscard]] SamplerFn MutantGgxReflectionSampler(f64 roughness)
-        {
-            return [roughness](const glm::dvec3& v, IidStream& stream) -> std::optional<glm::dvec3>
-            {
-                const glm::vec2 xi(static_cast<f32>(stream.Next()), static_cast<f32>(stream.Next()));
-                const glm::vec3 vf = ToF32(v);
-                const glm::vec3 h = MutantImportanceSampleGGX_Pre1347(xi, kNormal, static_cast<f32>(roughness));
-                if (glm::dot(vf, h) <= 0.0f)
-                    return std::nullopt;
-                const glm::vec3 l = glm::reflect(-vf, h);
-                if (l.z <= 0.0f)
-                    return std::nullopt;
-                return ToF64(l);
-            };
-        }
-
-        // ---- shared parameters ----------------------------------------------
 
         // CheckPdfNormalisation's floor. The engine densities are f32 and the
         // quadrature puts a kink (the horizon) inside cells; 2e-3 is the
@@ -610,25 +516,15 @@ namespace OloEngine::Tests::Oracle
     // =========================================================================
     TEST(BsdfMutationDetectionTest, M2_GgxPdfWithoutReflectionJacobianFailsPdfNormalisation)
     {
-        // ImportanceSampleGGX draws m from D cos over the whole hemisphere and
-        // the adapter rejects v.m <= 0 and below-horizon reflections; the pdf
-        // over l must integrate to the D cos mass that survives, integrated
-        // here by the oracle over half-vectors.
         constexpr f64 roughness = 0.5;
         const f64 alpha = roughness * roughness;
         const glm::dvec3 v = Direction(0.7, 0.0);
-        const Quadrature accepted = IntegrateOverNdf(alpha, 1024, 256,
-                                                     [&](const glm::dvec3& m) -> f64
-                                                     {
-                                                         if (glm::dot(v, m) <= 0.0)
-                                                             return 0.0;
-                                                         return Reflect(v, m).z > 0.0 ? 1.0 : 0.0;
-                                                     });
+        const f64 acceptedMass = 1.0 - VndfBelowHorizonMass(v, alpha).Value;
 
-        const Verdict engine = CheckPdfNormalisation(Engine::GgxReflectionPdf(roughness), v, alpha, accepted.Value,
-                                                     kPdfMassFloor, "engine PdfGGX");
-        const Verdict mutant = CheckPdfNormalisation(MutantGgxReflectionPdf(roughness), v, alpha, accepted.Value,
-                                                     kPdfMassFloor, "mutant PdfGGX without 1/(4 v.h)");
+        const Verdict engine = CheckPdfNormalisation(Engine::VndfPdf(roughness), v, alpha, acceptedMass,
+                                                     kPdfMassFloor, "engine PdfGGXVNDF");
+        const Verdict mutant = CheckPdfNormalisation(MutantGgxReflectionPdf(roughness), v, alpha, acceptedMass,
+                                                     kPdfMassFloor, "mutant PdfGGXVNDF without 1/(4 v.h)");
         Report("engine", engine);
         Report("mutant", mutant);
         EXPECT_TRUE(engine.Pass) << engine.Detail;
@@ -748,7 +644,7 @@ namespace OloEngine::Tests::Oracle
     }
 
     // =========================================================================
-    // M6 — Fresnel at NdotV breaks reciprocity (Legacy and ClosureV2)
+    // M6 — Fresnel at NdotV breaks reciprocity
     // =========================================================================
     TEST(BsdfMutationDetectionTest, M6_FresnelAtNdotVFailsReciprocity)
     {
@@ -762,19 +658,12 @@ namespace OloEngine::Tests::Oracle
         constexpr f64 absTol = 1.0e-7;
         const MaterialCase material{ glm::dvec3(0.8, 0.5, 0.2), 0.0, 0.5 };
 
-        const Verdict legacyEngine = CheckReciprocity(Engine::LegacyBrdf(material), relTol, absTol, "engine Legacy");
-        const Verdict legacyMutant =
-            CheckReciprocity(MutantLegacyBrdf_FresnelAtNdotV(material), relTol, absTol, "mutant Legacy F(n.v)");
         const Verdict v2Engine = CheckReciprocity(Engine::ClosureV2Brdf(material), relTol, absTol, "engine ClosureV2");
         const Verdict v2Mutant = CheckReciprocity(MutantClosureV2Brdf(ClosureV2Mutation::FresnelAtNdotV, material),
                                                   relTol, absTol, "mutant ClosureV2 F(n.v)");
-        Report("engine Legacy", legacyEngine);
-        Report("mutant Legacy", legacyMutant);
         Report("engine ClosureV2", v2Engine);
         Report("mutant ClosureV2", v2Mutant);
-        EXPECT_TRUE(legacyEngine.Pass) << legacyEngine.Detail;
         EXPECT_TRUE(v2Engine.Pass) << v2Engine.Detail;
-        EXPECT_FALSE(legacyMutant.Pass) << "SURVIVED: " << legacyMutant.Detail;
         EXPECT_FALSE(v2Mutant.Pass) << "SURVIVED: " << v2Mutant.Detail;
     }
 
@@ -915,7 +804,7 @@ namespace OloEngine::Tests::Oracle
         const glm::dvec3 v = Direction(0.5, 0.0);
         const f64 alpha = ClosureV2Alpha(material.Roughness);
         const SamplingPlan plan{};
-        const f64 pS = Engine::SpecularProbability(material, PBRModel::ClosureV2);
+        const f64 pS = Engine::SpecularProbability(material);
         std::printf("  engine specular-lobe probability %.4f, mutant claims 0.5\n", pS);
         const OracleDensity engineClaim{ Lobe{ Shape::VisibleNormal, pS, alpha }, Lobe{ Shape::Cosine, 1.0 - pS, 1.0 } };
         const OracleDensity mutantClaim{ Lobe{ Shape::VisibleNormal, 0.5, alpha }, Lobe{ Shape::Cosine, 0.5, 1.0 } };
@@ -933,10 +822,10 @@ namespace OloEngine::Tests::Oracle
             std::printf("  [%s] Pdf vs its claimed mixture: worst relative difference %.3g\n", who, worst);
             return worst <= 1.0e-4;
         };
-        ASSERT_TRUE(claimMatches(Engine::BsdfPdf(material, PBRModel::ClosureV2), engineClaim, "engine"));
-        ASSERT_TRUE(claimMatches(MutantBsdfPdf(material, PBRModel::ClosureV2), mutantClaim, "mutant"));
+        ASSERT_TRUE(claimMatches(Engine::BsdfPdf(material), engineClaim, "engine"));
+        ASSERT_TRUE(claimMatches(MutantBsdfPdf(material), mutantClaim, "mutant"));
 
-        const SamplerFn sampler = Engine::BsdfSampler(material, PBRModel::ClosureV2);
+        const SamplerFn sampler = Engine::BsdfSampler(material);
         const FamilyVerdict engine = CheckSamplingDistribution(sampler, engineClaim, v, alpha, plan);
         const FamilyVerdict mutant = CheckSamplingDistribution(sampler, mutantClaim, v, alpha, plan);
         Report("engine", engine);
@@ -945,33 +834,4 @@ namespace OloEngine::Tests::Oracle
         EXPECT_FALSE(mutant.Pass) << "SURVIVED: " << mutant.Detail;
     }
 
-    // =========================================================================
-    // M10 — the pre-#1347 ImportanceSampleGGX: sin = sqrt(1 - cos^2) in f32
-    // =========================================================================
-    TEST(BsdfMutationDetectionTest, M10_Pre1347ImportanceSampleGgxFailsChiSquare)
-    {
-        // A real bug, found by BsdfSamplingDistributionTest and fixed in
-        // ReferenceBRDF.h by #1347. The mutant puts 2^-25 / (alpha^2 + 2^-25)
-        // of its half-vectors exactly on the normal — 1.2 % at the Legacy
-        // sampling floor 0.04, 0.47 % at 0.05 — all into the first t row of
-        // the half-vector grid, where a bin expects 1/576 of the draws. Same
-        // plan, same oracle density (an NdfReflection lobe at alpha = r^2),
-        // same seeds for both arms.
-        const glm::dvec3 v = Direction(0.5, 0.0);
-        const SamplingPlan plan{};
-        for (f64 roughness : { 0.04, 0.05 })
-        {
-            const f64 alpha = roughness * roughness;
-            const OracleDensity density{ Lobe{ Shape::NdfReflection, 1.0, alpha } };
-            const FamilyVerdict engine =
-                CheckSamplingDistribution(Engine::GgxReflectionSampler(roughness), density, v, alpha, plan);
-            const FamilyVerdict mutant =
-                CheckSamplingDistribution(MutantGgxReflectionSampler(roughness), density, v, alpha, plan);
-            std::printf("  roughness %.2f\n", roughness);
-            Report("engine", engine);
-            Report("mutant", mutant);
-            EXPECT_TRUE(engine.Pass) << "roughness " << roughness << ": " << engine.Detail;
-            EXPECT_FALSE(mutant.Pass) << "SURVIVED at roughness " << roughness << ": " << mutant.Detail;
-        }
-    }
 } // namespace OloEngine::Tests::Oracle

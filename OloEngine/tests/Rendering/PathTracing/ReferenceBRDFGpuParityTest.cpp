@@ -8,14 +8,14 @@
 // The reference tracer's value proposition is: "a divergence between raster and
 // reference IS the bug". That sentence is only true while both shade with the
 // same BRDF. The C++ mirror in ReferenceBRDF.h is a hand transcription, and a
-// hand transcription drifts — someone edits `cookTorranceBRDF` (a Fresnel
+// hand transcription drifts — someone edits `closureV2Evaluate` (a Fresnel
 // tweak, a different G term, an energy-compensation factor) and the reference
 // keeps integrating the OLD formula. Nothing downstream can detect that: the
 // reference still converges beautifully, and every GI comparison against it
 // keeps "passing" while measuring against a renderer that no longer exists.
 //
-// So: render PbrBrdfParityProbe.glsl — which calls the production
-// `cookTorranceBRDF` directly — over a (roughness x metallic x NdotL) grid,
+// So: render PbrClosureVisibilityParityProbe.glsl — which calls the production
+// `closureV2Evaluate` directly — over a (roughness x metallic x NdotL) grid,
 // read it back, and evaluate the C++ port on the identical grid. Any
 // disagreement beyond fp32 evaluation-order noise fails here, immediately,
 // with the offending parameters named.
@@ -59,7 +59,7 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // Must match METALLIC_STEPS in PbrBrdfParityProbe.glsl. A mismatch
+        // Must match METALLIC_STEPS in PbrClosureVisibilityParityProbe.glsl. A mismatch
         // would silently compare different metallic values on the two sides —
         // so the test asserts the decoded band count against the shader's own
         // constant by construction (both are 4 and both are named here).
@@ -88,7 +88,7 @@ namespace OloEngine::Tests
                 // small constant-factor drift this test exists to catch.
                 spec.Attachments = { FramebufferTextureFormat::RGBA32F };
                 m_OutputFB = Framebuffer::Create(spec);
-                m_Shader = Shader::Create("assets/shaders/tests/PbrBrdfParityProbe.glsl");
+                m_Shader = Shader::Create("assets/shaders/tests/PbrClosureVisibilityParityProbe.glsl");
             }
 
             void Draw()
@@ -185,7 +185,7 @@ namespace OloEngine::Tests
             {
                 const GridPoint point = DecodeGridPoint(x, y);
                 const glm::vec3 expected =
-                    CookTorranceBRDF(n, v, point.L, albedo, point.Metallic, point.Roughness);
+                    ClosureV2Evaluate(n, v, point.L, albedo, point.Metallic, point.Roughness);
 
                 const sizet base = (static_cast<sizet>(y) * kWidth + x) * 4;
                 const glm::vec3 actual(pixels[base + 0], pixels[base + 1], pixels[base + 2]);
@@ -212,16 +212,16 @@ namespace OloEngine::Tests
 
         const GridPoint worstPoint = DecodeGridPoint(worstX, worstY);
         const glm::vec3 worstExpected =
-            CookTorranceBRDF(n, v, worstPoint.L, albedo, worstPoint.Metallic, worstPoint.Roughness);
+            ClosureV2Evaluate(n, v, worstPoint.L, albedo, worstPoint.Metallic, worstPoint.Roughness);
         const sizet worstBase = (static_cast<sizet>(worstY) * kWidth + worstX) * 4;
 
         EXPECT_EQ(mismatches, 0u)
             << mismatches << " of " << (kWidth * kHeight * 3) << " samples disagree.\n"
             << "Worst at roughness = " << worstPoint.Roughness << ", metallic = " << worstPoint.Metallic
             << ", NdotL = " << worstPoint.L.z << " (relative " << worstRelative << ")\n"
-            << "  GLSL cookTorranceBRDF = (" << pixels[worstBase + 0] << ", " << pixels[worstBase + 1] << ", "
+            << "  GLSL closureV2Evaluate = (" << pixels[worstBase + 0] << ", " << pixels[worstBase + 1] << ", "
             << pixels[worstBase + 2] << ")\n"
-            << "  C++  CookTorranceBRDF = (" << worstExpected.x << ", " << worstExpected.y << ", "
+            << "  C++  ClosureV2Evaluate = (" << worstExpected.x << ", " << worstExpected.y << ", "
             << worstExpected.z << ")\n"
             << "PBRCommon.glsl and Renderer/PathTracing/ReferenceBRDF.h have DRIFTED. Until they are\n"
             << "reconciled the offline reference path tracer is validating the renderer against a\n"

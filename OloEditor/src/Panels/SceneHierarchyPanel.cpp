@@ -3665,23 +3665,6 @@ namespace OloEngine
             if (f32 roughness = component.m_Material.GetRoughnessFactor(); ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetRoughnessFactor(roughness);
 
-            // Versioned PBR closure (issue #975): Legacy is the frozen shipping
-            // closure; Closure V2 opts into the corrected one (one geometry
-            // term, near-mirror-safe NDF, energy compensation).
-            {
-                const char* pbrModels[] = { "Legacy", "Closure V2" };
-                if (int pbrModel = static_cast<int>(component.m_Material.GetPBRModel());
-                    ImGui::Combo("PBR Model", &pbrModel, pbrModels, IM_ARRAYSIZE(pbrModels)))
-                {
-                    component.m_Material.SetPBRModel(static_cast<PBRModel>(pbrModel));
-                }
-            }
-
-            // Material kind (issue #1231). Deliberately its OWN control, right
-            // beside the PBR Model combo above so the distinction is visible in
-            // the place people are most likely to conflate them: this is what
-            // the surface IS, that is which version of the closure evaluates it.
-            // See docs/adr/0024-material-kind-is-not-the-closure-version.md.
             {
                 const char* materialKinds[] = { "Generic", "Snow", "Skin", "Foliage" };
                 static_assert(IM_ARRAYSIZE(materialKinds) == kMaterialKindCount,

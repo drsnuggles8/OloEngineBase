@@ -39,6 +39,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 
 #include <gtest/gtest.h>
 
@@ -222,6 +223,23 @@ namespace OloEngine::Tests
                 const f32 n = SphereAreaNormalization(roughness, distance, 0.0f);
                 EXPECT_NEAR(n, 1.0f, 1e-4f)
                     << "roughness=" << roughness << " distance=" << distance;
+            }
+        }
+    }
+
+    TEST(SphereAreaLightMath, NormalisationMatchesTheRatioOfClosureNdfPeaks)
+    {
+        const glm::vec3 normal(0.0f, 0.0f, 1.0f);
+        constexpr f32 distance = 5.0f;
+        for (const f32 roughness : { 0.0f, 0.02f, 0.25f, 0.5f, 1.0f })
+        {
+            const f32 r = PathTracing::ClosureV2Roughness(roughness);
+            const f32 pointPeak = PathTracing::DistributionGGXSamplingDensity(normal, normal, r);
+            for (const f32 radius : { 0.0f, 0.1f, 1.0f, 4.0f })
+            {
+                const f32 expandedAlpha = std::min(1.0f, r * r + radius / (2.0f * distance));
+                const f32 spherePeak = PathTracing::DistributionGGXSamplingDensity(normal, normal, std::sqrt(expandedAlpha));
+                EXPECT_NEAR(SphereAreaNormalization(r, distance, radius) * pointPeak, spherePeak, 1.0e-5f * spherePeak);
             }
         }
     }

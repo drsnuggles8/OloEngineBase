@@ -138,7 +138,6 @@ namespace OloEngine
         u32 EmissiveTriangles = 0;
         u32 PunctualLights = 0;
         u32 SphereAreaLights = 0; ///< Sampled as spherical emitters (PathTracer.cpp's ViewSphereLight).
-        u32 LegacyMaterials = 0;  ///< Shaded and sampled with the Legacy closure, as the CPU reference does.
         f32 EmissiveTotalArea = 0.0f;
 
         // Whether hits were shaded from the material TEXTURES this frame

@@ -439,3 +439,10 @@ the vertical displacement to the base vertex's rest height. Spray launches from
 the displaced FFT crest within the tile footprint. A nearly vertical grid
 (`abs(normal.y) <= 1e-4` for a unit normal) can be drawn but supplies no water
 column for buoyancy, spray or the underwater lens.
+The underwater pass slides each captured surface height along the eye tile's
+slope to the eye's column. Only surface the eye tile drew lies on that plane:
+a captured point counts as the eye tile's when it is over its footprint
+(`UnderwaterFog::TileFootprintRows`) and within its drawn wave band of the
+plane (`EyeTileSurfaceBand`). Another tile keeps its own captured height.
+Take the nearest of the four depth texels there, never a filtered sample, or
+a silhouette under upscaling reconstructs a point past the tile.

@@ -7101,6 +7101,7 @@ namespace OloEngine
             }
         }
 
+        VulkanOneShot::Outcome outcome{};
         const bool ok = VulkanOneShot::Submit(
             "VulkanRendererAPI::ReadTextureSubImage",
             [&](VkCommandBuffer cmd)
@@ -7164,17 +7165,31 @@ namespace OloEngine
                 toRead.subresourceRange = range;
                 dep.imageMemoryBarrierCount = 1u;
                 dep.pImageMemoryBarriers = &toRead;
+                // The image barrier restores the texture. The buffer barrier
+                // makes the copy's writes available to the CPU after the fence.
+                VkBufferMemoryBarrier2 hostRead{};
+                hostRead.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                hostRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                hostRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                hostRead.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                hostRead.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+                hostRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                hostRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                hostRead.buffer = readback;
+                hostRead.size = VK_WHOLE_SIZE;
+                dep.bufferMemoryBarrierCount = 1u;
+                dep.pBufferMemoryBarriers = &hostRead;
                 vkCmdPipelineBarrier2(cmd, &dep);
                 if (!borrowLayout)
                 {
                     ctx.Tracker.SetLayout(image, range, VulkanDevice::Get()->GetSampledImageLayout());
                 }
-            });
+            },
+            &outcome);
 
         bool converted = false;
-        if (ok)
+        if (ok && vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, stagedSize) == VK_SUCCESS)
         {
-            vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, stagedSize);
             const auto* staged = static_cast<const u8*>(readbackOut.pMappedData);
             if (info->Format == VulkanBarrierLowering::ToVkFormat(destFormat))
             {
@@ -7201,7 +7216,8 @@ namespace OloEngine
                 }
             }
         }
-        TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
+        if (outcome != VulkanOneShot::Outcome::DrainFailed)
+            TrackedVmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok && converted;
     }
 

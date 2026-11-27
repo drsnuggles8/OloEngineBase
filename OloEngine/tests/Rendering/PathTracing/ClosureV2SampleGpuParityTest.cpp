@@ -36,7 +36,6 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -153,7 +152,6 @@ namespace OloEngine::Tests
             material.BaseColor = glm::vec3(0.9f, 0.6f, 0.3f);
             material.Metallic = point.Metallic;
             material.Roughness = point.Roughness;
-            material.Model = PBRModel::ClosureV2;
             return material;
         }
 

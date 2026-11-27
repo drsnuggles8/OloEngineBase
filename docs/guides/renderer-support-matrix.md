@@ -65,14 +65,13 @@ auto-seeded greedy volume is not, and re-seeds from the height field.
 
 ## Material, alpha and transmission
 
-`SurfaceCategory` names the renderer family, `AuthoredKind` is the persisted
-`MaterialKind` (`Generic`, `Snow`, `Skin`, `Foliage`), and `ClosureModel` selects
-Legacy or ClosureV2 BRDF math. These are independent axes; neither material
-kind nor closure version implies a particular alpha mode.
+`SurfaceCategory` names the renderer family, and `AuthoredKind` carries the persisted
+`MaterialKind` (Generic, Snow, Skin or Foliage). Standard PBR materials use ClosureV2.
+Alpha mode and thin transmission remain independent material inputs.
 
 | Requests in `MaterialCoverageRows` | Outcome | Source and test evidence |
 |---|---|---|
-| Generic Legacy and Generic ClosureV2, opaque classic mesh | Supported | `MaterialKind.h` and `PBRModel.h` define independent on-disk choices. `MaterialLabVisualEvidenceTest.cpp` and `MaterialReferenceAovParityTest.cpp` exercise material lighting; the deferred G-buffer carries the model and kind flags. |
+| Generic opaque classic mesh | Supported | `MaterialLabVisualEvidenceTest.cpp` measures the roughness and metallic sweep. `MaterialReferenceAovParityTest.cpp` checks material lighting. The deferred G-buffer carries the kind and profile slot. |
 | Skin ClosureV2, opaque skinned mesh | Supported | `Renderer3DMeshSubmission.cpp` copies `MaterialKind::Skin` and skin profile fields into material data. `SkinTransmissionEvidenceTest.cpp` covers Forward, Forward+ and Deferred under changing illumination. This row itself requests opaque shading. |
 | Foliage kind with thin transmission | Supported | `FoliageSurface.glsl` provides the thin two-sided lobe; `FoliageLeafTransmissionEvidenceTest.cpp::BacklitLeavesTransmitShadowedOnesDoNotAndEveryPathAgrees` checks the three GL paths. This does not represent volumetric refraction. |
 | Water material on water geometry; wrong material on water or groom geometry | Supported; wrong material Unsupported | `Water` and `Fibre` are distinct renderer families, so the registry rejects category mismatches before selecting a technique. This is an admission contract, not an assertion that a changed material becomes water or hair. |
@@ -89,6 +88,7 @@ table does not substitute for a live pixel capture on each backend.
 | Requests in `PathCoverageRows` | Outcome | Source and test evidence |
 |---|---|---|
 | OpenGL and Vulkan × Forward, Forward+, Deferred, native, single sample | Supported static compatibility | `RenderingPath.h` defines the three paths and the renderer has backend-specific RHI execution. Material and path parity still require the task's separate artifact/live grid. |
+| Per-pixel reflection probes, OpenGL and Vulkan × Forward, Forward+, Deferred (#1772) | Supported | The bake publishes prefiltered radiance and radial distance arrays. `ReflectionProbeParallaxVisualEvidenceTest` compares the per-pixel path with the inactive probe and direction-only controls in each backend. A scene reload requires a new bake because the result lives in memory. |
 | OpenGL Deferred, four samples, native or spatial upscale | Supported static compatibility | `VirtualGeometryVisualEvidenceTest.cpp::RendersUnderDeferredMSAA` covers the virtual geometry draw. `FSR2VisualEvidenceTest.cpp::MSAAFallsBackToSpatialAndStillRenders` checks the non-native spatial fallback. |
 | OpenGL Deferred, one sample, temporal upscale, available temporal capability | Supported static compatibility | `TemporalUpscalePolicy.h::ShouldRunTemporalUpscale`, `FSR2PolicyTest.cpp` and `FSR2VisualEvidenceTest.cpp` cover the gate and rendered GL path. Runtime capability, render extent, and history still decide actual engagement. |
 | OpenGL Deferred, four samples, temporal upscale | Unsupported | `TemporalUpscalePolicy.h` treats MSAA as a hard guard; `FSR2PolicyTest.cpp::MSAAIsAHardGuardNotADegradation` pins it. Spatial fallback is a different request. |

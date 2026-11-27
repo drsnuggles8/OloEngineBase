@@ -52,6 +52,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/TextureCubemapArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -69,6 +70,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTexture3D.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 
@@ -136,6 +138,7 @@ class VulkanResourceFactory : public ::testing::Test
         // test that armed it and did not reach a one-shot would otherwise
         // leave the NEXT test's first submit silently failing.
         VulkanOneShot::SetFailNextSubmitsForTesting(0u);
+        VulkanOneShot::SetFailNextRecordedSubmitsForTesting(0u);
         VulkanOneShot::SetFailNextFenceWaitsForTesting(0u);
         if (!m_Device)
             return;
@@ -202,6 +205,145 @@ TEST_F(VulkanResourceFactory, FactoriesProduceLiveVulkanObjects)
     const auto* vaoEntry = VulkanRootObjectRegistry::Get().Lookup(vkVao->GetRHIHandle());
     ASSERT_NE(vaoEntry, nullptr);
     EXPECT_EQ(vaoEntry->Kind, VulkanRootObjectKind::VertexArray);
+}
+
+TEST_F(VulkanResourceFactory, CubemapArrayCopiesEveryFaceAndMipWithoutOverwritingItsNeighbor)
+{
+    ScopedVulkanRenderCommand renderCommand;
+    constexpr u32 resolution = 8u;
+    constexpr u32 layers = 2u;
+    CubemapSpecification sourceSpec;
+    sourceSpec.Width = resolution;
+    sourceSpec.Height = resolution;
+    sourceSpec.Format = ImageFormat::R32F;
+    sourceSpec.GenerateMips = true;
+    auto source = TextureCubemap::Create(sourceSpec);
+    auto array = TextureCubemapArray::Create({ resolution, layers, ImageFormat::R32F });
+    ASSERT_TRUE(source && source->IsLoaded());
+    ASSERT_TRUE(array && array->IsLoaded());
+    ASSERT_EQ(array->GetMipLevelCount(), 4u);
+    ASSERT_EQ(array->GetMipLevelCount(), source->GetMipLevelCount());
+
+    const auto pattern = [](u32 face, u32 mip, u32 texel)
+    {
+        return static_cast<f32>(1000u * (mip + 1u) + 100u * face + texel);
+    };
+    for (u32 mip = 0; mip < array->GetMipLevelCount(); ++mip)
+    {
+        const u32 extent = resolution >> mip;
+        const u32 faceTexels = extent * extent;
+        std::vector<f32> faceData(faceTexels);
+        for (u32 face = 0; face < 6u; ++face)
+        {
+            for (u32 texel = 0; texel < faceTexels; ++texel)
+                faceData[texel] = pattern(face, mip, texel);
+            ASSERT_TRUE(source->SetFaceDataMip(face, mip, faceData.data(), faceTexels * sizeof(f32)));
+        }
+        const std::vector<f32> neighbor(faceTexels * 6u, -5.0f);
+        ASSERT_TRUE(array->SetLayerMipData(0u, mip, neighbor.data(), neighbor.size() * sizeof(f32)));
+    }
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    EXPECT_FALSE(array->CopyLayerFromCubemap(1u, *source));
+
+    // A copy settles the array to its sampled layout. A prior transfer
+    // layout on one face therefore exercises the rollback, even when the
+    // remaining faces were already in the sampled layout.
+    const VkImage image = static_cast<const VulkanTextureCubemapArray*>(array.Raw())->GetVkImage();
+    auto& tracker = renderCommand.Get().LayoutTracker();
+    const auto sampled = m_Device->GetSampledImageLayout();
+    const VkImageSubresourceRange probeFace{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 7u, 1u };
+    const VkImageSubresourceRange neighborFace{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    ASSERT_EQ(tracker.CurrentLayout(image, probeFace), sampled);
+    ASSERT_TRUE(VulkanOneShot::Submit("establish mixed cubemap array layout", [&](VkCommandBuffer cmd)
+                                      {
+                                         VkImageMemoryBarrier2 barrier{};
+                                         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                                         barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                                         barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+                                         barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                                         barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+                                         barrier.oldLayout = sampled;
+                                         barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                                         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         barrier.image = image;
+                                         barrier.subresourceRange = probeFace;
+                                         VkDependencyInfo dep{};
+                                         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                                         dep.imageMemoryBarrierCount = 1u;
+                                         dep.pImageMemoryBarriers = &barrier;
+                                         vkCmdPipelineBarrier2(cmd, &dep);
+                                         tracker.SetLayout(image, probeFace, barrier.newLayout); }));
+    VulkanOneShot::SetFailNextRecordedSubmitsForTesting(1u);
+    EXPECT_FALSE(array->CopyLayerFromCubemap(1u, *source));
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextRecordedSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, probeFace), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, probeFace), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentLayout(image, neighborFace), sampled);
+    ASSERT_TRUE(array->CopyLayerFromCubemap(1u, *source));
+    EXPECT_FALSE(array->CopyLayerFromCubemap(layers, *source));
+    for (u32 mip = 0; mip < array->GetMipLevelCount(); ++mip)
+    {
+        const u32 extent = resolution >> mip;
+        const u32 faceTexels = extent * extent;
+        const u32 layerTexels = faceTexels * 6u;
+        TArray64<u8> bytes;
+        ASSERT_TRUE(array->GetData(bytes, mip));
+        ASSERT_EQ(bytes.Num(), static_cast<i64>(layerTexels * layers * sizeof(f32)));
+        for (u32 face = 0; face < 6u; ++face)
+        {
+            for (u32 texel = 0; texel < faceTexels; ++texel)
+            {
+                SCOPED_TRACE(::testing::Message() << "mip " << mip << ", face " << face << ", texel " << texel);
+                const u32 index = face * faceTexels + texel;
+                f32 value;
+                std::memcpy(&value, bytes.GetData() + index * sizeof(f32), sizeof(value));
+                EXPECT_FLOAT_EQ(value, -5.0f);
+                std::memcpy(&value, bytes.GetData() + (layerTexels + index) * sizeof(f32), sizeof(value));
+                EXPECT_FLOAT_EQ(value, pattern(face, mip, texel));
+            }
+        }
+    }
+}
+
+TEST_F(VulkanResourceFactory, CubemapMipGenerationPreservesFacesUploadedInTheRecording)
+{
+    ScopedVulkanRenderCommand renderCommand;
+    CubemapSpecification spec;
+    spec.Width = 4u;
+    spec.Height = 4u;
+    spec.Format = ImageFormat::RGBA32F;
+    spec.GenerateMips = true;
+    auto cube = TextureCubemap::Create(spec);
+    ASSERT_TRUE(cube && cube->IsLoaded());
+    ASSERT_EQ(cube->GetMipLevelCount(), 3u);
+
+    bool uploaded = true;
+    ASSERT_TRUE(VulkanOneShot::Submit("cubemap mixed-layout regression", [&](VkCommandBuffer cmd)
+                                      {
+                                         auto& api = renderCommand.Get();
+                                         [[maybe_unused]] const auto recording = api.BeginRecording(cmd);
+                                         std::array<f32, 4u * 4u * 4u> pixels;
+                                         for (u32 face = 0; face < 6u; ++face)
+                                         {
+                                             pixels.fill(static_cast<f32>(face + 1u));
+                                             uploaded &= cube->SetFaceDataMip(face, 0u, pixels.data(), sizeof(pixels));
+                                         }
+                                         cube->GenerateMipmaps();
+                                         api.EndRecording(); }));
+    ASSERT_TRUE(uploaded);
+
+    TArray64<u8> smallestMip;
+    ASSERT_TRUE(cube->GetData(smallestMip, 2u));
+    ASSERT_EQ(smallestMip.Num(), 6u * 4u * sizeof(f32));
+    for (u32 face = 0; face < 6u; ++face)
+    {
+        std::array<f32, 4> texel{};
+        std::memcpy(texel.data(), smallestMip.GetData() + face * sizeof(texel), sizeof(texel));
+        for (const f32 channel : texel)
+            EXPECT_FLOAT_EQ(channel, static_cast<f32>(face + 1u));
+    }
 }
 
 TEST_F(VulkanResourceFactory, UniformBufferAddressFollowsWritesAndFrames)
@@ -986,6 +1128,61 @@ TEST_F(VulkanResourceFactory, ArrayMipGenerationLeavesTheTrackedLayoutAloneWhenT
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
               m_Device->GetSampledImageLayout())
         << "a successful mip chain does advance it";
+}
+
+TEST_F(VulkanResourceFactory, TwoDMipRegenerationPublishesTheExecutedLayoutOnQueueAcceptance)
+{
+    ScopedVulkanRenderCommand vulkanApi;
+    TextureSpecification spec;
+    spec.Width = spec.Height = 4;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+    auto texture = Texture2D::Create(spec);
+    ASSERT_TRUE(texture);
+    std::array<u8, 4 * 4 * 4> pixels;
+    pixels.fill(0x39u);
+    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+    auto& tracker = vulkanApi.Get().LayoutTracker();
+    const auto image = static_cast<VulkanTexture2D*>(texture.Raw())->GetVkImage();
+    const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+    ASSERT_NE(info, nullptr);
+    const auto resting = m_Device->GetSampledImageLayout();
+    ASSERT_EQ(info->InitialLayout, resting);
+    tracker.RegisterImage(image, texture->GetMipLevelCount(), 1u, info->RegistrationId, resting);
+
+    // Leave level zero in the layout a submitted terrain snapshot copy uses for
+    // its source. The next one-shot read will consult CurrentExecutedLayout.
+    const VkImageSubresourceRange base{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+    ASSERT_TRUE(VulkanOneShot::Submit("test: leave mip zero as a transfer source", [&](VkCommandBuffer cmd)
+                                      {
+                                          VulkanUpload::RecordImageBarrier(cmd, image, resting, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                                           VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                                           VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
+                                          tracker.SetLayout(image, base, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL); }));
+    ASSERT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    texture->RegenerateMips();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    // Rejected after the callback recorded the chain: a tracker write made
+    // while recording, outside Submit's execution scope, would show here.
+    VulkanOneShot::SetFailNextRecordedSubmitsForTesting(1u);
+    texture->RegenerateMips();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextRecordedSubmitsForTesting(), 0u);
+    EXPECT_EQ(tracker.CurrentLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, base), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    texture->RegenerateMips();
+    const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, texture->GetMipLevelCount(), 0u, 1u };
+    EXPECT_EQ(tracker.CurrentLayout(image, whole), resting);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, whole), resting);
+    TArray64<u8> readback;
+    ASSERT_TRUE(texture->GetData(readback, 0u));
+    ASSERT_EQ(readback.Num(), pixels.size());
+    EXPECT_TRUE(std::equal(pixels.begin(), pixels.end(), readback.begin()));
 }
 
 // A volume's wrap mode is the caller's, on both backends. The Vulkan volume
