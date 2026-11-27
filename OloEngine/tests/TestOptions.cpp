@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
 #include <cstdio>
 #include <cstdlib>
 #include <optional>
@@ -73,7 +74,12 @@ namespace OloEngine::Tests
                 "  --olo-state-machine-minimize-budget=<n> replays a failure's minimisation may spend\n"
                 "                                 (default 24; 0 disables minimisation)\n"
                 "  --olo-cross-path-export=<dir>  write the cross-path matrix rows' scenes + manifest for the\n"
-                "                                 live Vulkan replay (scripts/cross-path-matrix-live.py, #1347)\n");
+                "                                 live Vulkan replay (scripts/cross-path-matrix-live.py, #1347)\n"
+                "  --olo-lifecycle-soak-cycles=<n> lifecycle soak cycles after warm-up (default 2, #1796)\n"
+                "  --olo-lifecycle-soak-warmup=<n> lifecycle soak warm-up cycles (default 1)\n"
+                "  --olo-lifecycle-soak-report=<path> write the soak's replay data as JSON\n"
+                "  --olo-lifecycle-soak-control-out=<path> write scene A's settled frame (fresh-process control)\n"
+                "  --olo-lifecycle-soak-control-in=<path> compare A after the soak against that frame\n");
         }
 
         // Returns the value of `--name=value`, or nullopt when `arg` is not that flag.
@@ -309,6 +315,50 @@ namespace OloEngine::Tests
                 }
                 s_Options.RssReportPath = std::string(*v);
             }
+            else if (const auto v = ValueOf(arg, "--olo-lifecycle-soak-cycles"))
+            {
+                u32 parsed = 0;
+                if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
+                    ec != std::errc{} || ptr != v->data() + v->size() || parsed == 0u)
+                {
+                    Fail("--olo-lifecycle-soak-cycles needs a positive integer", arg);
+                }
+                s_Options.LifecycleSoakCycles = parsed;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-lifecycle-soak-warmup"))
+            {
+                u32 parsed = 0;
+                if (const auto [ptr, ec] = std::from_chars(v->data(), v->data() + v->size(), parsed);
+                    ec != std::errc{} || ptr != v->data() + v->size())
+                {
+                    Fail("--olo-lifecycle-soak-warmup needs a non-negative integer", arg);
+                }
+                s_Options.LifecycleSoakWarmUp = parsed;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-lifecycle-soak-report"))
+            {
+                if (v->empty())
+                    Fail("--olo-lifecycle-soak-report needs a file path", arg);
+                // Absolute now: the soak's fixture changes the working
+                // directory (editor root, staged game) before it writes.
+                s_Options.LifecycleSoakReport = std::filesystem::absolute(std::filesystem::path(std::string(*v))).string();
+            }
+            else if (const auto v = ValueOf(arg, "--olo-lifecycle-soak-control-out"))
+            {
+                if (v->empty())
+                    Fail("--olo-lifecycle-soak-control-out needs a file path", arg);
+                // Absolute now: the soak's fixture changes the working
+                // directory (editor root, staged game) before it writes.
+                s_Options.LifecycleSoakControlOut = std::filesystem::absolute(std::filesystem::path(std::string(*v))).string();
+            }
+            else if (const auto v = ValueOf(arg, "--olo-lifecycle-soak-control-in"))
+            {
+                if (v->empty())
+                    Fail("--olo-lifecycle-soak-control-in needs a file path", arg);
+                // Absolute now: the soak's fixture changes the working
+                // directory (editor root, staged game) before it writes.
+                s_Options.LifecycleSoakControlIn = std::filesystem::absolute(std::filesystem::path(std::string(*v))).string();
+            }
             else if (const auto v = ValueOf(arg, "--olo-cross-path-export"))
             {
                 s_Options.CrossPathExportDir = *v;
@@ -377,7 +427,10 @@ namespace OloEngine::Tests
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
                      arg == "--olo-require-renderer-preset" || arg == "--olo-state-machine-replay" ||
                      arg == "--olo-state-machine-seeds" || arg == "--olo-state-machine-length" ||
-                     arg == "--olo-state-machine-minimize-budget" || arg == "--olo-cross-path-export")
+                     arg == "--olo-state-machine-minimize-budget" || arg == "--olo-cross-path-export" ||
+                     arg == "--olo-lifecycle-soak-cycles" || arg == "--olo-lifecycle-soak-warmup" ||
+                     arg == "--olo-lifecycle-soak-report" || arg == "--olo-lifecycle-soak-control-out" ||
+                     arg == "--olo-lifecycle-soak-control-in")
             {
                 // The name is right but the `=value` is missing — say that,
                 // rather than sending someone hunting for a typo.

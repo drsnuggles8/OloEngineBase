@@ -677,6 +677,10 @@ add_executable(OloEngine-Tests
 		Rendering/StateMachine/RendererStateMachineComparisonTest.cpp
 		Rendering/StateMachine/RendererStateMachineEvidenceTest.cpp
 		Rendering/StateMachine/RendererStateMachineNegativeControlTest.cpp
+		# Lifecycle soak (#1796): the CPU comparison and growth verdicts, the device soak.
+		Rendering/Lifecycle/LifecycleSoak.cpp
+		Rendering/Lifecycle/LifecycleSoakStatsTest.cpp
+		Rendering/Lifecycle/LifecycleSoakTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoMeshLODVisualEvidenceTest.cpp
@@ -2297,7 +2301,7 @@ gtest_discover_tests(OloEngine-Tests
 # before its EditorAssetManager rewrites it, so two of them at once can each
 # restore the other's rewrite. One lock serialises them, with
 # OloEngine-Tests_VulkanPipelineSeed above.
-set(OLO_SANDBOX_REGISTRY_TESTS "AcceptanceSceneTest.*")
+set(OLO_SANDBOX_REGISTRY_TESTS "AcceptanceSceneTest.*:LifecycleSoak.*")
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
