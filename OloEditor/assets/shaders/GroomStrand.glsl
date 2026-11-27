@@ -187,7 +187,7 @@ layout(location = 12) out float v_TubeRadius;
 layout(location = 13) out float v_Wetness;
 // The lock's own radius in world metres, before the pixel-coverage widenings
 // (#1558) that v_TubeRadius carries: what the ambient march measures a card's
-// lock by (oloGroomLockFrontTransmittance, #1625).
+// lock by (oloGroomLockHalfTransmittance, #1625).
 layout(location = 14) out float v_LockRadius;
 
 // The width bands of summed width `summed` cover when spread over a region
@@ -896,9 +896,11 @@ const int OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE = 2;
 
 // u_GroomCoatModes.w (#1533): the volume is the coat at rest, and it holds the
 // body. Only a rest bake over a bound surface marks the body, so the second bit
-// never comes without the first.
+// never comes without the first. The third (#1625): this draw is the card tier,
+// whose ribbons stand for whole locks (see the lock share below).
 const int OLO_GROOM_COAT_AT_REST = 1;
 const int OLO_GROOM_COAT_HOLDS_BODY = 2;
+const int OLO_GROOM_COAT_CARD_TIER = 4;
 
 bool oloGroomCoatHoldsBody()
 {
@@ -947,10 +949,14 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // front of it. The sky reaches a member along the eye-facing normal through
 // those SAME members, so a member the eye sees well also sees the sky well,
 // and the card's ambient is the visibility-weighted mean over the lock's
-// depth, not the outer strand's. Taking the lock as uniform between its
-// viewer-side surface and its axis, with q the transmittance of that front
-// half, the mean is (1 + q^2) / 2 of what the surface sees, and behind the
-// fibre q^2 of what the far-side surface sees.
+// depth, not the outer strand's. Taking each half of the lock as uniform, with
+// qf the transmittance of its viewer-side half (surface to axis) and qb of its
+// far half, the mean is (1 + qf^2) / 2 of what the viewer-side surface sees
+// (exact for qf = qb, and the one march more it costs is the front half's), and
+// behind the fibre exactly qf qb of what the far-side surface sees: every
+// member is reached through the members between it and the far surface and
+// seen through those between it and the eye, and the two always add up to the
+// whole lock.
 //
 // THE SURFACE IS OLO_GROOM_LOCK_SKY_DEPTH OF THE COOKED RADIUS FROM THE AXIS.
 // The cooked radius is the members' covered width (the card guide's rule 1),
@@ -962,8 +968,11 @@ float oloGroomCoatTauAndBody(vec3 worldDir, bool countBody, out float bodyTau)
 // and the march from the drawn tube's surface (rule 4a, which still holds for
 // every light), the short coat's cards kept 1.33-1.88x their strands' sky.
 //
-// A STRAND'S RADIUS IS FAR BELOW A MARCH STEP, so q is 1 and the strand tier
-// pays no second march.
+// ONLY THE CARD TIER HAS A LOCK. A strand's radius is far below a voxel, so
+// its q would be 1; it pays no second march. Gated on the tier, not on the
+// lock's size against the march step: a size gate switched the share off and on
+// across a coat (a seam) and at every coat-shadow LOD step. Inside the tier q
+// is continuous, and 1 as the lock's depth goes to 0.
 const float OLO_GROOM_LOCK_SKY_DEPTH = 0.6;
 
 float oloGroomLockSkyDepth()
@@ -971,14 +980,16 @@ float oloGroomLockSkyDepth()
 	return max(v_LockRadius, 0.0) * OLO_GROOM_LOCK_SKY_DEPTH;
 }
 
-float oloGroomLockFrontTransmittance(vec3 envDir, float surfaceTau)
+// The transmittance of the half of the lock between its axis and its surface
+// along `dir`, given the coat beyond that surface (`surfaceTau`).
+float oloGroomLockHalfTransmittance(vec3 dir, float surfaceTau)
 {
-	if (!(oloGroomLockSkyDepth() > 0.5 * u_GroomCoatInvExtent.w))
+	if ((u_GroomCoatModes.w & OLO_GROOM_COAT_CARD_TIER) == 0)
 	{
 		return 1.0;
 	}
 	float axisBodyTau = 0.0;
-	float axisTau = oloGroomCoatTauAndBodyFrom(envDir, 0.0, false, axisBodyTau);
+	float axisTau = oloGroomCoatTauAndBodyFrom(dir, 0.0, false, axisBodyTau);
 	return oloGroomCoatTransmittance(max(axisTau - surfaceTau, 0.0), u_GroomCoatBoundsMin.w);
 }
 
@@ -1652,11 +1663,10 @@ OloGroomShading oloGroomShadeFibre()
 		float envTau = oloGroomCoatTauAndBodyFrom(envDir, oloGroomLockSkyDepth(), false, envBodyTau);
 		float envShadow = oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
 		// A card's lock: what its members see of the sky, weighted by how
-		// well the viewer sees them (oloGroomLockFrontTransmittance). 1 on the
+		// well the viewer sees them (oloGroomLockHalfTransmittance). 1 on the
 		// strand tier.
-		float lockFront = oloGroomLockFrontTransmittance(envDir, envTau);
+		float lockFront = oloGroomLockHalfTransmittance(envDir, envTau);
 		float lockFrontShare = 0.5 * (1.0 + (lockFront * lockFront));
-		float lockBehindShare = lockFront * lockFront;
 		OloGroomFibreLobes ambient = oloGroomFibreConstantLobes();
 		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
 		{
@@ -1694,6 +1704,7 @@ OloGroomShading oloGroomShadeFibre()
 			float behindBodyTau = 0.0;
 			float behindTau = oloGroomCoatTauAndBodyFrom(behindDir, oloGroomLockSkyDepth(), false, behindBodyTau);
 			float behindShadow = oloGroomCoatTransmittance(behindTau, u_GroomCoatBoundsMin.w);
+			float lockBehindShare = lockFront * oloGroomLockHalfTransmittance(behindDir, behindTau);
 			vec3 behindArriving = vec3(behindShadow);
 			if (envBody)
 			{

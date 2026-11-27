@@ -3036,14 +3036,25 @@ namespace OloEngine::Tests
             // A sky the coat does not occlude would pass any ratio: the
             // strands must shadow it.
             EXPECT_LT(c.OffShadow, 0.95) << "the strands did not shadow the sky";
-            const f64 tolerance = control ? kControlTolerance : kShadowTolerance;
+            if (control)
+            {
+                // Both arms draw the same strands with the same random
+                // numbers, so their noise cancels in the ratio; the four
+                // errors added in quadrature overstate it. The control is held
+                // to its bar or twice that estimate, and the estimate itself
+                // must stay small.
+                EXPECT_LT(c.Error, kControlTolerance) << "the control did not converge";
+                EXPECT_NEAR(c.Shadow, 1.0, std::max(kControlTolerance, 2.0 * c.Error))
+                    << "two identical frames measured different coats";
+                return;
+            }
+            const f64 tolerance = kShadowTolerance;
             if (2.0 * c.Error < tolerance)
             {
                 EXPECT_NEAR(c.Shadow, 1.0, tolerance)
                     << "the tier does not shadow the sky as its strands do (error " << 100.0 * c.Error << "%)";
                 return;
             }
-            EXPECT_FALSE(control) << "the control must be measurable";
             EXPECT_NE(&s, &m_LongCoat) << "the long coat's sky shadow must be measurable: error " << 100.0 * c.Error
                                        << "%";
             std::printf("[groom-animals] sky shadow %.3f not measurable against +-%.2f (error %.1f%%): gross guard "

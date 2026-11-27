@@ -395,22 +395,20 @@ frame with a live `--rhi vulkan` editor capture of the same scene.
 
 The first run of the existing shadow evidence on the windowless context found Vulkan defects no
 pass-level tenant could see: a depth-array layer larger than its framebuffer rendered and cleared
-only the framebuffer-sized corner (every shadow-atlas tile after the first was empty). It also
-found what looked like a timing-dependent defect in the forked, groom-split shadow region: fur
-shaded random colours or saturated white on a loaded GPU and on lavapipe, and the strip cases'
-shadows vanished (#1652). That was not the region. The fixture baked its black sky in
-`BuildScene`, outside a frame; the Vulkan backend dropped the bake (`Draw`, `Clear` and
-`CopyImageSubDataRegion` "outside recording bracket" in the log), and the fur read irradiance and
-prefilter cubes nothing had written. What that memory held depended on the allocation layout, which
-is why parallel recording, the fork and the opaque-copy split each seemed to matter: at the commit
-#1652 was measured on (`60a677e62`), lavapipe failed the two strip cases with 0 px darkened in
-three runs with the bake outside a frame, the levers no longer matched the issue's pattern
-(parallel recording off still failed; the coat-exit lever, which allocates no opaque copy, passed),
-and moving
-only the bake into `RunInFrame` passed all four cases with every lever on (the thin strip darkened
-1,049 px, the issue's passing number). `022108a88` moved it and made a dropped call a test
-failure. A Vulkan result that changes with a recording or memory lever is first a question of
-what the frame read that nothing wrote.
+only the framebuffer-sized corner (every shadow-atlas tile after the first was empty). It also found
+what looked like a timing-dependent defect in the forked, groom-split shadow region: fur shaded
+random colours or saturated white on a loaded GPU and on lavapipe, and the strip cases' shadows
+vanished (#1652). That was not the region. The fixture baked its black sky in `BuildScene`, outside
+a frame; the Vulkan backend dropped the bake (`Draw`, `Clear` and `CopyImageSubDataRegion` "outside
+recording bracket" in the log), and the fur read irradiance and prefilter cubes nothing had written.
+What that memory held depended on the allocation layout, which is why parallel recording, the fork
+and the opaque-copy split each seemed to matter: at the commit #1652 was measured on (`60a677e62`),
+lavapipe failed the two strip cases with 0 px darkened in three runs with the bake outside a frame,
+the levers no longer matched the issue's pattern (parallel recording off still failed; the coat-exit
+lever, which allocates no opaque copy, passed), and moving only the bake into `RunInFrame` passed
+all four cases with every lever on (the thin strip darkened 1,049 px, the issue's passing number).
+`022108a88` moved it and made a dropped call a test failure. A Vulkan result that changes with a
+recording or memory lever is first a question of what the frame read that nothing wrote.
 
 A third was order-dependent: after a process had rendered Forward, Forward+ and Deferred, the
 next Forward scene lost its cast shadow (#1666). The black-sky bake had been skipped, and stale

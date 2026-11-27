@@ -1662,7 +1662,8 @@ namespace OloEngine
             // w = a bitfield (#1533), set only for a GPU-deformed draw: 1 = the
             //     volume is the coat AT REST, marched from each fragment's bind
             //     point; 2 = it also holds the BODY (negative density), which the
-            //     shader counts for every light no map answers for at the strand.
+            //     shader counts for every light no map answers for at the strand;
+            //     4 = the draw is the card tier (#1625), set with any volume.
             glm::ivec4 CoatModes{ 0, 0, 0, 0 };
 
             // ── GPU strand deformation (#1427) ───────────────────────

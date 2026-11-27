@@ -36,7 +36,7 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    moves; the screen position and the velocity stay the axis's. Strand roots also leave a depth tie
    with the skin (+2% on the strand tier).
 
-4a. **A ribbon's coat-shadow march starts on its tube's LIT side, one radius from the axis
+4a. **A ribbon's coat-shadow march toward a light starts on its tube's LIT side, one radius from the axis
    (#1533).** This is rule 4's reasoning applied to light, in `oloGroomCoatTauAndBody`. A card sits on its
    lock's centreline, the densest line in the volume, so a march from the axis shadowed every card
    fragment by its own lock. A viewer sees a lock's outer strands, not its centre, and under a
@@ -95,14 +95,15 @@ in [groom-representation-lod.md](groom-representation-lod.md).
 
 10. **A card's sky is its members' visibility-weighted mean, not its outer strand's (#1625).** The
     ambient march runs along the fibre's eye-facing normal, nearly the view direction, so a member
-    the eye sees well also sees the sky well. With the lock uniform between its viewer-side surface
-    and its axis and q the transmittance of that front half, the mean is (1 + q^2) / 2 of what the
-    surface sees in front and q^2 of what the far-side surface sees behind
-    (`oloGroomLockFrontTransmittance`, `GroomStrand.glsl`). The surface is 0.6 of the cooked
-    (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the members'
-    covered width, not the lock's depth along the sky. Sun off, uniform sky, converged volume, card
-    over strand sky shadow on both horses from four directions
-    (`GroomAnimalsAcceptanceEvidenceTest.TheCardTierShadowsTheSkyAsItsStrandsDo`):
+    the eye sees well also sees the sky well. Taking each half of the lock as uniform, with qf and qb
+    the transmittances of its viewer-side and far halves, the mean is (1 + qf^2) / 2 of what the
+    viewer-side surface sees in front (exact for qf = qb) and exactly qf qb of what the far surface
+    sees behind (`oloGroomLockHalfTransmittance`, `GroomStrand.glsl`). The surface is 0.6 of the
+    cooked (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the
+    members' covered width, not the lock's depth along the sky. Only the card tier runs it
+    (`u_GroomCoatModes.w` bit 4); a gate on the lock's size against the march step switched it off
+    and on across a coat. Sun off, uniform sky, converged volume, card over strand sky shadow on both
+    horses from four directions (`GroomAnimalsAcceptanceEvidenceTest.TheCardTierShadowsTheSkyAsItsStrandsDo`):
 
     | march from | lock share | short coat | long coat |
     |---|---|---|---|

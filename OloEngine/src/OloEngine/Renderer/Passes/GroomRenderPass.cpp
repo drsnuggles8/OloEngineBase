@@ -4184,7 +4184,10 @@ namespace OloEngine
                             // (OLO_GROOM_NO_COAT_BODY leaves it out, the A/B).
                             const bool holdsBody =
                                 bakeAtRest && entry->CoatBodyVoxels > 0u && !Levers::GroomNoCoatBody();
-                            params.CoatModes.w = (bakeAtRest ? 1 : 0) | (holdsBody ? 2 : 0);
+                            // Bit 4: the draw is the card tier, whose ribbons stand for whole
+                            // locks; the shader shades their sky as the members' (#1625).
+                            const bool cardTier = request.Lod.Representation == GroomRepresentation::Card;
+                            params.CoatModes.w = (bakeAtRest ? 1 : 0) | (holdsBody ? 2 : 0) | (cardTier ? 4 : 0);
                             // Dual scattering counts the neighbours through the
                             // volume, so it switches on here and nowhere else:
                             // the density factors are the only lanes the
