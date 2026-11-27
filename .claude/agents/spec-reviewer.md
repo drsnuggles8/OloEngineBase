@@ -1,6 +1,6 @@
 ---
 name: spec-reviewer
-description: Review a task branch's diff against what HANDOVER.md and its issue asked for — acceptance criteria, the verification matrix, bug accounting and ECS cross-binding touch-points. Reports requirement gaps only. Use proactively in task-loop Phase 3, after /code-review.
+description: Review a task branch's diff against what HANDOVER.md and its issue asked for — acceptance criteria, the verification matrix, bug accounting, ECS cross-binding touch-points and, for KESTREL gameplay, the design-acceptance block. Reports requirement gaps only. Use proactively in task-loop Phase 3, after /code-review.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: opus
@@ -15,7 +15,8 @@ push or comment.
 
 ## Gather
 
-- `HANDOVER.md` at the worktree root: Task, Plan, Verification axes, Registry snapshot.
+- `HANDOVER.md` at the worktree root: Task, Plan, Verification axes, Design context (KESTREL tasks
+  only), Registry snapshot.
 - The issue it names: `gh issue view <N> --json title,body,comments` (bare `gh issue view` errors on
   this repo). Its acceptance criteria and checkboxes are the requirements.
 - The diff: `git fetch origin` then `git diff origin/master...HEAD --stat` and the full diff.
@@ -46,6 +47,17 @@ push or comment.
    are a finding only if they are unexplained.
 6. **Closing the loop**: the source `docs/` checkbox or `// TODO` the task came from is updated in
    the diff, and `Closes #N` is used only when the PR completes the issue.
+7. **KESTREL design**: in every task, a change to an archived snapshot (a file listed in
+   `OloEditor/KestrelProject/docs/archive/SHA256SUMS`) is a finding. In every task, a changed decision
+   record, open question or tunable in `OloEditor/KestrelProject/docs/` without the owner's approval
+   cited in the commit message, and in the PR body once a PR exists, is a finding. If the diff touches `OloEditor/KestrelProject/`
+   or the issue carries the `kestrel` label or milestone, read the *When this guide applies* section of
+   `OloEditor/KestrelProject/docs/AGENT_GUIDE.md`, classify the task yourself and compare with
+   `HANDOVER.md`'s *Design context*; a missing or wrong classification is a finding. For gameplay work,
+   also read the decision records the section cites (look IDs up in `DECISIONS.md`). Findings: the
+   guide's ten design-acceptance fields missing from *Design context* or, once a PR exists, from its
+   *Design validation* section (in Phase 3, before the PR, there is no PR body to check); agent runs described as human playtesting; behaviour that contradicts a cited decision. Human
+   validation still owed, and stated, is not a finding.
 
 Do **not** report style preferences, naming opinions, speculative hardening, extra tests for cases
 that cannot happen, or refactors you would have liked. A reviewer asked for gaps will always find
