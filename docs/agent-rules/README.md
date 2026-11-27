@@ -134,6 +134,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Renderer
 
+- [post-tonemap-targets-carry-the-composition-space.md](post-tonemap-targets-carry-the-composition-space.md): a pass after the tone map declares its target with `postToneMapFormat` and never clamps to 1.0, because HDR output carries values above UI white.
 - [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md): validate a block format with several block layouts one mode at a time against the reference decoder's own read order.
 - [amd-mesa-shader-compile-blowup.md](amd-mesa-shader-compile-blowup.md): write a per-subset shader step as `subset 0; if (subsets > 1) subset 1` with constant array indices, never a `for` loop over indexed arrays.
 - [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
