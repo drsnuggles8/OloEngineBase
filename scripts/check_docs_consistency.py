@@ -106,6 +106,8 @@ LINK_RE = re.compile(r"(?<!\\)!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[
 REF_DEF_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
 EXPLICIT_ANCHOR_RE = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
+# The anchor a decision ID owns: `g-11`, `exp-01`, a grouped range `x-02-x-04` or `x-02–x-04`.
+DECISION_ANCHOR_RE = re.compile(r"[a-z]+-\d+[a-z]?(?:[-–][a-z]+-\d+[a-z]?)?")
 SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
 # Anchored so a URL or a longer path (`https://…/docs/x.md`, `../docs/x.md`) is not
 # read as this repository's docs/ directory.
@@ -259,12 +261,40 @@ def lines_citing_docs(repo: Repo):
                     yield rel, number, line
 
 
+def lines_in_docs_citing_project_trees(repo: Repo):
+    """Yield (file, line number, line) for lines under docs/ that name a project doc tree.
+
+    `lines_citing_docs` skips docs/ (its links are check 1's), but check 1 ignores inline code, so a
+    backticked project-tree path in a guide would otherwise go unchecked."""
+    for rel in sorted(repo.tracked):
+        if rel.startswith("docs/") and rel.endswith(".md"):
+            for number, line in enumerate(repo.text(rel).splitlines(), 1):
+                if any(tree in line for tree in PROJECT_DOC_TREES):
+                    yield rel, number, line
+
+
+def check_project_citation(repo: Repo, rel: str, number: int, line: str) -> list[str]:
+    """A project doc tree cited from anywhere: `../../OloEditor/KestrelProject/docs/x.md#a`."""
+    errors = []
+    for pattern in PROJECT_PATH_RES:
+        for match in pattern.finditer(line):
+            cited, fragment = match.group(1), match.group(2)
+            resolved = resolve(rel, cited)[0] if cited.startswith("../") else cited
+            if resolved not in repo.tracked:
+                errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
+            elif fragment and fragment.lower() not in repo.anchors(resolved):
+                errors.append(f"{rel}:{number}: no heading or anchor '#{fragment}' in {resolved}")
+    return errors
+
+
 def check_cited_doc_paths(repo: Repo) -> list[str]:
     errors = []
     try:
         cited_lines = list(lines_citing_docs(repo))
     except RuntimeError as failure:
         return [f"check 2 could not run: {failure}"]
+    for rel, number, line in lines_in_docs_citing_project_trees(repo):
+        errors += check_project_citation(repo, rel, number, line)
     for rel, number, line in cited_lines:
         for cited in DOCS_PATH_RE.findall(line):
             if cited not in repo.tracked and not GENERATED_DOCS.match(cited):
@@ -275,15 +305,7 @@ def check_cited_doc_paths(repo: Repo) -> list[str]:
             resolved, _ = resolve(rel, cited)
             if resolved.startswith("docs/") and resolved not in repo.tracked:
                 errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
-        # A project doc tree cited from anywhere: `../../OloEditor/KestrelProject/docs/x.md#a`.
-        for pattern in PROJECT_PATH_RES:
-            for match in pattern.finditer(line):
-                cited, fragment = match.group(1), match.group(2)
-                resolved = resolve(rel, cited)[0] if cited.startswith("../") else cited
-                if resolved not in repo.tracked:
-                    errors.append(f"{rel}:{number}: names a doc that does not exist: {cited}")
-                elif fragment and fragment.lower() not in repo.anchors(resolved):
-                    errors.append(f"{rel}:{number}: no heading or anchor '#{fragment}' in {resolved}")
+        errors += check_project_citation(repo, rel, number, line)
     return errors
 
 
@@ -343,7 +365,9 @@ def check_decision_index(repo: Repo, index: str) -> list[str]:
         for anchor in explicit + sorted(slugs - set(explicit)):
             anchor_homes[anchor].append(rel)
     for anchor, homes in sorted(anchor_homes.items()):
-        if len(homes) > 1:
+        # Across documents only a decision's anchor must be unique (a local `#details` may recur);
+        # any anchor twice in one document is ambiguous there.
+        if len(homes) > 1 and (DECISION_ANCHOR_RE.fullmatch(anchor) or len(set(homes)) < len(homes)):
             errors.append(f"{index}: anchor '#{anchor}' is defined more than once: {', '.join(homes)}")
     covered: dict[str, list[str]] = defaultdict(list)
     for decision, homes in sorted(heading_homes.items()):
@@ -552,6 +576,22 @@ SELF_TEST = {
             _KD + "other.md": _KD_TOPIC,
         },
         "anchor '#x-01' is defined more than once",
+    ),
+    "a local anchor may recur across documents": (
+        {
+            _KD + "README.md": "# Design\n\n- [Decisions](DECISIONS.md)\n- [Topic](topic.md)\n- [Other](other.md)\n",
+            _KD + "topic.md": _KD_TOPIC + '\n<a id="details"></a>\n',
+            _KD + "other.md": '# Other\n\n<a id="details"></a>\n',
+        },
+        None,
+    ),
+    "a local anchor twice in one document": (
+        {_KD + "topic.md": _KD_TOPIC + '\n<a id="details"></a>\n\n<a id="details"></a>\n'},
+        "anchor '#details' is defined more than once",
+    ),
+    "dead project doc named in a docs/ guide's inline code": (
+        {"docs/guides/a.md": "# A\n\n[back](../README.md#guides) `" + _KD + "gone.md`\n"},
+        "names a doc that does not exist: " + _KD + "gone.md",
     ),
     "an archived copy of a decision is history, not a second record": (
         {_KD + "README.md": _KD_WITH_OLD, _KD + "archive/old.md": _KD_TOPIC, _KD + "archive/SHA256SUMS": _manifest_for(_KD_TOPIC)},
