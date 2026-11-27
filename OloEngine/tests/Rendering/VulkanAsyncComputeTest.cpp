@@ -847,6 +847,101 @@ TEST(VulkanAsyncComputeDevice, ABindInsideTheBatchTransfersAnImageThePlannerDidN
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
+// #1341: with the lever unset, a device that HAS a compute-only family still
+// keeps the batch on the graphics queue, and says why. Crossing measured no
+// overlap and +2.3 ms of GPU frame time, because the graphics queue waits for
+// the whole batch; the queue stays available behind OLO_VK_ASYNC_COMPUTE=1.
+TEST(VulkanAsyncComputeDevice, AnUnsetLeverKeepsTheBatchOnTheGraphicsQueueAndSaysWhy)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+
+    ScopedHiddenVulkanWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+
+    const bool originalSequential = Levers::RenderGraphSequential();
+    const Levers::Tristate originalAsync = Levers::VulkanAsyncCompute();
+    struct LeverRestore
+    {
+        bool Sequential;
+        Levers::Tristate Async;
+        ~LeverRestore()
+        {
+            Levers::SetRenderGraphSequential(Sequential);
+            Levers::SetVulkanAsyncCompute(Async);
+        }
+    } leverRestore{ originalSequential, originalAsync };
+    Levers::SetRenderGraphSequential(false);
+    Levers::SetVulkanAsyncCompute(Levers::Tristate::Unset);
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    {
+        VulkanContext context(window.Get());
+        try
+        {
+            context.Init();
+        }
+        catch (const std::exception& e)
+        {
+            GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+        }
+        RenderCommand::Init();
+        VulkanDevice::ResetValidationErrorCount();
+        auto* device = VulkanDevice::Get();
+        ASSERT_NE(device, nullptr);
+        if (!device->HasAsyncComputeQueue())
+            GTEST_SKIP() << VulkanQueueSelection::Describe(device->GetAsyncComputeUnavailableReason());
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+        auto source = StorageBuffer::Create(sizeof(u32), 30u, StorageBufferUsage::DynamicCopy);
+        auto destination = StorageBuffer::Create(sizeof(u32), 31u, StorageBufferUsage::DynamicCopy);
+        ASSERT_TRUE(source && destination);
+        auto* vkSource = static_cast<VulkanStorageBuffer*>(source.Raw());
+        auto* vkDestination = static_cast<VulkanStorageBuffer*>(destination.Raw());
+        constexpr u32 kPattern = 0x13410FFu;
+
+        RenderGraph graph;
+        graph.AddNode(Ref<AsyncStubPass>::Create("DefaultProducer", nullptr, [&]()
+                                                 { vkCmdFillBuffer(api.CurrentCommandBuffer(), vkSource->GetVkBuffer(), 0u, sizeof(kPattern), kPattern); }));
+        auto consumer = Ref<AsyncStubPass>::Create("DefaultConsumer", nullptr, [&]()
+                                                   {
+            VkBufferCopy copy{};
+            copy.size = sizeof(kPattern);
+            vkCmdCopyBuffer(api.CurrentCommandBuffer(), vkSource->GetVkBuffer(), vkDestination->GetVkBuffer(), 1u, &copy); });
+        consumer->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
+        consumer->SetAsyncComputeCandidate(true);
+        graph.AddNode(consumer);
+        graph.AddExecutionDependency("DefaultProducer", "DefaultConsumer");
+        graph.SetFinalPass("DefaultConsumer");
+        graph.BuildFrameGraph();
+        const auto plan = graph.GetSubmissionPlan();
+        ASSERT_NE(std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                       { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; }),
+                  plan.end())
+            << "the graph did not schedule an async-compute batch";
+
+        context.SetFrameRenderCallback(
+            [&](const GraphicsContext::FrameRenderTarget&)
+            {
+                graph.Execute();
+                return false;
+            });
+        context.SwapBuffers();
+        ASSERT_EQ(vkQueueWaitIdle(device->GetQueue()), VK_SUCCESS);
+
+        const auto stats = api.GetAsyncComputeStats();
+        EXPECT_EQ(stats.BatchesOnComputeQueue, 0u);
+        EXPECT_EQ(stats.BatchesDeclined, 1u);
+        EXPECT_EQ(stats.OwnershipTransfers, 0u);
+        EXPECT_NE(stats.DeclineReason.find("not opted in"), std::string_view::npos) << stats.DeclineReason;
+        u32 copied = 0u;
+        destination->GetData(&copied, sizeof(copied));
+        EXPECT_EQ(copied, kPattern) << "the graphics-queue fallback must still run the batch in order";
+        context.SetFrameRenderCallback({});
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
 namespace
 {
     // The VSM shaders are runtime assets resolved against the working
@@ -881,6 +976,17 @@ TEST(VulkanAsyncComputeDevice, VsmMarkInputsSurviveTheNextFrameUploads)
 {
     OLO_VULKAN_DEVICE_OR_SKIP();
     const ScopedEditorWorkingDirectory editorRoot;
+    // The test opens compute segments itself; crossing is opt-in (#1341).
+    const Levers::Tristate originalAsync = Levers::VulkanAsyncCompute();
+    struct AsyncRestore
+    {
+        Levers::Tristate Async;
+        ~AsyncRestore()
+        {
+            Levers::SetVulkanAsyncCompute(Async);
+        }
+    } asyncRestore{ originalAsync };
+    Levers::SetVulkanAsyncCompute(Levers::Tristate::On);
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     VulkanContext context(VulkanContext::OffscreenTarget{ 32u, 32u });
     try
