@@ -253,7 +253,7 @@ namespace OloEngine
             if (!instance)
                 continue;
             const auto* material = m_GPUScene->GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration);
-            if (!material || material->AlphaMode != 0u || material->ClosureVersion >= 2u ||
+            if (!material || material->AlphaMode != 0u ||
                 (material->Flags & (GPUSceneMaterialFlagBlend | GPUSceneMaterialFlagTransmission)) != 0u)
             {
                 StandDown("unsupported material");

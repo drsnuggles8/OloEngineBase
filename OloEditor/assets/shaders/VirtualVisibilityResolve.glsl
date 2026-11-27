@@ -130,7 +130,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;
-    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    int _pbrClosurePad;
     // Physical transmission / IOR / volume (issue #970). MUST mirror the
     // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
     // lanes so those stay last. Declared unconditionally -- unlike the heap
@@ -154,8 +154,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // relayout the heap offsets by 16 B and every texture would sample the
     // wrong descriptor.
     //
-    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
-    // of the closure evaluates it. Two fields because they are two questions --
+
     // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
     int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
     int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (7) == names no profile
@@ -498,7 +497,7 @@ void main()
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
-    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_PBRModel, u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
+    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlagsEx(u_MaterialKind, u_SkinProfileSlot)); // flag-lane layout: see oloEncodeGBufferPbrFlagsEx (#975, #1231)
     o_GBufferVelocity = vec4(velocity, 1.0, 0.0);
     o_GBufferEntityID = inst.EntityID;
     // Baked lightmap irradiance into RT5 (issues #865, #867) — the same call the

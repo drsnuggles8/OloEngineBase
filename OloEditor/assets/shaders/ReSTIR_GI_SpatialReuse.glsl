@@ -164,7 +164,7 @@ OloGBufferSurface LoadNeighbourSurface(vec2 uv)
     if (oloDepthIsSky(depth) || oloGBufferFlagsAreUnlit(gbFlags))
         return OloInvalidGBufferSurface();
     return OloLoadGBufferSurface(uv, depth, OLO_RESTIR_FETCH(u_GBufferNormal, uv),
-                                 OLO_RESTIR_FETCH(u_GBufferAlbedo, uv), oloGBufferFlagsPbrModel(gbFlags));
+                                 OLO_RESTIR_FETCH(u_GBufferAlbedo, uv));
 }
 
 OloGISpatialCandidate LoadCandidate(vec2 uv, out OloGBufferSurface outSurface)

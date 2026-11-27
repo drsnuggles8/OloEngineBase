@@ -1504,6 +1504,15 @@ TEST_F(LuaBindingTest, QuestGiverComponent_PropertyRoundTrip)
 // MaterialComponent
 // =============================================================================
 
+TEST_F(LuaBindingTest, MaterialKindRemainsIndependentOfTheRemovedClosureSelector)
+{
+    MaterialComponent material;
+    lua["mc"] = &material;
+    lua.script("mc.materialKind = 3");
+    EXPECT_EQ(material.m_Material.GetMaterialKind(), MaterialKind::Foliage);
+    EXPECT_TRUE(lua.script("return mc.pbrModel == nil").get<bool>());
+}
+
 TEST_F(LuaBindingTest, MaterialComponent_AlbedoColorRoundTrip)
 {
     MaterialComponent mc;

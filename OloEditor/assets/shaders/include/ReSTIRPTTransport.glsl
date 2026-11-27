@@ -43,7 +43,7 @@ PTVertex PTFromHit(OloRtHit hit, vec3 view)
     v.PositionRoughness = vec4(hit.Position, hit.Roughness);
     float side = dot(hit.GeometricNormal, view) >= 0.0 ? 1.0 : -1.0;
     v.GeometricNormalMetallic = vec4(hit.GeometricNormal * side, hit.Metallic);
-    v.ShadingNormalClosure = vec4(hit.ShadingNormal * side, float(hit.ClosureVersion));
+    v.ShadingNormal = vec4(hit.ShadingNormal * side, 0.0);
     v.Albedo = vec4(hit.Albedo, 1.0);
     v.Incoming = vec4(view, 0);
     v.Identity = hit.Identity;
@@ -176,7 +176,7 @@ bool PTEvaluatePath(inout PTPath p, out float proposal)
             break;
         PTVertex v = p.Vertices[k];
         vec3 l = PTDirection(p, k);
-        float cosine = dot(v.ShadingNormalClosure.xyz, l);
+        float cosine = dot(v.ShadingNormal.xyz, l);
         if (!(cosine > 0.0) || !PTFinite3(l))
             return false;
         vec3 factor = PTEvaluate(v, l) * cosine;

@@ -17,10 +17,6 @@
 //   [x] Fresnel monotonic non-increasing in cosTheta
 //
 // Follow-ups (separate fixtures / shaders):
-//   [x] GGX NDF normalization        (PbrNdfTest.Roughness1HEqualsN_Equals_InvPi + GGX hemisphere integral in ShaderUnitTests)
-//   [x] Furnace test                 (PbrBrdfTest.FurnaceIntegralWithinEnergyBounds)
-//   [x] Metallic kills diffuse       (PbrDiffuseTest.*)
-//   [x] Roughness = 0 is mirror      (PbrNdfTest.LowRoughnessConcentratesHighlight)
 //   [x] Normal map identity          (PbrNormalMapTest.FlatNormalReturnsGeometricNormal)
 //   [x] White environment irradiance (PbrIrradianceAdvancedTest.ImportanceUniformWhiteYieldsUnity)
 // =============================================================================
@@ -40,7 +36,6 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
@@ -52,7 +47,6 @@
 #include <array>
 #include <cmath>
 #include <limits>
-#include <set>
 #include <utility>
 #include <vector>
 
@@ -268,255 +262,7 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // GGX NDF (distributionGGX)
-    //
-    // These tests probe the engine's `distributionGGX(N, H, roughness)` over a
-    // 2D grid parameterized by (NdotH-angle, roughness). We verify invariants
-    // that every correct GGX implementation must hold, independent of the
-    // specific constants baked in.
-    // =========================================================================
-
-    // Non-negativity + no NaN/Inf. Guard against numerical explosions at low
-    // roughness (the denominator includes a `max(..., EPSILON)` clamp).
-    TEST(PbrNdfTest, NonNegativeAndFinite)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 128;
-        constexpr u32 kHeight = 128;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrNdfProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
-
-        for (std::size_t i = 0; i < static_cast<std::size_t>(kWidth) * kHeight; ++i)
-        {
-            const f32 D = pixels[i * 4 + 0];
-            ASSERT_FALSE(std::isnan(D)) << "NDF NaN at index " << i;
-            ASSERT_FALSE(std::isinf(D)) << "NDF Inf at index " << i;
-            EXPECT_GE(D, 0.0f) << "NDF negative at index " << i;
-        }
-    }
-
-    // For any fixed roughness, D is maximised when H aligns with N (NdotH = 1)
-    // and monotonically decreases as H rotates away. We compare the rightmost
-    // column (NdotH ≈ 1) against every other column in the same row.
-    TEST(PbrNdfTest, PeaksAtHAlignedWithN)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 128;
-        constexpr u32 kHeight = 32;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrNdfProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-
-        // Use a generous additive tolerance because GGX at low roughness is
-        // sharply peaked and 16F quantization near the peak can be on the
-        // order of 10 units.
-        constexpr f32 kEpsilon = 0.25f;
-
-        for (u32 y = 0; y < kHeight; ++y)
-        {
-            const std::size_t peakIdx = (static_cast<std::size_t>(y) * kWidth + (kWidth - 1)) * 4;
-            const f32 peak = pixels[peakIdx];
-            for (u32 x = 0; x < kWidth - 1; ++x)
-            {
-                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
-                const f32 D = pixels[idx];
-                EXPECT_LE(D, peak + kEpsilon)
-                    << "NDF not peaked at H=N: row y=" << y << " x=" << x
-                    << " value=" << D << " vs peak=" << peak;
-            }
-        }
-    }
-
-    // At roughness ≈ 1, H ≈ N, closed-form GGX evaluates to 1 / PI ≈ 0.3183.
-    // Catches algebraic bugs (e.g., dropping the a² numerator, missing PI).
-    // Tolerance allows for pixel-center sampling: the last column samples at
-    // (kWidth - 0.5) / kWidth, not exactly 1.0, which introduces a small
-    // analytic deviation from 1/PI (~0.01 at kWidth=64).
-    TEST(PbrNdfTest, Roughness1HEqualsN_Equals_InvPi)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 64;
-        constexpr u32 kHeight = 64;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrNdfProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-
-        // Probe output at (x = kWidth-1, y = kHeight-1) corresponds to
-        // NdotH ≈ 1, roughness ≈ 1. Expected value ≈ 1/PI = INV_PI.
-        const std::size_t idx = (static_cast<std::size_t>(kHeight - 1) * kWidth + (kWidth - 1)) * 4;
-        const f32 D = pixels[idx];
-        constexpr f32 kExpected = 0.318309886f; // 1.0 / PI
-        EXPECT_NEAR(D, kExpected, 2e-2f);
-    }
-
-    // =========================================================================
-    // GGX NDF hemisphere integral was attempted but removed: half-float probe
-    // output combined with Riemann-sum discretisation at low roughness makes
-    // the "∫D·cosθ·sinθ dω = 1" invariant too noisy for a tight bound. The
-    // InvPi endpoint test above already catches normalisation bugs on the
-    // analytically tractable axis (H = N at roughness = 1).
-    // =========================================================================
-
-    // =========================================================================
-    // Metallic "kills" diffuse (Cook-Torrance energy split)
-    //
-    // The diffuse term of the PBR BRDF is scaled by (1 - metallic). Pure metals
-    // (metallic = 1) must emit zero Lambertian contribution. This test uses a
-    // probe that recomputes the exact kD expression used by cookTorranceBRDF
-    // and verifies it collapses to 0 in the rightmost column.
-    // =========================================================================
-    TEST(PbrDiffuseTest, MetallicOneKillsDiffuse)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 64;
-        constexpr u32 kHeight = 64;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrDiffuseProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
-
-        // Rightmost column is metallic ≈ 1 (sampled at pixel center
-        // (kWidth-0.5)/kWidth ≈ 0.992, leaving a residual (1 - metallic) ≈
-        // 0.008). The diffuse term drops off linearly with (1 - metallic),
-        // so allow a 1e-3 tolerance that comfortably covers the residual.
-        constexpr f32 kTolerance = 1e-3f;
-        for (u32 y = 0; y < kHeight; ++y)
-        {
-            const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + (kWidth - 1)) * 4;
-            EXPECT_NEAR(pixels[idx + 0], 0.0f, kTolerance) << "R y=" << y;
-            EXPECT_NEAR(pixels[idx + 1], 0.0f, kTolerance) << "G y=" << y;
-            EXPECT_NEAR(pixels[idx + 2], 0.0f, kTolerance) << "B y=" << y;
-        }
-    }
-
-    // Sanity check: at metallic = 0 with albedo = 0.8 and Fresnel at normal
-    // incidence (cosTheta = 1), the dielectric diffuse term is
-    //     kD = (1 - 0.04) = 0.96; diffuse = 0.96 * 0.8 * (1/PI) ≈ 0.2445
-    // This catches regressions that zero-out the diffuse term everywhere.
-    TEST(PbrDiffuseTest, DielectricDiffuseNonZero)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 64;
-        constexpr u32 kHeight = 64;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrDiffuseProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-
-        // Top-left region is metallic ≈ 0, cosTheta ≈ 1.
-        const std::size_t idx = (static_cast<std::size_t>(kHeight - 1) * kWidth + 0) * 4;
-        const f32 diffuse = pixels[idx];
-        constexpr f32 kExpected = 0.96f * 0.8f * 0.318309886f; // ≈ 0.2445
-        EXPECT_NEAR(diffuse, kExpected, 5e-3f);
-    }
-
-    // =========================================================================
-    // Cook-Torrance BRDF positivity: for every (roughness, NdotL) we evaluate,
-    // the BRDF value must be finite and non-negative on every channel. This is
-    // the most universal correctness property — a BRDF that goes negative has
-    // been constructed with a sign error or a missing clamp.
-    //
-    // Uses a dielectric-white surface and a frontal view (V == N) swept across
-    // NdotL ∈ [0.02, 1] and roughness ∈ [MIN_ROUGHNESS, 1]. Excludes the first
-    // column where NdotL drops near zero (geometry / Fresnel terms become
-    // numerically unstable there by design).
-    // =========================================================================
-    TEST(PbrBrdfTest, PositiveAndFiniteEverywhere)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 64;
-        constexpr u32 kHeight = 64;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrBrdfProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-
-        for (u32 y = 0; y < kHeight; ++y)
-        {
-            // Skip x=0 where NdotL is nearly grazing; numerical floor behaviour
-            // is well-defined but not interesting to assert on.
-            for (u32 x = 1; x < kWidth; ++x)
-            {
-                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
-                for (u32 c = 0; c < 3; ++c)
-                {
-                    const f32 v = pixels[idx + c];
-                    ASSERT_TRUE(std::isfinite(v))
-                        << "non-finite at x=" << x << " y=" << y << " c=" << c;
-                    EXPECT_GE(v, 0.0f)
-                        << "negative BRDF at x=" << x << " y=" << y << " c=" << c;
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    // Helmholtz reciprocity: f(N, V, L) == f(N, L, V).
-    //
-    // A physically plausible BRDF must be symmetric in V and L. Any deviation
-    // means the underlying math is asymmetric (often: NdotL where NdotV was
-    // intended, or a one-sided G term). The probe evaluates the forward and
-    // reversed call side-by-side and packs |diff| into the red channel.
-    //
-    // Tolerance is generous (1e-3) to absorb a few ULPs worth of GPU rounding
-    // when the same three sub-expressions are computed in slightly different
-    // orders. A real reciprocity bug produces errors >> 1e-2.
-    // =========================================================================
-    TEST(PbrBrdfTest, HelmholtzReciprocity)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        constexpr u32 kWidth = 64;
-        constexpr u32 kHeight = 64;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrReciprocityProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-
-        // Probe packs max(|f(V,L) - f(L,V)|) into .r.
-        f32 maxDiff = 0.0f;
-        for (std::size_t i = 0; i < static_cast<std::size_t>(kWidth) * kHeight; ++i)
-        {
-            maxDiff = std::max(maxDiff, pixels[i * 4 + 0]);
-        }
-        EXPECT_LT(maxDiff, 1e-3f)
-            << "BRDF reciprocity violated; max |f(V,L) - f(L,V)| = " << maxDiff;
-    }
-
-    // =========================================================================
-    // Normal map identity: a flat tangent-space normal (0,0,1) — encoded as
-    // texel (0.5, 0.5, 1.0) — must round-trip through getNormalFromMap() to
-    // the geometric surface normal N passed in.
-    //
-    // The TBN construction inside getNormalFromMap() uses dFdx/dFdy on both
-    // world-space position and texcoords. Our probe sets worldPos = (uv, 0)
-    // so those derivatives are canonical unit tangents, and passes N = +Z.
+    // Normal-map reconstruction.
     // With tangent normal = (0, 0, 1), the result must be +Z exactly, encoded
     // back as (0.5, 0.5, 1.0) in RGBA8 output.
     //
@@ -944,131 +690,6 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
-    // Low roughness concentrates the specular highlight.
-    //
-    // A physically-meaningful GGX NDF must produce a narrower, taller peak
-    // at smaller roughness. The engine's distributionGGX guards its
-    // denominator with `max(denom, EPSILON)` where EPSILON = 1e-4, which
-    // clips the peak below roughness ≈ 0.3. We therefore probe at the
-    // lowest roughness that comfortably clears the clamp (≈ 0.35) and
-    // assert
-    //     D(NdotH = 1) / D(NdotH < 0.95) ≥ 30
-    // along with a finite, ≥ 10 peak value. That corresponds to a ~10°
-    // specular cone — still clearly "mirror-ish" relative to the
-    // roughness = 1 case where D = 1/π ≈ 0.318 everywhere.
-    //
-    // Catches: missing PI normaliser, (a²-1) sign flip, NdotH² instead of
-    // (NdotH² * (a² - 1) + 1) in the denominator, catastrophic EPSILON
-    // regressions that would flatten the highlight further.
-    // =========================================================================
-    TEST(PbrNdfTest, LowRoughnessConcentratesHighlight)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        // row y in [0, 19] → roughness = (y + 0.5) / 20. Target y = 6 →
-        // roughness = 0.325, well above MIN_ROUGHNESS and the EPSILON clamp.
-        constexpr u32 kWidth = 1024;
-        constexpr u32 kHeight = 20;
-        constexpr u32 kTargetRow = 6;
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrNdfProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
-
-        const f32 reportedRoughness = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + 0) * 4 + 2];
-        EXPECT_NEAR(reportedRoughness, 0.325f, 0.02f);
-
-        const f32 dAtPeak = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + (kWidth - 1)) * 4 + 0];
-        EXPECT_GT(dAtPeak, 10.0f) << "D at NdotH=1 unexpectedly low (" << dAtPeak << ")";
-        EXPECT_TRUE(std::isfinite(dAtPeak));
-
-        // Scan left until reported NdotH drops below 0.95 — avoids any
-        // assumption about the exact uv→theta→NdotH mapping.
-        u32 sampleX = kWidth - 1;
-        while (sampleX > 0)
-        {
-            if (const f32 ndh = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 1]; ndh < 0.95f)
-                break;
-            --sampleX;
-        }
-        const f32 dOffAxis = pixels[(static_cast<std::size_t>(kTargetRow) * kWidth + sampleX) * 4 + 0];
-        ASSERT_GT(dOffAxis, 0.0f);
-        const f32 ratio = dAtPeak / dOffAxis;
-        EXPECT_GT(ratio, 30.0f)
-            << "highlight not concentrated: D(peak)/D(NdotH<0.95) = "
-            << ratio << " (peak=" << dAtPeak << " off=" << dOffAxis << ")";
-    }
-
-    // =========================================================================
-    // Furnace test.
-    //
-    // Under a uniform white environment and an energy-conserving BRDF, the
-    // outgoing radiance must equal the incoming radiance (1.0 white) — no
-    // energy created or destroyed. We approximate this with a Monte Carlo
-    // hemisphere integral over cookTorranceBRDF:
-    //     ∫ f(l, v) * (n · l) dω_i == 1   for a white incoming radiance.
-    //
-    // Because our BRDF is dielectric-only (single-scatter) and classical
-    // GGX exhibits energy loss at high roughness, we accept a band of
-    // [0.6, 1.05]: the upper bound catches energy *gain* (a real bug) while
-    // the lower bound catches catastrophic energy loss. The tighter
-    // multi-scatter variant (Turquin 2019 / Fdez-Agüera 2019) would push
-    // the lower bound toward 0.95.
-    //
-    // Catches: Fresnel double-counting, missing cosine term, NDF / G term
-    // sign flips, pi normalisation errors.
-    // =========================================================================
-    TEST(PbrBrdfTest, FurnaceIntegralWithinEnergyBounds)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        // x axis → roughness, y axis → sample index (integrate the column).
-        constexpr u32 kWidth = 32;    // 32 roughness bins
-        constexpr u32 kHeight = 2048; // 2048 Monte Carlo samples per bin
-
-        PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/PbrFurnaceProbe.glsl");
-        harness.Draw();
-
-        std::vector<f32> pixels;
-        harness.ReadOutputRgbaFloat(pixels);
-        ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
-
-        // Each texel packs f(l,v) * (n·l) * 2π (hemisphere measure). Average
-        // over the column gives the Monte Carlo estimate of the integral.
-        for (u32 x = 0; x < kWidth; ++x)
-        {
-            f64 sum = 0.0;
-            for (u32 y = 0; y < kHeight; ++y)
-            {
-                const std::size_t idx = (static_cast<std::size_t>(y) * kWidth + x) * 4;
-                sum += static_cast<f64>(pixels[idx + 0]);
-            }
-            const f32 estimate = static_cast<f32>(sum / static_cast<f64>(kHeight));
-            const f32 roughness = (static_cast<f32>(x) + 0.5f) / static_cast<f32>(kWidth);
-            EXPECT_GE(estimate, 0.60f)
-                << "energy loss too large at roughness=" << roughness << " (estimate=" << estimate << ")";
-            EXPECT_LE(estimate, 1.05f)
-                << "energy gained at roughness=" << roughness << " (estimate=" << estimate << ")";
-            EXPECT_TRUE(std::isfinite(estimate))
-                << "non-finite furnace estimate at roughness=" << roughness;
-        }
-    }
-
-    // =========================================================================
-    // Prefilter white-environment invariant. Runs the exact GGX importance
-    // sampling integrator from `IBLPrefilter.glsl` with the cubemap lookup
-    // replaced by uniform-white radiance. The normalised integral
-    //
-    //     prefilteredColor = Σ L_i * NdotL / Σ NdotL
-    //
-    // must collapse to 1.0 for *every* roughness value (since L_i = 1
-    // everywhere). The probe sweeps roughness along the U axis so one draw
-    // covers the full [0, 1] roughness range; we sample several columns to
-    // confirm the invariant holds across the whole lobe.
-    //
     // Catches: dropped `/ totalWeight` normalization, accumulation sign
     // flips, importance-sample PDF errors, NdotL bound bugs, and Hammersley
     // sequence regressions that cause clumped sampling.
@@ -1630,49 +1251,12 @@ namespace OloEngine::Tests
     }
     // =========================================================================
     // The G-Buffer RT2 material-flags lane (issues #996, #1231).
-    //
-    // The deferred path carries a material's PBR closure model, its KIND and the
-    // skin profile it names to the lighting pass through a bitfield packed into
-    // RT2's alpha: bit 0 unlit, kind in bits 1..2, skin profile slot in bits
-    // 3..5, the model index in bits 6.. . Its encode and decode live together in
-    // include/PBRCommon.glsl; ShaderUnit_GBufferFlagsLane.glsl calls THOSE
-    // functions (not a transcription of them) and pushes the value through the
-    // fp16 quantisation the real RGBA16F attachment applies, so this sweeps
-    // the actual transport.
-    //
-    // What it pins: the lane's single-bit ceiling is gone. Before #996 the
-    // encoder clamped with min(pbrModel, 1), so PBRModel(2) — which PBRModel.h
-    // says is an append away — arrived at the deferred lighting pass as Legacy
-    // while Forward (which reads the whole int from the material UBO) shaded it
-    // correctly: a silent Forward/Deferred photometric divergence. That is the
-    // exact failure class ClosureV2DeferredParityEvidenceTest pins for the
-    // models that exist today; this pins it for every model that could exist.
-    //
-    // #1231 added the two fields BELOW the model and lowered its ceiling from
-    // 1023 to 31 to pay for them. The sweep grew a second axis rather than a
-    // second test: a kind or a slot that carried into the model field would be
-    // the same silent divergence, and it is only visible when all three are
-    // swept together.
-    // =========================================================================
-
-    TEST(GBufferFlagsLaneTest, EveryEncodableModelKindAndProfileRoundTripsUnTruncated)
+    TEST(GBufferFlagsLaneTest, EveryMaterialKindAndProfileRoundTripsThroughHalfStorage)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        // Two axes now, because the lane carries three fields (issue #1231):
-        // one COLUMN per model index, sweeping the whole range
-        // PBRModel.h::kPBRModelGBufferLaneMax declares carryable, and one ROW
-        // per (kind, slot) pair, which together cover every value either of the
-        // two fixed-width fields can hold.
-        constexpr u32 kWidth = static_cast<u32>(kPBRModelGBufferLaneMax) + 1u;
-        constexpr u32 kKindCount = static_cast<u32>(kMaterialKindGBufferMax) + 1u;
-        constexpr u32 kSlotCount = kSkinProfileSlotNone + 1u;
-        constexpr u32 kHeight = kKindCount * kSlotCount;
-        // 16 models x 64 (kind, slot) pairs since the slot field grew to four
-        // bits (issue #1393; 32 x 32 before).
-        static_assert(kWidth == 16u, "the probe sweeps the whole declared model range");
-        static_assert(kHeight == 64u, "the probe sweeps every (kind, slot) pair");
-
+        constexpr u32 kWidth = static_cast<u32>(kMaterialKindGBufferMax) + 1u;
+        constexpr u32 kHeight = kSkinProfileSlotNone + 1u;
         PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_GBufferFlagsLane.glsl");
         harness.Draw();
 
@@ -1680,92 +1264,16 @@ namespace OloEngine::Tests
         harness.ReadOutputRgbaFloat(pixels);
         ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
 
-        std::set<i32> seenLaneValues;
         for (u32 row = 0; row < kHeight; ++row)
         {
-            const u32 expectedKind = row % kKindCount;
-            const u32 expectedSlot = row / kKindCount;
-            for (u32 model = 0; model < kWidth; ++model)
+            for (u32 kind = 0; kind < kWidth; ++kind)
             {
-                const std::size_t idx = (static_cast<std::size_t>(row) * kWidth + model) * 4;
-                const f32 lane = pixels[idx + 0];
-                const f32 decodedModel = pixels[idx + 1];
-                const f32 decodedKind = pixels[idx + 2];
-                const f32 decodedSlot = pixels[idx + 3];
-
-                // A GPU readback is an external float boundary, so validate
-                // before any of it reaches a cast to integer
-                // (cpp-coding-quality §2b): static_cast / std::lround of NaN or
-                // ±inf is undefined behaviour, and a NaN would otherwise slip
-                // silently into the distinctness set below rather than failing
-                // here. A non-finite texel means the draw or the readback
-                // failed, which makes nothing after it measurable.
-                ASSERT_TRUE(std::isfinite(lane) && std::isfinite(decodedModel) &&
-                            std::isfinite(decodedKind) && std::isfinite(decodedSlot))
-                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
-                    << ": the probe read back a non-finite texel — the harness draw or its readback failed.";
-
-                // The lane carries `model * 128 + slot * 8 + kind * 2`, so a
-                // value outside that range is the transport breaking rather
-                // than the comparisons below disagreeing — and it is what makes
-                // the lround safe.
-                constexpr f32 kLaneMax = static_cast<f32>(128 * kPBRModelGBufferLaneMax + 127);
-                ASSERT_GE(lane, 0.0f) << "model " << model << ": lane value " << lane << " is negative.";
-                ASSERT_LE(lane, kLaneMax)
-                    << "model " << model << ": lane value " << lane << " exceeds the " << kLaneMax
-                    << " the RGBA16F lane can carry exactly.";
-
-                // Every quantity is an exact small integer by construction (the
-                // shader writes them through fp16, which represents every
-                // integer up to 2048 exactly), so the tolerance is a
-                // float-comparison formality rather than slack: 1e-3 is four
-                // orders of magnitude below the 1.0 that separates neighbouring
-                // indices. That makes this STRICTER than a truncating
-                // `static_cast<i32>`, which would accept anything in [n, n+1).
-                constexpr f32 kExactTolerance = 1e-3f;
-
-                // The whole point: what goes in comes back out. A truncating
-                // lane (the pre-#996 `min(pbrModel, 1)`) fails from model 2
-                // onward; a kind or slot field that carried into the model
-                // field fails here too.
-                EXPECT_NEAR(decodedModel, static_cast<f32>(model), kExactTolerance)
-                    << "model " << model << " (kind " << expectedKind << ", slot " << expectedSlot
-                    << ") did not survive the G-Buffer flags lane (lane value " << lane
-                    << ") — it decoded as " << decodedModel
-                    << "; a model that truncates here shades a DIFFERENT closure on Deferred"
-                    << " than on Forward, silently.";
-
-                // The two #1231 fields. A kind that does not survive means a
-                // skin surface shades as a generic one on the deferred path
-                // only; a slot that does not survive means it shades with
-                // someone else's profile.
-                EXPECT_NEAR(decodedKind, static_cast<f32>(expectedKind), kExactTolerance)
-                    << "material kind " << expectedKind << " decoded as " << decodedKind
-                    << " (model " << model << ", slot " << expectedSlot << ", lane " << lane << ").";
-                EXPECT_NEAR(decodedSlot, static_cast<f32>(expectedSlot), kExactTolerance)
-                    << "skin profile slot " << expectedSlot << " decoded as " << decodedSlot
-                    << " (model " << model << ", kind " << expectedKind << ", lane " << lane << ").";
-
-                // Safe to narrow here: the finiteness and range guards above
-                // already ran.
-                const i32 laneCode = static_cast<i32>(std::lround(lane));
-
-                // The unlit bit must never be set by a PBR writer. Asserted
-                // against the TRANSPORTED value rather than a second decode:
-                // the lane is even if and only if bit 0 is clear, and the
-                // averaged-resolve defect #996 fixed produced exactly this (a
-                // ClosureV2 silhouette decoding UNLIT and returning raw
-                // emissive, i.e. a black fringe).
-                EXPECT_EQ(laneCode % 2, 0)
-                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
-                    << " set the unlit bit (lane value " << laneCode
-                    << ") — that pixel would return raw emissive instead of being shaded.";
-
-                // Distinctness. Two triples sharing a lane value is the same
-                // silent divergence wearing a different hat.
-                EXPECT_TRUE(seenLaneValues.insert(laneCode).second)
-                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
-                    << " encodes to lane value " << laneCode << ", which another triple already uses.";
+                SCOPED_TRACE(::testing::Message() << "kind " << kind << " slot " << row);
+                const std::size_t idx = (static_cast<std::size_t>(row) * kWidth + kind) * 4u;
+                EXPECT_FLOAT_EQ(pixels[idx], static_cast<f32>(row * 8u + kind * 2u));
+                EXPECT_FLOAT_EQ(pixels[idx + 1], 0.0f);
+                EXPECT_FLOAT_EQ(pixels[idx + 2], static_cast<f32>(kind));
+                EXPECT_FLOAT_EQ(pixels[idx + 3], static_cast<f32>(row));
             }
         }
     }

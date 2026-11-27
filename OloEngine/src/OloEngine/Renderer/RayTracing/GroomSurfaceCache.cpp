@@ -14,7 +14,6 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialKind.h"
-#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
@@ -952,7 +951,6 @@ namespace OloEngine::RayTracing
             material.m_RoughnessFactor = 0.6f;
             material.m_MetallicFactor = 0.0f;
             material.m_AlphaMode = std::to_underlying(AlphaMode::Opaque);
-            material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
             material.m_MaterialKind = std::to_underlying(MaterialKind::Generic);
             // OPAQUE AND TWO-SIDED, and both halves matter. Two-sided because a
             // ribbon has no meaningful facing; opaque because the coverage the

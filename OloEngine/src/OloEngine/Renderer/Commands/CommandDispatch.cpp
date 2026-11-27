@@ -1177,7 +1177,6 @@ namespace OloEngine
             pbrMaterialData.ApplyGammaCorrection = 1;
             pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
             pbrMaterialData.AlphaMode = mat.alphaMode;
-            pbrMaterialData.PBRModel = mat.pbrModel;
             // Physical transmission / IOR / volume (issue #970). Copied
             // straight through — every value was sanitized by Material's
             // setters and the extinction was derived at submission, so

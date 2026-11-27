@@ -713,7 +713,6 @@
 		"OloEngine/Renderer/DeferredForwardOverlayRoute.h"
 		"OloEngine/Renderer/GltfPhysicalMaterial.cpp"
 		"OloEngine/Renderer/GltfPhysicalMaterial.h"
-		"OloEngine/Renderer/PBRModel.h"
 		"OloEngine/Renderer/MaterialKind.h"
 		"OloEngine/Renderer/SkinProfile.cpp"
 		"OloEngine/Renderer/SkinProfile.h"

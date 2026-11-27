@@ -20,6 +20,22 @@
 #define PI 3.14159265359
 #endif
 
+// GGX density at a unit half-vector. Use the tangential component of H
+// directly: subtracting dot(N,H)^2 from one loses the width of sharp lobes.
+// CPU twin: ReferenceBRDF.h, vector overload of DistributionGGXSamplingDensity.
+float distributionGGXUnclampedNH(vec3 N, vec3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float c = dot(N, H);
+    if (c <= 0.0)
+        return a2 * (1.0 / PI);
+    vec3 t = cross(N, H);
+    float denom = dot(t, t) + a2 * c * c;
+    denom = PI * denom * denom;
+    return a2 / max(denom, 1.17549435e-38);
+}
+
 // -----------------------------------------------------------------------------
 // Integer-power helpers
 //

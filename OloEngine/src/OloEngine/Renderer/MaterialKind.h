@@ -5,14 +5,7 @@
 namespace OloEngine
 {
 
-    // What a surface IS (issue #1231) — deliberately NOT what closure evaluates
-    // it. `PBRModel` (Renderer/PBRModel.h) is the versioned *algorithm*: the
-    // exact BRDF a material shades with, bumped when the maths is corrected.
-    // `MaterialKind` is the *category*: skin scatters, snow sparkles, everything
-    // else is a generic dielectric/metal. The two are orthogonal on purpose —
-    // a Skin material can shade with Legacy or ClosureV2, and correcting the
-    // GGX denominator must not change what a surface is. See
-    // docs/adr/0024-material-kind-is-not-the-closure-version.md.
+    // Material category selects surface-specific transport, such as skin or foliage.
     //
     // Mirrored in GLSL as OLO_MATERIAL_KIND_* (include/PBRCommon.glsl), carried
     // per material in PBRMaterialUBO::MaterialKind and per pixel in the deferred

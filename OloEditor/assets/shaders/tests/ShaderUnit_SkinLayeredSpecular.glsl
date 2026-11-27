@@ -202,9 +202,9 @@ void main()
     else if (caseIndex == 8) // LAYERED CLOSURE, DIFFUSE UNTOUCHED
     {
         OloSurfaceLighting plain =
-            evaluatePBRClosureSplit(OLO_PBR_MODEL_LEGACY, N, V, L, kAlbedo, kMetallic, kRoughness);
+            closureV2EvaluateSplit(N, V, L, kAlbedo, kMetallic, kRoughness);
         OloSurfaceLighting layered =
-            oloSkinLayeredClosureSplit(OLO_PBR_MODEL_LEGACY, N, V, L, kAlbedo, kMetallic, kRoughness,
+            oloSkinLayeredClosureSplit(N, V, L, kAlbedo, kMetallic, kRoughness,
                                        vec2(kLobeMix, kLobeRoughnessScale));
         // red = the layered diffuse, green = the unlayered one it must equal.
         result = vec4(layered.Diffuse.r, plain.Diffuse.r, 0.0, 1.0);
@@ -212,14 +212,14 @@ void main()
     else if (caseIndex == 9) // LAYERED CLOSURE, SPECULAR MOVES
     {
         OloSurfaceLighting plain =
-            evaluatePBRClosureSplit(OLO_PBR_MODEL_LEGACY, N, V, L, kAlbedo, kMetallic, kRoughness);
+            closureV2EvaluateSplit(N, V, L, kAlbedo, kMetallic, kRoughness);
         OloSurfaceLighting layered =
-            oloSkinLayeredClosureSplit(OLO_PBR_MODEL_LEGACY, N, V, L, kAlbedo, kMetallic, kRoughness,
+            oloSkinLayeredClosureSplit(N, V, L, kAlbedo, kMetallic, kRoughness,
                                        vec2(kLobeMix, kLobeRoughnessScale));
         // red = the layered specular, green = the unlayered one, blue = the
         // BROAD lobe alone so the CPU can check the mixture really lies between.
         OloSurfaceLighting broadOnly =
-            evaluatePBRClosureSplit(OLO_PBR_MODEL_LEGACY, N, V, L, kAlbedo, kMetallic,
+            closureV2EvaluateSplit(N, V, L, kAlbedo, kMetallic,
                                     oloSkinBroadRoughness(kRoughness, kLobeRoughnessScale));
         result = vec4(layered.Specular.r, plain.Specular.r, broadOnly.Specular.r, 1.0);
     }

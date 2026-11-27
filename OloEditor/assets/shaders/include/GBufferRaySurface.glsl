@@ -39,7 +39,7 @@ struct OloGBufferSurface
     float Metallic;
     float Roughness;
     float ViewDepth;
-    int PbrModel;
+
 };
 
 // Octahedral decode — matches octEncodeGB() in PBR_GBuffer.glsl.
@@ -63,8 +63,7 @@ vec3 OloGBufferViewPosFromDepth(vec2 uv, float depth)
 // surface offsets its own ray origin along the mapped normal, which is the same
 // compromise RayTracedShadow.glsl and every other G-Buffer ray consumer makes,
 // and it is why each tier's RayOriginNormalBias exists as a tunable.
-OloGBufferSurface OloLoadGBufferSurface(vec2 uv, float depth, vec4 packedNormal, vec4 packedAlbedo,
-                                        int pbrModel)
+OloGBufferSurface OloLoadGBufferSurface(vec2 uv, float depth, vec4 packedNormal, vec4 packedAlbedo)
 {
     OloGBufferSurface s;
     s.Valid = true;
@@ -78,12 +77,12 @@ OloGBufferSurface OloLoadGBufferSurface(vec2 uv, float depth, vec4 packedNormal,
     // applies the weather wetness to albedo and roughness; a tier that owns this
     // pixel's light (ReSTIR DI / GI / PT) must evaluate the closure on that
     // surface, not on the raw G-Buffer bytes, or a wet street and a near-mirror
-    // Legacy floor shade differently the moment the tier engages.
+    // floor shade differently the moment the tier engages.
     s.Roughness = max(packedNormal.z, OLO_GBUFFER_RAY_SURFACE_MIN_ROUGHNESS);
     s.Albedo = packedAlbedo.rgb;
     atmosphereApplyWetness(s.Albedo, s.Roughness, s.ShadingNormal);
     s.Metallic = packedAlbedo.a;
-    s.PbrModel = pbrModel;
+
     return s;
 }
 
@@ -98,7 +97,7 @@ OloGBufferSurface OloInvalidGBufferSurface()
     s.Metallic = 0.0;
     s.Roughness = 1.0;
     s.ViewDepth = 0.0;
-    s.PbrModel = 0;
+
     return s;
 }
 

@@ -107,9 +107,6 @@ namespace OloEngine::Tests::PathTracingFixtures
     // hit it again, so the converged radiance is exactly the single-scatter
     // directional albedo
     //     integral of f(l, v) * (n . l) dw
-    // — precisely the quantity PbrFurnaceProbe.glsl estimates on the GPU with
-    // N = V = +Z. That is what makes the two directly comparable rather than
-    // merely "both about 1".
     // -------------------------------------------------------------------------
     struct FurnacePlaneScene
     {
@@ -267,12 +264,7 @@ namespace OloEngine::Tests::PathTracingFixtures
     // emitter, uniform albedo, uniform environment — use MakeCornellFurnaceScene
     // below. Passing `emissiveRadiance = 0` here does NOT produce it: it just
     // removes the only light source and renders black.
-    // `model` selects the closure every material traces with. Legacy is the
-    // default the existing gates and hashes were pinned on; the GPU path
-    // tracer's parity test (issue #1055) asks for ClosureV2, because the GPU
-    // shades every hit with the v2 closure — that is the model whose
-    // Evaluate / Sample / Pdf triple has GLSL twins.
-    inline CornellBoxScene MakeCornellBoxScene(f32 emissiveRadiance = 18.0f, PBRModel model = PBRModel::Legacy)
+    inline CornellBoxScene MakeCornellBoxScene(f32 emissiveRadiance = 18.0f)
     {
         CornellBoxScene fixture;
         ReferenceScene& scene = fixture.Scene;
@@ -280,7 +272,6 @@ namespace OloEngine::Tests::PathTracingFixtures
         ReferenceMaterial white;
         white.BaseColor = glm::vec3(0.73f);
         white.Roughness = 1.0f;
-        white.Model = model;
         fixture.WhiteMaterial = scene.AddMaterial(white);
 
         ReferenceMaterial red = white;
@@ -295,7 +286,6 @@ namespace OloEngine::Tests::PathTracingFixtures
         light.BaseColor = glm::vec3(0.0f); // the emitter is black to reflection
         light.Roughness = 1.0f;
         light.Emissive = glm::vec3(emissiveRadiance);
-        light.Model = model;
         fixture.LightMaterial = scene.AddMaterial(light);
 
         AddFloorQuad(scene, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, fixture.WhiteMaterial);
@@ -506,7 +496,6 @@ namespace OloEngine::Tests::PathTracingFixtures
         ReferenceMaterial white;
         white.BaseColor = glm::vec3(0.73f);
         white.Roughness = 1.0f;
-        white.Model = PBRModel::ClosureV2;
         fixture.WhiteMaterial = scene.AddMaterial(white);
 
         ReferenceMaterial red = white;
@@ -536,7 +525,6 @@ namespace OloEngine::Tests::PathTracingFixtures
         light.Roughness = 1.0f;
         light.Emissive = glm::vec3(emissiveRadiance);
         light.EmissiveMap = ramp;
-        light.Model = PBRModel::ClosureV2;
         fixture.LightMaterial = scene.AddMaterial(light);
 
         ReferenceMaterial mask = white;
@@ -570,7 +558,7 @@ namespace OloEngine::Tests::PathTracingFixtures
     // kinds coexist in one MIS.
     inline CornellBoxScene MakeSphereLightCornellBoxScene(f32 emissiveRadiance = 6.0f)
     {
-        CornellBoxScene fixture = MakeCornellBoxScene(emissiveRadiance, PBRModel::ClosureV2);
+        CornellBoxScene fixture = MakeCornellBoxScene(emissiveRadiance);
         // The scene was built by MakeCornellBoxScene; AddLight then Build again.
         ReferenceLight sphere;
         sphere.Type = ReferenceLightType::SphereArea;

@@ -1,35 +1,6 @@
 // =============================================================================
 // MaterialLabProbe.glsl
 //
-// Material-laboratory probe for issue #975 (PBR closure v2). Serves the
-// acceptance criterion "The material laboratory benchmark captures v2
-// roughness/metallicity sweeps from multiple view angles": it shades a 7x7
-// grid of analytic spheres — x sweeps authored roughness 0..1, y sweeps
-// metallic 0..1 — through the REAL versioned dispatch `evaluatePBRClosure`
-// (PBRCommon.glsl), with the model (Legacy / ClosureV2) and the view
-// direction supplied per draw via a small params UBO. The C++ harness
-// (MaterialLabVisualEvidenceTest.cpp) renders both models from three view
-// angles and writes the six frames as PNG evidence.
-//
-// Deliberately NOT in scope: issue #974's benchmark-scene manifest/tooling.
-// This probe is self-contained (fullscreen analytic shading, no scene, no
-// manifest) precisely so that seam stays clean.
-//
-// Layout (image is square, 7x7 equal cells):
-//   - column i (v_TexCoord.x): roughness = i / 6  (0, 1/6, ..., 1)
-//   - row    j (v_TexCoord.y): metallic  = j / 6  (0, 1/6, ..., 1)
-//   Each cell ray-free reconstructs a front hemisphere from the cell-local
-//   disk (orthographic normal reconstruction); outside the disk it outputs a
-//   flat dark BACKDROP of vec3(0.08) linear (~78 after tonemap+gamma).
-//   NOTE FOR TEST AUTHORS: the backdrop is deliberately NOT black — the
-//   test's contracts must not assume absolute darkness anywhere.
-//
-// Roughness is passed to evaluatePBRClosure UN-clamped, exactly as
-// calculateLightContribution passes the material's authored roughness. That
-// makes the Legacy near-mirror collapse (distributionGGX's a2 = 0 numerator
-// at authored roughness 0) and ClosureV2's alpha-floor near-mirror fix both
-// visible in the same capture — which is the point of the laboratory.
-//
 // Params UBO binding choice: the sphere-area probe (the closest visual-probe
 // precedent) is fully constant-driven and declares NO params UBO, so the
 // convention followed here is the ShaderUnit test-probe one: binding 18,
@@ -64,12 +35,10 @@ layout(location = 0) in vec2 v_TexCoord;
 #include "include/PBRCommon.glsl"
 
 // Per-draw parameters — mirrored byte-for-byte by MaterialLabParamsUbo in
-// MaterialLabVisualEvidenceTest.cpp (std140: two 16-byte members, 32 bytes).
+// MaterialLabVisualEvidenceTest.cpp (std140: one 16-byte vec4).
 layout(std140, binding = 18) uniform MaterialLabParams
 {
-    vec4  u_ViewDir;     // xyz = normalized view direction, w unused
-    ivec4 u_ProbeParams; // x = pbr model (OLO_PBR_MODEL_LEGACY=0 /
-                         //     OLO_PBR_MODEL_CLOSURE_V2=1), yzw unused
+    vec4 u_ViewDir; // xyz = view direction, w = 1 to omit multiple scattering for the control
 };
 
 // Grid layout — must match the constants in MaterialLabVisualEvidenceTest.cpp.
@@ -88,7 +57,7 @@ const vec3 kAlbedo = vec3(0.85, 0.83, 0.8);
 // TWO directional lights: a warm key that puts a clear specular peak on the
 // upper-right of each sphere, and a dim cool fill so the shadowed side keeps
 // some shape. Directions are constants — only the VIEW direction and the
-// model vary per draw (via the UBO), keeping the six captures comparable.
+// compensation control vary per draw.
 const vec3 kKeyDir    = normalize(vec3(0.45, 0.55, 0.70));
 const vec3 kKeyColor  = vec3(1.0, 0.98, 0.95) * 2.2;
 const vec3 kFillDir   = normalize(vec3(-0.60, -0.35, 0.55));
@@ -102,6 +71,17 @@ const vec3 kBackdrop = vec3(0.08);
 // black — the sweep stays legible in the PNG and differential contracts
 // never divide by a zero-signal region.
 const vec3 kAmbient = 0.03 * kAlbedo;
+
+vec3 evaluateLabLight(vec3 N, vec3 V, vec3 L, float metallic, float roughness)
+{
+    if (u_ViewDir.w < 0.5)
+        return closureV2Evaluate(N, V, L, kAlbedo, metallic, roughness);
+
+    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), kAlbedo, metallic);
+    vec3 single = closureV2SingleScatter(N, V, L, F0, closureV2Roughness(roughness));
+    ClosureV2Energy energy = closureV2Energy(max(dot(N, V), 0.0), max(dot(N, L), 0.0), roughness, F0);
+    return single + energy.DiffuseCoupling * (1.0 - metallic) * kAlbedo * INV_PI;
+}
 
 void main()
 {
@@ -132,23 +112,21 @@ void main()
     // Fresnel and the highlight position without touching the grid mapping.
     vec3 V = normalize(u_ViewDir.xyz);
 
-    // Direct lighting through the versioned closure dispatch — the exact
+    // Direct lighting through the shared closure — the exact
     // seam calculateLightContribution routes punctual lights through.
     vec3 Lo = vec3(0.0);
 
     float NdotLKey = max(dot(N, kKeyDir), 0.0);
     if (NdotLKey > 0.0)
     {
-        Lo += evaluatePBRClosure(u_ProbeParams.x, N, V, kKeyDir,
-                                 kAlbedo, metallic, roughness) *
+        Lo += evaluateLabLight(N, V, kKeyDir, metallic, roughness) *
               kKeyColor * NdotLKey;
     }
 
     float NdotLFill = max(dot(N, kFillDir), 0.0);
     if (NdotLFill > 0.0)
     {
-        Lo += evaluatePBRClosure(u_ProbeParams.x, N, V, kFillDir,
-                                 kAlbedo, metallic, roughness) *
+        Lo += evaluateLabLight(N, V, kFillDir, metallic, roughness) *
               kFillColor * NdotLFill;
     }
 

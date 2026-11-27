@@ -57,7 +57,6 @@ namespace
 
         // The versioned closure selector (issue #975) — non-default, so a copy
         // path that drops it silently reverts a v2 material to Legacy.
-        m->SetPBRModel(PBRModel::ClosureV2);
 
         // Physical transmission / IOR / volume (issue #970) — the same
         // drop-on-copy hazard class: a glass material copied by value into
@@ -108,7 +107,6 @@ namespace
         EXPECT_FLOAT_EQ(m.GetAlphaCutoff(), 0.375f);
 
         // Issue #975's closure selector — same drop-on-copy hazard class.
-        EXPECT_EQ(m.GetPBRModel(), PBRModel::ClosureV2);
 
         // Issue #970's physical-material block.
         EXPECT_FLOAT_EQ(m.GetTransmissionFactor(), 0.75f);

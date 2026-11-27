@@ -5027,6 +5027,35 @@ Entities:
         EXPECT_EQ(lod.m_LODGroup.SelectLOD(30.0f), 1);
     }
 
+    TEST(ComponentRoundTrip, OlderPbrMaterialLoadsAndDropsItsClosureKeyOnSave)
+    {
+        auto scene = Scene::Create();
+        Entity entity = scene->CreateEntity(kTestTag);
+        Material& material = entity.AddComponent<MaterialComponent>().m_Material;
+        material.SetRoughnessFactor(0.375f);
+        material.SetMaterialKind(MaterialKind::Snow);
+
+        YAML::Node document = YAML::Load(SceneSerializer(scene).SerializeToYAML());
+        YAML::Node materialNode = document["Entities"][0]["MaterialComponent"];
+        ASSERT_TRUE(materialNode.IsMap());
+        for (int oldModel : { 0, 1 })
+        {
+            SCOPED_TRACE(oldModel);
+            materialNode["PBRModel"] = oldModel;
+            auto restored = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(restored).DeserializeFromYAML(YAML::Dump(document)));
+            Entity loaded = FindByTag(*restored, kTestTag);
+            ASSERT_TRUE(loaded && loaded.HasComponent<MaterialComponent>());
+            const Material& roundTripped = loaded.GetComponent<MaterialComponent>().m_Material;
+            EXPECT_FLOAT_EQ(roundTripped.GetRoughnessFactor(), 0.375f);
+            EXPECT_EQ(roundTripped.GetMaterialKind(), MaterialKind::Snow);
+            const YAML::Node saved = YAML::Load(SceneSerializer(restored).SerializeToYAML());
+            const YAML::Node savedMaterial = saved["Entities"][0]["MaterialComponent"];
+            ASSERT_TRUE(savedMaterial.IsMap());
+            EXPECT_FALSE(savedMaterial["PBRModel"].IsDefined());
+        }
+    }
+
     // -------------------------------------------------------------------------
     // MaterialOverridesComponent (issue #1533)
     //

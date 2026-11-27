@@ -80,40 +80,18 @@ contract while producing a statistically identical, visually indistinguishable i
 
 ---
 
-## 3. The BRDF port is deliberately unfaithful to textbook math
+## 3. The standard BRDF
 
-The reference must reproduce **what the renderer computes**, not what it should compute. Three
-quirks are ported on purpose, and each is pinned by a test so a "cleanup" surfaces here rather than
-as a silent brightness change:
-
-- `distributionGGX` clamps its denominator with `max(denom, EPSILON)` where `EPSILON` is **1e-4**.
-  Below roughness ≈ 0.274 that clamp engages at the NDF peak, and the engine's specular lobe
-  therefore *collapses* as roughness → 0 instead of becoming a mirror. Pinned by
-  `ReferenceBRDF.GgxNdfPeakIsEpsilonClampedAtLowRoughness`.
-- `cookTorranceBRDF` uses the Schlick-GGX `k = (r+1)²/8` remap, not the height-correlated Smith —
-  even though `PBRCommon.glsl` also *has* `visibilitySmithGGXCorrelated`. The lit passes call the
-  former. (That second function is mirrored here too, as `VisibilitySmithGGXCorrelated`, even
-  though nothing shades with it: a GLSL function with no C++ mirror is one `ReferenceBRDFGpuParity`
-  cannot detect drift in, and #904 was exactly such a drift sitting undisturbed. See THE ALPHA
-  LEDGER in `PBRCommon.glsl` for why the two G terms legitimately differ.)
-- `kD = 1 - F` with `F` evaluated at the **half vector**: the common, mildly non-reciprocal
-  formulation. It ships, so it is what the reference integrates.
-
-**Sampling roughness is floored at `MIN_ROUGHNESS` (0.04); evaluation roughness is not.** Widening
-only the sampling distribution keeps the estimator unbiased (the sampled lobe strictly contains the
-evaluated one) while keeping the density off the numerical cliff at α → 0.
+The CPU and GLSL implementations of ClosureV2 use correlated visibility and the same
+GGX roughness floor for evaluation and sampling. Kulla–Conty compensation restores the
+single-scatter loss. The diffuse term receives the energy left by the full specular lobe.
+The details and table definition are in [ADR 0016](../adr/0016-pbr-closure-v2-versioned-evaluate-sample-pdf-contract.md).
 
 ### A PDF describes the SAMPLER, never the integrand
 
-The single nastiest bug in building this — caught by numerics before it ever ran, and worth
-generalising.
-
-`PdfGGX` was first written on top of the *same* `DistributionGGX` the BRDF evaluates, on the
-reasonable-sounding grounds that "the sampled PDF and the evaluated D then can't drift apart". That
-is exactly backwards. `ImportanceSampleGGX` inverts the **standard, unclamped** GGX CDF
-(`cosθ = √((1-ξ)/(1+(α²-1)ξ))`); it has never heard of `EPSILON`. Below roughness ≈ 0.27 the
-engine's clamp caps `D` right where the sampler concentrates its samples, so a clamped PDF
-**under-reports** the density and `f / pdf` explodes.
+The original Legacy reference traced with a full-NDF sampler. Its first PDF copied a
+denominator clamp from the evaluator, under-reporting the sampled density at the highlight
+peak. These historical furnace measurements show the size of that failure.
 
 Measured on the white furnace, clamped PDF vs. the analytic hemisphere integral:
 
@@ -129,20 +107,15 @@ every too-bright specular bug it exists to catch. Note the shape of the failure:
 above roughness 0.5, converges beautifully, and looks like a plausible image. There is nothing to
 notice.
 
-So: `DistributionGGXSamplingDensity` (unclamped, denormal floor only) feeds `PdfGGX`;
-`DistributionGGX` (the engine's clamped form) feeds the BRDF. Both exist on purpose. The generalised
-rule — **never reuse an evaluation-side numerical guard inside a density** — applies to any
-importance-sampled integrator you add here.
-
-`ReferenceBRDF.GgxSamplingMatchesItsDensity` pins it, and its low-roughness cases (0.05, 0.1, 0.2)
-are the ones that matter: above ≈0.27 the clamped and unclamped NDFs coincide and a wrong PDF passes
-the test.
+ClosureV2 draws specular half vectors from the visible-normal distribution. Its PDF includes
+the visible-normal weighting and reflection Jacobian. The BSDF mixes it with the cosine
+density using the lobe-selection probability. `BsdfIdentityOracleTest` integrates the PDF
+against the independently predicted accepted mass, including below-horizon rejections.
 
 ### The anti-drift guard
 
-`ReferenceBRDFGpuParityTest` renders `assets/shaders/tests/PbrBrdfParityProbe.glsl` — which calls
-the production `cookTorranceBRDF` — over a (roughness × metallic × N·L) grid and diffs it against
-the C++ port at 1% relative tolerance.
+`ReferenceBRDFGpuParityTest` renders `PbrClosureVisibilityParityProbe.glsl` across roughness,
+metallic and light directions. `ClosureV2GpuParityTest` also measures the mixture density.
 
 **If you edit `PBRCommon.glsl`'s BRDF, that test tells you to edit `ReferenceBRDF.h` too.** Without
 it the failure mode is invisible: the reference keeps integrating the old formula, still converges
@@ -326,16 +299,10 @@ Two things, and neither is about DDGI:
 
 The comparison had to be structured to keep this finding legible. DDGI's radiance cache is
 diffuse-only *by design* (`DDGI_Relight.glsl` shades `min(albedo, clamp)/PI * (directE + bounceE)`
-and never calls `cookTorranceBRDF` — a probe hit point has no view direction, so the specular half
-is meaningless there). So the reference is rendered in **both** shading models
-(`ReferenceMaterial::LambertianDiffuseOnly`): DDGI is asserted against the Lambertian one, which
-isolates its *transport*, and the Lambertian-vs-cookTorrance gap is reported separately as the
-photometric divergence.
-
-Had the two been folded together, their sum would have been reported as "DDGI's error" and the
-factor-of-two would have been much harder to attribute. As it happens the photometric gap measures
-**0.7%** for these rough dielectrics — negligible, and now known to be negligible rather than
-assumed.
+and has no view direction at a probe hit). Use `ReferenceMaterial::LambertianDiffuseOnly`
+to isolate DDGI transport. Render the same room with ClosureV2 to measure the surface
+shading difference separately. The 0.7% reported for the original comparison was measured
+with the retired Legacy closure.
 
 `LambertianDiffuseOnly` exists for exactly this and nothing else. A reference that quietly uses a
 different BRDF than the renderer is not a reference.
@@ -397,30 +364,25 @@ one:
 |---|---|---|
 | `PathTracerCornellBoxTest` physics/evidence | 64×64 @ 128 spp | region means; also the evidence PNG |
 | `PathTracerCornellBoxTest` bounce | 48×48 @ 128 spp | frame/patch means only |
-| `PathTracerFurnaceTest` Cornell furnace | 40×40 @ 160 spp | the sample count is a *correctness* parameter — see below |
+| `PathTracerFurnaceTest` Cornell furnace | 16×16 @ 2048 spp (40×40 with `--olo-pathtracer-evidence`) | preserve per-pixel convergence for the energy bounds |
 | `PathTracerFurnaceTest` NEE-bias | 20×20 @ 96 / 768 spp | one region mean over ~160 pixels |
 
-The whole `PathTracing/` headless set is ~5 s of work — but **~65 s under MSVC Debug**, which is
-where the suite actually runs: the tracer measures ~40× slower there, and `ParallelFor` executes
-inline because the test process starts no `FScheduler` workers. That 40× is why these budgets look
-so small; they were cut from an initial 203 s with every threshold's measured margin recorded
-beside it.
+Choose the CI grid using the slowest instrumented build. The test process starts no
+`FScheduler` workers, so `ParallelFor` renders the rows inline.
 
-Cost scales linearly in samples, variance as 1/√N. Reach for resolution when the assertion is
+Cost grows linearly in the sample count. For independent samples, standard error falls as 1/√N. Reach for resolution when the assertion is
 *spatial*, for samples when it is *photometric*.
 
-But note the trap in `CornellFurnaceCreatesNoEnergy`. The natural way to assert energy conservation
-is "no pixel exceeds 1.0" — and that assertion is about the **sample count**, not the renderer. At
-128 samples the (correct) render peaks at **1.069**, with 0.68% of channel estimates above 1.0; at
-256 it peaks at **0.992** and none exceed 1.0. Nothing changed but the noise.
+Keep 2048 samples per pixel for `CornellFurnaceCreatesNoEnergy`. With ClosureV2, the
+40×40 frame at 160 spp put 825 of 4800 channel estimates above 1.05. At 2048 spp the
+same frame averaged 0.993783 with a peak of 1.046735 and no channels above 1.05.
+That cost 3,276,800 primary paths and exceeded the 600-second Linux TSan budget.
 
-**The max of a Monte Carlo image is a noise statistic, not a bound on what is being estimated.** So
-the energy claim is made on the frame *mean* (12288 channel estimates averaged — its own error is
-negligible), the tail is bounded as a *fraction* rather than by an extreme order statistic, and the
-per-pixel ceiling is parked at 1.5, where only gross creation reaches. A Russian roulette that
-forgot to divide by the survival probability compounds into the tens; it does not sneak in at 1.06.
+The default 16×16 frame covers the same field of view with 524,288 primary paths. Its mean
+was 0.994371 and its peak was 1.049268, with no channels above 1.05. Both grids use 32 bounces, the same roulette settings, a mean ceiling of 1.005, fewer than 1% of channels
+above 1.05, and a peak ceiling of 1.5. The centre-brightness check rules out a dark enclosure.
 
-Measured reference values on the fixtures, for anyone recalibrating:
+Historical measurements with the retired closure:
 
 | quantity | value |
 |---|---|

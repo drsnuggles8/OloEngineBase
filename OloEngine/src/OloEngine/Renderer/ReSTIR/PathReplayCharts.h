@@ -15,7 +15,6 @@ namespace OloEngine::ReSTIR::ReplayCharts
     enum class Chart : u32
     {
         Cosine,
-        LegacyGGX,
         VisibleGGX
     };
 
@@ -57,9 +56,6 @@ namespace OloEngine::ReSTIR::ReplayCharts
             case Chart::Cosine:
                 direction = PathTracing::CosineSampleHemisphere(xi, frame.Normal);
                 break;
-            case Chart::LegacyGGX:
-                direction = glm::reflect(-frame.View, PathTracing::ImportanceSampleGGX(xi, frame.Normal, roughness));
-                break;
             case Chart::VisibleGGX:
                 direction = glm::reflect(-frame.View, PathTracing::SampleGGXVNDF(frame.Normal, frame.View, roughness, xi));
                 break;
@@ -79,9 +75,7 @@ namespace OloEngine::ReSTIR::ReplayCharts
 
     // Reject boundaries and numerical non-invertibility; never clamp a failed
     // coordinate into the chart. Raw replay uses retained original uniforms,
-    // never this inverse: the Legacy float sampler collapsed multiple
-    // near-pole uniforms onto one direction before issue #1347, and a pole is
-    // still quantised in f32. Reconnection uses rough charts.
+    // avoiding the quantization of directions at the pole. Reconnection uses rough charts.
     // A direction round trip is a numerical check,
     // not evidence that a scene-level path shift has the required inverse.
     [[nodiscard("Check the sampler chart result before replay")]] inline std::optional<glm::vec2> Inverse(Chart chart, const Frame& frame,
@@ -106,14 +100,7 @@ namespace OloEngine::ReSTIR::ReplayCharts
                 return std::nullopt;
             const f32 roughness = PathTracing::ClosureV2Roughness(frame.Roughness);
             const f32 alpha = roughness * roughness;
-            if (chart == Chart::LegacyGGX)
-            {
-                // sin^2 / (sin^2 + alpha^2 cos^2) avoids subtracting
-                // two nearly equal numbers at the near-specular pole.
-                const f32 sinSq = h.x * h.x + h.y * h.y;
-                xi = { Azimuth(h.x, h.y), sinSq / (sinSq + alpha * alpha * h.z * h.z) };
-            }
-            else if (chart == Chart::VisibleGGX)
+            if (chart == Chart::VisibleGGX)
             {
                 const glm::vec3 ve(glm::dot(frame.View, tangent), glm::dot(frame.View, bitangent),
                                    glm::dot(frame.View, frame.Normal));

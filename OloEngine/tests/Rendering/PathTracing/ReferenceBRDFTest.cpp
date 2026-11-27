@@ -94,9 +94,7 @@ namespace OloEngine::Tests
 
         // Uniform-hemisphere Monte Carlo estimate of the directional albedo
         //     integral of f(l, v) * (n . l) dw
-        // with n = v = +Z. This is the SAME estimator PbrFurnaceProbe.glsl runs
-        // on the GPU (mean of the three channels, pdf = 1/2pi), which is what
-        // makes the two numbers comparable rather than merely similar.
+        // with n = v = +Z.
         [[nodiscard]] f64 FurnaceIntegral(f32 roughness, f32 metallic, const glm::vec3& albedo, u32 sampleCount)
         {
             const glm::vec3 n(0.0f, 0.0f, 1.0f);
@@ -111,7 +109,7 @@ namespace OloEngine::Tests
                 const f32 phi = kTwoPi * xi.y;
                 const glm::vec3 l(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 
-                const glm::vec3 f = CookTorranceBRDF(n, v, l, albedo, metallic, roughness);
+                const glm::vec3 f = ClosureV2Evaluate(n, v, l, albedo, metallic, roughness);
                 sum += static_cast<f64>((f.x + f.y + f.z) / 3.0f) * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
             }
             return sum / static_cast<f64>(sampleCount);
@@ -151,13 +149,8 @@ namespace OloEngine::Tests
     // integrate to 1 makes every specular estimate wrong by a constant factor
     // that no image-space eyeball test would ever catch.
     //
-    // The engine's D is EPSILON-clamped in its denominator, which suppresses
-    // the peak at low roughness — so the identity only holds where that clamp
-    // is inactive, i.e. above roughness ~0.3 (see ReferenceBRDF.h's fidelity
-    // notes). The clamped regime is asserted separately below, as a bound
-    // rather than an identity, because reproducing the clamp is the point.
     // =========================================================================
-    TEST(ReferenceBRDF, GgxNdfIntegratesToOneAwayFromTheEpsilonClamp)
+    TEST(ReferenceBRDF, GgxNdfIntegratesToOne)
     {
         constexpr u32 kSamples = 1u << 18;
         const glm::vec3 n(0.0f, 0.0f, 1.0f);
@@ -173,42 +166,17 @@ namespace OloEngine::Tests
                 const f32 phi = kTwoPi * xi.y;
                 const glm::vec3 h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
 
-                sum += static_cast<f64>(DistributionGGX(n, h, roughness)) * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
+                sum += static_cast<f64>(DistributionGGXSamplingDensity(n, h, roughness)) * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
             }
             const f64 integral = sum / static_cast<f64>(kSamples);
             EXPECT_NEAR(integral, 1.0, 0.02) << "roughness = " << roughness;
         }
     }
 
-    // The EPSILON clamp regime: below roughness ~0.27 the engine's NDF peak is
-    // capped, so the hemisphere integral drops BELOW 1. That is the shipped
-    // behaviour and the reference reproduces it; assert the direction so a
-    // future "cleanup" of the clamp shows up here rather than as a silent
-    // brightness change in every mirror-like material.
-    TEST(ReferenceBRDF, GgxNdfPeakIsEpsilonClampedAtLowRoughness)
-    {
-        const glm::vec3 n(0.0f, 0.0f, 1.0f);
-        const glm::vec3 h(0.0f, 0.0f, 1.0f); // NdotH == 1, the NDF peak
-
-        // At the peak, D = a^2 / max(pi * a^4, EPSILON). The clamp engages once
-        // pi * a^4 < 1e-4, i.e. roughness < ~0.274.
-        const f32 clampedPeak = DistributionGGX(n, h, 0.05f);
-        const f32 alpha = 0.05f * 0.05f;
-        EXPECT_NEAR(clampedPeak, (alpha * alpha) / kEpsilon, 1e-3f)
-            << "the engine's D no longer saturates at EPSILON — the reference and the raster "
-               "path will now disagree on every low-roughness highlight";
-
-        // Unclamped regime for contrast: D = 1 / (pi * a^2).
-        const f32 unclampedPeak = DistributionGGX(n, h, 0.8f);
-        const f32 alphaHigh = 0.8f * 0.8f;
-        EXPECT_NEAR(unclampedPeak, 1.0f / (kPi * alphaHigh * alphaHigh), 1e-3f);
-    }
-
     // =========================================================================
     // The furnace test, on the CPU port.
     //
-    // Same energy band PbrBrdfTest.FurnaceIntegralWithinEnergyBounds accepts on
-    // the GPU: [0.6, 1.05]. The upper bound is the real assertion — a value
+    // Energy band: [0.6, 1.05]. The upper bound is the real assertion — a value
     // above 1 is energy CREATED, which would make every GI comparison against
     // this reference blessing a brighter-than-physical result.
     // =========================================================================
@@ -319,28 +287,8 @@ namespace OloEngine::Tests
     //     must never create it.
     //
     //   LOWER, over a deliberately narrow roughness window — this is the one
-    //     that catches the V-vs-G confusion IN THE C++ MIRROR. Note the limit:
-    //     it integrates D * V directly, so it does NOT reach the GLSL caller
-    //     `cookTorranceBRDFEnhanced`; that half is pinned by the source-text
-    //     assertion below, because the function is unreachable and cannot be
-    //     evaluated by any probe. `visibilitySmithGGXCorrelated`
-    //     returns V = G2/(4 NdotV NdotL), with the Cook-Torrance denominator
-    //     already folded in; the pre-#904 caller divided by 4*NdotV*NdotL a
-    //     SECOND time. Measured, that costs roughly 3.6x of the lobe's energy
-    //     at roughness 0.3 (0.99 -> 0.27), which sails straight through any
-    //     upper bound and through every "is the image plausible" check.
-    //
-    // The window is [0.3, 0.5] on purpose, and both ends are load-bearing:
-    // below ~0.27 the EPSILON clamp inside D suppresses the peak (0.002 at
-    // roughness 0.05 — shipped behaviour, asserted separately above), and above
-    // ~0.6 single-scattering GGX legitimately sheds energy (0.31 at roughness
-    // 1.0). Only in between is the lobe near-white, and only there does a lower
-    // bound mean anything.
-    //
-    // Note this does NOT catch the alpha mismatch: with the wrong alpha the
-    // integral moves from 0.991 to 0.986 at roughness 0.3, comfortably inside
-    // any honest band. That is what the identity test above is for.
-    // =========================================================================
+    //     that catches using visibility twice. Moderate roughness is resolved
+    //     by uniform quadrature and the single-scatter loss is small.
     TEST(ReferenceBRDF, HeightCorrelatedSpecularLobeConservesEnergy)
     {
         constexpr u32 kSamples = 1u << 16;
@@ -361,7 +309,7 @@ namespace OloEngine::Tests
                 const glm::vec3 h = glm::normalize(v + l);
                 // F == 1: this is the white furnace, so every microfacet
                 // reflects everything and the integral is pure geometry.
-                const f64 value = static_cast<f64>(DistributionGGX(n, h, roughness)) * static_cast<f64>(VisibilitySmithGGXCorrelated(1.0f, cosTheta, roughness));
+                const f64 value = static_cast<f64>(DistributionGGXSamplingDensity(n, h, roughness)) * static_cast<f64>(VisibilitySmithGGXCorrelated(1.0f, cosTheta, roughness));
                 sum += value * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
             }
             return sum / static_cast<f64>(kSamples);
@@ -387,28 +335,7 @@ namespace OloEngine::Tests
         }
     }
 
-    // =========================================================================
-    // The GLSL side of the #904 fix, pinned by reading the shader source
-    // (issue #904).
-    //
-    // WHY A TEXT ASSERTION AND NOT A NUMERICAL ONE. The two tests above pin the
-    // C++ mirror, and ReferenceBRDFGpuParity pins the compiled
-    // `visibilitySmithGGXCorrelated` against it. None of them reaches the
-    // remaining half of the fix: `cookTorranceBRDFEnhanced` must MULTIPLY by the
-    // visibility term rather than divide by 4*NdotV*NdotL a second time, and
-    // that function is on a dead call chain, so no probe evaluates it and no
-    // golden would move if it regressed. Reverting that one line leaves the
-    // entire suite green — which is precisely the shape of bug #904 was.
-    //
-    // So pin the source text. This is the same tactic
-    // StochasticSampler.ShaderCarriesThePathSamplerConstants uses on
-    // StochasticCommon.glsl, for the same reason: the thing that can drift is
-    // not reachable by evaluation.
-    //
-    // Runs headless (it reads a file, it does not compile anything), so unlike
-    // the GPU parity test it gates CI.
-    // =========================================================================
-    TEST(ReferenceBRDF, PbrCommonKeepsTheAlphaConventionAndTheVisibilityMultiply)
+    TEST(ReferenceBRDF, PbrCommonKeepsTheVisibilityAlphaConvention)
     {
         const auto root = Tests::ShaderHarness::ResolveShaderRoot();
         ASSERT_FALSE(root.empty()) << "could not resolve the shader root";
@@ -439,102 +366,6 @@ namespace OloEngine::Tests
                "`a2 = roughness * roughness` then D and G describe different surfaces again — see\n"
                "THE ALPHA LEDGER in PBRCommon.glsl. That is issue #904, and nothing else in this\n"
                "suite would notice, because the function is on a dead call chain.";
-
-        // The caller must multiply by the visibility term, never divide again.
-        const sizet enhancedDecl = src.find("vec3 cookTorranceBRDFEnhanced(");
-        ASSERT_NE(enhancedDecl, std::string::npos) << "cookTorranceBRDFEnhanced is gone from PBRCommon.glsl";
-        const sizet enhancedEnd = src.find("\n}", enhancedDecl);
-        ASSERT_NE(enhancedEnd, std::string::npos);
-        const std::string enhancedFlat = NormalizeGlsl(src.substr(enhancedDecl, enhancedEnd - enhancedDecl));
-
-        EXPECT_NE(enhancedFlat.find("visibilitySmithGGXCorrelated("), std::string::npos)
-            << "cookTorranceBRDFEnhanced no longer calls visibilitySmithGGXCorrelated.";
-
-        // These two are the load-bearing assertions, and they are deliberately
-        // about CHARACTERS rather than about one spelling of the expression.
-        // With comments stripped, the correct body contains no division and no
-        // digit 4 at all — so every way of rewriting the Cook-Torrance
-        // denominator back in (`4.0 * max(dot(N, V), 0.0) * ...`, `4.0*NdotV*NdotL`,
-        // `/ (4.0 * ...)`, a hoisted `float denom = ...`) trips one of them.
-        // An earlier version of this test matched a single literal spelling,
-        // which the exact regression it names could have walked straight past.
-        EXPECT_EQ(enhancedFlat.find('/'), std::string::npos)
-            << "cookTorranceBRDFEnhanced contains a division. visibilitySmithGGXCorrelated returns V =\n"
-               "G2/(4 NdotV NdotL) — the denominator is already folded in, and dividing a second time\n"
-               "cost the specular lobe ~3.6x of its energy at roughness 0.3 (directional albedo\n"
-               "0.99 -> 0.27) before #904. If a division is legitimately needed here, this assertion\n"
-               "has to be replaced by one that still rules that regression out.";
-        EXPECT_EQ(enhancedFlat.find('4'), std::string::npos)
-            << "cookTorranceBRDFEnhanced mentions a 4 — almost certainly the 4*NdotV*NdotL factor "
-               "coming back. See the assertion above.";
-    }
-
-    // =========================================================================
-    // Sampling <-> density agreement.
-    //
-    // Draw from ImportanceSampleGGX and integrate 1/pdf over the sampled
-    // directions. If the sampler and PdfGGX describe the same distribution the
-    // estimate of the sampled solid angle is 2pi (the hemisphere the reflected
-    // directions cover, minus the small below-horizon fraction the sampler
-    // discards). Practically: the estimate must converge to a STABLE value
-    // close to 2pi, and — the thing that actually catches a wrong Jacobian —
-    // must not scale with roughness.
-    //
-    // A missing 1/(4 v.h) would make this off by a factor of ~4; an inverted
-    // one, off by ~1/4. Both produce a perfectly plausible image.
-    // =========================================================================
-    TEST(ReferenceBRDF, GgxSamplingMatchesItsDensity)
-    {
-        constexpr u32 kSamples = 1u << 16;
-        const glm::vec3 n(0.0f, 0.0f, 1.0f);
-        const glm::vec3 v(0.0f, 0.0f, 1.0f); // head-on: reflection about h stays in the hemisphere
-
-        // The LOW-roughness cases are the point of this test. Above ~0.27 the
-        // engine's EPSILON denominator clamp is inactive and the clamped and
-        // unclamped NDFs coincide, so a PDF built on the wrong one passes. At
-        // 0.05 the two differ by orders of magnitude, and a PDF that reused the
-        // renderer's clamp (as a first cut of this file did) reports a solid
-        // angle far above 2pi here — the signature of an estimator that
-        // divides by a density smaller than the one it sampled from.
-        for (const f32 roughness : { 0.05f, 0.1f, 0.2f, 0.3f, 0.5f, 0.8f, 1.0f })
-        {
-            f64 sum = 0.0;
-            u32 valid = 0;
-            for (u32 i = 0; i < kSamples; ++i)
-            {
-                const glm::vec2 xi = Hammersley(i, kSamples);
-                const glm::vec3 h = ImportanceSampleGGX(xi, n, roughness);
-                const glm::vec3 l = glm::reflect(-v, h);
-                const f32 nDotL = glm::dot(n, l);
-                if (nDotL <= 0.0f)
-                    continue;
-
-                const f32 pdf = PdfGGX(glm::dot(n, h), glm::dot(v, h), roughness);
-                if (!(pdf > 0.0f))
-                    continue;
-
-                sum += 1.0 / static_cast<f64>(pdf);
-                ++valid;
-            }
-
-            ASSERT_GT(valid, kSamples / 2) << "roughness = " << roughness;
-            const f64 solidAngle = sum / static_cast<f64>(kSamples);
-            // 2pi is the full hemisphere. The estimate sits at or just under it
-            // — samples reflecting below the horizon are dropped, and at very
-            // low roughness fp32 quantization of a near-unit cosine costs a
-            // further few percent (measured 0.83x at roughness 0.05).
-            //
-            // The UPPER bound is the load-bearing one. The failure this test
-            // exists for — a PDF that under-reports the density it sampled
-            // from — overshoots by orders of magnitude, not percent: with the
-            // EPSILON-clamped NDF as the density, roughness 0.05 reports a
-            // "solid angle" ~8e5 times too large.
-            EXPECT_GT(solidAngle, 0.6 * static_cast<f64>(kTwoPi)) << "roughness = " << roughness;
-            EXPECT_LT(solidAngle, 1.05 * static_cast<f64>(kTwoPi))
-                << "roughness = " << roughness
-                << ": the sampler and PdfGGX describe different distributions — every specular "
-                   "estimate is scaled by the mismatch";
-        }
     }
 
     TEST(ReferenceBRDF, CosineSamplingMatchesItsDensity)

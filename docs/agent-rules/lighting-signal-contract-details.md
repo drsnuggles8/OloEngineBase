@@ -104,8 +104,9 @@ Each of these was a local choice that looked right.
 
 ## Declared approximations (kept on purpose)
 
-- **Legacy split-sum specular uses `F_roughness·A + B`.** Changing it moves every Legacy pixel;
-  ClosureV2 is the corrected closure (ADR 0016).
+- **Raster environment specular uses `F_roughness·A + B`.** Its prefiltered split-sum LUT
+  approximates the single-scatter lobe. The multiple-scatter term in the direct closure
+  is absent from this IBL approximation.
 - **SSGI takes the ladder's radiance as uniform over directions** (the rung's *E/π*). It is exact for
   a uniform field.
 - **Raster samples the mip chain; the reference tracer uses level 0** (ADR 0022). Hybrid hit shading

@@ -29,7 +29,9 @@ namespace OloEngine
         // v3 (issue #867): the key walks every RECEIVER, not just MeshComponent
         // entities, and mixes each receiver's sub-key and own world transform —
         // moving one instance of an InstancedMeshComponent must stale the bake.
-        constexpr u64 kBakeKeyFormatVersion = 3;
+        // v4: indirect bounces use ClosureV2 for every material. A lightmap
+        // baked with the previous integrand must be marked stale.
+        constexpr u64 kBakeKeyFormatVersion = 4;
 
         // How many Resolve() calls pass between full rechecks. The recheck is
         // O(scene) (UV2 scan + key hash); a scene edit is still picked up in a

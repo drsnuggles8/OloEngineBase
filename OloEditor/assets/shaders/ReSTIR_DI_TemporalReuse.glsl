@@ -194,7 +194,7 @@ void main()
     const vec4 packedNormal = texture(u_GBufferNormal, v_TexCoord);
     const vec4 packedAlbedo = texture(u_GBufferAlbedo, v_TexCoord);
     const OloReSTIRSurface surface =
-        OloReSTIRLoadSurface(v_TexCoord, depth, packedNormal, packedAlbedo, oloGBufferFlagsPbrModel(gbFlags));
+        OloReSTIRLoadSurface(v_TexCoord, depth, packedNormal, packedAlbedo);
     const vec3 viewDirection = normalize((u_InvView * vec4(0.0, 0.0, 0.0, 1.0)).xyz - surface.Position);
 
     const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy;

@@ -241,11 +241,7 @@ namespace OloEngine::Tests
             scene->SetRenderingEnabled(true);
         }
 
-        // What a cold editor session of the Sandbox project opens: its start
-        // scene (DriftMenu, a UI menu: the Renderer2D pipelines), then the
-        // #1259 integrated acceptance scene, as AcceptanceSceneEvidenceTest
-        // loads it.
-        void Load()
+        void LoadSandboxProject()
         {
             std::error_code ec;
             fs::current_path(EditorRoot(), ec);
@@ -262,7 +258,13 @@ namespace OloEngine::Tests
             m_AssetManager->Initialize(/*startFileWatcher=*/false);
             Project::SetAssetManager(m_AssetManager);
             Time::SetMockTime(kMockTime);
+        }
 
+        // What a cold editor session of the Sandbox project opens: its
+        // start scene, then the integrated acceptance scene (#1259).
+        void Load()
+        {
+            ASSERT_NO_FATAL_FAILURE(LoadSandboxProject());
             const fs::path startScene = Project::GetActive()->GetConfig().StartScene;
             ASSERT_FALSE(startScene.empty()) << "the Sandbox project names no start scene";
             ASSERT_NO_FATAL_FAILURE(LoadScene(startScene, m_StartScene));
@@ -314,10 +316,10 @@ namespace OloEngine::Tests
         // instead, which turn off GTAO, bloom, FXAA, the depth-normal prepass
         // and wind: a seed recorded that way missed 15 keys in a cold editor
         // session.
-        static void OpenAsTheEditorDoes(const Scene& scene, const PathSpec& path)
+        static void OpenAsTheEditorDoes(const Scene& scene, RenderingPath path)
         {
             SceneTransition::ApplySceneRenderSettings(scene);
-            Renderer3D::GetRendererSettings().Path = path.Path;
+            Renderer3D::GetRendererSettings().Path = path;
             Renderer3D::ApplyRendererSettings();
         }
 
@@ -334,8 +336,7 @@ namespace OloEngine::Tests
 
             // The start scene on its AUTHORED path, which is how the editor
             // opens it at start-up (a UI menu: its Renderer2D keys have the
-            // same targets on every path). Forced onto Deferred, this UI-only
-            // scene trips #1653's WRITE_AFTER_WRITE hazard on every frame.
+            // same targets on every path).
             SceneTransition::ApplySceneRenderSettings(*m_StartScene);
             // Under the shadow mode a session starts with (VSM is off by
             // default), not whatever the previous path's loop left behind.
@@ -344,7 +345,7 @@ namespace OloEngine::Tests
             Renderer3D::GetShadowMap().SetSettings(startShadow);
             RunEditorFramesOn(*m_StartScene, Camera(glm::vec3(0.0f, 0.0f, 10.0f), 0.0f, 0.0f, 60.0f), kFramesPerCamera);
 
-            OpenAsTheEditorDoes(*m_Scene, path);
+            OpenAsTheEditorDoes(*m_Scene, path.Path);
             for (const bool vsm : { false, true })
             {
                 auto shadow = Renderer3D::GetShadowMap().GetSettings();
@@ -418,6 +419,24 @@ namespace OloEngine::Tests
         RenderingPath m_PreviousPath = RenderingPath::Forward;
         bool m_RestartedCold = false;
     };
+
+    TEST_F(EnginePipelineSeedTest, DriftMenuOnDeferredRaisesNoValidationError)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "The transfer depth clear is Vulkan-specific";
+#if OLO_WITH_VULKAN
+        ASSERT_NO_FATAL_FAILURE(LoadSandboxProject());
+        ASSERT_NO_FATAL_FAILURE(LoadScene(fs::path("Scenes") / "DriftMenu.olo", m_StartScene));
+        OpenAsTheEditorDoes(*m_StartScene, RenderingPath::Deferred);
+        // A UI-only Deferred frame materializes the unused scene depth
+        // attachment's pending clear with a transfer. The following barrier
+        // batch refers to that image twice and must order both entries after
+        // the transfer write (#1653). The fixture checks sync validation on
+        // every tick.
+        RunEditorFramesOn(*m_StartScene, Camera(glm::vec3(0.0f, 0.0f, 10.0f), 0.0f, 0.0f, 60.0f), kFramesPerCamera);
+#endif
+    }
 
     // A seed that does not parse whole would be dropped at start-up (logged as
     // an error, but every first-session hitch would be back), and a seed not in

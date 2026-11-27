@@ -55,12 +55,19 @@
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
+#include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
+#include "OloEngine/Renderer/PathTracing/PathTracer.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRDITechnique.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -69,10 +76,13 @@
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #include <glad/gl.h>
+#include <glm/gtc/constants.hpp>
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <cstring>
@@ -444,5 +454,260 @@ namespace OloEngine::Tests
                 << "), so this test never exercised the device fallback";
             EXPECT_NE(ToString(stats.Fallback), "unknown");
         }
+    }
+
+    // Compare one front-facing metal receiver with both direct estimators. The emitters
+    // occupy disjoint solid angles and there is no intervening geometry.
+    class SphereAreaReSTIRDI : public RendererAttachedTest
+    {
+      protected:
+        bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        static constexpr u32 kSize = 128;
+        static constexpr u32 kLightCount = 12;
+        static constexpr u32 kPatchSize = 32;
+
+        void BuildScene() override
+        {
+            if (!TestRenderBackend::IsVulkanProcess() || !RenderCommand::SupportsRayTracing())
+                return;
+
+            EnableRendering(kSize, kSize);
+            RunInFrame([&]
+                       {
+                auto& rs = Renderer3D::GetRendererSettings();
+                rs.Path = RenderingPath::Deferred;
+                rs.ShowGrid = false;
+                auto& pp = Renderer3D::GetPostProcessSettings();
+                pp.SSAOEnabled = pp.GTAOEnabled = pp.SSGIEnabled = false;
+                pp.ReSTIRDI = {};
+                pp.ReSTIRDI.InitialCandidates = 4;
+                pp.ReSTIRDI.EngagementMargin = 4;
+                pp.ReSTIRDI.SpatialReuse = false;
+                pp.ReSTIRDI.TemporalReuse = false;
+                Renderer3D::ApplyRendererSettings();
+
+                Entity surface = GetScene().CreateEntity("Metal receiver");
+                surface.GetComponent<TransformComponent>().Scale = { 5.0f, 5.0f, 0.2f };
+                auto mesh = MeshPrimitives::CreateCube();
+                surface.AddComponent<MeshComponent>(mesh->GetMeshSource());
+                auto& material = surface.AddComponent<MaterialComponent>().m_Material;
+                material.SetBaseColorFactor({0.8f, 0.8f, 0.8f, 1.0f});
+                material.SetMetallicFactor(1.0f);
+                material.SetRoughnessFactor(0.5f);
+
+                for (u32 i = 0; i < kLightCount; ++i)
+                {
+                    const f32 phi = glm::two_pi<f32>() * i / kLightCount;
+                    Entity emitter = GetScene().CreateEntity("Sphere" + std::to_string(i));
+                    emitter.GetComponent<TransformComponent>().Translation = { 0.9f * std::cos(phi), 0.9f * std::sin(phi), 3.0f };
+                    auto& light = emitter.AddComponent<SphereAreaLightComponent>();
+                    // Alternating spectra make the per-pixel sample noise distinguish the
+                    // resolved reservoir from a silently retained deterministic light loop.
+                    light.m_Color = i % 2 == 0 ? glm::vec3{1.0f, 0.25f, 0.1f} : glm::vec3{0.1f, 0.5f, 1.0f};
+                    light.m_Range = 12.0f;
+                    light.m_Radius = 0.10f;
+                    light.m_Intensity = 0.25f;
+                    light.m_CastShadows = false;
+                } });
+        }
+
+        static void WriteLinearFrame(const std::vector<f32>& frame, u32 size, const char* label)
+        {
+            std::vector<u8> pixels(frame.size());
+            for (sizet j = 0; j < frame.size(); j += 4)
+            {
+                for (u32 c = 0; c < 3; ++c)
+                {
+                    ASSERT_TRUE(std::isfinite(frame[j + c]));
+                    const f32 value = std::max(0.0f, frame[j + c]);
+                    pixels[j + c] = static_cast<u8>(255.0f * std::sqrt(value / (1.0f + value)));
+                }
+                pixels[j + 3] = 255;
+            }
+            const auto dir = std::filesystem::path("assets/tests/visual");
+            std::filesystem::create_directories(dir);
+            const auto file = dir / (TestRenderBackend::EvidenceName("SphereArea") + "Deferred_" +
+                                     label + ".png");
+            ASSERT_NE(stbi_write_png(file.string().c_str(), size, size, 4, pixels.data(), size * 4), 0);
+        }
+
+        // Snapshot the exact receiver, material and full-intensity sphere lights used
+        // by the raster and DI captures. The black environment removes the ambient
+        // contribution that the GPU measurements remove using the quarter-power arm.
+        void TraceReferencePatch(const EditorCamera& camera, glm::dvec3& mean)
+        {
+            using namespace PathTracing;
+            ReferenceSceneBuilder builder;
+            builder.AddScene(GetScene(), {});
+            auto scene = builder.Build({});
+            ASSERT_TRUE(scene.IsBuilt());
+            ASSERT_FALSE(scene.GetInstances().empty());
+            ASSERT_EQ(scene.GetLights().size(), kLightCount);
+            for (const auto& light : scene.GetLights())
+            {
+                ASSERT_EQ(light.Type, ReferenceLightType::SphereArea);
+                ASSERT_FLOAT_EQ(light.Intensity, 1.0f);
+            }
+            const auto view = ReferenceCamera::FromViewProjection(camera.GetViewProjection(), camera.GetPosition());
+            PathTracerSettings settings;
+            // NEE samples all the spheres. One subsequent BSDF draw can hit an emitter,
+            // completing the complementary MIS estimator. The only geometry is convex.
+            settings.MaxBounces = 2;
+            settings.RussianRouletteStartBounce = 0;
+            settings.SamplesPerPixel = 32;
+            settings.Seed = 1497;
+            std::vector<f32> patch(kPatchSize * kPatchSize * 4, 1.0f);
+            glm::dvec3 sum(0.0);
+            for (u32 row = 0; row < kPatchSize; ++row)
+            {
+                for (u32 col = 0; col < kPatchSize; ++col)
+                {
+                    const u32 x = (kSize - kPatchSize) / 2 + col;
+                    const u32 y = (kSize - kPatchSize) / 2 + row;
+                    const Ray ray = view.GenerateRay((glm::vec2(x, y) + 0.5f) / static_cast<f32>(kSize));
+                    glm::dvec3 pixel(0.0);
+                    for (u32 sample = 0; sample < settings.SamplesPerPixel; ++sample)
+                    {
+                        PathSampler sampler(MakePixelSeed(x, y, settings.Seed), sample);
+                        pixel += glm::dvec3(PathTracer::TracePath(scene, ray, settings, sampler));
+                    }
+                    pixel /= settings.SamplesPerPixel;
+                    sum += pixel;
+                    for (u32 c = 0; c < 3; ++c)
+                        patch[(row * kPatchSize + col) * 4 + c] = static_cast<f32>(pixel[c]);
+                }
+            }
+            mean = sum / static_cast<f64>(kPatchSize * kPatchSize);
+            WriteLinearFrame(patch, kPatchSize, "CPUReferencePatch");
+        }
+
+        void Capture(const EditorCamera& camera, bool includeDI, const char* label,
+                     std::vector<f32>& shaded, std::vector<f32>& resolved)
+        {
+            auto graph = RenderGraphDebugRuntime::GetActiveGraph();
+            ASSERT_TRUE(graph);
+            auto deferred = graph->GetNode<RenderGraphNode>("DeferredLightingPass");
+            ASSERT_TRUE(deferred);
+            struct CaptureScope
+            {
+                RenderGraphPassSnapshot Snapshot;
+                ~CaptureScope()
+                {
+                    Snapshot.Disarm();
+                    Snapshot.ReleaseScratch();
+                }
+            } scope;
+            TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;
+            requests.AddTail(RenderGraphPassSnapshot::Request("Deferred output", [&]
+                                                              {
+                const auto target = deferred->GetTarget();
+                return target ? target->GetColorAttachmentHandle(0) : RHI::NullResource; }));
+            if (includeDI)
+                requests.AddTail(RenderGraphPassSnapshot::Request("Resolved direct", [&]
+                                                                  { return graph->ResolveTextureHandle(Renderer3D::GetReSTIRDIPass()->GetPrimaryOutputTextureHandle()); }));
+            scope.Snapshot.Arm(graph.Raw(), "DeferredLightingPass", std::move(requests));
+            RunEditorFrames(camera, 1);
+            const auto& results = scope.Snapshot.GetResults();
+            ASSERT_EQ(results.Num(), includeDI ? 2 : 1);
+            for (int i = 0; i < results.Num(); ++i)
+            {
+                ASSERT_TRUE(results[i].Captured) << results[i].Error.ToStdString();
+                auto& frame = i == 0 ? shaded : resolved;
+                ReadbackRgbaFloat(results[i].Handle, kSize, kSize, frame);
+                ASSERT_EQ(frame.size(), static_cast<sizet>(kSize) * kSize * 4);
+                ASSERT_NO_FATAL_FAILURE(WriteLinearFrame(frame, kSize, i == 0 ? label : "DIResolved"));
+            }
+        }
+    };
+
+    TEST_F(SphereAreaReSTIRDI, DeferredSphereHighlightsAgreeWithActiveReservoirLighting)
+    {
+        if (!TestRenderBackend::IsVulkanProcess() || !RenderCommand::SupportsRayTracing())
+            GTEST_SKIP() << "Requires --olo-rhi=vulkan and hardware ray queries.";
+        EditorCamera camera(45.0f, 1.0f, 0.1f, 100.0f);
+        camera.SetViewportSize(kSize, kSize);
+        camera.SetPose({ 0.0f, 0.0f, 5.0f }, 0.0f, 0.0f);
+        RunEditorFrames(camera, 8);
+        std::vector<f32> dim, raster, active, resolved;
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, false, "RasterQuarter", dim, resolved));
+        auto lights = GetScene().GetAllEntitiesWith<SphereAreaLightComponent>();
+        for (auto entity : lights)
+            lights.get<SphereAreaLightComponent>(entity).m_Intensity = 1.0f;
+        RunEditorFrames(camera, 4);
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, false, "Raster", raster, resolved));
+
+        auto* pass = Renderer3D::GetReSTIRDIPass();
+        ASSERT_NE(pass, nullptr);
+        EXPECT_FALSE(pass->GetStats().Active);
+        auto& settings = Renderer3D::GetPostProcessSettings().ReSTIRDI;
+        settings.Enabled = true;
+        for (int i = 0; i < 32; ++i)
+        {
+            RunEditorFrames(camera, 1);
+            if (pass->GetStats().Active)
+                break;
+        }
+        ASSERT_TRUE(pass->GetStats().Active) << ToString(pass->GetStats().Fallback);
+        ASSERT_NO_FATAL_FAILURE(Capture(camera, true, "DIShaded", active, resolved));
+        const auto& stats = pass->GetStats();
+        ASSERT_TRUE(stats.Active) << ToString(stats.Fallback);
+        ASSERT_EQ(stats.SphereAreaLights, kLightCount);
+        ASSERT_EQ(stats.Engagement.CandidateLightCount, kLightCount);
+        ASSERT_TRUE(ReSTIRDIEngagePredicate(stats.Engagement, settings.EngagementMargin));
+        ASSERT_EQ(stats.InitialCandidatesPerPixel, settings.InitialCandidates);
+
+        // A central 32x32 patch of the flat front face. Subtract the ambient by
+        // differencing two nonzero intensities (the light set stays identical).
+        glm::dvec3 rasterSum(0.0), diSum(0.0);
+        f64 compositionError = 0.0, clusterDifference = 0.0;
+        constexpr u32 kSide = kPatchSize;
+        for (u32 y = (kSize - kSide) / 2; y < (kSize + kSide) / 2; ++y)
+            for (u32 x = (kSize - kSide) / 2; x < (kSize + kSide) / 2; ++x)
+            {
+                const sizet j = (y * kSize + x) * 4;
+                ASSERT_GE(resolved[j + 3], 0.5f) << "the DI resolve fell back at " << x << ", " << y;
+                for (u32 c = 0; c < 3; ++c)
+                {
+                    const f64 direct = (raster[j + c] - dim[j + c]) / 0.75;
+                    const f64 ambient = raster[j + c] - direct;
+                    const f64 di = resolved[j + c];
+                    rasterSum[c] += direct;
+                    diSum[c] += di;
+                    compositionError += std::abs(active[j + c] - ambient - di);
+                    clusterDifference += std::abs(direct - di);
+                }
+            }
+        glm::dvec3 referenceMean{};
+        ASSERT_NO_FATAL_FAILURE(TraceReferencePatch(camera, referenceMean));
+        const f64 samples = kSide * kSide;
+        for (u32 c = 0; c < 3; ++c)
+        {
+            const f64 rasterMean = rasterSum[c] / samples, diMean = diSum[c] / samples;
+            RecordProperty("rasterMean" + std::to_string(c), std::to_string(rasterMean));
+            RecordProperty("diMean" + std::to_string(c), std::to_string(diMean));
+            RecordProperty("cpuMean" + std::to_string(c), std::to_string(referenceMean[c]));
+            ASSERT_GT(referenceMean[c], 0.01);
+            // Two independent integrators of the full emitter cone: compare their
+            // regional mean before measuring the raster approximation.
+            EXPECT_NEAR(diMean, referenceMean[c], 0.08 * referenceMean[c]);
+            EXPECT_NEAR(rasterMean, referenceMean[c], 0.20 * referenceMean[c]);
+            ASSERT_GT(rasterMean, 0.01);
+            ASSERT_GT(diMean, 0.01);
+            // At r=0.5, alpha=0.25; the source's angular radius ~0.033 gives
+            // a peak ratio of 0.88. Allow the representative-point approximation
+            // to differ from the sampled cone integral by 20% in this patch.
+            EXPECT_NEAR(rasterMean, diMean, 0.20 * diMean);
+        }
+        const f64 diEnergy = diSum.r + diSum.g + diSum.b;
+        RecordProperty("compositionRelativeError", std::to_string(compositionError / diEnergy));
+        RecordProperty("clusterRelativeDifference", std::to_string(clusterDifference / diEnergy));
+        // Adjacent frames differ in the reservoir's draws. Comparing the two
+        // snapshots from the SAME frame detects both double counting and fallback.
+        EXPECT_GT(clusterDifference, 0.03 * diEnergy);
+        EXPECT_LT(compositionError, 0.01 * diEnergy);
     }
 } // namespace OloEngine::Tests

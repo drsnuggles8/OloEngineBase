@@ -60,7 +60,6 @@ layout(location = 3) out vec4 o_Velocity;
 // into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
 layout(location = 4) out vec4 o_SkinDiffuse;
 
-
 // Inputs
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
@@ -325,8 +324,7 @@ void main()
         // where dot(N, L) <= 0, which is exactly the backlit case the
         // transmission lobe below exists to fill.
         OloSurfaceLighting contrib = calculateLightContributionSplit(
-            u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos,
-            OLO_PBR_MODEL_LEGACY);
+            u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);

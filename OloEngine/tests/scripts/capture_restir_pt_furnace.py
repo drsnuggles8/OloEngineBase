@@ -59,7 +59,7 @@ def prepare(args):
         scene = copy.deepcopy(original)
         sphere = copy.deepcopy(next(e for e in scene['Entities'] if 'MeshComponent' in e))
         sphere['TransformComponent'].update(Translation=[0, 0, 0], Scale=[1, 1, 1])
-        sphere['MaterialComponent'].update(Roughness=roughness, Metallic=metallic, PBRModel=1)
+        sphere['MaterialComponent'].update(Roughness=roughness, Metallic=metallic)
         scene['Entities'] = [e for e in scene['Entities'] if 'EnvironmentMapComponent' in e] + [sphere]
         scene['Scene'] = 'PT1211_' + material
         p = scene['PostProcessSettings']

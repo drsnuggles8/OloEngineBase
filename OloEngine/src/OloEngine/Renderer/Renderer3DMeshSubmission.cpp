@@ -562,7 +562,6 @@ namespace OloEngine
         data.enableIBL = material.IsIBLEnabled();
         data.alphaMode = std::to_underlying(material.GetAlphaMode());
         data.alphaCutoff = material.GetAlphaCutoff();
-        data.pbrModel = std::to_underlying(material.GetPBRModel());
 
         // Material kind + skin profile (issue #1231). The KIND is the material's
         // own field; the PROFILE is RESOLVED here, once per submission, into the
