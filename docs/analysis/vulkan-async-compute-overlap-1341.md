@@ -90,6 +90,26 @@ Verified with the change, six more fresh processes in the order default/on/off/d
 | 5 | off (`=0`) | 33.16 | 0 / 3 | contended: a sibling's GPU work ran beside it, not timing evidence |
 | 6 | on (`=1`) | 47.57 | 3 / 0 | contended, as above |
 
+Same work, same pixels: on the deterministic dense scene (`ParallelRecording.olo`, GTAO, fog and
+VSM on) one process each with `=1` and `=0` captured scene colour and depth on Deferred, Forward
+and Forward+. All six pairs are byte-identical at 1920 x 1080 and non-empty. Its frame GPU time:
+6.86 ms crossing, 2.56 ms on the graphics queue, overlap 0.
+
+## Schedule, aliasing and early submission
+
+Aliasing is planned on the linear execution order, so crossing is safe only if the batch really
+executes in that order's slot. The timeline shows it does: in 1,080 compute-queue intervals no
+graphics bracket intersects a compute one, so every batch runs strictly between the graphics
+work before it and after it, exactly where the linear plan put it. A schedule that overlaps would
+have to extend the batch's resource lifetimes (and their physical aliases) to its first consumer
+before recording; nothing overlaps yet, so nothing needs to.
+
+Release halves cannot be stranded by an early submission: while a batch is open
+`SubmitRenderGraphFenceSegment` refuses (it would end the compute buffer, submit it to the
+graphics queue and leave the parked buffer holding the releases unsubmitted), and the batch end
+records the mirrored releases before ending and submitting both buffers in order. The device test
+`AFenceSegmentSubmitInsideAnOpenBatchIsRefused` pins the refusal and the clean close.
+
 ## Fallbacks with reasons
 
 Each keeps the batch on the graphics queue and names why: no compute-only family, lever `0`
@@ -97,9 +117,10 @@ Each keeps the batch on the graphics queue and names why: no compute-only family
 no compute command buffer, a parallel-recording region or an open occlusion query that prevents
 suspending the graphics recording, and a nested batch. A family without timestamp bits is never
 selected. The device tests `AnAsyncBatchCrossesToTheComputeQueueAndBack`,
-`ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier` and
-`AnUnsetLeverKeepsTheBatchOnTheGraphicsQueueAndSaysWhy` cover the crossing, the transfer pairs
-and the default decline on real hardware; lavapipe has no compute-only family and runs the
+`ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier`,
+`AnUnsetLeverKeepsTheBatchOnTheGraphicsQueueAndSaysWhy` and
+`AFenceSegmentSubmitInsideAnOpenBatchIsRefused` cover the crossing, the transfer pairs, the
+default decline and the strand guard on real hardware; lavapipe has no compute-only family and runs the
 degrade path.
 
 ## Reproduce

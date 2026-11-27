@@ -53,8 +53,12 @@ optimum at three items at every size; depth kept scaling to about eight. So:
 - families no measured scene took above the threshold (foliage, water, overlay, decal,
   occlusion, generic) take the conservative shaded policy, not a guess at a better one.
 
-The contention's source is not identified here: the per-region `pipelineLookupMs` probe
-(`OLO_VK_RECORDING_COSTS=1`) attributes the lookup share, see [Observability](#observability).
+The contention is not in the parts the cost probe times. With `OLO_VK_RECORDING_COSTS=1` on the
+dense scene (legacy arm, colour, 16 items): 20.2 ms of summed worker time, of which graphics
+pipeline lookup is 0.29 ms, frontend preparation 0.07 ms, sampled-image and attachment
+preparation 0.02 ms and selection seeding 0.01 ms; the join wait is 0.53 ms. At the policy's 3
+items: 4.1 ms worker, lookup 0.18 ms, join 0.04 ms. Where the remaining worker time goes is open
+(#1821).
 
 ## Shadow regions: a visible-work estimate
 
@@ -76,17 +80,38 @@ Totals of all recording regions, ms (`shadow-ab.json`):
 | IntegratedRenderer | 1.485 | 1.811 | 1.579 | every region inline; the 0.09 is drift on identical work |
 | Dense | 31.752 | 18.717 | 19.012 | Bloom +70% in policy blocks |
 
-At 256 pairs the small scenes lose nothing to forking, the dense scene keeps its gain, and
-Courtyard forks only its largest region. Courtyard's ten 137-247-pair regions each won about
-0.05 ms forked; keeping them inline is the conservative side of a threshold that also has to
-keep MaterialLab's 218 pairs inline.
+The threshold is a trade, and the table says how much. From the per-region inline and forked
+walls of `final-ab.json` and each region's pair count, the shadow wall a threshold T would give:
+
+| T (pairs) | Courtyard | IntegratedRenderer | MaterialLab | sum |
+|---:|---:|---:|---:|---:|
+| inline everywhere | 2.391 | 1.057 | 0.075 | 3.523 |
+| 0 (legacy) | 1.707 | 1.460 | 0.171 | 3.338 |
+| 128 | 1.707 | 1.132 | 0.171 | 3.010 |
+| 192 | 1.888 | 1.057 | 0.171 | 3.116 |
+| 224 | 2.072 | 1.057 | 0.075 | 3.204 |
+| **256 (shipped)** | **2.227** | **1.057** | **0.075** | **3.359** |
+
+Visible pairs cannot separate MaterialLab's 218 losing pairs from Courtyard's 219 winning ones
+(their per-pair inline cost differs threefold), so a lower threshold buys Courtyard time with
+MaterialLab's and IntegratedRenderer's. 256 is the smallest round threshold at which no measured
+scene records slower than inline, with a margin over MaterialLab; it forgoes up to 0.5 ms that
+forking all of Courtyard's regions would win.
 
 ## Quality
 
-G-buffer albedo, normal and scene depth captured per arm (`--capture`) are byte-identical
-off vs legacy vs policy on every deterministic scene (dense at four poses, MaterialLab,
-Courtyard). IntegratedRenderer is animated: two captures of the off arm differ by 1.1 M pixels,
-as much as the arms differ, so its comparison is at the scene's own noise floor.
+Deferred: G-buffer albedo, normal and scene depth captured per arm (`--capture`) are
+byte-identical off vs legacy vs policy on every deterministic scene (dense at four poses,
+MaterialLab, Courtyard). Forward and Forward+ (`paths-forward.json`, `paths-forwardplus.json`,
+off vs policy): scene depth byte-identical on dense, dense-fov40 and Courtyard; scene colour
+byte-identical on both dense poses, and within 1/255 on Courtyard, where two captures of the
+same off arm also differ by 1/255 (realtime DDGI and wind).
+
+IntegratedRenderer is animated: two captures of the off arm differ by 1.1 M pixels, as much as
+the arms do. Its agreement holds by construction instead: under the policy every one of its
+recording regions makes the same decision as with the lever off (scene replays of 19 packets
+and shadow regions of at most 176 pairs all record inline), so the two arms record the same
+command stream.
 
 ## Observability
 
@@ -104,6 +129,26 @@ Unchanged and still tested: a nested region, an open occlusion query or conditio
 span, recording onto the async compute queue, no begun frame, a secondary the pool cannot hand
 out, the lever off and a rejected packet each keep the region inline, now with their own
 `decision` value. Capture hooks still select sequential graph execution.
+
+## Confirmation on the final revision
+
+The estimator change after the shadow A/B (stop counting at the threshold) cannot move a
+decision; the policy's decisions and timings were re-run on the PR revision `86a066b98`
+(`confirm.json`, one rotation, 30 samples a block, Bloom control within 0.003 ms in every scene):
+
+| scene | off | legacy | policy |
+|---|---:|---:|---:|
+| dense | 26.386 | 12.819 | 11.974 |
+| dense-low | 24.188 | 11.615 | 10.957 |
+| dense-fov40 | 22.706 | 9.864 | 9.697 |
+| dense-fov30 | 20.825 | 9.354 | 9.662 |
+| MaterialLab | 0.493 | 0.512 | 0.502 |
+| Courtyard | 3.402 | 2.670 | 3.254 |
+| IntegratedRenderer | 1.289 | 1.254 | 1.272 |
+
+G-buffer albedo and depth are byte-identical across the arms on every deterministic scene again.
+Processes beside each run are recorded per scene in the JSON; every scene ran beside sibling
+worktrees' `cmake`/`ninja`/`lld-link` (and `clang-cl` or another `OloEngine-Tests` in some).
 
 ## Reproduce
 
