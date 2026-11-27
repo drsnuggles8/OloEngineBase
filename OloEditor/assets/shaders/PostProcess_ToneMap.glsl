@@ -236,7 +236,10 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
         // Explicit LOD 0: the march UV is data-dependent, so an implicit-derivative
         // sample inside the loop would be undefined; the depth texture has no mips.
         vec2 c = clamp(coord, 0.0, 1.0);
-        float depth = textureLod(u_DepthTexture, oloTextureUV(c), 0.0).r;
+        // Half a texel inside the rendered corner: a tap clamped to the frame
+        // edge must not read the first texel of the unrendered margin.
+        vec2 depthHalfTexel = 0.5 / vec2(textureSize(u_DepthTexture, 0));
+        float depth = textureLod(u_DepthTexture, min(oloTextureUV(c), oloRenderScaleBounds() - depthHalfTexel), 0.0).r;
         float open = step(GODRAY_OPEN_DEPTH, depth); // 1 = clear toward sun, 0 = occluded
         // Localise the source around the sun so shafts radiate from it and fade out,
         // instead of the whole open sky lighting up uniformly (a white wash).
@@ -460,7 +463,9 @@ void main()
                                               u_UnderwaterRefraction.x * eyeSubmersion,
                                               u_UnderwaterRefraction.y,
                                               u_UnderwaterRefraction.z);
-        vec2 bounds = oloRenderScaleBounds(); // the rendered corner (#1537)
+        // The rendered corner (#1537), half a texel in so a bilinear tap at
+        // the edge does not blend in the unrendered margin.
+        vec2 bounds = oloRenderScaleBounds() - 0.5 / vec2(textureSize(u_Texture, 0));
         vec2 baseUV = clamp(v_TexCoord + off, vec2(0.0), bounds);
         float chroma = u_UnderwaterRefraction.w;
         if (chroma > 0.0)

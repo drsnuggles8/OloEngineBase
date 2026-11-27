@@ -153,8 +153,8 @@ namespace OloEngine
     inline constexpr f32 kProbeMarchSlackAbs = 0.1f;
 
     // Cheap visibility reject margins (see ProbeCanSeePoint). Relative slack
-    // covers bilinear interpolation between max-filtered texels; absolute
-    // slack covers capture quantisation near the probe.
+    // covers the max-filtered texel's footprint not lining up with the cone;
+    // absolute slack covers capture quantisation near the probe.
     inline constexpr f32 kProbeRejectRelMargin = 1.05f;
     inline constexpr f32 kProbeRejectAbsMargin = 0.2f;
 
@@ -264,7 +264,10 @@ namespace OloEngine
 
     // Cheap visibility reject shared by CPU tests and the GLSL shading path:
     // can the probe see a point at distance `pointDistance` from its centre,
-    // given the max-filtered low-mip distance sample toward that point?
+    // given the max-filtered low-mip distance sample toward that point? The
+    // GLSL passes the d2 layer (#1804): a receiver in an occluder's gap is
+    // past d0 but in front of d2, and d2 >= d0 everywhere, so it stays an
+    // upper bound.
     [[nodiscard]] constexpr bool ProbeCanSeePoint(f32 pointDistance, f32 coneMaxDistance)
     {
         return pointDistance <= coneMaxDistance * kProbeRejectRelMargin + kProbeRejectAbsMargin;

@@ -42,7 +42,11 @@ namespace OloEngine
             nearest.Source = RHI::SamplerSource::Explicit;
             nearest.MinFilter = RHI::Filter::Nearest;
             nearest.MagFilter = RHI::Filter::Nearest;
-            nearest.LinearMipFilter = false;
+            // Keep the mip chain: GL maps (Nearest, no mip filter) to
+            // GL_NEAREST, which ignores every mip but the base, and the reject
+            // reads mip 3. The shaders only ask for integer lods (0 and 3), so
+            // the "linear" mip blend never mixes two levels.
+            nearest.LinearMipFilter = true;
             nearest.AddressU = RHI::AddressMode::ClampToEdge;
             nearest.AddressV = RHI::AddressMode::ClampToEdge;
             nearest.AddressW = RHI::AddressMode::ClampToEdge;
