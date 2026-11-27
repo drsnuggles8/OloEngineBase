@@ -91,6 +91,7 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <cmath>
@@ -481,10 +482,14 @@ namespace OloEngine::Tests::Lifecycle
             m_Running = false;
             SetScene(m_EditScene);
             ResetRendererForSceneSwap();
-            m_RenderSettingsAtPlay->PublishToRenderer();
-            Renderer3D::GetShadowMap().SetSettings(*m_ShadowSettingsAtPlay);
-            Renderer3D::GetRendererSettings() = *m_RendererSettingsAtPlay;
-            Renderer3D::ApplyRendererSettings();
+            // EditorLayer's m_RestoreRenderSettingsOnStop: only what Play saved.
+            if (m_RenderSettingsAtPlay && m_ShadowSettingsAtPlay && m_RendererSettingsAtPlay)
+            {
+                m_RenderSettingsAtPlay->PublishToRenderer();
+                Renderer3D::GetShadowMap().SetSettings(*m_ShadowSettingsAtPlay);
+                Renderer3D::GetRendererSettings() = *m_RendererSettingsAtPlay;
+                Renderer3D::ApplyRendererSettings();
+            }
             m_RenderSettingsAtPlay.reset();
             m_ShadowSettingsAtPlay.reset();
             m_RendererSettingsAtPlay.reset();
@@ -565,7 +570,8 @@ namespace OloEngine::Tests::Lifecycle
 
         // ShaderLibrary::ReloadShaders keeps a shader's previous program when its
         // reload fails, so the frame cannot show a failure; the library's own
-        // compile_finished record does.
+        // compile_finished record does. Only the shader library's record is
+        // read: a script compile records the same category.
         static void ReloadShadersChecked()
         {
             auto& log = DiagnosticsEventLog::Get();
@@ -574,11 +580,14 @@ namespace OloEngine::Tests::Lifecycle
             query.Categories = { DiagnosticEventCategory::CompileFinished };
             const auto before = log.Query(query);
             query.SinceId = before.empty() ? 0 : before.back().Id;
+            query.MaxCount = 64;
             Renderer3D::GetShaderLibrary().ReloadShaders();
             const auto after = log.Query(query);
-            ASSERT_EQ(after.size(), 1u) << "ShaderLibrary::ReloadShaders recorded no compile_finished";
-            EXPECT_NE(after.back().Message.find("succeeded"), std::string::npos)
-                << "a shader kept its previous program: " << after.back().Message;
+            const auto shaderRecord = std::ranges::find_if(after, [](const DiagnosticEvent& e)
+                                                           { return e.Message.starts_with("shader compile"); });
+            ASSERT_NE(shaderRecord, after.end()) << "ShaderLibrary::ReloadShaders recorded no shader compile_finished";
+            EXPECT_NE(shaderRecord->Message.find("succeeded"), std::string::npos)
+                << "a shader kept its previous program: " << shaderRecord->Message;
         }
 
         static void SetPath(RenderingPath path)
@@ -823,9 +832,6 @@ namespace OloEngine::Tests::Lifecycle
             m_RecordOps = true;
             Step("unload", [this]
                  { Unload(); });
-            m_Report.Operations.emplace_back("shutdown");
-            m_Report.Operations.emplace_back("init");
-            m_Report.Operations.emplace_back("open A after restart");
             Renderer3D::Shutdown();
             const auto census = Renderer3D::DebugOwnedStateCensus();
             EXPECT_EQ(census.ViewHistoryFacts, 0u) << "Shutdown left camera history for the next renderer";
@@ -834,12 +840,15 @@ namespace OloEngine::Tests::Lifecycle
             EXPECT_TRUE(Renderer3D::DebugLiveGpuOwningStatics().empty())
                 << "Shutdown left GPU-owning statics alive";
             ++m_Executed["shutdown"];
+            m_Report.Operations.emplace_back("shutdown");
             Renderer3D::Init();
             ASSERT_TRUE(Renderer3D::HasInitialized());
             ++m_Executed["init"];
+            m_Report.Operations.emplace_back("init");
             EnableRendering(kWidth, kHeight);
             ASSERT_NO_FATAL_FAILURE(Open(kSceneA));
             ++m_Executed["open A after restart"];
+            m_Report.Operations.emplace_back("open A after restart");
             const Settled restarted = SettleAndCapture();
             const FrameVerdict afterRestart = JudgeAgainstControl(CompareFrames(control.Image, restarted.Image), control.Floor);
             m_Report.AfterRestart = afterRestart.Diff;

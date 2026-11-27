@@ -181,7 +181,7 @@ namespace OloEngine::Tests::Lifecycle
     {
         Report report;
         report.Leg = "editor-loose";
-        report.Backend = "OpenGL";
+        report.Backend = "GL";
         report.Build = "abc \"quoted\"\n";
         report.Cycles = 2;
         report.Operations = { "open A", "play/stop" };

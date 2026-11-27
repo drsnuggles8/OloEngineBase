@@ -101,7 +101,7 @@ namespace OloEngine::Tests::Lifecycle
     struct Report
     {
         std::string Leg;     // "editor-loose", "runtime-cooked"
-        std::string Backend; // "OpenGL", "Vulkan"
+        std::string Backend; // "GL", "Vulkan", as in the evidence and report file names
         std::string Build;   // commit and configuration the binary was built from
         u64 Seed = 0;        // the sequence is fixed; 0 says so
         u32 WarmUpCycles = 0;

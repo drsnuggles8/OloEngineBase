@@ -28,7 +28,7 @@
     the frame times are measured, and a sibling compile is contention.
 
 .PARAMETER Cycles
-    Measured cycles after warm-up (default 25).
+    Measured cycles after warm-up, 2 to 100000 (default 25): one cannot show growth.
 
 .PARAMETER WarmUp
     Warm-up cycles, not judged for growth (default 2).
@@ -48,7 +48,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 100000)][int]$Cycles = 25,
+    [ValidateRange(2, 100000)][int]$Cycles = 25,
     [ValidateRange(0, 1000)][int]$WarmUp = 2,
     [ValidateSet('gl', 'vulkan', 'both')][string]$Rhi = 'both',
     [string]$Exe = '',

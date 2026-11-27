@@ -76,7 +76,7 @@ namespace OloEngine::Tests
                 "  --olo-cross-path-export=<dir>  write the cross-path matrix rows' scenes + manifest for the\n"
                 "                                 live Vulkan replay (scripts/cross-path-matrix-live.py, #1347)\n"
                 "  --olo-lifecycle-soak-cycles=<n> lifecycle soak cycles after warm-up (2..100000, default 2, #1796)\n"
-                "  --olo-lifecycle-soak-warmup=<n> lifecycle soak warm-up cycles (default 1)\n"
+                "  --olo-lifecycle-soak-warmup=<n> lifecycle soak warm-up cycles (0..100000, default 1)\n"
                 "  --olo-lifecycle-soak-report=<path> write the soak's replay data as JSON\n"
                 "  --olo-lifecycle-soak-control-out=<path> write scene A's settled frame (fresh-process control)\n"
                 "  --olo-lifecycle-soak-control-in=<path> compare A after the soak against that frame\n");

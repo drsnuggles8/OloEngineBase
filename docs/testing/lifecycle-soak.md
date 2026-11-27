@@ -8,7 +8,8 @@ renderer-level operations over a scene built in code.
 - **Per-PR smoke:** `LifecycleSoak.*` in the ordinary suite (one warm-up cycle, two measured
   cycles per leg), [LifecycleSoakTest.cpp](../../OloEngine/tests/Rendering/Lifecycle/LifecycleSoakTest.cpp).
   Every local `ctest` runs it on both backends: the GL pass under the `olo_sandbox_registry` lock,
-  and its own `OloEngine-Tests_VulkanLifecycleSoak` entry (`--olo-rhi=vulkan`). Hosted PR runners
+  and, in a tree configured with `OLO_WITH_VULKAN` (the default on Windows), its own
+  `OloEngine-Tests_VulkanLifecycleSoak` entry (`--olo-rhi=vulkan`). Hosted PR runners
   have no GPU, so there it skips and only `LifecycleSoakStats.*` runs; the AMD nightly's default
   filter includes it. It is not in `vulkan_scene_filter.txt`: on lavapipe every pipeline compiles
   cold at its first draw, the soak draws three render paths and two tiers every cycle, and one
