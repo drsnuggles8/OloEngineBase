@@ -365,7 +365,7 @@ namespace OloEngine
 
     void DisplayOutput::SetCompositionGamma(const f32 gamma) noexcept
     {
-        MutableState().CompositionGamma = std::clamp(Finite(gamma, 2.2f), 0.1f, 5.0f);
+        MutableState().CompositionGamma = std::clamp(Finite(gamma, 2.2f), kMinHdrCompositionGamma, 5.0f);
     }
 
     f32 DisplayOutput::GetCompositionGamma() noexcept
@@ -418,6 +418,8 @@ namespace OloEngine
             return false;
         }
         file << out.c_str();
+        // close() flushes the buffer and sets failbit if that fails.
+        file.close();
         if (!file)
         {
             OLO_CORE_ERROR("DisplayOutput::SaveToFile: write failed for '{}'", path.string());
@@ -442,6 +444,12 @@ namespace OloEngine
         catch (const YAML::Exception& e)
         {
             OLO_CORE_ERROR("DisplayOutput::LoadFromFile: parse error in '{}': {}", path.string(), e.what());
+            return false;
+        }
+        // A scalar or sequence root throws on a key lookup: check it is a map.
+        if (!root.IsMap())
+        {
+            OLO_CORE_WARN("DisplayOutput::LoadFromFile: '{}' is not a YAML map", path.string());
             return false;
         }
         const auto node = root["DisplayOutput"];

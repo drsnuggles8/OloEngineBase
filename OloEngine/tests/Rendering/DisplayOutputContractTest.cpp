@@ -361,6 +361,17 @@ TEST_F(DisplayOutputContract, ABadFileLeavesTheSettingsAlone)
     }
     EXPECT_FALSE(DisplayOutput::LoadFromFile(corrupt));
     EXPECT_EQ(DisplayOutput::GetSettings(), authored);
+    // Valid YAML whose root is not a map: a key lookup on it would throw.
+    for (const char* root : { "SDR\n", "- HDR10\n" })
+    {
+        const auto notAMap = OloEngine::Tests::TempDir() / "not-a-map.yaml";
+        {
+            std::ofstream out(notAMap);
+            out << root;
+        }
+        EXPECT_NO_THROW(EXPECT_FALSE(DisplayOutput::LoadFromFile(notAMap))) << root;
+        EXPECT_EQ(DisplayOutput::GetSettings(), authored) << root;
+    }
 
     // A hand-edited file: an omitted key keeps the user's value, a bad one is
     // ignored, an out-of-range one is sanitized.
@@ -374,4 +385,25 @@ TEST_F(DisplayOutputContract, ABadFileLeavesTheSettingsAlone)
     EXPECT_FLOAT_EQ(DisplayOutput::GetSettings().PaperWhiteNits, 300.0f);
     EXPECT_FLOAT_EQ(DisplayOutput::GetSettings().UIWhiteNits, 200.0f);
     EXPECT_FLOAT_EQ(DisplayOutput::GetSettings().PeakNitsOverride, kMaxPqNits);
+}
+
+// The brightest HDR composition value, (peak / UI white)^(1 / gamma), must fit
+// in the RGBA16F composition image for every gamma the setter lets through.
+TEST_F(DisplayOutputContract, EveryHdrCompositionValueFitsInRgba16F)
+{
+    DisplayOutput::SetCompositionGamma(0.1f);
+    const f32 gamma = DisplayOutput::GetCompositionGamma();
+    EXPECT_FLOAT_EQ(gamma, kMinHdrCompositionGamma);
+
+    DisplayMapping mapping;
+    mapping.Mode = DisplayOutputMode::HDR10;
+    mapping.PeakNits = kMaxPqNits;
+    mapping.PaperWhiteNits = kMinWhiteNits;
+    mapping.UIWhiteNits = kMinWhiteNits;
+    const glm::vec3 brightest = NitsToComposition(glm::vec3(kMaxPqNits), mapping, gamma);
+    EXPECT_TRUE(std::isfinite(brightest.r));
+    EXPECT_LE(brightest.r, kMaxCompositionValue);
+    // And the round trip is still the identity at that gamma.
+    const glm::vec3 nits = glm::pow(brightest, glm::vec3(gamma)) * mapping.UIWhiteNits;
+    EXPECT_NEAR(nits.r, kMaxPqNits, kMaxPqNits * 1.0e-4f);
 }

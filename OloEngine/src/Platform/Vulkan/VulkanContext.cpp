@@ -116,6 +116,35 @@ namespace OloEngine
             return std::ranges::any_of(formats, [mode](const VkSurfaceFormatKHR& f)
                                        { return f.format == PresentFormatFor(mode) && f.colorSpace == ColorSpaceFor(mode); });
         }
+
+        // The SDR swapchain format: an 8-bit UNORM in the sRGB colour space
+        // (the tone map already gamma-encodes, so an _SRGB format would encode
+        // twice). Vulkan fixes neither the list order nor that BGRA8 is in it,
+        // so formats[0] may be an HDR pair; it is never kept for SDR while an
+        // SRGB_NONLINEAR pair exists.
+        [[nodiscard]] VkSurfaceFormatKHR PickSdrSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats)
+        {
+            for (const VkFormat wanted : { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM })
+            {
+                for (const VkSurfaceFormatKHR& format : formats)
+                {
+                    if (format.format == wanted && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                        return format;
+                }
+            }
+            for (const VkSurfaceFormatKHR& format : formats)
+            {
+                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+                {
+                    OLO_CORE_WARN("VulkanContext: the surface offers no 8-bit UNORM sRGB format; SDR presents as VkFormat {}",
+                                  std::to_underlying(format.format));
+                    return format;
+                }
+            }
+            OLO_CORE_ERROR("VulkanContext: the surface offers no SRGB_NONLINEAR format; SDR presents in colour space {} and will look wrong",
+                           std::to_underlying(formats.at(0).colorSpace));
+            return formats.at(0);
+        }
     } // namespace
 
     struct VulkanContextData
@@ -528,15 +557,7 @@ namespace OloEngine
         }
         else
         {
-            for (const VkSurfaceFormatKHR& format : formats)
-            {
-                if (format.format == VK_FORMAT_B8G8R8A8_UNORM &&
-                    format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-                {
-                    surfaceFormat = format;
-                    break;
-                }
-            }
+            surfaceFormat = PickSdrSurfaceFormat(formats);
         }
 
         int fbWidth = 0;

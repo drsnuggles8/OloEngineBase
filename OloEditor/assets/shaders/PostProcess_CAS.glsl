@@ -78,9 +78,12 @@ layout(std140, binding = 44) uniform CASParams
 #define u_Sharpness (u_CAS_Params.x)
 #define u_TexelSize (u_CAS_Params.yz)
 
+// Each tap is capped at FP16's largest finite value, so an overflowed (+Inf)
+// texel reaches the kernel as 65504 and cannot turn Inf/Inf into NaN. Every
+// finite RGBA16F value is unchanged, and so is SDR.
 vec3 SampleColor(vec2 uv)
 {
-    return texture(u_Texture, uv).rgb;
+    return min(texture(u_Texture, uv).rgb, vec3(65504.0));
 }
 
 void main()
@@ -108,8 +111,7 @@ void main()
     // In SDR the peak is <= 1, the scale is exactly 1.0, and dividing and
     // multiplying by 1.0 are exact: the SDR output is bit for bit unchanged.
     vec3 hoodMax = max(max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h))), i);
-    // Capped at FP16's largest finite value: an overflowed (+Inf) texel must
-    // not turn the whole neighbourhood into Inf/Inf = NaN.
+    // The taps are already capped at 65504 (SampleColor), so this is finite.
     float hdrScale = clamp(max(hoodMax.r, max(hoodMax.g, hoodMax.b)), 1.0, 65504.0);
     a /= hdrScale;
     b /= hdrScale;

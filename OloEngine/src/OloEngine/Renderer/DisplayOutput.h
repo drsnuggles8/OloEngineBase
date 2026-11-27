@@ -133,6 +133,13 @@ namespace OloEngine
     inline constexpr f32 kFallbackPeakNits = 1000.0f;
     // scRGB's 1.0: the sRGB reference display white.
     inline constexpr f32 kScRgbReferenceNits = 80.0f;
+    // RGBA16F's largest finite value: the ceiling of the composition image.
+    inline constexpr f32 kMaxCompositionValue = 65504.0f;
+    // The lowest HDR composition gamma. The brightest composition value is
+    // (peak / UI white)^(1 / gamma), at most (kMaxPqNits / kMinWhiteNits)^(1 /
+    // gamma) = 125^2 = 15625 at this floor, which RGBA16F holds. Gamma 0.1
+    // would give 125^10 and overflow to +Inf.
+    inline constexpr f32 kMinHdrCompositionGamma = 0.5f;
 
     // Clamp every field to a finite, sane range (CLAUDE.md: floats from disk are
     // validated with std::isfinite). An out-of-range enum falls back to Auto.
@@ -246,7 +253,9 @@ namespace OloEngine
 
         // The gamma of the composition space: PostProcessSettings::Gamma, the
         // value the tone map encoded with. The renderer publishes it every
-        // frame; the display encode decodes with it. Sanitized to [0.1, 5].
+        // frame; the display encode decodes with it. Sanitized to
+        // [kMinHdrCompositionGamma, 5], so every HDR composition value fits
+        // in RGBA16F; SDR uploads the raw value and never reads this.
         static void SetCompositionGamma(f32 gamma) noexcept;
         [[nodiscard]] static f32 GetCompositionGamma() noexcept;
 

@@ -77,12 +77,14 @@ namespace OloEngine
             for (UINT adapterIndex = 0; !found; ++adapterIndex)
             {
                 ComRelease<IDXGIAdapter1> adapter;
-                if (factory.Ptr->EnumAdapters1(adapterIndex, &adapter.Ptr) == DXGI_ERROR_NOT_FOUND)
+                if (FAILED(factory.Ptr->EnumAdapters1(adapterIndex, &adapter.Ptr)) || adapter.Ptr == nullptr)
                     break;
                 for (UINT outputIndex = 0; !found; ++outputIndex)
                 {
                     ComRelease<IDXGIOutput> output;
-                    if (adapter.Ptr->EnumOutputs(outputIndex, &output.Ptr) == DXGI_ERROR_NOT_FOUND)
+                    // NOT_FOUND ends the list; any other failure (Session 0
+                    // reports NOT_CURRENTLY_AVAILABLE) leaves no output either.
+                    if (FAILED(adapter.Ptr->EnumOutputs(outputIndex, &output.Ptr)) || output.Ptr == nullptr)
                         break;
                     ComRelease<IDXGIOutput6> output6;
                     if (FAILED(output.Ptr->QueryInterface(__uuidof(IDXGIOutput6), reinterpret_cast<void**>(&output6.Ptr))))

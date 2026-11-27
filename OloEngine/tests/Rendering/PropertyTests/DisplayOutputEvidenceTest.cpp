@@ -353,6 +353,16 @@ namespace OloEngine::Tests
 
         // Each patch's centre carries exactly its emissive radiance: no light,
         // a black albedo, and nothing between the scene and the tone map.
+        // A NaN pixel fails no `err > tolerance` comparison, so every image a
+        // cell checks is first required to be finite.
+        void ExpectAllFinite(const std::vector<f32>& rgba, const char* what)
+        {
+            u32 bad = 0;
+            for (const f32 v : rgba)
+                bad += std::isfinite(v) ? 0u : 1u;
+            EXPECT_EQ(bad, 0u) << what << " holds non-finite channels";
+        }
+
         void ExpectKnownScene(const Capture& c)
         {
             for (u32 i = 0; i < kPatches.size(); ++i)
@@ -370,6 +380,7 @@ namespace OloEngine::Tests
             Capture c;
             ASSERT_NO_FATAL_FAILURE(Render(path, c));
             ASSERT_FALSE(DisplayOutput::GetActiveMapping().IsHdr());
+            ExpectAllFinite(c.Composite, "the SDR composite");
             ExpectKnownScene(c);
             // SDR: Reinhard, then 1/gamma, quantised to RGBA8 (+-0.5 LSB dither).
             u32 off = 0;
@@ -396,6 +407,7 @@ namespace OloEngine::Tests
             ASSERT_EQ(mapping.Mode, mode) << "the backend did not select " << ToString(mode) << ": "
                                           << *DisplayOutput::GetActiveSelection().Reason;
             ASSERT_FLOAT_EQ(mapping.PeakNits, kPeak);
+            ExpectAllFinite(c.Composite, "the HDR composite");
             ExpectKnownScene(c);
 
             // Every composite pixel is the CPU mapping of its scene pixel. The
@@ -447,6 +459,7 @@ namespace OloEngine::Tests
             std::vector<f32> presented;
             ReadbackRgbaFloat(context->GetPresentImageHandle(0), kSize, kSize, presented);
             ASSERT_EQ(presented.size(), c.Composite.size());
+            ExpectAllFinite(presented, "the presented image");
             // HDR10 stores 10-bit PQ; scRGB stores half floats.
             const bool hdr10 = mapping.Mode == DisplayOutputMode::HDR10;
             u32 off = 0;
@@ -526,6 +539,7 @@ namespace OloEngine::Tests
         std::vector<f32> scene;
         std::vector<f32> composite;
         ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, scene, composite));
+        ExpectAllFinite(composite, "the stages composite");
         EXPECT_GT(StagePixelsChanged(scene, composite, DisplayOutput::GetActiveMapping()), 1000u)
             << "CAS and the adaptation did not run this frame";
         const std::vector<u8> rgba8 = ToRgba8(composite);
@@ -544,6 +558,7 @@ namespace OloEngine::Tests
         std::vector<f32> scene;
         std::vector<f32> composite;
         ASSERT_NO_FATAL_FAILURE(RenderWithDisplayRangeStages(RenderingPath::Forward, scene, composite));
+        ExpectAllFinite(composite, "the stages composite");
         ASSERT_TRUE(DisplayOutput::GetActiveMapping().IsHdr());
         const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
         EXPECT_GT(StagePixelsChanged(scene, composite, mapping), 1000u) << "CAS and the adaptation did not run this frame";
