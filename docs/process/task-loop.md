@@ -45,7 +45,8 @@ rather than reading [agent-rules/README.md](../agent-rules/README.md) whole. The
 it (a *Design context* section that is not one of its one-line forms; a KESTREL task whose handover
 lacks the section is classified first): read the guide and the design documents its *What to read*
 list names, and complete *Design context*. Any other task, engine-only and mechanical doc edits
-included, leaves the game-design documents unopened and owes no *Design validation* section.
+included, leaves the game-design documents unopened (a mechanical doc edit opens only the files it
+changes) and owes no *Design validation* section.
 
 Confirm you are in the worktree, not the base repo, and that the guards are live:
 

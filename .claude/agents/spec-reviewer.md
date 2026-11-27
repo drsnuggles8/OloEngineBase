@@ -50,13 +50,13 @@ push or comment.
 7. **KESTREL design**: in every task, a change to an archived snapshot (a file listed in
    `OloEditor/KestrelProject/docs/archive/SHA256SUMS`) is a finding. In every task, a changed decision
    record, open question or tunable in `OloEditor/KestrelProject/docs/` without the owner's approval
-   cited in the commit message and PR body is a finding. If the diff touches `OloEditor/KestrelProject/`
+   cited in the commit message, and in the PR body once a PR exists, is a finding. If the diff touches `OloEditor/KestrelProject/`
    or the issue carries the `kestrel` label or milestone, read the *When this guide applies* section of
    `OloEditor/KestrelProject/docs/AGENT_GUIDE.md`, classify the task yourself and compare with
    `HANDOVER.md`'s *Design context*; a missing or wrong classification is a finding. For gameplay work,
-   also read the decision records the section cites (look IDs up in `DECISIONS.md`). Findings: no
-   *Design validation* section in the PR body, or one missing any of the guide's ten design-acceptance
-   fields; agent runs described as human playtesting; behaviour that contradicts a cited decision. Human
+   also read the decision records the section cites (look IDs up in `DECISIONS.md`). Findings: the
+   guide's ten design-acceptance fields missing from *Design context* or, once a PR exists, from its
+   *Design validation* section (in Phase 3, before the PR, there is no PR body to check); agent runs described as human playtesting; behaviour that contradicts a cited decision. Human
    validation still owed, and stated, is not a finding.
 
 Do **not** report style preferences, naming opinions, speculative hardening, extra tests for cases

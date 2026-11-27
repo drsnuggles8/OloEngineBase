@@ -148,7 +148,8 @@ C++23, OpenGL 4.6 with DSA, Vulkan behind the RHI. ECS is EnTT under an `Entity`
   project: [ADR 0027](docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md). The goal
   and its critical path: [north-star.md](docs/process/north-star.md). Its game design lives in
   `OloEditor/KestrelProject/docs/`; gameplay work starts at its
-  [AGENT_GUIDE.md](OloEditor/KestrelProject/docs/AGENT_GUIDE.md), engine-only work skips it.
+  [AGENT_GUIDE.md](OloEditor/KestrelProject/docs/AGENT_GUIDE.md); other KESTREL tasks read only
+  its classification section, and engine work outside KESTREL skips it.
 - **Primitives:** `Ref<T>` from `Core/Ref.h`; `u32`, `f32`, `sizet` from `Core/Base.h`, global scope.
 
 ## Conventions

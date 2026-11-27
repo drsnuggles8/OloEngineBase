@@ -35,7 +35,8 @@ engine work that is merely good.
 - **Game:** KESTREL (codename; no public title yet), a photoreal ski resort management game on real
   mountains. You design and run each resort through full seasons, unlock lifts and technology era by
   era from 1950 to today (a tech tree with era gating, in the style of Two Point Museum and Hollywood
-  Animals), and build a group of resorts, moving to new regions of the world (in the style of Planet
+  Animals; its exact era-locking rules stay open,
+  [P-11](../../OloEditor/KestrelProject/docs/gameplay/progression-and-research.md#p-11)), and build a group of resorts, moving to new regions of the world (in the style of Planet
   Zoo and RollerCoaster Tycoon). Sandbox first, plus a scenario campaign. Riding your own runs is a
   nice extra, not core. Full seasons, summer included. It lives in this repo as
   `OloEditor/KestrelProject` ([ADR 0027](../adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md)).

@@ -108,7 +108,8 @@ issue format and `olo-score` block. Existing issues are not rewritten to add the
   recorded by the owner from human evidence.
 - A gameplay PR may be technically complete with human validation outstanding
   ([V-17](validation/automated-balancing.md#v-17)): state it as `Design: playtest-ready; human validation owed:
-  <question>`. That is a complete Design validation section, not a gap.
+  <question>` in field 9 (Status). The owed validation is then stated, not a gap; all ten fields of the
+  Design validation section are still required.
 - Keep raw tester data and credentials out of public issues, repository and logs; only sanitized evidence
   is shared ([V-10](validation/steam-and-feedback.md#v-10)).
 
