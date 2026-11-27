@@ -39,16 +39,25 @@ both backends. The bounds are `render / physical` per axis (`DRSUBOData`,
 5. **Keep the bounds out of a header a device rig shares.** The include adds a
    UBO at binding 33, and a rig that never publishes one fails every draw
    (`ReSTIRPTDevice`, through `GBufferRaySurface.glsl`). Put the include in the
-   entry shader, or make the header take a macro.
+   entry shader, or make the header take a macro: `GBufferRaySurface.glsl`
+   takes `OLO_GBUFFER_RAY_SURFACE_BOUNDS` and `TemporalResolve.glsl` takes
+   `OLO_TEMPORAL_HISTORY_BOUNDS`, both `(1, 1)` by default. The ReSTIR DI and GI
+   shaders set both through `include/ReSTIRRenderScale.glsl`, included before
+   the scene-access headers. ReSTIR PT reads the bounds from its own
+   `u_Screen.zw` (`ReSTIR::PT::Parameters::Screen`), which its rig fills.
+   Spatial neighbours stay inside the rendered extent, not the storage size.
 6. **Not covered: virtual geometry**, which sizes its raster, cull and HZB from
-   the G-Buffer storage ([#1822](https://github.com/drsnuggles8/OloEngineBase/issues/1822)), and the ReSTIR DI/GI/PT
-   tiers ([#1823](https://github.com/drsnuggles8/OloEngineBase/issues/1823)). Both change nothing at scale 1.0.
+   the G-Buffer storage ([#1822](https://github.com/drsnuggles8/OloEngineBase/issues/1822)). It changes nothing at
+   scale 1.0.
 
 ## How to check
 
 - `DynamicRenderScaleEvidenceTest`: two cubes and a point light's pool at
   scales 1.0, 0.75 and 0.5 on Forward, Forward+, Deferred and Deferred MSAA 4,
   in both test processes. Each subject must sit at native times the scale.
+  The `DeferredReSTIRDIGI` and `DeferredReSTIRDIPT` cells run the hybrid tiers
+  (Vulkan with hardware ray queries only, and outside the CI Vulkan filter).
+  ReSTIR DI owns the pool's lamp there, and each tier must report itself active.
 - `UpscaleFramingEvidenceTest.BenchmarkCaptureReadsTheRenderedFrameAtEveryInternalScale`:
   the benchmark capture core's crop on Forward and Deferred.
 - `ShaderUnitRenderScaleBoundsTest`: the GLSL mapping, including the zero-bounds

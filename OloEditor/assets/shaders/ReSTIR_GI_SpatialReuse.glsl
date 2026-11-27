@@ -113,6 +113,8 @@ layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 
 #include "include/SkyDepth.glsl"
 #include "include/PBRCommon.glsl"
+// The dynamic render scale (#1823): reconstruction and temporal reuse in frame uv.
+#include "include/ReSTIRRenderScale.glsl"
 #include "include/ReSTIRGISceneAccess.glsl"
 
 // One candidate offered to the combine.
@@ -272,8 +274,9 @@ void main()
         // The neighbour is a whole texel (see OLO_RESTIR_FETCH), and never the
         // centre itself.
         const ivec2 neighbourPixel = ivec2(floor(gl_FragCoord.xy + offsetPixels));
+        // Inside the RENDERED corner: under the dynamic scale the texels past it hold no frame (#1823).
         if (neighbourPixel == ivec2(gl_FragCoord.xy) || any(lessThan(neighbourPixel, ivec2(0))) ||
-            any(greaterThanEqual(neighbourPixel, ivec2(u_ScreenParams.xy))))
+            any(greaterThanEqual(neighbourPixel, ivec2(round(u_ScreenParams.xy * oloRenderScaleBounds())))))
         {
             continue;
         }

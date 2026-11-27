@@ -106,6 +106,8 @@ layout(binding = 45) uniform sampler2D u_GBufferEmissive; // RT2: rgb = emissive
 
 #include "include/SkyDepth.glsl"
 #include "include/PBRCommon.glsl"
+// The dynamic render scale (#1823): reconstruction and temporal reuse in frame uv.
+#include "include/ReSTIRRenderScale.glsl"
 // The GPU Scene tables, the parameter block, the alpha-MASK test, the shared
 // light sampling and the shared estimator, in the one order that compiles.
 #include "include/ReSTIRDISceneAccess.glsl"

@@ -60,7 +60,7 @@ namespace OloEngine::ReSTIR::PT
         glm::vec4 Params{};                // normal bias, ray epsilon, max distance, connection roughness
         glm::vec4 EstimatorParams{};       // emissive area PDF, environment cube intensity, clamp, radius px
         glm::vec4 Environment{};
-        glm::vec4 Screen{};
+        glm::vec4 Screen{}; // width, height (pool extent), render-scale bounds xy (1, 1 unscaled)
         glm::uvec4 Reuse{}; // temporal, spatial, valid history, epoch high
         glm::vec4 Debug{};  // view, fixed seed, M cap, layout version
     };

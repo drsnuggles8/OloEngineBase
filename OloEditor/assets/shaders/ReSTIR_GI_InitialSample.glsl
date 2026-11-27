@@ -113,6 +113,8 @@ layout(binding = 11) uniform samplerCube u_EnvironmentCube; // TEX_USER_1: the e
 
 #include "include/SkyDepth.glsl"
 #include "include/PBRCommon.glsl"
+// The dynamic render scale (#1823): reconstruction and temporal reuse in frame uv.
+#include "include/ReSTIRRenderScale.glsl"
 // THE PROBE CACHE, READ AT THE BOUNCE VERTEX — the whole DDGI hand-off
 // (design note §5). This is the ONLY ReSTIR GI draw that includes it: the cache
 // is read once per path, at x1, and never at x0 while this tier is live.

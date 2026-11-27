@@ -14,6 +14,13 @@
 // which maps a fragment to its cluster through the rendered extent). Each
 // must sit at native * scale with native * scale^2 of the area.
 //
+// Two more Deferred cells run the hybrid tiers (issue #1823): ReSTIR DI with
+// GI, and ReSTIR DI with PT. DI owns the point light when it engages, so the
+// pool is lit at the shading points DI reconstructs from the G-Buffer; a
+// reconstruction from texture uv as if it were frame uv puts the pool where
+// the full frame had it. Those cells need --olo-rhi=vulkan and hardware ray
+// queries, and fail unless every requested tier reports itself active.
+//
 // Evidence: OloEditor/assets/tests/visual/DynamicRenderScale_<Backend>_<Path>_Scale<NN>.png,
 // the rendered corner, top row first. Runs in the Vulkan process too
 // (RunsInVulkanProcess), so each cell has a GL and a Vulkan artefact.
@@ -28,7 +35,11 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -58,12 +69,23 @@ namespace OloEngine::Tests
         constexpr f32 kCaptureTime = 4.0f;
         constexpr u32 kSettleFrames = 3;
         constexpr u32 kPixelFloor = 60;
+        // The hybrid tiers resample over frames; this many let the temporal
+        // reuse converge after the scale change drops their history.
+        constexpr u32 kHybridSettleFrames = 16;
 
         struct ScaleCase
         {
             RenderingPath Path;
             u32 DeferredSamples;
             const char* Name;
+            bool ReSTIRDI = false;
+            bool ReSTIRGI = false;
+            bool ReSTIRPT = false;
+
+            [[nodiscard]] bool Hybrid() const
+            {
+                return ReSTIRDI || ReSTIRGI || ReSTIRPT;
+            }
         };
 
         struct Blob
@@ -222,6 +244,22 @@ namespace OloEngine::Tests
                 pl.m_Intensity = 25.0f;
                 pl.m_Range = 2.5f;
             }
+            if (GetParam().ReSTIRDI)
+            {
+                // ReSTIR DI engages only when the emitters outnumber its
+                // per-pixel candidates; the test runs it at one candidate, so
+                // two dim lamps behind the camera make the pool's lamp one of
+                // three. Out of range of everything the camera sees.
+                for (const glm::vec3& at : { glm::vec3(-6.0f, 2.0f, 14.0f), glm::vec3(6.0f, 2.0f, 14.0f) })
+                {
+                    Entity extra = scene.CreateEntity("BudgetLamp");
+                    extra.GetComponent<TransformComponent>().Translation = at;
+                    auto& pl = extra.AddComponent<PointLightComponent>();
+                    pl.m_Color = glm::vec3(0.2f, 0.3f, 1.0f);
+                    pl.m_Intensity = 0.5f;
+                    pl.m_Range = 1.0f;
+                }
+            }
         }
 
         [[nodiscard]] static EditorCamera Camera()
@@ -240,7 +278,10 @@ namespace OloEngine::Tests
         void Capture(f32 scale, Frame& out)
         {
             const EditorCamera camera = Camera();
-            RunEditorFrames(camera, kSettleFrames);
+            RunEditorFrames(camera, GetParam().Hybrid() ? kHybridSettleFrames : kSettleFrames);
+            ExpectRequestedTiersActive(scale);
+            if (HasFatalFailure())
+                return;
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
             if (!fb)
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
@@ -259,6 +300,35 @@ namespace OloEngine::Tests
                 const u8* src = full.data() + (static_cast<sizet>(firstRow + row) * kWidth * 4u);
                 u8* dst = out.Rgba.data() + (static_cast<sizet>(out.Height - 1u - row) * out.Width * 4u);
                 std::memcpy(dst, src, static_cast<sizet>(out.Width) * 4u);
+            }
+        }
+
+        // A comparison against a stood-down tier measures the raster loop
+        // twice, so every requested tier must have run the captured frame.
+        static void ExpectRequestedTiersActive(f32 scale)
+        {
+            const ScaleCase& param = GetParam();
+            const std::string at = " at scale " + std::to_string(scale);
+            if (param.ReSTIRDI)
+            {
+                const ReSTIRDIPass* pass = Renderer3D::GetReSTIRDIPass();
+                ASSERT_NE(pass, nullptr);
+                ASSERT_TRUE(pass->GetStats().Active)
+                    << "ReSTIR DI stood down" << at << ": " << ToString(pass->GetStats().Fallback);
+            }
+            if (param.ReSTIRGI)
+            {
+                const ReSTIRGIPass* pass = Renderer3D::GetReSTIRGIPass();
+                ASSERT_NE(pass, nullptr);
+                ASSERT_TRUE(pass->GetStats().Active)
+                    << "ReSTIR GI stood down" << at << ": " << ToString(pass->GetStats().Fallback);
+            }
+            if (param.ReSTIRPT)
+            {
+                const ReSTIRPTPass* pass = Renderer3D::GetReSTIRPTPass();
+                ASSERT_NE(pass, nullptr);
+                ASSERT_TRUE(pass->GetStats().Active)
+                    << "ReSTIR PT stood down" << at << ": " << pass->GetStats().FallbackReason;
             }
         }
 
@@ -281,6 +351,8 @@ namespace OloEngine::Tests
         const ScaleCase& param = GetParam();
         if (param.DeferredSamples > 1u && param.DeferredSamples > Renderer3D::GetMaxMSAASamples())
             GTEST_SKIP() << "The device cannot render " << param.DeferredSamples << " samples";
+        if (param.Hybrid() && (!TestRenderBackend::IsVulkanProcess() || !RenderCommand::SupportsRayTracing()))
+            GTEST_SKIP() << "The hybrid tiers need --olo-rhi=vulkan and hardware ray queries";
 
         struct ScopedMockTime
         {
@@ -300,6 +372,36 @@ namespace OloEngine::Tests
         settings.Path = param.Path;
         settings.Deferred.MSAASampleCount = param.DeferredSamples;
         Renderer3D::ApplyRendererSettings();
+
+        auto& postProcess = Renderer3D::GetPostProcessSettings();
+        struct ScopedTiers
+        {
+            explicit ScopedTiers(PostProcessSettings& live)
+                : Live(live), DI(live.ReSTIRDI), GI(live.ReSTIRGI), PT(live.ReSTIRPT)
+            {
+            }
+            PostProcessSettings& Live;
+            ReSTIRDISettings DI;
+            ReSTIRGISettings GI;
+            ReSTIRPTSettings PT;
+            ~ScopedTiers()
+            {
+                Live.ReSTIRDI = DI;
+                Live.ReSTIRGI = GI;
+                Live.ReSTIRPT = PT;
+            }
+            ScopedTiers(const ScopedTiers&) = delete;
+            ScopedTiers& operator=(const ScopedTiers&) = delete;
+        } const scopedTiers(postProcess);
+        if (param.ReSTIRDI)
+        {
+            postProcess.ReSTIRDI.Enabled = true;
+            // One candidate and no margin: three lamps engage it (BuildScene).
+            postProcess.ReSTIRDI.InitialCandidates = 1u;
+            postProcess.ReSTIRDI.EngagementMargin = 0u;
+        }
+        postProcess.ReSTIRGI.Enabled = param.ReSTIRGI;
+        postProcess.ReSTIRPT.Enabled = param.ReSTIRPT;
 
         const std::string cellBase = TestRenderBackend::EvidenceName("DynamicRenderScale") + param.Name;
 
@@ -350,7 +452,9 @@ namespace OloEngine::Tests
                              ::testing::Values(ScaleCase{ RenderingPath::Forward, 1u, "Forward" },
                                                ScaleCase{ RenderingPath::ForwardPlus, 1u, "ForwardPlus" },
                                                ScaleCase{ RenderingPath::Deferred, 1u, "Deferred" },
-                                               ScaleCase{ RenderingPath::Deferred, 4u, "Deferred4x" }),
+                                               ScaleCase{ RenderingPath::Deferred, 4u, "Deferred4x" },
+                                               ScaleCase{ RenderingPath::Deferred, 1u, "DeferredReSTIRDIGI", true, true, false },
+                                               ScaleCase{ RenderingPath::Deferred, 1u, "DeferredReSTIRDIPT", true, false, true }),
                              [](const auto& info)
                              { return info.param.Name; });
 } // namespace OloEngine::Tests

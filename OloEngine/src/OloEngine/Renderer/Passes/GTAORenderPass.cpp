@@ -626,12 +626,7 @@ namespace OloEngine
         // position times the bounds: dividing Mul by the bounds unprojects the
         // corner as the whole frame, and the pixel radius (1 / Mul.x) shrinks
         // with it. Add is unchanged (the corner starts at 0).
-        glm::vec2 renderBounds(1.0f);
-        if (m_RenderViewportWidth > 0u && m_RenderViewportHeight > 0u && m_Width > 0u && m_Height > 0u)
-        {
-            renderBounds = glm::vec2(static_cast<f32>(m_RenderViewportWidth) / static_cast<f32>(m_Width),
-                                     static_cast<f32>(m_RenderViewportHeight) / static_cast<f32>(m_Height));
-        }
+        const glm::vec2 renderBounds = RenderViewportBounds(m_Width, m_Height);
         data.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11) / renderBounds;
         data.NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 

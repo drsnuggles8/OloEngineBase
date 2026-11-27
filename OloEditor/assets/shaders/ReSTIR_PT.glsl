@@ -74,6 +74,12 @@ layout(binding = 11) uniform samplerCube u_EnvironmentCube;
 #define OLO_RT_HIT_SAMPLER_HEAP u_MaterialTable.w
 #define OLO_RT_HIT_TEXTURES_REQUESTED ((u_EmissiveTable.w & OLO_RESTIR_PT_FLAG_TEXTURES) != 0u)
 #include "include/RayTracedSurfaceHit.glsl"
+// The dynamic render scale (issue #1823): the G-Buffer frame fills the
+// [0, bounds) corner. The device rig publishes no DRS UBO (binding 33), so the
+// bounds ride in u_Screen.zw (ReSTIR::PT::Parameters::Screen), (1, 1) unscaled.
+#define OLO_RENDER_SCALE_BOUNDS u_Screen.zw
+#include "include/RenderScaleBounds.glsl"
+#define OLO_GBUFFER_RAY_SURFACE_BOUNDS oloRenderScaleBounds()
 #include "include/GBufferRaySurface.glsl"
 #include "include/ReSTIRPTCharts.glsl"
 #include "include/ReSTIRPTTransport.glsl"
@@ -106,6 +112,9 @@ void main()
     if (any(lessThan(pixel, ivec2(0))) || any(greaterThanEqual(pixel, extent)))
         return;
     uint index = uint(pixel.y) * uint(extent.x) + uint(pixel.x);
+    // The pools are indexed over the whole target; only the rendered corner
+    // holds a frame, so a reused neighbour must come from inside it.
+    ivec2 frameExtent = ivec2(round(vec2(extent) * oloRenderScaleBounds()));
     bool hasOutput = (u_DestinationAddresses.x | u_DestinationAddresses.y) != 0u;
     if (!hasOutput)
         return;
@@ -146,7 +155,8 @@ void main()
             uvec2 address = u_SourceAddresses.zw;
             if (u_Counts.y == 1u)
             {
-                vec2 uv = v_TexCoord - texture(u_GVelocity, v_TexCoord).xy;
+                // A frame-uv velocity, times the bounds a texture-uv delta.
+                vec2 uv = v_TexCoord - texture(u_GVelocity, v_TexCoord).xy * oloRenderScaleBounds();
                 neighbourPixel = ivec2(floor(uv * vec2(extent)));
                 address = u_HistoryAddresses.xy;
             }
@@ -156,7 +166,7 @@ void main()
                 float radius = max(1.0, u_EstimatorParams.w * sqrt(oloPtGet1D(pathSampler)));
                 neighbourPixel += ivec2(round(vec2(cos(angle), sin(angle)) * radius));
             }
-            if ((address.x | address.y) != 0u && all(greaterThanEqual(neighbourPixel, ivec2(0))) && all(lessThan(neighbourPixel, extent)))
+            if ((address.x | address.y) != 0u && all(greaterThanEqual(neighbourPixel, ivec2(0))) && all(lessThan(neighbourPixel, frameExtent)))
             {
                 uint neighbourIndex = uint(neighbourPixel.y) * uint(extent.x) + uint(neighbourPixel.x);
                 PTPath neighbour = PTPool(address).Records[neighbourIndex];
