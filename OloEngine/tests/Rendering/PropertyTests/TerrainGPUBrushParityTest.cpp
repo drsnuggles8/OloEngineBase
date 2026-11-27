@@ -284,6 +284,19 @@ TEST_F(ParentedTerrainBrush, OnePickOwnsTheDabsAndUndoAcrossOverlappingTerrains)
     EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
     ASSERT_TRUE(history.CanRedo());
     EXPECT_FALSE(panel.IsAcquiringStroke(true));
+    // Alt held over the viewport filters the press to false while the button
+    // stays down. Releasing Alt must not start a stroke from the same press.
+    RunInFrame([&]
+               {
+                   panel.OnFrameTick(true, true);
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, false); });
+    RunInFrame([&]
+               {
+                   panel.OnFrameTick(true, true);
+                   panel.OnUpdate(1, lower, { 24, 2, 24 }, true); });
+    EXPECT_TRUE(history.CanRedo()) << "a filtered release cleared the interruption and the held button painted";
+    EXPECT_TRUE(lowerTile.m_Material->GetSplatmapData(0) == beforeLowerPaint);
+    EXPECT_FALSE(panel.IsAcquiringStroke(true));
     RunInFrame([&]
                {
                    panel.OnFrameTick(true, true);

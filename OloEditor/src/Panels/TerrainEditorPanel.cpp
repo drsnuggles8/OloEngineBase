@@ -853,8 +853,12 @@ namespace OloEngine
 
     void TerrainEditorPanel::OnUpdate(f32 deltaTime, Entity hitTerrain, const glm::vec3& hitPos, bool mouseDown)
     {
+        // `mouseDown` is the viewport's FILTERED press (false while Alt or the
+        // gizmo holds it), so it only ends the stroke. Only OnFrameTick sees the
+        // physical button and may clear an interruption: a held button must not
+        // start a new stroke when Alt is released.
         if (!mouseDown)
-            ReleaseStroke();
+            EndStroke();
         m_BrushWorldPos = hitPos;
         m_HasBrushHit = hitTerrain && hitTerrain.GetScene() == m_Context.Raw() &&
                         hitTerrain.HasComponent<TerrainComponent>() &&
@@ -1080,8 +1084,9 @@ namespace OloEngine
         if (hit.Hit)
             m_BrushWorldPos = hit.Point;
 
+        // Filtered press, as in OnUpdate: end the stroke, keep any interruption.
         if (!mouseDown)
-            ReleaseStroke();
+            EndStroke();
         if (!voxels || !hit.Hit || !mouseDown || m_StrokeInterrupted || (m_StrokeActive && voxels != m_StrokeVoxels))
             return;
 
