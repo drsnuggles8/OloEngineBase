@@ -1251,8 +1251,39 @@ namespace OloEngine
 
     CommandBucket::ParallelReplayPolicy CommandBucket::ReplayPolicyFor(const ReplayFamily family)
     {
-        // Legacy values pending the #1340 measurement.
-        return ParallelReplayPolicy{ ToString(family), 64u, 32u };
+        // Measured on an RTX 4090 in Release, interleaved off/on with an
+        // untouched control (#1340; scripts/perf/parallel-recording-policy-live.py,
+        // docs/analysis/vulkan-parallel-recording-policy-1340.md):
+        //
+        // - Below ~190 packets a fork loses for both scene families (110-117
+        //   packets: depth 0.21 -> 0.30-0.35 ms, colour 0.26 -> 0.35 ms);
+        //   at 193 both win. Hence one conservative threshold of 192.
+        // - Shaded replay contends: summed worker time grows superlinearly
+        //   with items (1580 packets: 16 items 41 ms of worker time for 4.3 ms
+        //   of inline work), so colour is best at 3 items at every size
+        //   measured (1580 packets: 1.5 ms vs 3.1 ms at 16 items, 4.3 inline).
+        // - Depth-only replay keeps scaling to ~8 items (1580: 0.76 ms at 8,
+        //   1.0 at 3, 2.5 inline).
+        //
+        // Families no measured scene reached above the threshold (foliage,
+        // water, overlay, decal, occlusion, generic) take the conservative
+        // shaded policy rather than a guess at a better one.
+        constexpr u32 kMinPacketsToFork = 192u;
+        constexpr u32 kMinPacketsPerItem = 64u;
+        switch (family)
+        {
+            case ReplayFamily::SceneDepth:
+                return ParallelReplayPolicy{ ToString(family), kMinPacketsToFork, kMinPacketsPerItem, 8u };
+            case ReplayFamily::SceneColor:
+            case ReplayFamily::Generic:
+            case ReplayFamily::Foliage:
+            case ReplayFamily::Water:
+            case ReplayFamily::Overlay:
+            case ReplayFamily::Decal:
+            case ReplayFamily::Occlusion:
+                break;
+        }
+        return ParallelReplayPolicy{ ToString(family), kMinPacketsToFork, kMinPacketsPerItem, 3u };
     }
 
     CommandBucket::ParallelReplayPolicy CommandBucket::EffectiveReplayPolicy(const ReplayFamily family)
@@ -1262,6 +1293,8 @@ namespace OloEngine
             policy.MinPacketsToFork = static_cast<u32>(std::min<i64>(*minPackets, UINT32_MAX));
         if (const auto perItem = Levers::VulkanParallelPacketsPerItem())
             policy.MinPacketsPerItem = static_cast<u32>(std::min<i64>(*perItem, UINT32_MAX));
+        if (const auto maxItems = Levers::VulkanParallelMaxItems())
+            policy.MaxItems = static_cast<u32>(std::min<i64>(*maxItems, MAX_RENDER_WORKERS));
         return policy;
     }
 
@@ -1281,7 +1314,8 @@ namespace OloEngine
             plan.Decision = ParallelRegionDecision::InlineBelowThreshold;
             return plan;
         }
-        plan.ItemCount = static_cast<u32>(std::clamp<sizet>(packets.size() / std::max(1u, policy.MinPacketsPerItem), 1u, MAX_RENDER_WORKERS));
+        const u32 maxItems = std::clamp(policy.MaxItems, 1u, MAX_RENDER_WORKERS);
+        plan.ItemCount = static_cast<u32>(std::clamp<sizet>(packets.size() / std::max(1u, policy.MinPacketsPerItem), 1u, maxItems));
         if (plan.ItemCount < 2u)
         {
             plan.Decision = ParallelRegionDecision::InlineSingleItem;

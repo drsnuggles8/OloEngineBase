@@ -4,9 +4,9 @@ Every arm runs in the same process and binary; only console variables change:
 
     off     OLO_VK_PARALLEL_RECORDING=0 (every region inline)
     legacy  the pre-#1340 rule: fork any replay that splits into two items of
-            at least 32 packets (OLO_VK_PARALLEL_MIN_PACKETS=64,
-            OLO_VK_PARALLEL_PACKETS_PER_ITEM=32)
-    policy  the shipped per-family defaults (both overrides unset)
+            at least 32 packets, up to 16 items (OLO_VK_PARALLEL_MIN_PACKETS=64,
+            OLO_VK_PARALLEL_PACKETS_PER_ITEM=32, OLO_VK_PARALLEL_MAX_ITEMS=16)
+    policy  the shipped per-family defaults (every override unset)
 
 Blocks rotate the arm order (ABC, BCA, CAB, ...). Each block warms, then samples
 distinct frames of olo_perf_pass_timings: every recording region's decision,
@@ -40,6 +40,11 @@ from editor_mcp import Client  # noqa: E402
 SCENES = {
     # Dense: 3,600 independent mesh windows, the #1013 benchmark.
     'dense': {'path': 'Scenes/Benchmark/ParallelRecording.olo', 'eye': [0, 9, 14], 'yaw': 0, 'pitch': 35, 'fov': 60},
+    # The same scene culled to intermediate packet counts (~170, ~390, ~700
+    # scene packets on the RTX 4090 run), for the per-family crossover.
+    'dense-fov30': {'path': 'Scenes/Benchmark/ParallelRecording.olo', 'eye': [0, 9, 14], 'yaw': 0, 'pitch': 35, 'fov': 30},
+    'dense-fov40': {'path': 'Scenes/Benchmark/ParallelRecording.olo', 'eye': [0, 9, 14], 'yaw': 0, 'pitch': 35, 'fov': 40},
+    'dense-low': {'path': 'Scenes/Benchmark/ParallelRecording.olo', 'eye': [0, 3, 14], 'yaw': 0, 'pitch': 10, 'fov': 30},
     # Small: the authored Material Lab camera.
     'small': {'path': 'Scenes/Benchmark/MaterialLab.olo', 'eye': [0, 9, 16], 'yaw': 0, 'pitch': 31.5, 'fov': 45},
     # Mixed: architecture, foliage, decals, many local lights.
@@ -50,11 +55,11 @@ SCENES = {
 
 ARMS = {
     'off': {'OLO_VK_PARALLEL_RECORDING': '0', 'OLO_VK_PARALLEL_MIN_PACKETS': 'unset',
-            'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset'},
+            'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset'},
     'legacy': {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': '64',
-               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': '32'},
+               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': '32', 'OLO_VK_PARALLEL_MAX_ITEMS': '16'},
     'policy': {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': 'unset',
-               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset'},
+               'OLO_VK_PARALLEL_PACKETS_PER_ITEM': 'unset', 'OLO_VK_PARALLEL_MAX_ITEMS': 'unset'},
 }
 
 # Passes no recording region touches: their CPU time is the host-drift control.
@@ -102,10 +107,10 @@ class Editor:
         discovery = Path(os.environ.get('TEMP', '/tmp')) / f'oloengine-mcp-{port}.json'
         self.client = Client(discovery, timeout=120)
 
-    def tool(self, name, **arguments):
+    def tool(self, tool_name, **arguments):
         for attempt in range(12):
             try:
-                return self.client.tool(name, **arguments)
+                return self.client.tool(tool_name, **arguments)
             except RuntimeError as error:
                 if 'Timed out waiting for the editor main thread' not in str(error) or attempt == 11:
                     raise
@@ -216,15 +221,29 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scenes', nargs='+', default=list(SCENES), choices=list(SCENES))
-    parser.add_argument('--arms', nargs='+', default=list(ARMS), choices=list(ARMS))
+    parser.add_argument('--scenes', nargs='+', default=['dense', 'small', 'courtyard', 'integrated'], choices=list(SCENES))
+    parser.add_argument('--arm-def', nargs='*', default=[], metavar='NAME=MIN:PER_ITEM[:MAX_ITEMS]',
+                        help='extra arms overriding the levers, e.g. m4=256:64:4 (for threshold sweeps)')
+    parser.add_argument('--arms', nargs='+', default=list(ARMS))
     parser.add_argument('--rounds', type=int, default=2, help='each round runs every rotation of the arm order once')
     parser.add_argument('--warm-frames', type=int, default=60)
     parser.add_argument('--samples', type=int, default=40)
     parser.add_argument('--render-path', default='deferred')
+    parser.add_argument('--settings', nargs='*', default=['virtualshadowmaps=off'],
+                        help='olo_renderer_settings_set pairs applied after each scene opens; the editor keeps '
+                             'renderer settings across scenes, so pin every one the shadow regions depend on')
     parser.add_argument('--capture', nargs='*', default=[], help='render targets to compare across arms')
     parser.add_argument('--editor-pid', type=int)
     args = parser.parse_args()
+    for definition in args.arm_def:
+        name, values = definition.split('=', 1)
+        fields = values.split(':')
+        ARMS[name] = {'OLO_VK_PARALLEL_RECORDING': 'unset', 'OLO_VK_PARALLEL_MIN_PACKETS': fields[0],
+                      'OLO_VK_PARALLEL_PACKETS_PER_ITEM': fields[1],
+                      'OLO_VK_PARALLEL_MAX_ITEMS': fields[2] if len(fields) > 2 else '16'}
+    unknown = [a for a in args.arms if a not in ARMS]
+    if unknown:
+        parser.error(f'unknown arms {unknown}; define them with --arm-def')
 
     editor = Editor(args.port)
     editor.tool('olo_viewport_set_size', width=1920, height=1080)
@@ -237,6 +256,9 @@ def main() -> int:
             if not opened.get('ok'):
                 raise RuntimeError(f'scene did not open: {opened}')
             editor.tool('olo_renderer_settings_set', setting='renderpath', value=args.render_path)
+            for pair in args.settings:
+                setting, value = pair.split('=', 1)
+                editor.tool('olo_renderer_settings_set', setting=setting, value=value)
             editor.tool('olo_camera_set_pose', position=scene['eye'], yaw=scene['yaw'], pitch=scene['pitch'],
                         fov=scene['fov'])
             editor.warm(args.warm_frames * 2)

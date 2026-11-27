@@ -239,6 +239,9 @@ OLO_LEVER_INT(VulkanParallelMinPackets, "OLO_VK_PARALLEL_MIN_PACKETS", 0,
 OLO_LEVER_INT(VulkanParallelPacketsPerItem, "OLO_VK_PARALLEL_PACKETS_PER_ITEM", 1,
               "Override every bucket replay family's minimum packets per recording item (#1340). Unset keeps each "
               "family's default; the legacy policy is \"32\".")
+OLO_LEVER_INT(VulkanParallelMaxItems, "OLO_VK_PARALLEL_MAX_ITEMS", 1,
+              "Override every bucket replay family's maximum recording items per region (#1340), capped at 16. "
+              "Unset keeps each family's default; the legacy policy is \"16\".")
 OLO_LEVER_TRISTATE(VulkanAsyncCompute, "OLO_VK_ASYNC_COMPUTE",
                    "Submit the render graph's async-compute batches to a dedicated compute queue on a device "
                    "with a compute-only queue family (#808). \"0\" keeps every batch on the graphics queue — "

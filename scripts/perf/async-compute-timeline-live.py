@@ -45,7 +45,7 @@ def main() -> int:
     parser.add_argument('--pitch', type=float, default=-4.0)
     parser.add_argument('--fov', type=float, default=60.0)
     parser.add_argument('--render-path', default='deferred')
-    parser.add_argument('--settings', nargs='*', default=['virtualshadowmaps=true'],
+    parser.add_argument('--settings', nargs='*', default=['virtualshadowmaps=on'],
                         help='olo_renderer_settings_set pairs applied after the scene opens')
     parser.add_argument('--passes', nargs='*', default=['gtao', 'fog', 'fogvolumetric'],
                         help='olo_render_toggle_pass names enabled after the scene opens')

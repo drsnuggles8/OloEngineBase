@@ -265,14 +265,16 @@ namespace OloEngine
 
         // When a replay forks, and how finely it splits (#1340). A replay forks
         // only when it holds at least MinPacketsToFork packets; it then splits
-        // into contiguous items of at least MinPacketsPerItem packets, capped at
-        // MAX_RENDER_WORKERS. OLO_VK_PARALLEL_MIN_PACKETS and
-        // OLO_VK_PARALLEL_PACKETS_PER_ITEM override both fields for every family.
+        // into contiguous items of at least MinPacketsPerItem packets, at most
+        // MaxItems of them (never more than MAX_RENDER_WORKERS).
+        // OLO_VK_PARALLEL_MIN_PACKETS, OLO_VK_PARALLEL_PACKETS_PER_ITEM and
+        // OLO_VK_PARALLEL_MAX_ITEMS override the fields for every family.
         struct ParallelReplayPolicy
         {
             const char* Family = "generic";
             u32 MinPacketsToFork = 64u;
             u32 MinPacketsPerItem = 32u;
+            u32 MaxItems = MAX_RENDER_WORKERS;
         };
         [[nodiscard]] static ParallelReplayPolicy ReplayPolicyFor(ReplayFamily family);
         [[nodiscard]] static const char* ToString(ReplayFamily family);
