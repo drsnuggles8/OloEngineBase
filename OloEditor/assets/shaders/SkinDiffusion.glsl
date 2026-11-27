@@ -67,6 +67,8 @@ layout(location = 0) out vec4 o_Result;
 
 #include "include/SkinDiffusionCommon.glsl"
 #include "include/BindlessHeap.glsl"
+// The frame covers bounds.y of the target rows under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 
 // Heap-bindless conversion (issue #691). The BODY below is byte-identical
 // between the two variants — only these declarations move, and each names the
@@ -178,7 +180,7 @@ void main()
     // makes the radius follow a resolution change and a field-of-view change
     // instead of only looking like it does — SkinDiffusionTest pins the same
     // expression on the CPU side.
-    float targetHeight = u_SkinDiffusionPass.w;
+    float targetHeight = u_SkinDiffusionPass.w * oloRenderScaleBounds().y;
     float radiusPixels = (supportMM * OLO_SKIN_MM_TO_WORLD) *
                          (0.5 * targetHeight * u_SkinDiffusionProjection.x) / max(centreDepth, 1e-4);
     radiusPixels = clamp(radiusPixels, 0.0, OLO_SKIN_MAX_RADIUS_PIXELS);

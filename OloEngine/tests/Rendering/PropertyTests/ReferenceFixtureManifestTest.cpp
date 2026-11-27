@@ -385,12 +385,15 @@ TEST(ReferenceFixtureManifest, AcceptsADynamicRenderScaleAndRefusesUnrunnableOne
                  "RendererSettings:\n  Upscale: Quality\nExposure:\n"));
     EXPECT_NE(stacked.find("cannot be combined with RendererSettings.Upscale"), std::string::npos) << stacked;
 
-    // Not honoured on Deferred yet: refused with the owning issue named.
-    const auto deferred = ExpectParseFailure(
-        "render-scale-deferred",
-        Replaced(Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.5"), "Exposure:\n",
-                 "RendererSettings:\n  Path: Deferred\nExposure:\n"));
-    EXPECT_NE(deferred.find("#1537"), std::string::npos) << deferred;
+    // Deferred honours the dynamic scale (#1537): the same manifest on that
+    // path parses, where it used to be refused.
+    const auto deferred = LoadBenchmarkManifest(
+        WriteManifest("render-scale-deferred",
+                      Replaced(Replaced(ValidV2Manifest(), "RenderScale: 1.0", "RenderScale: 0.5"), "Exposure:\n",
+                               "RendererSettings:\n  Path: Deferred\nExposure:\n")),
+        error);
+    ASSERT_TRUE(deferred.has_value()) << error;
+    EXPECT_FLOAT_EQ(deferred->RenderScale, 0.5f);
 
     // FSR2 is not run-twice deterministic, so a Temporal capture must not claim
     // a zero repeat tolerance; with a measured one it parses.

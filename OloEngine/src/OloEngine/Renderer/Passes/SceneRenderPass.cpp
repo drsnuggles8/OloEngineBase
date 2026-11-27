@@ -297,6 +297,22 @@ namespace OloEngine
             PrepareDeferredResources(rendererSettings.Deferred.MSAASampleCount);
         }
 
+        // The dynamic render scale (#1537): RenderGraph::SetRenderScale hands
+        // every node its render viewport, which the base class applies to
+        // m_Target only. The G-Buffer is this pass's other target, recreated
+        // on a sample-count or size change, so it takes the same viewport here
+        // every frame and Bind() below draws the frame into its corner. Zero
+        // clears the override (scale 1.0).
+        if (deferredActive && m_GBuffer)
+        {
+            Ref<Framebuffer> gbufferTarget = m_GBuffer->GetFramebuffer();
+            gbufferTarget->SetRenderViewportSize(m_RenderViewportWidth, m_RenderViewportHeight);
+            if (Ref<Framebuffer> resolved = m_GBuffer->GetSamplingFramebuffer(); resolved && resolved != gbufferTarget)
+            {
+                resolved->SetRenderViewportSize(m_RenderViewportWidth, m_RenderViewportHeight);
+            }
+        }
+
         Ref<Framebuffer> renderFB = deferredActive && m_GBuffer
                                         ? m_GBuffer->GetFramebuffer()
                                         : m_Target;

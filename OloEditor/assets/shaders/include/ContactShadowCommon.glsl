@@ -25,7 +25,10 @@
 // keeps a backlit leaf's or ear's transmission out of it.
 //
 // The caller defines OLO_CONTACT_SHADOW_TAP_DEPTH(uv) to return the depth
-// buffer's [0,1] window depth at `uv` before including this file. The math is
+// buffer's [0,1] window depth at TEXTURE uv before including this file. The
+// march itself runs in FRAME uv, so a dynamic render scale (#1537) changes
+// only the depth tap's address (include/RenderScaleBounds.glsl; a caller whose
+// binding 33 is taken defines OLO_RENDER_SCALE_BOUNDS first). The math is
 // mirrored on the CPU by ContactShadowMathTest.
 // =============================================================================
 
@@ -35,6 +38,8 @@
 #ifndef OLO_CONTACT_SHADOW_TAP_DEPTH
 #error "Define OLO_CONTACT_SHADOW_TAP_DEPTH(uv) before including ContactShadowCommon.glsl"
 #endif
+
+#include "RenderScaleBounds.glsl"
 
 // UBO_CONTACT_SHADOW (41), uploaded by RenderPipeline when contact shadows are
 // on. An INSTANCE name, because its includers already declare camera blocks
@@ -80,9 +85,9 @@ float oloContactShadowIGN(vec2 p)
 }
 
 // The primary directional light's contact-shadow VISIBILITY at this pixel:
-// 1 = lit, (1 - intensity) at full occlusion. `depth` is the pixel's own window
-// depth, `Nworld` its world normal, `fragCoord` its window position (for the
-// jitter).
+// 1 = lit, (1 - intensity) at full occlusion. `uv` is the pixel's FRAME uv
+// (oloFrameUV of its texture uv), `depth` its own window depth, `Nworld` its
+// world normal, `fragCoord` its window position (for the jitter).
 float oloContactShadowVisibility(vec2 uv, float depth, vec3 Nworld, vec2 fragCoord)
 {
     // No directional light in the scene — nothing casts a contact shadow.
@@ -133,7 +138,7 @@ float oloContactShadowVisibility(vec2 uv, float depth, vec3 Nworld, vec2 fragCoo
         if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0)
             break; // left the screen — no on-screen occluder to find
 
-        float sDepth = OLO_CONTACT_SHADOW_TAP_DEPTH(rayUV);
+        float sDepth = OLO_CONTACT_SHADOW_TAP_DEPTH(oloTextureUV(rayUV));
         if (sDepth >= OLO_CONTACT_SHADOW_SKY_DEPTH)
             continue; // sky behind the ray here — keep marching
 

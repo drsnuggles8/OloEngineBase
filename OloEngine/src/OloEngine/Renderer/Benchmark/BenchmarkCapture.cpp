@@ -208,14 +208,6 @@ namespace OloEngine::Benchmark
         if (graph->GetRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
             height == graph->GetPhysicalHeight())
         {
-            // The parser refuses a Deferred manifest that pins the path; this
-            // catches one that leaves the path to the scene or the host (#1537).
-            if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
-            {
-                result.Error = "a dynamic render scale below 1.0 is not honoured on the Deferred path (#1537): " +
-                               spec.Source;
-                return result;
-            }
             width = std::max(1u, graph->GetRenderWidth());
             height = std::max(1u, graph->GetRenderHeight());
             result.CroppedToRenderRegion = true;

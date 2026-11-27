@@ -1755,4 +1755,72 @@ namespace OloEngine::Tests
         EXPECT_LT(twoDimensional, count);
     }
 
+    // =========================================================================
+    // include/RenderScaleBounds.glsl (issue #1537): texture uv <-> frame uv under
+    // a dynamic render scale, the rendered-corner test, and the guard that
+    // reads an unfilled (all-zero) bounds block as scale 1.0 instead of
+    // dividing by zero. Expected values are the definitions: frame = texture /
+    // bounds, texture = frame * bounds, in-frame = texture in [0, bounds].
+    // =========================================================================
+    TEST(ShaderUnitRenderScaleBoundsTest, MapsTextureAndFrameUVThroughTheBounds)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct Case
+        {
+            glm::vec2 Bounds;
+            glm::vec2 TextureUV;
+            glm::vec2 FrameUV;
+            glm::vec2 ExpectedBounds;
+            bool InFrame;
+        };
+        const std::array<Case, 6> cases = { {
+            { { 0.5f, 0.5f }, { 0.25f, 0.4f }, { 1.0f, 1.0f }, { 0.5f, 0.5f }, true },
+            { { 0.5f, 0.5f }, { 0.6f, 0.1f }, { 0.2f, 0.6f }, { 0.5f, 0.5f }, false },    // in the dead margin
+            { { 0.75f, 0.6f }, { 0.75f, 0.6f }, { 0.5f, 0.25f }, { 0.75f, 0.6f }, true }, // the corner's far edge
+            { { 1.0f, 1.0f }, { 0.3f, 0.9f }, { 0.3f, 0.9f }, { 1.0f, 1.0f }, true },     // scale 1.0: identity
+            { { 0.0f, 0.0f }, { 0.3f, 0.9f }, { 0.3f, 0.9f }, { 1.0f, 1.0f }, true },     // unfilled block
+            { { 0.5f, 0.5f }, { -0.01f, 0.2f }, { 0.0f, 0.0f }, { 0.5f, 0.5f }, false },
+        } };
+
+        std::vector<f32> inputs;
+        for (const Case& c : cases)
+        {
+            inputs.insert(inputs.end(), { c.Bounds.x, c.Bounds.y, c.TextureUV.x, c.TextureUV.y });
+            inputs.insert(inputs.end(), { c.FrameUV.x, c.FrameUV.y, 0.0f, 0.0f });
+        }
+        const sizet outputFloats = cases.size() * 8u;
+        ScopedBuffer inputBuffer(static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), GL_DYNAMIC_STORAGE_BIT);
+        ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(outputFloats * sizeof(f32)),
+                                  GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        ::glNamedBufferSubData(inputBuffer, 0, static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_RenderScaleBounds.glsl");
+        ASSERT_TRUE(shader && shader->IsValid()) << "render-scale-bounds compute shader failed to compile";
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, outputBuffer);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, inputBuffer);
+        ::glDispatchCompute(static_cast<GLuint>(cases.size()), 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+        std::vector<f32> raw(outputFloats);
+        ::glGetNamedBufferSubData(outputBuffer, 0, static_cast<GLsizeiptr>(outputFloats * sizeof(f32)), raw.data());
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+        ::glUseProgram(0);
+
+        for (sizet i = 0; i < cases.size(); ++i)
+        {
+            const Case& c = cases[i];
+            SCOPED_TRACE(::testing::Message() << "case " << i);
+            const f32* out = raw.data() + (i * 8u);
+            EXPECT_NEAR(out[0], c.TextureUV.x / c.ExpectedBounds.x, 1e-6f);
+            EXPECT_NEAR(out[1], c.TextureUV.y / c.ExpectedBounds.y, 1e-6f);
+            EXPECT_NEAR(out[2], c.FrameUV.x * c.ExpectedBounds.x, 1e-6f);
+            EXPECT_NEAR(out[3], c.FrameUV.y * c.ExpectedBounds.y, 1e-6f);
+            EXPECT_NEAR(out[4], c.ExpectedBounds.x, 1e-6f);
+            EXPECT_NEAR(out[5], c.ExpectedBounds.y, 1e-6f);
+            EXPECT_EQ(out[6] > 0.5f, c.InFrame);
+        }
+    }
+
 } // namespace OloEngine::Tests

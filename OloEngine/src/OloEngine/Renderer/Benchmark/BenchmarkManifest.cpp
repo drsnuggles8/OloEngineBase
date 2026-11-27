@@ -762,14 +762,6 @@ namespace OloEngine::Benchmark
             errors.Add("Output.RenderScale below 1.0 cannot be combined with RendererSettings.Upscale: the upscale "
                        "preset sets the internal scale (leave RenderScale at 1.0)");
         }
-        // The Deferred chain does not honour a dynamic scale yet (#1537): the
-        // G-Buffer is written full-size and the screen-space passes read [0, 1].
-        // A capture would record a full-size frame as a reduced one.
-        if (manifest.RenderScale < 1.0f && manifest.RendererSettings.Path == RenderingPath::Deferred)
-        {
-            errors.Add("Output.RenderScale below 1.0 is not supported on the Deferred path (#1537); use "
-                       "RendererSettings.Upscale for a sub-scale Deferred capture");
-        }
 
         if (const auto exposure = root["Exposure"]; exposure)
         {

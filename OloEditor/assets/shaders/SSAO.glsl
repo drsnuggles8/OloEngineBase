@@ -64,6 +64,7 @@ layout(location = 0) in vec2 v_TexCoord;
 // route (glslang rejects GL_ARB_bindless_texture when generating SPIR-V).
 #include "include/BindlessHeap.glsl"
 #include "include/SkyDepth.glsl"
+#include "include/RenderScaleBounds.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
@@ -116,10 +117,11 @@ vec3 octDecode(vec2 f)
     return normalize(n);
 }
 
-// Reconstruct view-space position from depth and screen UV
+// Reconstruct view-space position from depth and TEXTURE uv (the frame fills
+// the [0, bounds) corner under a dynamic render scale, #1537).
 vec3 reconstructViewPos(vec2 uv, float depth)
 {
-    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 clipPos = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 viewPos = u_InverseProjection * clipPos;
     return viewPos.xyz / viewPos.w;
 }
@@ -138,7 +140,9 @@ float projectedRadiusInPixels(float viewZ)
     // because this block's matrix carries the shader-reconstruction row flip
     // on Vulkan ([1][1] negative, #691); a magnitude is wanted here
     // and abs is a no-op on GL.
-    return (u_Radius * abs(u_Projection[1][1]) * float(u_ScreenHeight)) / (2.0 * abs(viewZ));
+    // The frame covers bounds.y of the target's rows under a dynamic render
+    // scale (#1537), so a world radius spans that fraction of the pixels.
+    return (u_Radius * abs(u_Projection[1][1]) * float(u_ScreenHeight) * oloRenderScaleBounds().y) / (2.0 * abs(viewZ));
 }
 
 void main()
@@ -201,7 +205,7 @@ void main()
         float angle = t * kNumTurns * TWO_PI + rotAngle;
         float r = sqrt(min(t + (radialJitter - 0.5) / float(numSamples), 1.0));
         vec2 sampleUV = v_TexCoord + vec2(cos(angle), sin(angle)) * (r * radiusPixels) * texelSize;
-        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
+        if (!oloInRenderedFrame(sampleUV))
             continue;
 
         float sampleDepth = texture(u_DepthTexture, sampleUV).r;

@@ -256,7 +256,7 @@ void main()
     bool historyAvailable = u_TemporalParams.z >= 0.5;
     vec2 velocity = vec2(0.0);
     if (historyAvailable && u_TemporalParams.y > 0.5)
-        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg;
+        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg * oloRenderScaleBounds(); // texture-uv delta (#1537)
 
     vec2 prevUV = uv - velocity;
     bool historySampleAvailable = historyAvailable && OloTemporalHistoryUVValid(prevUV);

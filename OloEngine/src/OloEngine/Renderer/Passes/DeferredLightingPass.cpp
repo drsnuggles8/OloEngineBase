@@ -41,6 +41,21 @@ namespace OloEngine
 
     namespace
     {
+        // The dynamic render scale's bounds for a frame drawn into
+        // `framebuffer`: (active viewport / storage) per axis, (1, 1) without a
+        // render viewport. The lighting draw samples the G-Buffer 1:1, so its
+        // texture UV maps to the frame's UV by dividing by these (#1537).
+        [[nodiscard]] glm::vec2 RenderScaleBoundsOf(const Framebuffer& framebuffer)
+        {
+            const auto& spec = framebuffer.GetSpecification();
+            if (spec.Width == 0u || spec.Height == 0u)
+            {
+                return glm::vec2(1.0f);
+            }
+            return { static_cast<f32>(framebuffer.GetActiveViewportWidth()) / static_cast<f32>(spec.Width),
+                     static_cast<f32>(framebuffer.GetActiveViewportHeight()) / static_cast<f32>(spec.Height) };
+        }
+
         // Must match the `DeferredLightingControls` block layout in
         // DeferredLighting.glsl / DeferredLighting_MSAA.glsl.
         struct DeferredControlsData
@@ -50,7 +65,8 @@ namespace OloEngine
             // Screen-space AO for the AMBIENT term (issue #1336): x = live, y =
             // strength, z/w = the reconstruction projection's (2,2) / (3,2).
             glm::vec4 ScreenAOParams;
-            // x = contact shadows multiply Lights[0]'s visibility here (#1336).
+            // x = contact shadows multiply Lights[0]'s visibility here (#1336),
+            // yz = the dynamic render scale's bounds (#1537).
             glm::vec4 LightingFlags;
 
             // THE SKIN PROFILE TABLE (issue #1231), indexed by the three-bit
@@ -582,7 +598,12 @@ namespace OloEngine
             // Contact shadows for the primary directional light (issue #1336) —
             // raised only with the UBO the march reads actually in hand.
             const bool contactShadowLive = m_ContactShadowInLighting && m_ContactShadowUBO;
-            controls.LightingFlags = glm::vec4(contactShadowLive ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+            // yz = the dynamic render scale's bounds (#1537): the G-Buffer was
+            // drawn into its [0, bounds) corner, so screen UVs map to the frame
+            // through them (include/RenderScaleBounds.glsl).
+            const glm::vec2 renderBounds = m_GBuffer ? RenderScaleBoundsOf(*m_GBuffer->GetFramebuffer()) : glm::vec2(1.0f);
+            controls.LightingFlags =
+                glm::vec4(contactShadowLive ? 1.0f : 0.0f, renderBounds.x, renderBounds.y, 0.0f);
             if (contactShadowLive)
                 m_ContactShadowUBO->Bind();
 

@@ -105,6 +105,7 @@ layout(location = 1) out vec4 o_Guide;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+#include "include/RenderScaleBounds.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants — only these declarations move, and
@@ -199,7 +200,9 @@ vec3 OctDecode(vec2 e)
 // Reconstruct view-space position from screen UV + nonlinear depth.
 vec3 ViewPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    // `uv` is a texture uv: the frame fills the [0, bounds) corner under a
+    // dynamic render scale (#1537, include/RenderScaleBounds.glsl).
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = u_InvProjection * ndc;
     return view.xyz / view.w;
 }
@@ -209,7 +212,7 @@ vec2 ProjectToUV(vec3 viewPos)
 {
     vec4 clip = u_Projection * vec4(viewPos, 1.0);
     vec2 ndc = clip.xy / clip.w;
-    return ndc * 0.5 + 0.5;
+    return oloTextureUV(ndc * 0.5 + 0.5);
 }
 
 // (The orthonormal basis and the Malley mapping both moved into the shared
@@ -382,7 +385,7 @@ void main()
 
             vec3 rayPos = vStart + dir * traveled;
             vec2 uv = ProjectToUV(rayPos);
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+            if (!oloInRenderedFrame(uv))
                 break; // left the screen — no on-screen light to gather
 
             float sDepth = texture(u_DepthTexture, uv).r;
@@ -400,8 +403,9 @@ void main()
                 float edgeFade = 1.0;
                 if (edge > 0.0)
                 {
-                    edgeFade *= smoothstep(0.0, edge, uv.x) * smoothstep(0.0, edge, 1.0 - uv.x);
-                    edgeFade *= smoothstep(0.0, edge, uv.y) * smoothstep(0.0, edge, 1.0 - uv.y);
+                    vec2 frameUV = oloFrameUV(uv);
+                    edgeFade *= smoothstep(0.0, edge, frameUV.x) * smoothstep(0.0, edge, 1.0 - frameUV.x);
+                    edgeFade *= smoothstep(0.0, edge, frameUV.y) * smoothstep(0.0, edge, 1.0 - frameUV.y);
                 }
                 float distFade = 1.0 - clamp(traveled / maxDist, 0.0, 1.0);
                 float confidence = edgeFade * distFade;

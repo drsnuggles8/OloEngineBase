@@ -19,6 +19,10 @@
 // self-contained (UBO 54 + the always-bound cloud-shadow slot 62).
 #include "AtmosphereShading.glsl"
 
+// `uv` below is a TEXTURE uv; the frame fills the [0, bounds) corner under a
+// dynamic render scale (#1537).
+#include "RenderScaleBounds.glsl"
+
 // PBRCommon.glsl's MIN_ROUGHNESS, the floor DeferredLighting.glsl applies when
 // it reads the G-Buffer roughness. Spelled here because this file does not
 // require PBRCommon to be included first.
@@ -53,7 +57,7 @@ vec3 OloGBufferOctDecode(vec2 e)
 
 vec3 OloGBufferViewPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = u_InvProjection * ndc;
     return view.xyz / view.w;
 }

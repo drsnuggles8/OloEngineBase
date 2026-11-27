@@ -197,7 +197,8 @@ void main()
         OloReSTIRLoadSurface(v_TexCoord, depth, packedNormal, packedAlbedo);
     const vec3 viewDirection = normalize((u_InvView * vec4(0.0, 0.0, 0.0, 1.0)).xyz - surface.Position);
 
-    const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy;
+    // A frame-uv delta, scaled to texture uv (#1537, include/RenderScaleBounds.glsl).
+    const vec2 velocity = texture(u_GVelocity, v_TexCoord).xy * oloRenderScaleBounds();
     const vec2 prevUV = v_TexCoord - velocity;
     // The history pixel the reprojection lands in, at its texel centre. Every
     // history read below and the previous shading point use it, so they all

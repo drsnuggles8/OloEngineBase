@@ -210,7 +210,16 @@ namespace OloEngine
         // normals this pass fetches are the same GL-convention textures, and
         // negating the Y pair (the XeGTAO/D3D form) would mirror every
         // reconstructed view position about the horizontal plane.
-        m_GPUData.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
+        // A dynamic render scale (#1537) draws the frame into the [0, render)
+        // corner of these display-sized targets: dividing Mul by the bounds
+        // unprojects that corner as the whole frame (GTAORenderPass's rule).
+        glm::vec2 renderBounds(1.0f);
+        if (m_RenderViewportWidth > 0u && m_RenderViewportHeight > 0u && m_Width > 0u && m_Height > 0u)
+        {
+            renderBounds = glm::vec2(static_cast<f32>(m_RenderViewportWidth) / static_cast<f32>(m_Width),
+                                     static_cast<f32>(m_RenderViewportHeight) / static_cast<f32>(m_Height));
+        }
+        m_GPUData.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11) / renderBounds;
         m_GPUData.NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         m_GPUData.ScreenWidth = static_cast<i32>(m_Width);

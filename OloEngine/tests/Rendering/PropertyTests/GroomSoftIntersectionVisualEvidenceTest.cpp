@@ -194,7 +194,7 @@ namespace OloEngine::Tests
             EXPECT_GT(pass->GetStats().Lod.ByRepresentation[static_cast<sizet>(cards ? GroomRepresentation::Card
                                                                                      : GroomRepresentation::Strand)],
                       0u);
-            if (!name.empty() && name.find("Rejected1537") == std::string::npos)
+            if (!name.empty())
             {
                 const auto directory = kEditor.parent_path() / ".v-build/1614/visual";
                 std::filesystem::create_directories(directory);
@@ -310,14 +310,6 @@ namespace OloEngine::Tests
                     ForEachAttachmentFeedbackCell(path, name, [&](const std::string& cell, u32 settle)
                                                   {
                         m_SettleFrames = std::max(8u, settle);
-                        if (cell.find("Rejected1537") != std::string::npos)
-                        {
-                            std::vector<u8> unused;
-                            Capture("", true, false, 0, unused);
-                            std::printf("[soft-intersection-rejected] %s display=%ux%u (#1537; both representations)\n",
-                                        cell.c_str(), m_Width, m_Height);
-                            return;
-                        }
                         // A forward path asked for MSAA renders at 1x: the cell's
                         // pairs would repeat the 1x cell's frames exactly. One
                         // frame latches the settings for the helper's checks that

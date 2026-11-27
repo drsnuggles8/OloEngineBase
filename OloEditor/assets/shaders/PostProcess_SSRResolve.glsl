@@ -150,7 +150,7 @@ void main()
     vec2 texel = u_ScreenParams.zw;
     vec2 velocity = vec2(0.0);
     if (u_TemporalParams.y > 0.5)
-        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg;
+        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg * oloRenderScaleBounds(); // texture-uv delta (#1537)
 
     vec2 prevUV = uv - velocity;
     if (!OloTemporalHistoryUVValid(prevUV))
