@@ -10600,6 +10600,16 @@ namespace OloEngine::Tests
             // The same within 4: the sharpen's 3x3 range reaches one pixel past
             // the 7x7 window, so this is what an in-range sharpen can reach.
             u32 DarkestNearAFirefly = 255;
+            // Each firefly's own neighbourhood: the frame it was seen on, its
+            // pixel, and its darkest pixel within 3 and within 4.
+            struct Firefly
+            {
+                u32 Frame = 0;
+                sizet At = 0;
+                u32 Beside = 255;
+                u32 Near = 255;
+            };
+            std::vector<Firefly> Fireflies;
         };
         const auto measure = [&](const std::string& png)
         {
@@ -10642,6 +10652,9 @@ namespace OloEngine::Tests
                         ReadbackFrame(presented);
                         const u32 cx = static_cast<u32>(worstAt % frame.Width);
                         const u32 cy = static_cast<u32>(worstAt / frame.Width);
+                        auto& firefly = peaks.Fireflies.emplace_back();
+                        firefly.Frame = (s * kJitterPhases) + f;
+                        firefly.At = worstAt;
                         for (u32 y = std::max(cy, 4u) - 4u; y <= std::min(cy + 4u, kHeight - 1u); ++y)
                         {
                             for (u32 x = std::max(cx, 4u) - 4u; x <= std::min(cx + 4u, kWidth - 1u); ++x)
@@ -10649,9 +10662,11 @@ namespace OloEngine::Tests
                                 const sizet o = ((static_cast<sizet>(y) * kWidth) + x) * 4u;
                                 const u32 luma = (static_cast<u32>(presented[o]) + presented[o + 1u] + presented[o + 2u]) / 3u;
                                 peaks.DarkestNearAFirefly = std::min(peaks.DarkestNearAFirefly, luma);
+                                firefly.Near = std::min(firefly.Near, luma);
                                 if (std::max(x, cx) - std::min(x, cx) <= 3u && std::max(y, cy) - std::min(y, cy) <= 3u)
                                 {
                                     peaks.DarkestBesideAFirefly = std::min(peaks.DarkestBesideAFirefly, luma);
+                                    firefly.Beside = std::min(firefly.Beside, luma);
                                 }
                             }
                         }
@@ -10714,9 +10729,36 @@ namespace OloEngine::Tests
                     "unsharpened within 4\n",
                     control.DarkestBesideAFirefly, unsharpened.DarkestNearAFirefly);
         EXPECT_LT(unsharpened.DarkestNearAFirefly, 255u) << "the unsharpened control saw no firefly to measure beside";
-        EXPECT_GE(control.DarkestBesideAFirefly + 12u, unsharpened.DarkestNearAFirefly)
-            << "a pixel beside a firefly printed darker than it was unsharpened: TAA's sharpen undershot its "
-               "neighbourhood";
+        // EACH FIREFLY AGAINST ITS OWN NEIGHBOURHOOD, not the run's minimum
+        // against the run's minimum: a naturally dark neighbourhood elsewhere
+        // must not hide one the sharpen drove black. The sharpen runs after
+        // the linear frame, so both runs see the same fireflies on the same
+        // frames at the same pixels; a firefly seen in only one run is not
+        // compared.
+        u32 paired = 0;
+        u32 undershot = 0;
+        for (const auto& sharpened : control.Fireflies)
+        {
+            const auto match = std::ranges::find_if(unsharpened.Fireflies, [&](const auto& u)
+                                                    { return u.Frame == sharpened.Frame && u.At == sharpened.At; });
+            if (match == unsharpened.Fireflies.end())
+            {
+                continue;
+            }
+            ++paired;
+            if (sharpened.Beside + 12u < match->Near)
+            {
+                ++undershot;
+                std::printf("[dog] firefly at frame %u pixel %zu: %u sharpened within 3, %u unsharpened within 4\n",
+                            sharpened.Frame, sharpened.At, sharpened.Beside, match->Near);
+            }
+        }
+        std::printf("[dog] %u of %zu sharpened fireflies paired with the unsharpened run, %u undershot\n", paired,
+                    control.Fireflies.size(), undershot);
+        std::fflush(stdout);
+        EXPECT_GT(paired, 0u) << "no firefly appeared in both runs: nothing was compared";
+        EXPECT_EQ(undershot, 0u) << "a pixel beside a firefly printed darker than it was unsharpened: TAA's sharpen "
+                                    "undershot its neighbourhood";
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
     }
 
