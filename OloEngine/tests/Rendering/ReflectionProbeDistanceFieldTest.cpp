@@ -5,7 +5,8 @@
 // Pins the encoding contract and the reference raymarch that
 // include/ReflectionProbes.glsl mirrors expression-for-expression:
 //   - the raymarch converges to the ANALYTIC intersection on star-shaped
-//     rooms (sphere, box) where the truth is known in closed form,
+//     rooms (sphere, box) where the truth is known in closed form, and with
+//     the peeled layers (#1804) past an occluder to the wall it hides,
 //   - a ray that leaves through sky is a MISS, never a bogus far-plane hit
 //     (the sentinel-crossing bug class the miss threshold exists for),
 //   - the max-mip chain is a conservative UPPER bound (the cheap reject may
@@ -364,5 +365,238 @@ namespace OloEngine
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_REJECT_ABS_MARGIN"), kProbeRejectAbsMargin);
         EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_REJECT_MIP")), kProbeRejectMip);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_MISS_THRESHOLD"), kProbeDistanceMissThreshold);
+        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_GAP_REFINE_STEPS")), kProbeGapRefineSteps);
+        EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MARGIN"), kProbeInpaintMarginRadians);
+        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_DISTANCE_RESOLUTION")), kProbeDistanceResolution);
+        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_RING_COUNT")), kProbeInpaintRingCount);
+        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_AZIMUTHS")), kProbeInpaintAzimuths);
+        EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_FIRST_RING"), kProbeInpaintFirstRing);
+        EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MATCH_ABS"), kProbeInpaintMatchAbs);
+        EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MATCH_REL"), kProbeInpaintMatchRel);
+        EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MATCH_SLOPE"), kProbeInpaintMatchSlope);
+
+        // The bake's peel epsilon lives in the capture shader.
+        fs::path const bake = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "ReflectionProbe_Distance.glsl";
+        std::ifstream bakeIn(bake, std::ios::binary);
+        std::ostringstream bakeBuf;
+        bakeBuf << bakeIn.rdbuf();
+        std::string const bakeSrc = bakeBuf.str();
+        auto const bakeDefine = [&bakeSrc](std::string_view name) -> f32
+        {
+            std::regex const re(std::string{ "#define\\s+" } + std::string{ name } + R"(\s+([0-9.]+))");
+            std::smatch m;
+            EXPECT_TRUE(std::regex_search(bakeSrc, m, re)) << "missing #define " << name;
+            return m.empty() ? -1.0f : std::stof(m[1].str());
+        };
+        EXPECT_FLOAT_EQ(bakeDefine("OLO_PROBE_PEEL_EPSILON_ABS"), kProbePeelEpsilonAbs);
+        EXPECT_FLOAT_EQ(bakeDefine("OLO_PROBE_PEEL_EPSILON_REL"), kProbePeelEpsilonRel);
+    }
+
+    // ---- Layered distances: an occluder inside a room (issue #1804) ----
+
+    namespace
+    {
+        // A box room [-6, 6]^3 around the probe with a floor-to-ceiling
+        // pillar at x in [1, 1.6], z in [-3.3, -2.7] — the corridor's pillar
+        // in miniature. Layers along u are what the three bake passes record:
+        // the pillar's entry and exit, then the wall it hides; the wall alone
+        // (no gap) elsewhere.
+        constexpr f32 kRoomHalf = 6.0f;
+        const glm::vec3 kPillarLo{ 1.0f, -kRoomHalf, -3.3f };
+        const glm::vec3 kPillarHi{ 1.6f, kRoomHalf, -2.7f };
+
+        // Ray/box entry and exit from outside; false on a miss.
+        [[nodiscard]] bool RayBoxSpan(const glm::vec3& o, const glm::vec3& d, const glm::vec3& lo, const glm::vec3& hi,
+                                      f32& tIn, f32& tOut)
+        {
+            tIn = 0.0f;
+            tOut = std::numeric_limits<f32>::max();
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                if (std::abs(d[axis]) < 1e-8f)
+                {
+                    if (o[axis] < lo[axis] || o[axis] > hi[axis])
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                f32 t0 = (lo[axis] - o[axis]) / d[axis];
+                f32 t1 = (hi[axis] - o[axis]) / d[axis];
+                if (t0 > t1)
+                {
+                    std::swap(t0, t1);
+                }
+                tIn = std::max(tIn, t0);
+                tOut = std::min(tOut, t1);
+            }
+            return tIn <= tOut;
+        }
+
+        [[nodiscard]] ProbeDistanceLayers PillarRoomLayers(const glm::vec3& u)
+        {
+            f32 const wall = BoxExitT(glm::vec3(0.0f), u, kRoomHalf);
+            f32 tIn = 0.0f;
+            f32 tOut = 0.0f;
+            if (RayBoxSpan(glm::vec3(0.0f), u, kPillarLo, kPillarHi, tIn, tOut))
+            {
+                return NormalizeProbeDistanceLayers(tIn, tOut, wall);
+            }
+            return NormalizeProbeDistanceLayers(wall, wall, kProbeDistanceFar);
+        }
+
+        // Inside the pillar's radial shadow from the probe (x / -z between the
+        // ratios of its two silhouette corners).
+        [[nodiscard]] bool InPillarShadowCone(const glm::vec3& u)
+        {
+            if (u.z >= 0.0f)
+            {
+                return false;
+            }
+            f32 const ratio = u.x / -u.z;
+            return ratio > (kPillarLo.x / -kPillarLo.z) && ratio < (kPillarHi.x / -kPillarHi.z);
+        }
+    } // namespace
+
+    TEST(ReflectionProbeRaymarch, RayPassingBehindAnOccluderReachesTheWallItHides)
+    {
+        // Start beside the probe, heading down the room just right of the
+        // pillar: the ray clears its right face, enters its radial shadow
+        // behind it, and meets the far wall inside that shadow.
+        glm::vec3 const p0(1.0f, 0.0f, 0.0f);
+        glm::vec3 const dir = glm::normalize(glm::vec3(0.25f, 0.0f, -1.0f));
+        f32 tIn = 0.0f;
+        f32 tOut = 0.0f;
+        ASSERT_FALSE(RayBoxSpan(p0, dir, kPillarLo, kPillarHi, tIn, tOut)) << "the ray must miss the pillar";
+        f32 const tWall = BoxExitT(p0, dir, kRoomHalf);
+        ASSERT_TRUE(InPillarShadowCone(glm::normalize(p0 + dir * tWall))) << "the wall hit must be hidden from the probe";
+
+        // The single-distance encoding: everything behind the pillar is solid,
+        // so the ray "hits" the pillar's shadow where it enters it (#1804).
+        auto const frontOnly = RaymarchProbeDistanceField(p0, dir, kRoomHalf * std::sqrt(3.0f),
+                                                          [](const glm::vec3& u)
+                                                          { return PillarRoomLayers(u).Front; });
+        ASSERT_TRUE(frontOnly.Hit);
+        EXPECT_LT(frontOnly.HitT, tWall - 1.5f) << "control: the single layer should stop in the pillar's shadow";
+
+        auto const layered = RaymarchProbeDistanceField(p0, dir, kRoomHalf * std::sqrt(3.0f), PillarRoomLayers);
+        ASSERT_TRUE(layered.Hit);
+        EXPECT_NEAR(layered.HitT, tWall, 0.2f) << "the ray stopped short of the wall";
+        EXPECT_TRUE(layered.Occluded);
+        // The radiance comes from the wall the ray hit, where the probe sees it
+        // past the pillar's silhouette: outside the shadow cone, at the hit's
+        // own distance.
+        EXPECT_FALSE(InPillarShadowCone(layered.RadianceDirection));
+        const f32 hitRadius = glm::length(p0 + dir * layered.HitT);
+        const f32 ringAngle = std::acos(std::clamp(glm::dot(layered.RadianceDirection, layered.HitDirection), -1.0f, 1.0f));
+        EXPECT_NEAR(PillarRoomLayers(layered.RadianceDirection).Front, hitRadius,
+                    std::max(kProbeInpaintMatchAbs,
+                             hitRadius * (kProbeInpaintMatchRel + (kProbeInpaintMatchSlope * ringAngle))) +
+                        1.0e-4f)
+            << "the radiance direction does not see the surface that was hit";
+    }
+
+    TEST(ReflectionProbeRaymarch, RayIntoAnOccludersHiddenSideStillHitsIt)
+    {
+        // The pillar's +X face is hidden from the probe. A ray aimed at it
+        // crosses a thin sliver of gap just before the face; it must still
+        // stop on the face, not slip through into the wall behind.
+        glm::vec3 const p0(2.5f, 0.0f, -1.0f);
+        glm::vec3 const target(1.6f, 0.0f, -3.0f);
+        glm::vec3 const dir = glm::normalize(target - p0);
+        f32 const tFace = glm::length(target - p0);
+
+        auto const result = RaymarchProbeDistanceField(p0, dir, kRoomHalf * std::sqrt(3.0f), PillarRoomLayers);
+        ASSERT_TRUE(result.Hit);
+        EXPECT_NEAR(result.HitT, tFace, 0.15f);
+        EXPECT_FALSE(result.Occluded) << "a hit on the pillar itself shades with the pillar's radiance";
+        EXPECT_GT(glm::dot(result.RadianceDirection, result.HitDirection), 0.9999f);
+    }
+
+    TEST(ReflectionProbeRaymarch, ThinOccluderBetweenCoarseStepsIsNotSkipped)
+    {
+        // A 0.05 m slab across the ray, far thinner than one coarse step:
+        // samples land in front of it and in the gap behind it, never inside.
+        // The gap search between them must find it.
+        auto const slabRoom = [](const glm::vec3& u) -> ProbeDistanceLayers
+        {
+            f32 const wall = BoxExitT(glm::vec3(0.0f), u, kRoomHalf);
+            if (u.z < -0.5f)
+            {
+                f32 const front = 3.0f / -u.z;
+                return NormalizeProbeDistanceLayers(front, 3.05f / -u.z, wall);
+            }
+            return NormalizeProbeDistanceLayers(wall, wall, kProbeDistanceFar);
+        };
+        glm::vec3 const p0(0.0f, -1.0f, 0.0f);
+        glm::vec3 const dir = glm::normalize(glm::vec3(0.0f, 0.1f, -1.0f));
+        f32 const tSlab = 3.0f / -dir.z;
+
+        auto const result = RaymarchProbeDistanceField(p0, dir, kRoomHalf * std::sqrt(3.0f), slabRoom);
+        ASSERT_TRUE(result.Hit);
+        EXPECT_NEAR(result.HitT, tSlab, 0.1f);
+        EXPECT_FALSE(result.Occluded);
+    }
+
+    TEST(ReflectionProbeDistanceFieldTest, NormalizeLayersCollapsesNothingBehindToNoGap)
+    {
+        // Sky: every layer at the sentinel, no gap.
+        ProbeDistanceLayers const sky = NormalizeProbeDistanceLayers(kProbeDistanceFar, kProbeDistanceFar, kProbeDistanceFar);
+        EXPECT_FLOAT_EQ(sky.Front, kProbeDistanceFar);
+        EXPECT_FLOAT_EQ(sky.Behind, sky.Back);
+        // A room's wall slab with nothing behind it: d2 = d1, so everything
+        // beyond the wall stays solid (the single-distance behaviour).
+        ProbeDistanceLayers const wall = NormalizeProbeDistanceLayers(5.0f, 5.25f, kProbeDistanceFar);
+        EXPECT_FLOAT_EQ(wall.Back, 5.25f);
+        EXPECT_FLOAT_EQ(wall.Behind, 5.25f);
+        EXPECT_EQ(ClassifyProbeRayPoint(7.0f, wall), ProbeRayPointKind::Solid);
+        // An open surface with nothing beyond it at all.
+        ProbeDistanceLayers const plane = NormalizeProbeDistanceLayers(4.0f, kProbeDistanceFar, kProbeDistanceFar);
+        EXPECT_EQ(ClassifyProbeRayPoint(50.0f, plane), ProbeRayPointKind::Solid);
+        // An occluder in front of a wall keeps its gap.
+        ProbeDistanceLayers const pillar = NormalizeProbeDistanceLayers(3.0f, 3.6f, 12.0f);
+        EXPECT_EQ(ClassifyProbeRayPoint(2.0f, pillar), ProbeRayPointKind::Front);
+        EXPECT_EQ(ClassifyProbeRayPoint(3.3f, pillar), ProbeRayPointKind::Solid);
+        EXPECT_EQ(ClassifyProbeRayPoint(8.0f, pillar), ProbeRayPointKind::Gap);
+        EXPECT_EQ(ClassifyProbeRayPoint(13.0f, pillar), ProbeRayPointKind::Solid);
+        // Non-finite and out-of-order readbacks never reach the field.
+        ProbeDistanceLayers const bad = NormalizeProbeDistanceLayers(std::numeric_limits<f32>::quiet_NaN(), 2.0f,
+                                                                     std::numeric_limits<f32>::infinity());
+        EXPECT_FLOAT_EQ(bad.Front, kProbeDistanceFar);
+        EXPECT_GE(bad.Back, bad.Front);
+        EXPECT_GE(bad.Behind, bad.Back);
+        ProbeDistanceLayers const unordered = NormalizeProbeDistanceLayers(6.0f, 2.0f, 9.0f);
+        EXPECT_FLOAT_EQ(unordered.Back, 6.0f);
+        EXPECT_FLOAT_EQ(unordered.Behind, 9.0f);
+    }
+
+    TEST(ReflectionProbeDistanceFieldTest, LayeredFieldKeepsEveryLayerThroughTheMaxChain)
+    {
+        constexpr u32 kRes = 4;
+        constexpr sizet kTexels = static_cast<sizet>(kRes) * kRes * 6u;
+        TArray<f32> mip0(static_cast<i32>(kTexels * kProbeDistanceChannels), 0.0f);
+        for (sizet i = 0; i < kTexels; ++i)
+        {
+            mip0[(i * kProbeDistanceChannels) + 0u] = 2.0f + static_cast<f32>(i % 3u);
+            mip0[(i * kProbeDistanceChannels) + 1u] = 3.0f;
+            mip0[(i * kProbeDistanceChannels) + 2u] = 20.0f; // a hidden wall beyond every d0
+        }
+        auto field = ReflectionProbeDistanceField::CreateLayered(std::move(mip0), kRes);
+        ASSERT_NE(field, nullptr);
+        EXPECT_EQ(field->GetMipCount(), 3u); // 4, 2, 1
+        EXPECT_FLOAT_EQ(field->GetMaxFiniteDistance(), 20.0f) << "dMax must cover the d2 surfaces a march can hit";
+        ProbeDistanceLayers const top = field->SampleLayersNearest({ 0.0f, 0.0f, -1.0f }, 2);
+        EXPECT_FLOAT_EQ(top.Front, 4.0f);
+        EXPECT_FLOAT_EQ(top.Back, 3.0f);
+        EXPECT_FLOAT_EQ(top.Behind, 20.0f);
+        EXPECT_EQ(field->GetMip(1).size(), static_cast<sizet>(2u * 2u * 6u * kProbeDistanceChannels));
+
+        // The single-distance constructor has no gap anywhere.
+        TArray<f32> flat(static_cast<i32>(kTexels), 7.0f);
+        auto single = ReflectionProbeDistanceField::Create(std::move(flat), kRes);
+        ASSERT_NE(single, nullptr);
+        ProbeDistanceLayers const s = single->SampleLayersNearest({ 1.0f, 0.0f, 0.0f }, 0);
+        EXPECT_FLOAT_EQ(s.Back, 7.0f);
+        EXPECT_FLOAT_EQ(s.Behind, 7.0f);
     }
 } // namespace OloEngine

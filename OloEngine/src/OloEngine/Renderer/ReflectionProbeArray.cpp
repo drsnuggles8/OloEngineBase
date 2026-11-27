@@ -45,7 +45,7 @@ namespace OloEngine
         placeholderSpec.MipLevels = 1;
         placeholderSpec.Format = ImageFormat::RGBA8;
         m_PlaceholderRadiance = TextureCubemapArray::Create(placeholderSpec);
-        placeholderSpec.Format = ImageFormat::R32F;
+        placeholderSpec.Format = ImageFormat::RGBA16F;
         m_PlaceholderDistance = TextureCubemapArray::Create(placeholderSpec);
 
         m_Initialized = m_ProbeUBO && m_GridSSBO && m_PlaceholderRadiance && m_PlaceholderDistance;
@@ -138,8 +138,8 @@ namespace OloEngine
         CubemapArraySpecification distanceSpec;
         distanceSpec.Resolution = kProbeDistanceResolution;
         distanceSpec.Layers = newCapacity;
-        distanceSpec.Format = ImageFormat::R32F;
-        distanceSpec.MipLevels = 0; // full chain — the CPU field builds every max-mip
+        distanceSpec.Format = ImageFormat::RGBA16F; // d0, d1, d2 (#1804)
+        distanceSpec.MipLevels = 0;                 // full chain — the CPU field builds every max-mip
 
         const auto estimate = [](const CubemapArraySpecification& spec)
         {
