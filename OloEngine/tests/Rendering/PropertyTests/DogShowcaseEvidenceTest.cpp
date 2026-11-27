@@ -10597,6 +10597,9 @@ namespace OloEngine::Tests
             // (255 when there was none): TAA's sharpen, unbounded, printed a black
             // ring there (PostProcess_TAA.glsl's step 5).
             u32 DarkestBesideAFirefly = 255;
+            // The same within 4: the sharpen's 3x3 range reaches one pixel past
+            // the 7x7 window, so this is what an in-range sharpen can reach.
+            u32 DarkestNearAFirefly = 255;
         };
         const auto measure = [&](const std::string& png)
         {
@@ -10639,13 +10642,17 @@ namespace OloEngine::Tests
                         ReadbackFrame(presented);
                         const u32 cx = static_cast<u32>(worstAt % frame.Width);
                         const u32 cy = static_cast<u32>(worstAt / frame.Width);
-                        for (u32 y = std::max(cy, 3u) - 3u; y <= std::min(cy + 3u, kHeight - 1u); ++y)
+                        for (u32 y = std::max(cy, 4u) - 4u; y <= std::min(cy + 4u, kHeight - 1u); ++y)
                         {
-                            for (u32 x = std::max(cx, 3u) - 3u; x <= std::min(cx + 3u, kWidth - 1u); ++x)
+                            for (u32 x = std::max(cx, 4u) - 4u; x <= std::min(cx + 4u, kWidth - 1u); ++x)
                             {
                                 const sizet o = ((static_cast<sizet>(y) * kWidth) + x) * 4u;
                                 const u32 luma = (static_cast<u32>(presented[o]) + presented[o + 1u] + presented[o + 2u]) / 3u;
-                                peaks.DarkestBesideAFirefly = std::min(peaks.DarkestBesideAFirefly, luma);
+                                peaks.DarkestNearAFirefly = std::min(peaks.DarkestNearAFirefly, luma);
+                                if (std::max(x, cx) - std::min(x, cx) <= 3u && std::max(y, cy) - std::min(y, cy) <= 3u)
+                                {
+                                    peaks.DarkestBesideAFirefly = std::min(peaks.DarkestBesideAFirefly, luma);
+                                }
                             }
                         }
                     }
@@ -10704,10 +10711,10 @@ namespace OloEngine::Tests
         // near-black of itself (58 of 255 beside a glint; the first
         // measurement, on lighter skin, read 190-255).
         std::printf("[dog] darkest presented pixel within 3 of a firefly (strength 0): %u of 255 sharpened, %u "
-                    "unsharpened\n",
-                    control.DarkestBesideAFirefly, unsharpened.DarkestBesideAFirefly);
-        EXPECT_LT(unsharpened.DarkestBesideAFirefly, 255u) << "the unsharpened control saw no firefly to measure beside";
-        EXPECT_GE(control.DarkestBesideAFirefly + 12u, unsharpened.DarkestBesideAFirefly)
+                    "unsharpened within 4\n",
+                    control.DarkestBesideAFirefly, unsharpened.DarkestNearAFirefly);
+        EXPECT_LT(unsharpened.DarkestNearAFirefly, 255u) << "the unsharpened control saw no firefly to measure beside";
+        EXPECT_GE(control.DarkestBesideAFirefly + 12u, unsharpened.DarkestNearAFirefly)
             << "a pixel beside a firefly printed darker than it was unsharpened: TAA's sharpen undershot its "
                "neighbourhood";
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
