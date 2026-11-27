@@ -406,4 +406,9 @@ TEST_F(DisplayOutputContract, EveryHdrCompositionValueFitsInRgba16F)
     // And the round trip is still the identity at that gamma.
     const glm::vec3 nits = glm::pow(brightest, glm::vec3(gamma)) * mapping.UIWhiteNits;
     EXPECT_NEAR(nits.r, kMaxPqNits, kMaxPqNits * 1.0e-4f);
+    // A direct caller passing a lower gamma gets the same floor, both ways.
+    const glm::vec3 direct = NitsToComposition(glm::vec3(kMaxPqNits), mapping, 0.1f);
+    EXPECT_FLOAT_EQ(direct.r, brightest.r);
+    const glm::vec3 encoded = EncodeCompositionForDisplay(direct, mapping, 0.1f);
+    EXPECT_FLOAT_EQ(encoded.r, EncodeCompositionForDisplay(brightest, mapping, gamma).r);
 }

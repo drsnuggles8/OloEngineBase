@@ -300,7 +300,7 @@ namespace OloEngine
 
     glm::vec3 NitsToComposition(const glm::vec3& nits, const DisplayMapping& mapping, const f32 gamma) noexcept
     {
-        const f32 g = std::max(Finite(gamma, 2.2f), 0.1f);
+        const f32 g = std::max(Finite(gamma, 2.2f), kMinHdrCompositionGamma);
         const glm::vec3 relative = glm::max(nits / mapping.UIWhiteNits, glm::vec3(0.0f));
         return glm::pow(relative, glm::vec3(1.0f / g));
     }
@@ -309,7 +309,7 @@ namespace OloEngine
     {
         if (!mapping.IsHdr())
             return composition;
-        const f32 g = std::max(Finite(gamma, 2.2f), 0.1f);
+        const f32 g = std::max(Finite(gamma, 2.2f), kMinHdrCompositionGamma);
         const glm::vec3 nits709 = glm::pow(glm::max(composition, glm::vec3(0.0f)), glm::vec3(g)) * mapping.UIWhiteNits;
         if (mapping.Mode == DisplayOutputMode::HDR10)
         {

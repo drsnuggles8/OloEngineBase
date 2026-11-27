@@ -87,10 +87,14 @@ vec3 oloToneMapForHdrDisplay(vec3 sceneLinear, float paperWhiteNits, float peakN
     return nits * (mapped / maxNits);
 }
 
+// DisplayOutput.h kMinHdrCompositionGamma: below it the brightest HDR
+// composition value no longer fits in RGBA16F.
+#define OLO_MIN_HDR_COMPOSITION_GAMMA 0.5
+
 // Display nits -> composition (1.0 = UI white, gamma-encoded).
 vec3 oloNitsToComposition(vec3 nits, float uiWhiteNits, float gamma)
 {
-    float g = max(gamma, 0.1);
+    float g = max(gamma, OLO_MIN_HDR_COMPOSITION_GAMMA);
     return pow(max(nits / uiWhiteNits, vec3(0.0)), vec3(1.0 / g));
 }
 
@@ -99,7 +103,7 @@ vec3 oloEncodeCompositionForDisplay(vec3 composition, int mode, float gamma, flo
 {
     if (mode == OLO_DISPLAY_SDR)
         return composition;
-    float g = max(gamma, 0.1);
+    float g = max(gamma, OLO_MIN_HDR_COMPOSITION_GAMMA);
     vec3 nits709 = pow(max(composition, vec3(0.0)), vec3(g)) * uiWhiteNits;
     if (mode == OLO_DISPLAY_HDR10)
     {

@@ -846,7 +846,9 @@ namespace OloEngine
         {
             // UBO_USER_0 is pass-local: every pass that uses it refills it, so
             // this one owns its own buffer instead of trusting what is bound.
-            d.DisplayEncodeUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            // Binding 7 hosts several block layouts, so the buffer names the
+            // one it holds (ADR 0025 section 5a), as Renderer3D's does.
+            d.DisplayEncodeUBO = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0, "PostProcessUBO");
         }
 
         const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
