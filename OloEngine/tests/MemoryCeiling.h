@@ -72,8 +72,10 @@ namespace OloEngine::Tests
     void RegisterMemoryCeilingListener();
 
     // --olo-rss-report=<path>: also write one tab-separated row per finished test
-    // (test, start_mb, end_mb, peak_mb, retained_mb), flushed per row so a process
-    // the watchdog stops keeps every row before it. Starts the polling thread even
+    // (test, start_mb, end_mb, peak_mb, retained_mb, heap_used_mb, heap_free_mb,
+    // released_mb). end_mb, and so retained_mb, is taken after ReleaseFreeHeap;
+    // the three heap columns are empty where that is a no-op. Each row is flushed,
+    // so a process the watchdog stops keeps every row before it. Starts the polling thread even
     // with no ceiling, for the peaks. Call before StartMemoryCeilingWatchdog.
     // Returns false, having said why on stderr, when the file cannot be opened.
     // Meant for a single-process run: ctest's one process per case would have

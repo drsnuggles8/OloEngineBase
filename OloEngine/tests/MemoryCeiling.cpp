@@ -20,11 +20,12 @@
 // A sanitizer that replaces malloc owns the heap; glibc's arenas then hold
 // nothing, and its figures would describe a heap the process does not use.
 #if defined(__has_feature)
-#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer) ||        \
+    __has_feature(leak_sanitizer) || __has_feature(hwaddress_sanitizer)
 #define OLO_TESTS_SANITIZER_OWNS_HEAP 1
 #endif
 #endif
-#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || defined(__SANITIZE_HWADDRESS__)
 #define OLO_TESTS_SANITIZER_OWNS_HEAP 1
 #endif
 
