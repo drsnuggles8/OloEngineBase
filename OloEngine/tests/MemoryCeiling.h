@@ -23,6 +23,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,21 @@ namespace OloEngine::Tests
 
     // The process's current resident set, in bytes (0 when the platform cannot say).
     [[nodiscard]] u64 CurrentResidentBytes();
+
+    // What ReleaseFreeHeap saw in the C heap before it released the free part.
+    struct HeapRelease
+    {
+        bool Supported = false;       // false off glibc, and under a sanitizer that owns the heap
+        std::optional<u64> UsedBytes; // bytes in live allocations, mmapped blocks included
+        std::optional<u64> FreeBytes; // freed bytes the allocator still held
+    };
+
+    // Returns the C heap's freed-but-held pages to the OS (glibc's malloc_trim)
+    // and reports what the heap held just before. glibc keeps freed memory in
+    // its per-thread arenas, so a single process running thousands of cases
+    // carries every earlier case's high-water mark as resident set (#1649).
+    // The listener calls it after every test; a no-op elsewhere.
+    HeapRelease ReleaseFreeHeap();
 
     // Starts the polling thread. Call once, from main. ceilingMb applies from
     // start-up on. A non-zero headroomMb replaces it when the first test starts
