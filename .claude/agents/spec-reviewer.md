@@ -1,6 +1,6 @@
 ---
 name: spec-reviewer
-description: Review a task branch's diff against what HANDOVER.md and its issue asked for — acceptance criteria, the verification matrix, bug accounting and ECS cross-binding touch-points. Reports requirement gaps only. Use proactively in task-loop Phase 3, after /code-review.
+description: Review a task branch's diff against what HANDOVER.md and its issue asked for — acceptance criteria, the verification matrix, bug accounting, ECS cross-binding touch-points and, for KESTREL gameplay, the design-acceptance block. Reports requirement gaps only. Use proactively in task-loop Phase 3, after /code-review.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit, Agent
 model: opus
@@ -15,7 +15,8 @@ push or comment.
 
 ## Gather
 
-- `HANDOVER.md` at the worktree root: Task, Plan, Verification axes, Registry snapshot.
+- `HANDOVER.md` at the worktree root: Task, Plan, Verification axes, Design context (KESTREL tasks
+  only), Registry snapshot.
 - The issue it names: `gh issue view <N> --json title,body,comments` (bare `gh issue view` errors on
   this repo). Its acceptance criteria and checkboxes are the requirements.
 - The diff: `git fetch origin` then `git diff origin/master...HEAD --stat` and the full diff.
@@ -46,6 +47,15 @@ push or comment.
    are a finding only if they are unexplained.
 6. **Closing the loop**: the source `docs/` checkbox or `// TODO` the task came from is updated in
    the diff, and `Closes #N` is used only when the PR completes the issue.
+7. **KESTREL design**: if `HANDOVER.md` has a *Design context* section, or the diff touches
+   `OloEditor/KestrelProject/` outside `docs/archive/`, read
+   `OloEditor/KestrelProject/docs/AGENT_GUIDE.md` and the decision records the section cites
+   (look IDs up in `DECISIONS.md`). Findings: no *Design validation* section in the PR body, or one
+   missing the decision IDs, the player experience, technical and player-facing acceptance with
+   results, or a design status; agent runs described as human playtesting; behaviour that contradicts a cited
+   decision, or a changed decision record, open question or tunable without the owner's approval cited
+   in the commit or issue; any edit under `docs/archive/`. Human validation still owed, and stated, is
+   not a finding. Skip this check for every other task.
 
 Do **not** report style preferences, naming opinions, speculative hardening, extra tests for cases
 that cannot happen, or refactors you would have liked. A reviewer asked for gaps will always find

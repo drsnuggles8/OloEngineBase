@@ -40,6 +40,11 @@ through `.claude/rules/`; for a symptom or a subsystem without a rule, ask the `
 rather than reading [agent-rules/README.md](../agent-rules/README.md) whole. The model and effort
 `HANDOVER.md` recommends are set at kickoff.
 
+**KESTREL gameplay task** (`HANDOVER.md` has a *Design context* section, or the task meets the
+[agent guide's](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#when-this-guide-applies) test):
+read the guide and the design documents its *What to read* list names, and complete *Design context*
+if the handover lacks it. Any other task leaves the game-design documents unopened.
+
 Confirm you are in the worktree, not the base repo, and that the guards are live:
 
 ```bash
@@ -260,6 +265,10 @@ The body states what changed and why, the verification (named evidence: test nam
 paths), and `Closes #N` only when the PR completes the issue. For one item of an umbrella tracker,
 reference it as a bare `#N`.
 
+A KESTREL gameplay task adds a `## Design validation` section before the ones below: the
+[design-acceptance block](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block)
+with actual results, keeping what the session verified apart from the human validation still owed.
+
 End the body with these sections:
 
 ```markdown
@@ -394,6 +403,11 @@ You may **not** report the task done while any of these is false:
 6. **Every bug you found is accounted for.** Each is either a commit listed under *Found and fixed*,
    or an issue listed under *Filed, not fixed* whose body carries the `Not fixed in #<PR> because:`
    line with one of the four Phase 1a reasons. A bug mentioned only in prose fails this.
+7. **A KESTREL gameplay PR has a complete *Design validation* section**: the decision IDs applied,
+   the player experience, technical and player-facing acceptance with results, and a design status.
+   Human validation still owed is stated with its question, and is not a failure (decision V-17).
+   Agent play presented as playtesting, or an approved decision changed without the owner's recorded
+   approval, fails this.
 
 A matrix looks like this; the last row is the one the gate exists for:
 
@@ -445,8 +459,9 @@ Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy b
    merge related lines or fold detail into the topic file instead of adding another line.
 
 Then **report and stop**: the PR number and link, what changed, how it was verified (named
-evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, and what
-is left for the user, which is normally just *merge it*. Do not merge, and do not close the issue.
+evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, for a
+KESTREL gameplay task its design status and the human validation still owed, and what is left for
+the user, which is normally just *merge it*. Do not merge, and do not close the issue.
 
 ---
 

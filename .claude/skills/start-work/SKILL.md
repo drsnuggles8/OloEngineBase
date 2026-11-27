@@ -73,7 +73,8 @@ unscored, scored rank #2 once it was scored.
 - **North-star item with no issue**: file and score it in the milestone (`gh issue create
   --milestone "<name>"`), then add its `#N` to the item's line in `docs/process/north-star.md` in
   the first task PR that touches the file. Never add, remove or reword an item; the list is the
-  user's.
+  user's. A gameplay issue's body also carries the design references and acceptance split from
+  [AGENT_GUIDE.md](../../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block).
 - **`north star: NOT SET`**: not a lint failure. Say so in the report in one line. Never set the
   milestone or write the goal yourself.
 
@@ -220,6 +221,14 @@ this conversation:
   up front (no hardware, backend lacks the feature) is decided here with its reason. A single-path
   change says so in one line ("single path: forward only, 2D feature"); omitting the section is not
   that decision.
+- **Design context** (KESTREL tasks only: the `kestrel` label, the *KESTREL: vertical slice*
+  milestone, or files under `OloEditor/KestrelProject/`): the design-acceptance block from
+  [AGENT_GUIDE.md](../../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block),
+  meaning the decision IDs applied, the player experience, technical and player-facing acceptance, and a
+  validation plan that keeps technical verification apart from human design validation. Fill it by
+  reading the guide's *What to read* list. For a KESTREL issue that is pure engine capability, write
+  `Design context: engine-only — <reason>`. Leave the section out of every other task, and do not open
+  the design documents for one.
 - **State**: what is already done and verified (usually nothing).
 - **Next steps**: the concrete first actions.
 - **The loop**: "Follow `docs/process/task-loop.md`, Phase 0 through Phase 7." Add only what this
