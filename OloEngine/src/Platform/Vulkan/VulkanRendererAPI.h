@@ -663,10 +663,15 @@ namespace OloEngine
         // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;
         void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity = 1u) override;
+        void RecordParallelRegion(u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity,
+                                  const ParallelRegionHint& hint) override;
         void RecordParallelOrdered(u32 itemCount, const std::function<void(u32)>& body,
                                    const std::function<void(u32)>& beforeExecute,
                                    const std::function<void(u32)>& afterExecute,
                                    u32 instanceCapacity = 1u, std::span<const std::string> itemPassNames = {}) override;
+        // Why a region started now would stay inline, or Parallel when it
+        // would fork; SupportsParallelRecording is this == Parallel.
+        [[nodiscard]] ParallelRegionDecision ParallelRecordingDecision() const;
         void ReleaseParallelRecordingResources() override;
         void NoteDeclinedRecordingGroup() override
         {
@@ -994,6 +999,10 @@ namespace OloEngine
         // ParallelFor hands the item to.
         void RecordParallelItem(VulkanWorkerRecordingContext& item, const std::function<void(u32 item)>& body,
                                 std::exception_ptr& firstFailure, std::mutex& failureMutex);
+        // RecordParallelOrdered with the caller's optional policy hint (#1340).
+        void RecordRegion(u32 itemCount, const std::function<void(u32)>& body,
+                          const std::function<void(u32)>& beforeExecute, const std::function<void(u32)>& afterExecute,
+                          u32 instanceCapacity, std::span<const std::string> itemPassNames, const ParallelRegionHint* hint);
         // The fork's attachment pre-transition (amendment (92) rule 5): bring
         // the bound target's colour / depth / selected depth-array layer to
         // their attachment layouts on the primary, so items open their scopes

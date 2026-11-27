@@ -44,6 +44,8 @@ namespace OloEngine
             slot.PassNames.SetNum(static_cast<i32>(maxPassesPerFrame));
             slot.PassIsSubPass.Init(0u, static_cast<i32>(maxPassesPerFrame));
             slot.PassParentNames.SetNum(static_cast<i32>(maxPassesPerFrame));
+            slot.PassQueue.Init(0u, static_cast<i32>(maxPassesPerFrame));
+            slot.PassAsyncBatch.Init(-1, static_cast<i32>(maxPassesPerFrame));
             slot.PassCount = 0;
             slot.UntimedPasses = 0;
             slot.FrameNumber = 0;
@@ -83,6 +85,8 @@ namespace OloEngine
             slot.PassNames.Reset();
             slot.PassIsSubPass.Reset();
             slot.PassParentNames.Reset();
+            slot.PassQueue.Reset();
+            slot.PassAsyncBatch.Reset();
             slot.Pending = false;
         }
 
@@ -155,6 +159,8 @@ namespace OloEngine
         m_Active = true;
         m_PassOpen = false;
         m_SubPassDepth = 0;
+        m_CurrentQueue = GPUPassQueue::Graphics;
+        m_CurrentAsyncBatch = -1;
     }
 
     void GPUPassTimerPool::EndFrame()
@@ -196,6 +202,8 @@ namespace OloEngine
         slot.PassNames[m_CurrentPassIndex] = name;
         slot.PassIsSubPass[m_CurrentPassIndex] = 0u;
         slot.PassParentNames[m_CurrentPassIndex].Reset();
+        slot.PassQueue[m_CurrentPassIndex] = static_cast<u8>(m_CurrentQueue);
+        slot.PassAsyncBatch[m_CurrentPassIndex] = m_CurrentAsyncBatch;
         StampQuery(slot, 2 + (2 * m_CurrentPassIndex));
         m_PassOpen = true;
     }
@@ -238,6 +246,8 @@ namespace OloEngine
         slot.PassNames[index] = slot.PassNames[enclosing] + "/" + FString(name);
         slot.PassIsSubPass[index] = 1u;
         slot.PassParentNames[index] = slot.PassNames[m_CurrentPassIndex];
+        slot.PassQueue[index] = static_cast<u8>(m_CurrentQueue);
+        slot.PassAsyncBatch[index] = m_CurrentAsyncBatch;
         StampQuery(slot, 2 + (2 * index));
     }
 
@@ -251,7 +261,14 @@ namespace OloEngine
             StampQuery(m_Slots[m_WriteSlot], 3 + (2 * m_SubPassStack[level]));
     }
 
-    GpuTimingSample GPUPassTimerPool::ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex) const
+    void GPUPassTimerPool::SetQueueContext(const GPUPassQueue queue, const i32 asyncBatch)
+    {
+        m_CurrentQueue = queue;
+        m_CurrentAsyncBatch = asyncBatch;
+    }
+
+    GpuTimingSample GPUPassTimerPool::ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex, u64* beginNs,
+                                                  u64* endNs) const
     {
         if (beginIndex >= static_cast<u32>(slot.Queries.Num()) || endIndex >= static_cast<u32>(slot.Queries.Num()))
             return GpuTimingSample::Absent(GpuTimingStatus::NotTimed);
@@ -292,7 +309,15 @@ namespace OloEngine
             readout.EndReadable = RenderCommand::TryGetQueryResultU64(slot.Queries[endIndex], readout.EndNs);
         }
 
-        return ResolveGpuTimingPair(readout);
+        const GpuTimingSample sample = ResolveGpuTimingPair(readout);
+        if (sample.IsValid())
+        {
+            if (beginNs != nullptr)
+                *beginNs = readout.BeginNs;
+            if (endNs != nullptr)
+                *endNs = readout.EndNs;
+        }
+        return sample;
     }
 
     void GPUPassTimerPool::WarnOnceAboutLostFrame(u64 frameNumber, const char* reason)
@@ -365,18 +390,33 @@ namespace OloEngine
             return;
         }
 
-        m_LastFrameSample = ResolvePair(slot, 0, 1);
+        u64 frameBeginNs = 0;
+        m_LastFrameSample = ResolvePair(slot, 0, 1, &frameBeginNs);
+        const bool frameAnchored = m_LastFrameSample.IsValid();
 
         m_LastPassTimings.Reset();
         m_LastPassTimings.Reserve(static_cast<i32>(slot.PassCount + slot.UntimedPasses));
         for (u32 i = 0; i < slot.PassCount; ++i)
         {
-            m_LastPassTimings.Add(PassTiming{
+            u64 beginNs = 0;
+            u64 endNs = 0;
+            PassTiming timing{
                 .Name = slot.PassNames[i],
-                .Sample = ResolvePair(slot, 2 + (2 * i), 3 + (2 * i)),
+                .Sample = ResolvePair(slot, 2 + (2 * i), 3 + (2 * i), &beginNs, &endNs),
                 .IsSubPass = slot.PassIsSubPass[i] != 0u,
                 .ParentName = slot.PassParentNames[i],
-            });
+            };
+            timing.Queue = static_cast<GPUPassQueue>(slot.PassQueue[i]);
+            timing.AsyncBatch = slot.PassAsyncBatch[i];
+            // Signed: a stamp on another queue can precede the frame-begin
+            // stamp if the domains disagree, and that must show, not wrap.
+            if (frameAnchored && timing.Sample.IsValid())
+            {
+                timing.BeginMs = static_cast<f64>(static_cast<i64>(beginNs - frameBeginNs)) * 1.0e-6;
+                timing.EndMs = static_cast<f64>(static_cast<i64>(endNs - frameBeginNs)) * 1.0e-6;
+                timing.HasOffsets = true;
+            }
+            m_LastPassTimings.Add(std::move(timing));
         }
 
         // Passes that overflowed the per-frame budget are published by count,

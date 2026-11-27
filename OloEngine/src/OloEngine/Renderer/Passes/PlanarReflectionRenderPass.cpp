@@ -225,7 +225,7 @@ namespace OloEngine
             // bucket (skybox + meshes + terrain + voxels) into the mirror target.
             CommandDispatch::BindSceneResources();
             RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
-            m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
+            m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::SceneColor);
 
             RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
             m_ReflectionFB->Unbind();

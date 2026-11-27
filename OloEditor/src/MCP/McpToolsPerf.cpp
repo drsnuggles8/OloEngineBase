@@ -449,7 +449,9 @@ namespace OloEngine::MCP
                 gpuPasses.reserve(static_cast<sizet>(gpuFrame.Passes.Num()));
                 for (const auto& timing : gpuFrame.Passes)
                     gpuPasses.push_back(PassTimings::GpuPassEntry{ timing.Name.ToStdString(), timing.Sample,
-                                                                   timing.IsSubPass, timing.ParentName.ToStdString() });
+                                                                   timing.IsSubPass, timing.ParentName.ToStdString(),
+                                                                   timing.BeginMs, timing.EndMs, timing.HasOffsets,
+                                                                   timing.Queue, timing.AsyncBatch });
 
                 std::vector<PassTimings::CpuPassEntry> cpuPasses;
                 if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph())
@@ -494,7 +496,8 @@ namespace OloEngine::MCP
                         region.WorkerRecordMs, region.RegionWallMs, region.JoinWaitMs,
                         std::vector<f64>(region.ItemRecordMs.begin(), region.ItemRecordMs.end()), std::move(itemPassNames),
                         region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs,
-                        region.FrontendPrepareMs });
+                        region.FrontendPrepareMs, ToString(region.Decision), region.Family.ToStdString(), region.WorkUnits,
+                        region.MinWorkUnitsToFork, region.ItemCount });
                 }
                 // Async compute queue telemetry (#808), pulled from the same
                 // completed-frame record so it describes the same frame.

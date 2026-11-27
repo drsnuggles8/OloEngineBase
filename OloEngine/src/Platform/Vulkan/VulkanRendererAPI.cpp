@@ -8128,13 +8128,18 @@ namespace OloEngine
 
     bool VulkanRendererAPI::SupportsParallelRecording() const
     {
+        return ParallelRecordingDecision() == ParallelRegionDecision::Parallel;
+    }
+
+    ParallelRegionDecision VulkanRendererAPI::ParallelRecordingDecision() const
+    {
         if (OnWorkerContext() || m_InParallelRegion)
         {
-            return false; // no nesting
+            return ParallelRegionDecision::InlineNested;
         }
         if (m_Main.Cmd == VK_NULL_HANDLE || VulkanDevice::Get() == nullptr)
         {
-            return false;
+            return ParallelRegionDecision::InlineUnsupported;
         }
         // #808: never fork while recording onto the async compute queue. The
         // secondaries come from VulkanSecondaryCommandPools, whose pools are
@@ -8152,21 +8157,22 @@ namespace OloEngine
         // which is the same observable command stream (amendment (92)).
         if (m_Main.OnComputeOnlyQueue)
         {
-            return false;
+            return ParallelRegionDecision::InlineUnsupported;
         }
         if (Levers::VulkanParallelRecording() == Levers::Tristate::Off)
         {
-            return false;
+            return ParallelRegionDecision::InlineLeverOff;
         }
         // A query span on the primary cannot contain vkCmdExecuteCommands
         // without occlusion-query inheritance, and a host-side conditional
         // predicate is per context; both are rare enough to run inline.
         if (m_Main.Query.Pool != VK_NULL_HANDLE || m_Main.ConditionalRenderSkip)
         {
-            return false;
+            return ParallelRegionDecision::InlineUnsupported;
         }
         // The pools reset on the frame arena's clock (rule 9): no frame, no fork.
-        return VulkanFrameArena::Get().GetFrameGeneration() != 0u;
+        return VulkanFrameArena::Get().GetFrameGeneration() != 0u ? ParallelRegionDecision::Parallel
+                                                                  : ParallelRegionDecision::InlineUnsupported;
     }
 
     void VulkanRendererAPI::TransitionBoundTargetAttachmentsForFork()
@@ -8323,7 +8329,13 @@ namespace OloEngine
 
     void VulkanRendererAPI::RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity)
     {
-        RecordParallelOrdered(itemCount, body, {}, {}, instanceCapacity);
+        RecordRegion(itemCount, body, {}, {}, instanceCapacity, {}, nullptr);
+    }
+
+    void VulkanRendererAPI::RecordParallelRegion(const u32 itemCount, const std::function<void(u32 item)>& body,
+                                                 const u32 instanceCapacity, const ParallelRegionHint& hint)
+    {
+        RecordRegion(itemCount, body, {}, {}, instanceCapacity, {}, &hint);
     }
 
     PipelineReadinessSnapshot VulkanRendererAPI::GetPipelineReadiness() const
@@ -8355,6 +8367,14 @@ namespace OloEngine
                                                   const std::function<void(u32)>& afterExecute,
                                                   u32 instanceCapacity, std::span<const std::string> itemPassNames)
     {
+        RecordRegion(itemCount, body, beforeExecute, afterExecute, instanceCapacity, itemPassNames, nullptr);
+    }
+
+    void VulkanRendererAPI::RecordRegion(const u32 itemCount, const std::function<void(u32)>& body,
+                                         const std::function<void(u32)>& beforeExecute,
+                                         const std::function<void(u32)>& afterExecute, const u32 instanceCapacity,
+                                         const std::span<const std::string> itemPassNames, const ParallelRegionHint* hint)
+    {
         OLO_PROFILE_FUNCTION();
         if (itemCount == 0u)
         {
@@ -8382,6 +8402,14 @@ namespace OloEngine
             timing.ItemPassNames.Emplace(name);
         if (!itemPassNames.empty())
             timing.PassName = "RenderGraph";
+        timing.ItemCount = itemCount;
+        if (hint != nullptr)
+        {
+            if (hint->Family != nullptr)
+                timing.Family = hint->Family;
+            timing.WorkUnits = hint->WorkUnits;
+            timing.MinWorkUnitsToFork = hint->MinWorkUnitsToFork;
+        }
 
         // --- decide: fork, or the ONE inline path -----------------------------
         // One item has nothing to overlap with; the predicate covers the
@@ -8390,7 +8418,20 @@ namespace OloEngine
         // cannot hand one out declines the whole region before anything is
         // seeded — there is exactly one inline semantics (ascending order,
         // pre-fork state) for the lever, the predicate and a failure alike.
-        bool fork = itemCount >= 2u && SupportsParallelRecording() && VulkanSecondaryCommandPools::Get().SyncToFrame();
+        // A caller's policy decision (#1340) is the reason an item count of
+        // one was asked for, so it outranks InlineSingleItem in the record.
+        if (hint != nullptr && hint->PolicyDecision != ParallelRegionDecision::Parallel)
+            timing.Decision = hint->PolicyDecision;
+        else if (itemCount < 2u)
+            timing.Decision = ParallelRegionDecision::InlineSingleItem;
+        else
+            timing.Decision = ParallelRecordingDecision();
+        bool fork = itemCount >= 2u && timing.Decision == ParallelRegionDecision::Parallel;
+        if (fork && !VulkanSecondaryCommandPools::Get().SyncToFrame())
+        {
+            fork = false; // no frame begun, or no device
+            timing.Decision = ParallelRegionDecision::InlineUnsupported;
+        }
         if (fork)
         {
             while (m_Items.size() < itemCount)
@@ -8407,6 +8448,7 @@ namespace OloEngine
                     OLO_CORE_WARN("[RHI/Vulkan] RecordParallel: no secondary for item {} of {} — region recorded inline",
                                   index, itemCount);
                     fork = false;
+                    timing.Decision = ParallelRegionDecision::InlineNoSecondary;
                     break;
                 }
                 m_Items[index]->ResetForCommandBuffer(cmd);

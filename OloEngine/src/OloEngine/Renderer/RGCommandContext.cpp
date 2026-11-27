@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 
 #include "OloEngine/Renderer/Commands/RenderCommand.h" // MAX_MASKED_COLOR_ATTACHMENTS
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -183,6 +184,10 @@ namespace OloEngine
         // not split — leaves the batch recording inline exactly as before, and
         // the backend counts the decline with its reason.
         m_AsyncBatchOnComputeQueue = RenderCommand::BeginAsyncComputeBatch(batchIndex);
+        // #1341: brackets opened inside the batch say which queue they ran on,
+        // so the frame's timeline can show overlap (or its absence).
+        GPUPassTimerPool::GetInstance().SetQueueContext(
+            m_AsyncBatchOnComputeQueue ? GPUPassQueue::AsyncCompute : GPUPassQueue::Graphics, static_cast<i32>(batchIndex));
     }
 
     void RGCommandContext::EndAsyncBatch(const u32 batchIndex) const
@@ -192,6 +197,7 @@ namespace OloEngine
             RenderCommand::EndAsyncComputeBatch(batchIndex);
             m_AsyncBatchOnComputeQueue = false;
         }
+        GPUPassTimerPool::GetInstance().SetQueueContext(GPUPassQueue::Graphics, -1);
         RenderCommand::PopDebugGroup();
     }
 

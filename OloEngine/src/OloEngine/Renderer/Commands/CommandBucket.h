@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Renderer/ParallelRegionDecision.h"
 #include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
@@ -247,10 +248,43 @@ namespace OloEngine
 
         void Execute(RendererAPI& rendererAPI);
 
+        // Which cost family a replay belongs to (#1340). Families differ in
+        // per-packet recording cost (a depth-only draw is cheaper than a
+        // shaded one), so each has its own fork threshold; see ReplayPolicyFor.
+        enum class ReplayFamily : u8
+        {
+            Generic = 0,
+            SceneDepth, ///< Depth prepass replay of the scene bucket.
+            SceneColor, ///< Shaded scene replay (forward colour, G-buffer, reflection, debug views).
+            Foliage,
+            Water,
+            Overlay, ///< Forward overlay (transparent / editor) bucket.
+            Decal,
+            Occlusion, ///< GPU-driven occlusion main and phase-2 replays.
+        };
+
+        // When a replay forks, and how finely it splits (#1340). A replay forks
+        // only when it holds at least MinPacketsToFork packets; it then splits
+        // into contiguous items of at least MinPacketsPerItem packets, capped at
+        // MAX_RENDER_WORKERS. OLO_VK_PARALLEL_MIN_PACKETS and
+        // OLO_VK_PARALLEL_PACKETS_PER_ITEM override both fields for every family.
+        struct ParallelReplayPolicy
+        {
+            const char* Family = "generic";
+            u32 MinPacketsToFork = 64u;
+            u32 MinPacketsPerItem = 32u;
+        };
+        [[nodiscard]] static ParallelReplayPolicy ReplayPolicyFor(ReplayFamily family);
+        [[nodiscard]] static const char* ToString(ReplayFamily family);
+
         // Prepared, self-contained draw packets are partitioned into contiguous
         // ranges. GPU execution retains packet order; queries/stateful packets
-        // and small buckets replay inline. One owner publishes bucket timings.
-        void ExecuteParallel(RendererAPI& rendererAPI, u32 minCommandsPerItem = 32u);
+        // and replays below the family's threshold record inline. One owner
+        // publishes bucket timings.
+        void ExecuteParallel(RendererAPI& rendererAPI, ReplayFamily family = ReplayFamily::Generic);
+        // An explicit policy, bypassing the family table and its overrides
+        // (fixtures that pin a split).
+        void ExecuteParallel(RendererAPI& rendererAPI, const ParallelReplayPolicy& policy);
 
         // Execute with per-command GPU timing (used during capture)
         void ExecuteWithGPUTiming(RendererAPI& rendererAPI);
@@ -300,9 +334,15 @@ namespace OloEngine
         {
             u32 ItemCount = 1;
             u32 InstanceCapacity = 1;
+            // Why ItemCount is what it is: Parallel when it is >= 2, otherwise
+            // the policy threshold, a rejected packet or too few packets.
+            ParallelRegionDecision Decision = ParallelRegionDecision::InlineSingleItem;
         };
+        // Pure: the split for `packets` under `policy`. No lever is read here.
         [[nodiscard]] static ParallelReplayPlan PlanParallelReplay(std::span<const CommandPacket* const> packets,
-                                                                   u32 minCommandsPerItem = 32u);
+                                                                   const ParallelReplayPolicy& policy);
+        // The family's policy with the OLO_VK_PARALLEL_* overrides applied.
+        [[nodiscard]] static ParallelReplayPolicy EffectiveReplayPolicy(ReplayFamily family);
         // Replays a span of packets, in parallel where the backend and the
         // packets allow. A loose span has no bucket to freeze it, so this
         // freezes every packet in it first (the packet-level half of the
@@ -311,7 +351,11 @@ namespace OloEngine
         // all finish. A packet that changed before the replay makes the call
         // return without replaying anything.
         [[nodiscard]] static Statistics RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
-                                                      const std::optional<BucketViewState>& view = {}, u32 minCommandsPerItem = 32u);
+                                                      const std::optional<BucketViewState>& view = {},
+                                                      ReplayFamily family = ReplayFamily::Generic);
+        [[nodiscard]] static Statistics RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
+                                                      const std::optional<BucketViewState>& view,
+                                                      const ParallelReplayPolicy& policy);
 
         // The bracket every replay goes through. RecordPackets and the Execute
         // family call it themselves; a pass that walks packets with its own

@@ -4,6 +4,7 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/ParallelRegionDecision.h"
 #include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
@@ -56,6 +57,13 @@ namespace OloEngine
     {
         FString PassName;
         bool Parallel = false;
+        ParallelRegionDecision Decision = ParallelRegionDecision::InlineSingleItem;
+        // Copied from the caller's ParallelRegionHint; empty / zero when the
+        // region carried none (whole-pass groups, shadow views, ...).
+        FString Family;
+        u32 WorkUnits = 0;
+        u32 MinWorkUnitsToFork = 0;
+        u32 ItemCount = 0;
         f64 WorkerRecordMs = 0.0;
         f64 RegionWallMs = 0.0;
         // Time after the caller finished its last item until ParallelFor
@@ -82,6 +90,11 @@ namespace OloEngine
     {
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::PassName)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::Parallel)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::Decision)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::Family)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::WorkUnits)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::MinWorkUnitsToFork)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::ItemCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::WorkerRecordMs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::RegionWallMs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(RendererParallelRecordingRegionStats::JoinWaitMs)>::Value &&
@@ -458,6 +471,14 @@ namespace OloEngine
             {
                 body(item);
             }
+        }
+        // RecordParallel plus the caller's policy context (#1340), which a
+        // backend with region telemetry records with the region. A backend
+        // without it records exactly what RecordParallel records.
+        virtual void RecordParallelRegion(u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity,
+                                          const ParallelRegionHint& /*hint*/)
+        {
+            RecordParallel(itemCount, body, instanceCapacity);
         }
         // Whole-pass recording uses the same isolated items, with caller-owned
         // brackets around each item's ordered GPU execution. Timestamp queries

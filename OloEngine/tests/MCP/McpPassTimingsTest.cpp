@@ -387,3 +387,108 @@ TEST(McpPassTimingsTest, SubPassAttachesToMostRecentParent)
     ASSERT_TRUE(o["passes"][1].contains("subPasses"));
     EXPECT_EQ(o["passes"][1]["subPasses"][0]["name"], "Horizontal");
 }
+
+// #1340: a region names its fork/inline decision and the caller's policy
+// context, so "parallel: false" is never left to interpretation.
+TEST(McpPassTimingsTest, RegionTimingsNameTheDecisionAndPolicyContext)
+{
+    FrameTotals totals = MakeTotals();
+    OloEngine::MCP::PassTimings::ParallelRegionStats below;
+    below.PassName = "ScenePass";
+    below.Decision = "inlineBelowThreshold";
+    below.Family = "sceneColor";
+    below.WorkUnits = 40;
+    below.MinWorkUnitsToFork = 256;
+    below.ItemCount = 1;
+    totals.ParallelRecording.RegionTimings.push_back(below);
+
+    const Json o = BuildPassTimings({}, {}, totals);
+    const Json& region = o["parallelRecording"]["regionTimings"][0];
+    EXPECT_EQ(region["decision"], "inlineBelowThreshold");
+    EXPECT_EQ(region["family"], "sceneColor");
+    EXPECT_EQ(region["workUnits"].get<std::uint32_t>(), 40u);
+    EXPECT_EQ(region["minWorkUnitsToFork"].get<std::uint32_t>(), 256u);
+    EXPECT_EQ(region["itemCount"].get<std::uint32_t>(), 1u);
+}
+
+namespace
+{
+    GpuPassEntry Timed(std::string name, double beginMs, double endMs, OloEngine::GPUPassQueue queue, int batch = -1)
+    {
+        GpuPassEntry entry{ std::move(name), GpuTimingSample::Measured(endMs - beginMs), false, {} };
+        entry.BeginMs = beginMs;
+        entry.EndMs = endMs;
+        entry.HasOffsets = true;
+        entry.Queue = queue;
+        entry.AsyncBatch = batch;
+        return entry;
+    }
+} // namespace
+
+// #1341: the serialized hand-off — graphics stops, compute runs, graphics
+// resumes — has zero overlap however busy each queue is.
+TEST(McpPassTimingsTest, QueueOverlapIsZeroForASerializedHandOff)
+{
+    using OloEngine::GPUPassQueue;
+    const std::vector<GpuPassEntry> passes{
+        Timed("ScenePass", 0.0, 2.0, GPUPassQueue::Graphics),
+        Timed("GTAOPass", 2.1, 2.6, GPUPassQueue::AsyncCompute, 0),
+        Timed("LightingPass", 2.7, 4.0, GPUPassQueue::Graphics),
+    };
+    const auto overlap = OloEngine::MCP::PassTimings::ComputeQueueOverlap(passes);
+    EXPECT_DOUBLE_EQ(overlap.OverlapMs, 0.0);
+    EXPECT_NEAR(overlap.AsyncComputeBusyMs, 0.5, 1e-9);
+    EXPECT_NEAR(overlap.GraphicsBusyMs, 3.3, 1e-9);
+    EXPECT_EQ(overlap.AsyncComputeIntervals, 1u);
+    ASSERT_EQ(overlap.Batches.size(), 1u);
+    EXPECT_EQ(overlap.Batches[0].Index, 0);
+    EXPECT_EQ(overlap.Batches[0].Queue, GPUPassQueue::AsyncCompute);
+    EXPECT_NEAR(overlap.Batches[0].PassGpuMs, 0.5, 1e-9);
+}
+
+// Concurrent brackets count once per queue (union) and their intersection is
+// the overlap; a declined batch still reports its passes on the graphics queue.
+TEST(McpPassTimingsTest, QueueOverlapUnionsEachQueueAndIntersectsThem)
+{
+    using OloEngine::GPUPassQueue;
+    std::vector<GpuPassEntry> passes{
+        Timed("ShadowPass", 1.0, 3.0, GPUPassQueue::Graphics),
+        Timed("ShadowPass2", 2.5, 4.0, GPUPassQueue::Graphics), // overlaps the first: union is [1, 4)
+        Timed("GTAOPass", 2.0, 3.5, GPUPassQueue::AsyncCompute, 0),
+        Timed("FogPass", 3.4, 5.0, GPUPassQueue::AsyncCompute, 0), // union [2, 5)
+        Timed("VsmMark", 6.0, 6.5, GPUPassQueue::Graphics, 1),     // a declined batch
+    };
+    passes.push_back(Sub("ShadowPass", "Csm", 1.0)); // sub-passes never count
+    const auto overlap = OloEngine::MCP::PassTimings::ComputeQueueOverlap(passes);
+    EXPECT_NEAR(overlap.GraphicsBusyMs, 3.5, 1e-9);
+    EXPECT_NEAR(overlap.AsyncComputeBusyMs, 3.0, 1e-9);
+    EXPECT_NEAR(overlap.OverlapMs, 2.0, 1e-9); // [2, 4)
+    ASSERT_EQ(overlap.Batches.size(), 2u);
+    EXPECT_NEAR(overlap.Batches[0].BeginMs, 2.0, 1e-9);
+    EXPECT_NEAR(overlap.Batches[0].EndMs, 5.0, 1e-9);
+    EXPECT_EQ(overlap.Batches[0].Passes, 2u);
+    EXPECT_EQ(overlap.Batches[1].Queue, GPUPassQueue::Graphics);
+
+    const Json o = BuildPassTimings(passes, {}, MakeTotals());
+    EXPECT_DOUBLE_EQ(o["queueOverlap"]["overlapMs"].get<double>(), 2.0);
+    EXPECT_EQ(o["queueOverlap"]["batches"].size(), 2u);
+    EXPECT_EQ(o["passes"][2]["queue"], "asyncCompute");
+    EXPECT_EQ(o["passes"][2]["asyncBatch"].get<int>(), 0);
+    EXPECT_DOUBLE_EQ(o["passes"][2]["beginMs"].get<double>(), 2.0);
+}
+
+// An interval without offsets (an unreadable frame-begin stamp) is never
+// placed on the timeline, although its time still counts for its batch.
+TEST(McpPassTimingsTest, QueueOverlapSkipsIntervalsWithoutOffsets)
+{
+    using OloEngine::GPUPassQueue;
+    GpuPassEntry noOffsets{ "GTAOPass", GpuTimingSample::Measured(0.4), false, {} };
+    noOffsets.Queue = GPUPassQueue::AsyncCompute;
+    noOffsets.AsyncBatch = 0;
+    const auto overlap = OloEngine::MCP::PassTimings::ComputeQueueOverlap({ noOffsets });
+    EXPECT_EQ(overlap.AsyncComputeIntervals, 0u);
+    EXPECT_DOUBLE_EQ(overlap.AsyncComputeBusyMs, 0.0);
+    ASSERT_EQ(overlap.Batches.size(), 1u);
+    EXPECT_FALSE(overlap.Batches[0].HasOffsets);
+    EXPECT_NEAR(overlap.Batches[0].PassGpuMs, 0.4, 1e-9);
+}

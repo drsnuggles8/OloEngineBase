@@ -11,6 +11,13 @@
 
 namespace OloEngine
 {
+    /// @brief The queue a GPUPassTimerPool bracket was recorded on (#1341).
+    enum class GPUPassQueue : u8
+    {
+        Graphics = 0,
+        AsyncCompute = 1,
+    };
+
     /// @brief One timed interval of a GPUPassTimerPool resolved frame. Lives at
     /// namespace scope so the relocation trait below can name it; the pool
     /// re-exports it as GPUPassTimerPool::PassTiming.
@@ -37,6 +44,23 @@ namespace OloEngine
         /// The name of the enclosing pass when IsSubPass; empty otherwise.
         FString ParentName;
 
+        /// Where the interval sits in the frame (#1341): milliseconds from the
+        /// frame-begin stamp to this bracket's begin and end. Set only when the
+        /// sample is valid and the frame-begin stamp was readable. The
+        /// frame-begin stamp is on the graphics queue, so an AsyncCompute
+        /// interval's offsets compare timestamps across queues: Vulkan defines
+        /// that only for a shared time domain, which a consumer states.
+        f64 BeginMs = 0.0;
+        f64 EndMs = 0.0;
+        bool HasOffsets = false;
+
+        /// The queue the bracket was recorded on, and the render graph's async
+        /// batch index it belongs to (-1 outside every batch). A batch the
+        /// backend declined still names its index, on the graphics queue, so
+        /// async-off and async-on runs identify the same passes.
+        GPUPassQueue Queue = GPUPassQueue::Graphics;
+        i32 AsyncBatch = -1;
+
         [[nodiscard]] bool IsValid() const
         {
             return Sample.IsValid();
@@ -50,7 +74,12 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Name)> &&
                                       TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Sample)> &&
                                       TIsTriviallyRelocatable_V<decltype(GPUPassTiming::IsSubPass)> &&
-                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::ParentName)>;
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::ParentName)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::BeginMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::EndMs)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::HasOffsets)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::Queue)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GPUPassTiming::AsyncBatch)>;
     };
 
     /// @brief Always-on GPU timing for the whole frame and each render-graph pass.
@@ -208,6 +237,12 @@ namespace OloEngine
 
         static constexpr u32 kMaxSubPassDepth = 2;
 
+        /// @brief The queue and async batch every bracket opened from now on
+        /// is recorded under (#1341). RGCommandContext sets it around an async
+        /// batch; it returns to (Graphics, -1) at the batch end and at every
+        /// BeginFrame.
+        void SetQueueContext(GPUPassQueue queue, i32 asyncBatch);
+
         [[nodiscard]] bool IsInitialized() const
         {
             return m_Initialized;
@@ -307,6 +342,8 @@ namespace OloEngine
             TArray<FString> PassNames;
             TArray<u8> PassIsSubPass;
             TArray<FString> PassParentNames;
+            TArray<u8> PassQueue;
+            TArray<i32> PassAsyncBatch;
             u32 PassCount = 0;
             u64 FrameNumber = 0;
             bool Pending = false; // stamped and awaiting readback
@@ -331,7 +368,10 @@ namespace OloEngine
 
         // Resolves one begin/end query pair into a sample. Probes availability
         // before reading, so it can never block the render thread.
-        [[nodiscard]] GpuTimingSample ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex) const;
+        // `beginNs` / `endNs`, when given, receive the raw stamps of a pair
+        // that resolved Valid (for the frame-relative offsets, #1341).
+        [[nodiscard]] GpuTimingSample ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex,
+                                                  u64* beginNs = nullptr, u64* endNs = nullptr) const;
 
         // Says once per session that a frame's timings were lost, and why. The
         // per-frame signal is GetDroppedSlotCount(), not the log.
@@ -342,9 +382,11 @@ namespace OloEngine
         u32 m_MaxPasses = 0;
         u64 m_FrameCounter = 0;
         bool m_Initialized = false;
-        bool m_Active = false;      // between BeginFrame/EndFrame
-        bool m_PassOpen = false;    // between BeginPass/EndPass
-        u32 m_CurrentPassIndex = 0; // pair index of the open pass
+        bool m_Active = false;                                // between BeginFrame/EndFrame
+        bool m_PassOpen = false;                              // between BeginPass/EndPass
+        u32 m_CurrentPassIndex = 0;                           // pair index of the open pass
+        GPUPassQueue m_CurrentQueue = GPUPassQueue::Graphics; // SetQueueContext
+        i32 m_CurrentAsyncBatch = -1;
         // Open sub-passes, outermost first. A level that got no bracket holds
         // kNoBracket, so its EndSubPass pops it without stamping anything --
         // and never closes the bracket around it. Levels past

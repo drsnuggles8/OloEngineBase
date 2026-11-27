@@ -2,6 +2,7 @@
 #include "CommandBucket.h"
 #include "FrameDataBuffer.h"
 #include "RenderCommand.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -1224,28 +1225,89 @@ namespace OloEngine
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
-    CommandBucket::ParallelReplayPlan CommandBucket::PlanParallelReplay(std::span<const CommandPacket* const> packets, u32 minCommandsPerItem)
+    const char* CommandBucket::ToString(const ReplayFamily family)
+    {
+        switch (family)
+        {
+            case ReplayFamily::Generic:
+                return "generic";
+            case ReplayFamily::SceneDepth:
+                return "sceneDepth";
+            case ReplayFamily::SceneColor:
+                return "sceneColor";
+            case ReplayFamily::Foliage:
+                return "foliage";
+            case ReplayFamily::Water:
+                return "water";
+            case ReplayFamily::Overlay:
+                return "overlay";
+            case ReplayFamily::Decal:
+                return "decal";
+            case ReplayFamily::Occlusion:
+                return "occlusion";
+        }
+        return "unknown";
+    }
+
+    CommandBucket::ParallelReplayPolicy CommandBucket::ReplayPolicyFor(const ReplayFamily family)
+    {
+        // Legacy values pending the #1340 measurement.
+        return ParallelReplayPolicy{ ToString(family), 64u, 32u };
+    }
+
+    CommandBucket::ParallelReplayPolicy CommandBucket::EffectiveReplayPolicy(const ReplayFamily family)
+    {
+        ParallelReplayPolicy policy = ReplayPolicyFor(family);
+        if (const auto minPackets = Levers::VulkanParallelMinPackets())
+            policy.MinPacketsToFork = static_cast<u32>(std::min<i64>(*minPackets, UINT32_MAX));
+        if (const auto perItem = Levers::VulkanParallelPacketsPerItem())
+            policy.MinPacketsPerItem = static_cast<u32>(std::min<i64>(*perItem, UINT32_MAX));
+        return policy;
+    }
+
+    CommandBucket::ParallelReplayPlan CommandBucket::PlanParallelReplay(std::span<const CommandPacket* const> packets,
+                                                                        const ParallelReplayPolicy& policy)
     {
         ParallelReplayPlan plan;
         if (!s_ParallelReplayClassifier)
+        {
+            // No dispatcher installed the classifier: nothing is known to be
+            // forkable, which is the backend's lack of support, not a policy.
+            plan.Decision = ParallelRegionDecision::InlineUnsupported;
             return plan;
-        plan.ItemCount = static_cast<u32>(std::clamp<sizet>(packets.size() / std::max(1u, minCommandsPerItem), 1u, MAX_RENDER_WORKERS));
+        }
+        if (packets.size() < policy.MinPacketsToFork)
+        {
+            plan.Decision = ParallelRegionDecision::InlineBelowThreshold;
+            return plan;
+        }
+        plan.ItemCount = static_cast<u32>(std::clamp<sizet>(packets.size() / std::max(1u, policy.MinPacketsPerItem), 1u, MAX_RENDER_WORKERS));
         if (plan.ItemCount < 2u)
+        {
+            plan.Decision = ParallelRegionDecision::InlineSingleItem;
             return plan;
+        }
         for (const auto* packet : packets)
         {
             if (!packet)
                 continue;
             const u32 capacity = s_ParallelReplayClassifier(*packet);
             if (capacity == 0u)
-                return {};
+                return ParallelReplayPlan{ .Decision = ParallelRegionDecision::InlineRejectedWork };
             plan.InstanceCapacity = std::max(plan.InstanceCapacity, capacity);
         }
+        plan.Decision = ParallelRegionDecision::Parallel;
         return plan;
     }
 
     CommandBucket::Statistics CommandBucket::RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
-                                                           const std::optional<BucketViewState>& view, u32 minCommandsPerItem)
+                                                           const std::optional<BucketViewState>& view, const ReplayFamily family)
+    {
+        return RecordPackets(rendererAPI, packets, view, EffectiveReplayPolicy(family));
+    }
+
+    CommandBucket::Statistics CommandBucket::RecordPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
+                                                           const std::optional<BucketViewState>& view, const ParallelReplayPolicy& policy)
     {
         if (packets.empty())
             return {};
@@ -1253,13 +1315,17 @@ namespace OloEngine
         // the span to workers: after this point a write is a race, not an edit.
         if (!BeginReplay(packets))
             return {};
-        const auto plan = PlanParallelReplay(packets, minCommandsPerItem);
+        const auto plan = PlanParallelReplay(packets, policy);
+        const ParallelRegionHint hint{ .Family = policy.Family,
+                                       .WorkUnits = static_cast<u32>(std::min<sizet>(packets.size(), UINT32_MAX)),
+                                       .MinWorkUnitsToFork = policy.MinPacketsToFork,
+                                       .PolicyDecision = plan.Decision };
         std::array<Statistics, MAX_RENDER_WORKERS> results;
-        rendererAPI.RecordParallel(plan.ItemCount, [&](u32 item)
-                                   {
+        rendererAPI.RecordParallelRegion(plan.ItemCount, [&](u32 item)
+                                         {
             const sizet begin = packets.size() * item / plan.ItemCount;
             const sizet end = packets.size() * (item + 1u) / plan.ItemCount;
-            results[item] = ReplayPackets(rendererAPI, packets.subspan(begin, end - begin), view); }, plan.InstanceCapacity);
+            results[item] = ReplayPackets(rendererAPI, packets.subspan(begin, end - begin), view); }, plan.InstanceCapacity, hint);
         EndReplay(packets);
         Statistics stats;
         for (u32 item = 0; item < plan.ItemCount; ++item)
@@ -1270,12 +1336,17 @@ namespace OloEngine
         return stats;
     }
 
-    void CommandBucket::ExecuteParallel(RendererAPI& rendererAPI, u32 minCommandsPerItem)
+    void CommandBucket::ExecuteParallel(RendererAPI& rendererAPI, const ReplayFamily family)
+    {
+        ExecuteParallel(rendererAPI, EffectiveReplayPolicy(family));
+    }
+
+    void CommandBucket::ExecuteParallel(RendererAPI& rendererAPI, const ParallelReplayPolicy& policy)
     {
         OLO_PROFILE_FUNCTION();
         const auto start = std::chrono::steady_clock::now();
         Freeze();
-        const auto stats = RecordPackets(rendererAPI, GetPackets(), m_ViewState, minCommandsPerItem);
+        const auto stats = RecordPackets(rendererAPI, GetPackets(), m_ViewState, policy);
         m_Stats.DrawCalls = stats.DrawCalls;
         m_Stats.StateChanges = stats.StateChanges;
         m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();

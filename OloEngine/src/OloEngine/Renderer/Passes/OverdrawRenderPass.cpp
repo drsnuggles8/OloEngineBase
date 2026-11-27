@@ -154,7 +154,7 @@ namespace OloEngine
         CommandDispatch::BindSceneResources();
         CommandDispatch::SetOverdrawActive(true);
         RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
-        m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
+        m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::SceneColor);
         CommandDispatch::SetOverdrawActive(false);
         CommandDispatch::InvalidateRenderStateCache();
         m_AccumFramebuffer->Unbind();
