@@ -226,6 +226,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [foliage-interaction-bending.md](../guides/foliage-interaction-bending.md): express a recovery in seconds and integrate the spring analytically, and make an empty influence set contribute exactly zero.
 - [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md): judge a placement hash by its distinct-offset count, and default every new scatter rule to the multiplicative identity.
 - [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included.
+- [dynamic-render-scale.md](dynamic-render-scale.md): under a dynamic render scale a screen-space pass samples in texture uv and reconstructs in frame uv, and CPU constants built from the screen size use the rendered extent.
 - [screen-uv-unpack-takes-the-row-flip.md](screen-uv-unpack-takes-the-row-flip.md): a pass that unpacks screen uv into view space builds its constants from `AdjustProjectionForShaderReconstruction`.
 - [cpu-texel-rects-take-the-row-flip.md](cpu-texel-rects-take-the-row-flip.md): project a texel rect the CPU computes for a copy, readback or scissor through `AdjustProjectionForShaderReconstruction`.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree, and a dropped GPU struct field is a dead knob.
