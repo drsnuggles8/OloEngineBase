@@ -28,6 +28,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Crowd/CrowdLod.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "ProcessRendererInit.h"
 
 #include <gtest/gtest.h>
@@ -161,6 +162,16 @@ TEST(BenchmarkCapture, RunWhenRequested)
     ScopedMockClock mockClock(manifest->StartTimeSeconds);
 
     OloEngine::Tests::EnsureProcessRendererInitialized();
+    // The editor's Application starts the task scheduler's workers; this host
+    // is a test with no Application, alone in its process (a capture tool run
+    // filters to it), so nothing else does. Without them every ParallelFor in
+    // the frame ran inline -- the groom coat bake's slabs among them -- and
+    // the GL host measured a frame the editor never runs (#1589;
+    // substituted-seams-compound.md rule 14, RendererAttachedTest::SetUp).
+    if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u)
+    {
+        LowLevelTasks::FScheduler::Get().StartWorkers();
+    }
     std::string presetError;
     ASSERT_TRUE(Benchmark::ValidatePresetAdmission(*manifest, "opengl", presetError)) << presetError;
     {
