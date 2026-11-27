@@ -419,6 +419,14 @@ namespace OloEngine
         ForgetBindsAndRebindHeaps(ctx);
     }
 
+    void VulkanRendererAPI::NotifyForeignRecording()
+    {
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
+            return;
+        ForgetBindsAndRebindHeaps(ctx);
+    }
+
     void VulkanRendererAPI::BindDescriptorHeaps(VulkanRecordingContext& ctx)
     {
         if (ctx.Cmd == VK_NULL_HANDLE)

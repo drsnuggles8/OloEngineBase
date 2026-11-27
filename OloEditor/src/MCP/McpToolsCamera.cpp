@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include <GLFW/glfw3.h>
 #include <exception>
+#include <array>
 #include <optional>
 #include <utility>
 #include <algorithm>
@@ -222,10 +223,11 @@ namespace OloEngine::MCP
                         if (mode != nullptr)
                             ::glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
                     }
-                    else
+                    else if (::glfwGetWindowMonitor(window) != nullptr)
                     {
                         // Back to windowed: the requested rect, else a centred
-                        // two-thirds of the monitor it was fullscreen on.
+                        // two-thirds of the monitor it was fullscreen on. An
+                        // already windowed window is left where it is.
                         GLFWmonitor* monitor = ::glfwGetWindowMonitor(window);
                         int mx = 0;
                         int my = 0;
@@ -304,40 +306,52 @@ namespace OloEngine::MCP
 
         ToolResult Handle_DisplayOutputSet(IAutomationHost& host, const Json& args)
         {
-            DisplayOutputSettings requested = DisplayOutput::GetSettings();
+            // Parsed here, applied on the main thread: DisplayOutput is main-thread
+            // state, so the read-modify-write happens inside the marshaled job,
+            // where the editor panel cannot interleave with it.
+            std::optional<DisplayOutputPreference> preference;
             if (args.contains("preference"))
             {
                 if (!args["preference"].is_string())
                     return ToolResult::Error("'preference' is one of Auto, SDR, HDR10, scRGB.");
                 const std::string name = args["preference"].get<std::string>();
                 if (name == "Auto")
-                    requested.Preference = DisplayOutputPreference::Auto;
+                    preference = DisplayOutputPreference::Auto;
                 else if (name == "SDR")
-                    requested.Preference = DisplayOutputPreference::SDR;
+                    preference = DisplayOutputPreference::SDR;
                 else if (name == "HDR10")
-                    requested.Preference = DisplayOutputPreference::HDR10;
+                    preference = DisplayOutputPreference::HDR10;
                 else if (name == "scRGB")
-                    requested.Preference = DisplayOutputPreference::ScRGB;
+                    preference = DisplayOutputPreference::ScRGB;
                 else
                     return ToolResult::Error("'preference' is one of Auto, SDR, HDR10, scRGB.");
             }
-            for (const auto& [key, field] : { std::pair<const char*, f32 DisplayOutputSettings::*>{ "paperWhiteNits", &DisplayOutputSettings::PaperWhiteNits },
-                                              { "uiWhiteNits", &DisplayOutputSettings::UIWhiteNits },
-                                              { "peakNitsOverride", &DisplayOutputSettings::PeakNitsOverride } })
+            std::array<std::optional<f32>, 3> nits{};
+            constexpr std::array<const char*, 3> kNitsKeys{ "paperWhiteNits", "uiWhiteNits", "peakNitsOverride" };
+            for (sizet k = 0; k < kNitsKeys.size(); ++k)
             {
-                if (args.contains(key))
+                if (args.contains(kNitsKeys[k]))
                 {
-                    if (!args[key].is_number())
-                        return ToolResult::Error(std::string("'") + key + "' must be a number of nits.");
-                    requested.*field = args[key].get<f32>();
+                    if (!args[kNitsKeys[k]].is_number())
+                        return ToolResult::Error(std::string("'") + kNitsKeys[k] + "' must be a number of nits.");
+                    nits[k] = args[kNitsKeys[k]].get<f32>();
                 }
             }
             // Applied in memory only, like the editor panel before its Save: the
             // backend re-selects at its next frame boundary, so the answer here
             // is the request; call olo_display_output_get after a frame for the
             // mode it resolved to.
-            return ToolResult::Structured(host.MarshalRead([requested]() -> Json
+            return ToolResult::Structured(host.MarshalRead([preference, nits]() -> Json
                                                            {
+                DisplayOutputSettings requested = DisplayOutput::GetSettings();
+                if (preference)
+                    requested.Preference = *preference;
+                if (nits[0])
+                    requested.PaperWhiteNits = *nits[0];
+                if (nits[1])
+                    requested.UIWhiteNits = *nits[1];
+                if (nits[2])
+                    requested.PeakNitsOverride = *nits[2];
                 DisplayOutput::SetSettings(requested);
                 return DisplayOutputJson(); }));
         }

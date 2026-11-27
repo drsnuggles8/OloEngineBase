@@ -115,10 +115,10 @@ namespace OloEngine
                                                          RHI::Access unwrittenFinalAccess = RHI::Access::Present);
 
         // The backbuffer format changed (an SDR <-> HDR output switch, #1353):
-        // imgui_impl_vulkan bakes it into its pipeline, so an initialised
-        // backend is shut down and brought up again against the new one. Its
-        // textures come back by themselves: ImGui recreates a texture the
-        // backend destroyed. Device must be idle (RecreateSwapchain's wait).
+        // imgui_impl_vulkan bakes it into its pipeline, so the pipeline alone
+        // is rebuilt for the new one (ImGui_ImplVulkan_CreateMainPipeline).
+        // Never a Shutdown + Init: that frees every texture descriptor set a
+        // panel may still hold. Device must be idle (RecreateSwapchain's wait).
         static void OnBackbufferFormatChanged();
 
         // ImTextureID for an engine texture (a framebuffer color attachment,

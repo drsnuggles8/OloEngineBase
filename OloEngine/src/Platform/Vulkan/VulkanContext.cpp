@@ -234,6 +234,8 @@ namespace OloEngine
         RHI::ScopedResourceHandle CompositionHandle;
         Ref<Shader> DisplayEncodeShader;
         Ref<UniformBuffer> DisplayEncodeUBO;
+        /// DisplayEncode.glsl failed to compile: no HDR route this session.
+        bool DisplayEncodeUnavailable = false;
     };
 
     VulkanContext::VulkanContext(GLFWwindow* windowHandle)
@@ -509,6 +511,11 @@ namespace OloEngine
         else
         {
             displayCaps.NoRouteReason = "the Vulkan instance offers no VK_EXT_swapchain_colorspace";
+        }
+        if (d.DisplayEncodeUnavailable)
+        {
+            displayCaps.BackendHasHdrRoute = false;
+            displayCaps.NoRouteReason = "DisplayEncode.glsl did not compile this session";
         }
         QueryPlatformDisplayInfo(m_WindowHandle, displayCaps);
         const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, displayCaps);
@@ -789,7 +796,7 @@ namespace OloEngine
         d.CompositionAllocation = VK_NULL_HANDLE;
     }
 
-    void VulkanContext::RecordDisplayEncode()
+    bool VulkanContext::RecordDisplayEncode()
     {
         // Through the facade, like FinalRenderPass: the published backbuffer
         // is the acquired image now, and the composition image is an ordinary
@@ -798,6 +805,21 @@ namespace OloEngine
         if (!d.DisplayEncodeShader)
         {
             d.DisplayEncodeShader = Shader::Create("assets/shaders/DisplayEncode.glsl");
+        }
+        // Without its shader the encode would present a black frame over a
+        // fully composed one. Not ready yet: skip the frame (the caller's clear
+        // fallback runs). Failed: no HDR route this session; the next frame
+        // re-selects SDR with that reason.
+        const ShaderCompilationStatus status =
+            d.DisplayEncodeShader ? d.DisplayEncodeShader->GetCompilationStatus() : ShaderCompilationStatus::Failed;
+        if (status != ShaderCompilationStatus::Ready)
+        {
+            if (status == ShaderCompilationStatus::Failed && !d.DisplayEncodeUnavailable)
+            {
+                d.DisplayEncodeUnavailable = true;
+                OLO_CORE_ERROR("[Vulkan] DisplayEncode.glsl did not compile — HDR output is unavailable this session");
+            }
+            return false;
         }
         if (!d.DisplayEncodeUBO)
         {
@@ -832,6 +854,7 @@ namespace OloEngine
         fullscreen->Bind();
         context.FlushHeapOffsets();
         context.DrawIndexed(fullscreen);
+        return true;
     }
 
     void VulkanContext::DestroySwapchain()
@@ -882,6 +905,12 @@ namespace OloEngine
             OLO_CORE_INFO("[Vulkan] display configuration changed — re-selecting the output mode");
             return true;
         }
+        // The encode shader failed: leave the HDR mode for SDR (CreateSwapchain
+        // reports why).
+        if (d.DisplayEncodeUnavailable && d.OutputMode != DisplayOutputMode::SDR)
+        {
+            return true;
+        }
         if (d.DisplaySettingsGeneration == DisplayOutput::GetSettingsGeneration())
         {
             return false;
@@ -927,6 +956,11 @@ namespace OloEngine
         caps.OffersHDR10 = true;
         caps.OffersScRGB = true;
         caps.DisplayName = "windowless target";
+        if (d.DisplayEncodeUnavailable)
+        {
+            caps.BackendHasHdrRoute = false;
+            caps.NoRouteReason = "DisplayEncode.glsl did not compile this session";
+        }
         const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, caps);
 
         // In SDR, B8G8R8A8_UNORM: the format CreateSwapchain picks wherever the
@@ -1949,8 +1983,9 @@ namespace OloEngine
                 // present transition exactly as the SDR Finalize above does.
                 api.SetFrameBackbuffer(d.SwapchainImageHandles[imageIndex].Get(), d.SwapchainViews[imageIndex],
                                        d.SwapchainExtent.width, d.SwapchainExtent.height);
-                RecordDisplayEncode();
-                rendered = api.FinalizeBackbufferForPresent(true, presentAccess);
+                // A false here leaves the acquired image untouched, so Finalize
+                // reports false and the encoded clear fallback below presents.
+                rendered = RecordDisplayEncode() && api.FinalizeBackbufferForPresent(true, presentAccess);
             }
             api.EndRecording();
         }

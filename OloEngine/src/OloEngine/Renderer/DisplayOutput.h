@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <filesystem>
 
@@ -110,7 +111,15 @@ namespace OloEngine
         // 0 = use the luminance the display reports (kFallbackPeakNits if none).
         f32 PeakNitsOverride = 0.0f;
 
-        bool operator==(const DisplayOutputSettings&) const = default;
+        // Change detection, not arithmetic: the same bits, field by field (a
+        // settings change is what wakes the swapchain re-selection, and a value
+        // the user set again must not count as one). No float `==`.
+        [[nodiscard]] bool operator==(const DisplayOutputSettings& other) const noexcept
+        {
+            return Preference == other.Preference && std::bit_cast<u32>(PaperWhiteNits) == std::bit_cast<u32>(other.PaperWhiteNits) &&
+                   std::bit_cast<u32>(UIWhiteNits) == std::bit_cast<u32>(other.UIWhiteNits) &&
+                   std::bit_cast<u32>(PeakNitsOverride) == std::bit_cast<u32>(other.PeakNitsOverride);
+        }
     };
 
     inline constexpr f32 kMinWhiteNits = 80.0f;
@@ -166,7 +175,6 @@ namespace OloEngine
         {
             return Mode != DisplayOutputMode::SDR;
         }
-        bool operator==(const DisplayMapping&) const = default;
     };
 
     // Resolve the effective luminances: peak = override, else the display's,

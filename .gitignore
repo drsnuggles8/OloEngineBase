@@ -232,6 +232,8 @@ steam_api64.dll
 
 # Per-user renderer backend selection written by the Renderer Settings panel (ADR 0011 s2)
 OloEditor/config/renderer.yaml
+# Per-machine HDR display output preferences (#1353), written by the Display Output panel.
+**/config/display.yaml
 
 # repowise local index (see issue #815) — ~390MB per checkout, never committed
 .repowise/

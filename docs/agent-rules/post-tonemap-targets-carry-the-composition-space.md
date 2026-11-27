@@ -20,6 +20,12 @@ among them). The spaces are defined in
    the context's RGBA16F composition image. `VulkanContext::RecordDisplayEncode` converts it to
    HDR10 PQ or scRGB after the UI overlay. A pass that writes PQ itself is encoded twice.
 
+5. **Call `VulkanRendererAPI::NotifyForeignRecording()` after any recording the facade did not
+   make, before the next facade draw.** The ImGui overlay binds its own pipeline and classic
+   descriptor sets. The HDR display encode is the first facade draw after it, and drawing on
+   the facade's stale caches lost the device (`VUID-vkCmdDrawIndexed-None-11308`). The
+   windowless test context has no ImGui, so every headless test stayed green.
+
 ## What stayed green
 
 `PostProcess_ColorBlind.glsl` re-encoded with `pow(clamp(adapted, 0, 1), 1/gamma)`. With

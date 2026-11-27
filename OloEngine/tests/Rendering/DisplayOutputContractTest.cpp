@@ -223,7 +223,10 @@ TEST_F(DisplayOutputContract, EncodeClipsAtThePeakAndLeavesSdrUntouched)
     // SDR is the identity: the swapchain stores the composition as is.
     const DisplayMapping sdr;
     const glm::vec3 c(0.25f, 0.5f, 0.75f);
-    EXPECT_EQ(EncodeCompositionForDisplay(c, sdr, kGamma), c);
+    const glm::vec3 passed = EncodeCompositionForDisplay(c, sdr, kGamma);
+    EXPECT_FLOAT_EQ(passed.r, c.r);
+    EXPECT_FLOAT_EQ(passed.g, c.g);
+    EXPECT_FLOAT_EQ(passed.b, c.b);
 }
 
 // --- The diagnosed selection ------------------------------------------------

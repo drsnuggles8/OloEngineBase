@@ -238,8 +238,9 @@ namespace OloEngine
         void ApplyHdrMetadata();
         void CreateCompositionTarget();
         void DestroyCompositionTarget();
-        // Composition -> the published backbuffer (the acquired image).
-        void RecordDisplayEncode();
+        // Composition -> the published backbuffer (the acquired image). False,
+        // recording nothing, while DisplayEncode.glsl is not Ready.
+        [[nodiscard]] bool RecordDisplayEncode();
 
         GLFWwindow* m_WindowHandle;
         OffscreenTarget m_OffscreenTarget{};

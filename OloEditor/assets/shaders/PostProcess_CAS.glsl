@@ -102,6 +102,23 @@ void main()
     vec3 h = SampleColor(uv + vec2(0.0, ts.y));
     vec3 i = SampleColor(uv + vec2(ts.x, ts.y));
 
+    // HDR output (#1353): this pass runs in the composition space, where an
+    // HDR highlight is above 1.0, but CAS's limits assume [0, 1]. Run it on
+    // the neighbourhood divided by its own peak and scale the result back.
+    // In SDR the peak is <= 1, the scale is exactly 1.0, and dividing and
+    // multiplying by 1.0 are exact: the SDR output is bit for bit unchanged.
+    vec3 hoodMax = max(max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h))), i);
+    float hdrScale = max(1.0, max(hoodMax.r, max(hoodMax.g, hoodMax.b)));
+    a /= hdrScale;
+    b /= hdrScale;
+    c /= hdrScale;
+    d /= hdrScale;
+    e /= hdrScale;
+    f /= hdrScale;
+    g /= hdrScale;
+    h /= hdrScale;
+    i /= hdrScale;
+
     // Soft min/max: the plus (b d e f h) first, then fold in the diagonals
     // (a c g i). The two passes are summed (a factor of 2 pulled out of the
     // final weighting), matching the FidelityFX reference.
@@ -136,5 +153,5 @@ void main()
     vec3 rcpWeightRGB = vec3(1.0) / (vec3(1.0) + 4.0 * wRGB);
     vec3 outColor = (b * wRGB + d * wRGB + f * wRGB + h * wRGB + e) * rcpWeightRGB;
 
-    o_Color = vec4(clamp(outColor, 0.0, 1.0), 1.0);
+    o_Color = vec4(clamp(outColor, 0.0, 1.0) * hdrScale, 1.0);
 }

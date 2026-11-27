@@ -95,7 +95,7 @@ namespace OloEngine
                     // G2084 (PQ) over Rec.2020 is what DXGI reports for a display
                     // the OS composes in HDR; anything else is SDR composition.
                     caps.OsHdr = desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ? DisplayHdrState::On
-                                                                                              : DisplayHdrState::Off;
+                                                                                               : DisplayHdrState::Off;
                     caps.PeakNits = desc.MaxLuminance;
                     caps.MaxFullFrameNits = desc.MaxFullFrameLuminance;
                     caps.MinNits = desc.MinLuminance;

@@ -109,6 +109,17 @@ void main()
     vec3 f = texture(u_Texture, uv + vec2(ts.x, 0.0)).rgb;
     vec3 h = texture(u_Texture, uv + vec2(0.0, ts.y)).rgb;
 
+    // HDR output (#1353): the composition space exceeds 1.0 in HDR, and the
+    // RCAS limiter assumes [0, 1]. Normalise the ring by its own peak and
+    // scale back; in SDR the scale is exactly 1.0 and the output is unchanged.
+    vec3 ringMax = max(max(max(b, d), max(e, f)), h);
+    float hdrScale = max(1.0, max(ringMax.r, max(ringMax.g, ringMax.b)));
+    b /= hdrScale;
+    d /= hdrScale;
+    e /= hdrScale;
+    f /= hdrScale;
+    h /= hdrScale;
+
     float bL = Luma(b), dL = Luma(d), eL = Luma(e), fL = Luma(f), hL = Luma(h);
 
     // Min/max of the ring (luma).
@@ -140,5 +151,5 @@ void main()
     float rcpL = 1.0 / (4.0 * lobe + 1.0);
     vec3 outColor = (lobe * (b + d + h + f) + e) * rcpL;
 
-    o_Color = vec4(clamp(outColor, 0.0, 1.0), 1.0);
+    o_Color = vec4(clamp(outColor, 0.0, 1.0) * hdrScale, 1.0);
 }

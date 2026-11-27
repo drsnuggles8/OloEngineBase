@@ -116,9 +116,10 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         GLFWAPI::glfwSwapBuffers(m_WindowHandle);
-        // A preference change re-runs the selection, so the editor panel and
-        // the log name the preference that was not honoured, and why.
-        if (m_DisplaySettingsGeneration != DisplayOutput::GetSettingsGeneration())
+        // A preference change or a display change (another monitor, an OS HDR
+        // toggle) re-runs the selection, so the panel and the log stay current.
+        if (m_DisplaySettingsGeneration != DisplayOutput::GetSettingsGeneration() ||
+            PollPlatformDisplayChange(m_WindowHandle))
             PublishDisplayOutput();
     }
 

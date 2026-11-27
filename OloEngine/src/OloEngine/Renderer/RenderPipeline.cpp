@@ -2628,6 +2628,12 @@ namespace OloEngine
                 gpu.DisplayUIWhiteNits = display.UIWhiteNits;
                 gpu.DisplayPeakNits = display.PeakNits;
                 gpu.DisplayMinNits = display.MinNits;
+                // HDR: encode with exactly the sanitized gamma the display
+                // encode decodes with, so the round trip is the identity even
+                // for an out-of-range authored gamma. SDR keeps the raw value
+                // it always had (its output is unchanged by #1353).
+                if (display.IsHdr())
+                    gpu.Gamma = DisplayOutput::GetCompositionGamma();
             }
             if (FrameCorePasses.Scene)
             {
@@ -5597,7 +5603,7 @@ namespace OloEngine
             const auto overdrawOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::OverdrawColor,
                 ResourceNames::OverdrawColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.OverdrawColor = overdrawOutput.Framebuffer;
             board.Post.OverdrawColorTexture = overdrawOutput.Texture;
         }
