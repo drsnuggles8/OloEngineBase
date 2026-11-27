@@ -398,19 +398,21 @@ pass-level tenant could see: a depth-array layer larger than its framebuffer ren
 only the framebuffer-sized corner (every shadow-atlas tile after the first was empty). It also found
 what looked like a timing-dependent defect in the forked, groom-split shadow region: fur shaded
 random colours or saturated white on a loaded GPU and on lavapipe, and the strip cases' shadows
-vanished (#1652). That was not the region. The fixture baked its black sky in `BuildScene`, outside
-a frame; the Vulkan backend dropped the bake (`Draw`, `Clear` and `CopyImageSubDataRegion` "outside
-recording bracket" in the log), and the fur read irradiance and prefilter cubes nothing had written.
-What that memory held depended on the allocation layout, which is why parallel recording, the fork
-and the opaque-copy split each seemed to matter: at the commit #1652 was measured on (`60a677e62`),
-lavapipe failed the two strip cases with 0 px darkened in three runs with the bake outside a frame,
-the levers no longer matched the issue's pattern (parallel recording off still failed; the coat-exit
-lever, which allocates no opaque copy, passed), and moving only the bake into `RunInFrame` passed
-all four cases with every lever on (the thin strip darkened 1,049 px, the issue's passing number).
+vanished (#1652). The failures the A/B reproduced were not the region. The fixture baked its black
+sky in `BuildScene`, outside a frame; the Vulkan backend dropped the bake (`Draw`, `Clear` and
+`CopyImageSubDataRegion` "outside recording bracket" in the log), and the fur read irradiance and
+prefilter cubes nothing had written, whose contents depended on the allocation layout. At the commit
+#1652 was measured on (`60a677e62`), lavapipe failed the two strip cases with 0 px darkened in three
+runs with the bake outside a frame, and moving only the bake into `RunInFrame` passed them with
+every lever on (the thin strip darkened 1,049 px, the issue's passing number). The levers did not
+repeat the issue's pattern in that A/B (parallel recording off still failed; the coat-exit lever,
+which allocates no opaque copy, passed), so they are not evidence either way.
 On the RTX 4090 under load (two OpenGL and one Vulkan process beside it) the same binary failed the
 thin occluder (292 px) and the VSM-against-cascades strip (296 px), the two cases the issue's
 loaded-GPU repro named, and with the bake in a frame passed all 19 cases twice under the same load
-(1,046 px). The issue's other two lavapipe failures did not recur in any run. `022108a88` moved it
+(1,046 px). The issue's other two lavapipe failures (`ACoatCastsTheShare...`,
+`TheBodyShadowsItsOwnFur...`) did not recur in any run, so their cause is not established: the bake
+is the likeliest, not a proven one. `022108a88` moved it
 and made a dropped call a test failure. A Vulkan result that changes with a recording or memory
 lever is first a question of what the frame read that nothing wrote.
 
