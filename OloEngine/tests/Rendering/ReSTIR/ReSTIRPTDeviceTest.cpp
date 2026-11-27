@@ -1246,8 +1246,11 @@ namespace OloEngine::Tests
             if (statistic.Executable == "FS" && statistic.Name == "Local Memory Size")
                 localMemory = statistic.Value;
         }
-        if (!localMemory)
-            GTEST_SKIP() << "The driver reported no fragment-shader 'Local Memory Size' statistic";
+        // Statistics and the SM layout are both available here, so a missing
+        // figure is a broken guard (a renamed stage or shader), not a device
+        // that cannot answer: fail rather than go quiet.
+        ASSERT_TRUE(localMemory.has_value())
+            << "no 'Local Memory Size' statistic for ReSTIR_PT's FS executable was captured";
         // 621.14 reports the size with bit 36 set: a vertex shader with no
         // local memory at all reports exactly 2^36.
         const u64 bytes = *localMemory & ((1ull << 36) - 1u);

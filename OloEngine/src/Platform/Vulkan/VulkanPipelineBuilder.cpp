@@ -891,7 +891,7 @@ namespace OloEngine
         {
             out.Pipeline = VK_NULL_HANDLE;
         }
-        else
+        else if (device->IsPipelineStatisticsEnabled())
         {
             device->CapturePipelineStatistics(out.Pipeline, inputs.ShaderName.ToStdString());
         }

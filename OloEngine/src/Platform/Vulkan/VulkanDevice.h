@@ -36,6 +36,8 @@
 // The async-compute queue pick (#808) is a pure policy over the family
 // properties the driver reports; the device owns the RESULT, not the rule.
 #include "Platform/Vulkan/VulkanQueueSelection.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 #include <functional>
 #include <mutex>
@@ -366,21 +368,22 @@ namespace OloEngine
         void LogDeviceFaultInfo() const;
         // Levers::VulkanPipelineStatistics (#1807): pipelines are created with
         // CAPTURE_STATISTICS, and CapturePipelineStatistics logs each
-        // executable's driver statistics and keeps the latest set per shader
-        // name — on NVIDIA the local-memory (stack) size that a device-lost
-        // scratch write points at. No-op when the lever is off.
+        // executable's driver statistics and keeps, per shader name, the
+        // largest value each (executable, statistic) reached across that
+        // shader's pipeline variants — on NVIDIA the local-memory (stack) size
+        // that a device-lost scratch write points at. No-op when the lever is off.
         struct PipelineStatistic
         {
-            std::string Executable; ///< The driver's executable name, e.g. "FS".
-            std::string Name;       ///< The statistic, e.g. "Local Memory Size".
-            u64 Value = 0;          ///< Integer and boolean statistics only.
+            FString Executable; ///< The driver's executable name, e.g. "FS".
+            FString Name;       ///< The statistic, e.g. "Local Memory Size".
+            u64 Value = 0;      ///< Integer and boolean statistics only; a negative INT64 reads 0.
         };
         [[nodiscard]] bool IsPipelineStatisticsEnabled() const
         {
             return m_PipelineStatisticsEnabled;
         }
         void CapturePipelineStatistics(VkPipeline pipeline, const std::string& shaderName);
-        [[nodiscard]] std::vector<PipelineStatistic> GetCapturedPipelineStatistics(const std::string& shaderName) const;
+        [[nodiscard]] TArray<PipelineStatistic> GetCapturedPipelineStatistics(const std::string& shaderName) const;
         // VK_NV_shader_sm_builtins' SM count and resident warps per SM, read
         // only while pipeline statistics are on; 0 when unknown.
         [[nodiscard]] u32 GetShaderSMCount() const
@@ -456,7 +459,7 @@ namespace OloEngine
         u32 m_ShaderSMCount = 0;
         u32 m_ShaderWarpsPerSM = 0;
         mutable std::mutex m_PipelineStatisticsMutex;
-        std::unordered_map<std::string, std::vector<PipelineStatistic>> m_CapturedPipelineStatistics;
+        std::unordered_map<std::string, TArray<PipelineStatistic>> m_CapturedPipelineStatistics;
         bool m_MemoryBudgetEnabled = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
@@ -496,6 +499,16 @@ namespace OloEngine
         bool m_RayTracingPipelineEnabled = false;
         RayTracing::UnsupportedReason m_RayTracingUnsupportedReason = RayTracing::UnsupportedReason::ExtensionMissing;
         RayTracing::DeviceProperties m_RayTracingProperties{};
+    };
+
+    // Two strings that own separate heap buffers and a scalar; nothing points
+    // into a statistic, so TArray growth may relocate it.
+    template<>
+    struct TIsTriviallyRelocatable<VulkanDevice::PipelineStatistic>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Executable)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Value)>::Value;
     };
 } // namespace OloEngine
 

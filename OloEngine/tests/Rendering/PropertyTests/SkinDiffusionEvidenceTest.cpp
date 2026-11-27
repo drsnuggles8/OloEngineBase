@@ -268,6 +268,14 @@ namespace OloEngine::Tests
         [[nodiscard]] f32 FindTerminatorX(const Capture& capture)
         {
             const f32 searchStart = std::max(0.30f, FindHighlightX(capture) + kHighlightClearance);
+            // A highlight right of 0.62 leaves no window: say so, rather than
+            // fall back to mid-frame, which would be on the lit side again.
+            if (searchStart >= 0.70f)
+            {
+                ADD_FAILURE() << "the highlight sits at x=" << searchStart - kHighlightClearance
+                              << ", leaving no room right of it to search for the terminator";
+                return searchStart;
+            }
             const u32 x0 = static_cast<u32>(searchStart * static_cast<f32>(capture.Width));
             const u32 x1 = static_cast<u32>(0.70f * static_cast<f32>(capture.Width));
             const u32 y0 = static_cast<u32>((kBoxCy - kBoxHalfH) * static_cast<f32>(capture.Height));
@@ -628,7 +636,10 @@ namespace OloEngine::Tests
         // rather than a loosened tolerance. At a 25-degree grazing view the N.L
         // falloff is spread over several times the pixels it covers head-on, so
         // the same terminator is genuinely a shallower step: measured 0.0193
-        // here against 0.0656 head-on, on the same subject and the same key.
+        // here against 0.0656 head-on, on the same subject and the same key
+        // (single-sample maxima, Legacy closure). Under ClosureV2 and the
+        // 16-sample peak the oblique terminator measures 0.0153 and the whole
+        // frame 0.19, against the 0.012 and 0.02 floors (#1803).
         // The floor still separates "there is an edge" from "the frame is
         // blank" (~0), and the assertion that actually discriminates is the
         // RELATIVE one below, which no threshold choice can weaken.

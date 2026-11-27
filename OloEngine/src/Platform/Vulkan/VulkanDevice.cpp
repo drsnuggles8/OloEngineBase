@@ -1754,12 +1754,13 @@ namespace OloEngine
         u32 executableCount = 0;
         if (vkGetPipelineExecutablePropertiesKHR(m_Device, &pipelineInfo, &executableCount, nullptr) != VK_SUCCESS)
             return;
-        std::vector<VkPipelineExecutablePropertiesKHR> executables(executableCount);
+        TArray<VkPipelineExecutablePropertiesKHR> executables;
+        executables.SetNumZeroed(static_cast<i32>(executableCount));
         for (auto& executable : executables)
             executable.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR;
-        if (vkGetPipelineExecutablePropertiesKHR(m_Device, &pipelineInfo, &executableCount, executables.data()) != VK_SUCCESS)
+        if (vkGetPipelineExecutablePropertiesKHR(m_Device, &pipelineInfo, &executableCount, executables.GetData()) != VK_SUCCESS)
             return;
-        std::vector<PipelineStatistic> captured;
+        TArray<PipelineStatistic> captured;
         for (u32 index = 0; index < executableCount; ++index)
         {
             VkPipelineExecutableInfoKHR executableInfo{};
@@ -1769,51 +1770,68 @@ namespace OloEngine
             u32 statisticCount = 0;
             if (vkGetPipelineExecutableStatisticsKHR(m_Device, &executableInfo, &statisticCount, nullptr) != VK_SUCCESS)
                 continue;
-            std::vector<VkPipelineExecutableStatisticKHR> statistics(statisticCount);
+            TArray<VkPipelineExecutableStatisticKHR> statistics;
+            statistics.SetNumZeroed(static_cast<i32>(statisticCount));
             for (auto& statistic : statistics)
                 statistic.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR;
-            if (vkGetPipelineExecutableStatisticsKHR(m_Device, &executableInfo, &statisticCount, statistics.data()) != VK_SUCCESS)
+            if (vkGetPipelineExecutableStatisticsKHR(m_Device, &executableInfo, &statisticCount, statistics.GetData()) != VK_SUCCESS)
                 continue;
-            std::string line;
+            FString line;
             for (const auto& statistic : statistics)
             {
-                std::string value;
+                FString value;
+                std::optional<u64> integer;
                 switch (statistic.format)
                 {
                     case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:
+                        integer = statistic.value.b32 ? 1u : 0u;
                         value = statistic.value.b32 ? "true" : "false";
-                        captured.push_back({ executables[index].name, statistic.name, statistic.value.b32 ? 1u : 0u });
                         break;
                     case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
-                        value = std::to_string(statistic.value.i64);
-                        captured.push_back({ executables[index].name, statistic.name, static_cast<u64>(statistic.value.i64) });
+                        integer = static_cast<u64>(std::max<i64>(statistic.value.i64, 0));
+                        value = FString::FromInt(statistic.value.i64);
                         break;
                     case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:
-                        value = std::to_string(statistic.value.u64);
-                        captured.push_back({ executables[index].name, statistic.name, statistic.value.u64 });
+                        integer = statistic.value.u64;
+                        value = FString(std::to_string(statistic.value.u64));
                         break;
                     case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_FLOAT64_KHR:
-                        value = std::to_string(statistic.value.f64);
+                        value = FString(std::to_string(statistic.value.f64));
                         break;
                     default:
                         value = "?";
                         break;
                 }
-                line += line.empty() ? "" : ", ";
-                line += std::string(statistic.name) + '=' + value;
+                if (integer)
+                    captured.Add({ FString(executables[index].name), FString(statistic.name), *integer });
+                if (!line.IsEmpty())
+                    line += ", ";
+                line += statistic.name;
+                line += "=";
+                line += value;
             }
             OLO_CORE_INFO("[Vulkan/PSO stats] '{}' {} ({}): {}", shaderName, executables[index].name,
-                          executables[index].description, line);
+                          executables[index].description, *line);
         }
         std::lock_guard lock(m_PipelineStatisticsMutex);
-        m_CapturedPipelineStatistics[shaderName] = std::move(captured);
+        TArray<PipelineStatistic>& kept = m_CapturedPipelineStatistics[shaderName];
+        for (const PipelineStatistic& statistic : captured)
+        {
+            PipelineStatistic* existing = kept.FindByPredicate([&statistic](const PipelineStatistic& candidate)
+                                                               { return candidate.Executable == statistic.Executable &&
+                                                                        candidate.Name == statistic.Name; });
+            if (existing == nullptr)
+                kept.Add(statistic);
+            else
+                existing->Value = std::max(existing->Value, statistic.Value);
+        }
     }
 
-    std::vector<VulkanDevice::PipelineStatistic> VulkanDevice::GetCapturedPipelineStatistics(const std::string& shaderName) const
+    TArray<VulkanDevice::PipelineStatistic> VulkanDevice::GetCapturedPipelineStatistics(const std::string& shaderName) const
     {
         std::lock_guard lock(m_PipelineStatisticsMutex);
         const auto it = m_CapturedPipelineStatistics.find(shaderName);
-        return it != m_CapturedPipelineStatistics.end() ? it->second : std::vector<PipelineStatistic>{};
+        return it != m_CapturedPipelineStatistics.end() ? it->second : TArray<PipelineStatistic>{};
     }
 
     void VulkanDevice::LogDeviceFaultInfo() const

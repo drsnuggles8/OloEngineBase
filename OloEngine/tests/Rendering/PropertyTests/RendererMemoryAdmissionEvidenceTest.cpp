@@ -57,6 +57,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <limits>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -201,11 +202,13 @@ namespace
         // this ladder requests) and the indirect terms lift the gaps a little above the frame
         // edge; an absolute 24-level bound sat one level above the gap on every vendor and
         // failed when ClosureV2 brightened the cubes by one (#1803). A smeared frame pulls a
-        // gap a large fraction of the way to the cubes, which this still fails.
+        // gap a large fraction of the way to the cubes, which this still fails. The 32-level
+        // ceiling keeps very bright cubes from widening it past a real halo regression.
+        const f32 gapBound = std::min(0.2f * weakestCube, 32.0f);
         for (const f32 gapX : { -1.0f, 1.0f })
         {
             const glm::vec3 gap = MeanColour(rgba, width, ColumnOf(gapX, width), row, probe);
-            EXPECT_LT(Distance(gap, edge), 0.2f * weakestCube)
+            EXPECT_LT(Distance(gap, edge), gapBound)
                 << "the gap at x=" << gapX << " is not background: (" << gap.x << ", " << gap.y << ", " << gap.z << ") against ("
                 << edge.x << ", " << edge.y << ", " << edge.z << "), with the weakest cube " << weakestCube << " from it";
         }
