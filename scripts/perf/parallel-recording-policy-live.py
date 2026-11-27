@@ -148,7 +148,8 @@ class Editor:
             pr = t.get('parallelRecording', {})
             regions = [{k: r.get(k) for k in ('pass', 'family', 'decision', 'workUnits', 'minWorkUnitsToFork',
                                               'itemCount', 'parallel', 'regionWallMs', 'workerRecordMs',
-                                              'joinWaitMs', 'frontendPrepareMs', 'itemPassNames')}
+                                              'joinWaitMs', 'frontendPrepareMs', 'itemPassNames', 'selectionSeedMs',
+                                              'attachmentPrepareMs', 'sampledImagePrepareMs', 'pipelineLookupMs')}
                        for r in pr.get('regionTimings', [])]
             controls = {p['pass']: p.get('cpuMs') for p in t.get('passes', []) if p.get('pass') in CONTROL_PASSES}
             seen[key] = {'frameTimeMs': frame.get('frameTimeMs'), 'cpuMs': frame.get('cpuMs'),
@@ -184,7 +185,8 @@ def summarize_block(samples: list[dict]) -> dict:
     for s in samples:
         for i, r in enumerate(s['regions']):
             slot = per_region.setdefault(region_key(i, r), {})
-            for k in ('regionWallMs', 'workerRecordMs', 'joinWaitMs', 'frontendPrepareMs', 'workUnits', 'itemCount'):
+            for k in ('regionWallMs', 'workerRecordMs', 'joinWaitMs', 'frontendPrepareMs', 'workUnits', 'itemCount',
+                      'selectionSeedMs', 'attachmentPrepareMs', 'sampledImagePrepareMs', 'pipelineLookupMs'):
                 slot.setdefault(k, []).append(r.get(k))
             slot.setdefault('decisions', []).append(r.get('decision'))
     regions = {}

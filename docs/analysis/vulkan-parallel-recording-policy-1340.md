@@ -62,7 +62,9 @@ A shadow region's items cull their own casters, so submitted-caster counts do no
 work: MaterialLab's 464 view x caster pairs lose when forked (most are culled per cascade) while
 Courtyard's 428 win. The pass now counts, on the render thread before the fork, the view x
 caster pairs that survive the same CPU frustum test the items run (mesh and skinned casters;
-other kinds once per view), stopping at 4,096 pairs or 16,384 tests. Visible pairs measured:
+other kinds once per view). It runs only when the backend could fork at all, and stops once the
+count reaches the threshold or after 16,384 tests, so `workUnits` saturates at the threshold.
+Visible pairs measured with the count uncapped (a diagnostic build counting to 4,096):
 MaterialLab 218; IntegratedRenderer 20-176; Courtyard 137-428; dense >= 4,096.
 
 Totals of all recording regions, ms (`shadow-ab.json`):

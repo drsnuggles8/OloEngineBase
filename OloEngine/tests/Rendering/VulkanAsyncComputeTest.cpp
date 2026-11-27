@@ -942,6 +942,74 @@ TEST(VulkanAsyncComputeDevice, AnUnsetLeverKeepsTheBatchOnTheGraphicsQueueAndSay
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
+// #1341: early submission cannot strand the release halves. While a batch is
+// open the graphics buffer is parked, holding the releases the batch's
+// transfers append; a render-graph fence segment submitted then would end the
+// compute buffer and submit it to the graphics queue, and the parked releases
+// would never reach a queue. The submit must be refused, and the batch must
+// still close and submit cleanly afterwards.
+TEST(VulkanAsyncComputeDevice, AFenceSegmentSubmitInsideAnOpenBatchIsRefused)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+
+    ScopedHiddenVulkanWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+    const Levers::Tristate originalAsync = Levers::VulkanAsyncCompute();
+    struct AsyncRestore
+    {
+        Levers::Tristate Async;
+        ~AsyncRestore()
+        {
+            Levers::SetVulkanAsyncCompute(Async);
+        }
+    } asyncRestore{ originalAsync };
+    Levers::SetVulkanAsyncCompute(Levers::Tristate::On);
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    {
+        VulkanContext context(window.Get());
+        try
+        {
+            context.Init();
+        }
+        catch (const std::exception& e)
+        {
+            GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+        }
+        RenderCommand::Init();
+        VulkanDevice::ResetValidationErrorCount();
+        auto* device = VulkanDevice::Get();
+        ASSERT_NE(device, nullptr);
+        if (!device->HasAsyncComputeQueue())
+            GTEST_SKIP() << VulkanQueueSelection::Describe(device->GetAsyncComputeUnavailableReason());
+
+        bool opened = false;
+        bool fenceSubmittedInside = true;
+        bool closed = false;
+        bool fenceSubmittedAfter = false;
+        context.SetFrameRenderCallback(
+            [&](const GraphicsContext::FrameRenderTarget&)
+            {
+                opened = context.BeginAsyncComputeSegment(0u);
+                fenceSubmittedInside = context.SubmitRenderGraphFenceSegment();
+                closed = context.EndAsyncComputeSegment(0u);
+                // Once the batch is closed the same submit is legal again.
+                fenceSubmittedAfter = context.SubmitRenderGraphFenceSegment();
+                return false;
+            });
+        context.SwapBuffers();
+        ASSERT_EQ(vkDeviceWaitIdle(device->GetDevice()), VK_SUCCESS);
+        context.SetFrameRenderCallback({});
+
+        EXPECT_TRUE(opened) << context.GetAsyncComputeDeclineReason();
+        EXPECT_FALSE(fenceSubmittedInside) << "a mid-batch fence segment would strand the parked release halves";
+        EXPECT_TRUE(closed);
+        EXPECT_TRUE(fenceSubmittedAfter);
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
 namespace
 {
     // The VSM shaders are runtime assets resolved against the working

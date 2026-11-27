@@ -49,6 +49,11 @@ def main() -> int:
                         help='olo_renderer_settings_set pairs applied after the scene opens')
     parser.add_argument('--passes', nargs='*', default=['gtao', 'fog', 'fogvolumetric'],
                         help='olo_render_toggle_pass names enabled after the scene opens')
+    parser.add_argument('--capture-dir', type=Path,
+                        help='after sampling, save PNG captures of --capture-targets on every --capture-paths '
+                             'render path here, for the on/off quality comparison (compare across processes)')
+    parser.add_argument('--capture-targets', nargs='*', default=['SceneColor', 'SceneDepth'])
+    parser.add_argument('--capture-paths', nargs='*', default=['deferred', 'forward', 'forwardplus'])
     parser.add_argument('--warm-frames', type=int, default=240)
     parser.add_argument('--samples', type=int, default=120)
     args = parser.parse_args()
@@ -92,6 +97,25 @@ def main() -> int:
                         'frameTimeMs': t.get('frame', {}).get('frameTimeMs'),
                         'asyncCompute': t.get('asyncCompute'), 'queueOverlap': t.get('queueOverlap'),
                         'passGpuTotalMs': t.get('passGpuTotalMs'), 'passes': passes}
+    captures = {}
+    if args.capture_dir:
+        import base64
+        args.capture_dir.mkdir(parents=True, exist_ok=True)
+        for path in args.capture_paths:
+            client.tool('olo_renderer_settings_set', setting='renderpath', value=path)
+            for _ in range(3):  # let the new path's graph build and settle
+                client.tool('olo_perf_pass_timings')
+                time.sleep(1.0)
+            for target in args.capture_targets:
+                result = client.rpc('tools/call', {'name': 'olo_render_capture_target',
+                                                   'arguments': {'name': target, 'forceFrame': True, 'maxWidth': 4096}})
+                image = next((c for c in result.get('content', []) if c.get('type') == 'image'), None)
+                if result.get('isError') or image is None:
+                    captures[f'{path}/{target}'] = None
+                    continue
+                file = args.capture_dir / f'Async_{args.arm}_{path}_{target}.png'
+                file.write_bytes(base64.b64decode(image['data']))
+                captures[f'{path}/{target}'] = str(file)
     client.tool('olo_viewport_set_size', reset=True)
     if len(samples) < args.samples:
         raise RuntimeError(f'only {len(samples)} of {args.samples} distinct resolved frames')
@@ -114,7 +138,7 @@ def main() -> int:
         'batchPassNames': sorted({p['pass'] for r in rows for p in r['passes'] if p.get('asyncBatch') is not None}),
     }
     out = {'tool': 'async-compute-timeline-live', 'arm': args.arm, 'argv': sys.argv[1:], 'settings': applied,
-           'summary': summary, 'samples': rows}
+           'summary': summary, 'captures': captures, 'samples': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(out, indent=1), encoding='utf-8')
     print(json.dumps(summary, indent=1))

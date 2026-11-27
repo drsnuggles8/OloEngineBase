@@ -52,8 +52,7 @@ namespace OloEngine
         // OLO_VK_PARALLEL_SHADOW_MIN_WORK overrides it live ("0" forks every
         // multi-view region, the pre-#1340 behaviour).
         constexpr u32 kShadowRegionMinWorkToFork = 256u;
-        // Bounds on the pre-fork estimate: pairs counted, and frustum tests run.
-        constexpr u32 kShadowWorkCountCap = 4096u;
+        // Bound on the pre-fork estimate's frustum tests.
         constexpr u32 kShadowWorkTestCap = 16384u;
     } // namespace
 
@@ -927,15 +926,17 @@ namespace OloEngine
         // other caster kind once per view. Submitted-caster counts do not
         // predict it — MaterialLab's 464 view x caster pairs lose when forked
         // (most are culled per cascade) while Courtyard's 428 win. Counting
-        // stops at kShadowWorkCountCap pairs or kShadowWorkTestCap tests, so
-        // the estimate stays cheap on dense scenes; a region that exhausts the
-        // test budget is large by construction and forks.
+        // stops as soon as the threshold is reached (the decision is then
+        // made, so WorkUnits saturates there) or after kShadowWorkTestCap
+        // tests, returning the pairs counted so far as a lower bound. It runs
+        // only where a fork is possible at all: on a backend or in a state
+        // that cannot fork, the result would be thrown away.
         const u32 minWorkToFork = Levers::VulkanParallelShadowMinWork()
                                       ? static_cast<u32>(std::min<i64>(*Levers::VulkanParallelShadowMinWork(), UINT32_MAX))
                                       : kShadowRegionMinWorkToFork;
         const auto estimateBatchWork = [&](const u32 firstView, const u32 viewCount) -> u32
         {
-            const u32 cap = std::max(minWorkToFork, kShadowWorkCountCap);
+            const u32 cap = minWorkToFork;
             const bool opaque = filter != ShadowCasterFilter::GroomsOnly;
             const bool grooms = filter != ShadowCasterFilter::NoGrooms;
             const u64 unculled =
@@ -962,8 +963,6 @@ namespace OloEngine
             };
             if (opaque && countVisible(m_MeshCasters))
                 (void)countVisible(m_SkinnedCasters);
-            if (tests >= kShadowWorkTestCap)
-                return std::max<u32>(cap, static_cast<u32>(std::min<u64>(work, UINT32_MAX)));
             return static_cast<u32>(std::min<u64>(work, UINT32_MAX));
         };
         for (u32 first = 0; first < activeCount; first += batchSize)
@@ -988,8 +987,9 @@ namespace OloEngine
                                     recordingInstancedDraws ? &m_ItemTallies[item] : nullptr,
                                     virtualCasters ? &m_VirtualItemResources[item] : nullptr, slot);
             };
-            const u32 work = count >= 2u ? estimateBatchWork(first, count) : 0u;
-            const bool belowThreshold = count >= 2u && work < minWorkToFork;
+            const bool estimate = count >= 2u && minWorkToFork > 0u && RenderCommand::SupportsParallelRecording();
+            const u32 work = estimate ? estimateBatchWork(first, count) : 0u;
+            const bool belowThreshold = estimate && work < minWorkToFork;
             const ParallelRegionHint hint{ .Family = "shadowViews",
                                            .WorkUnits = work,
                                            .MinWorkUnitsToFork = minWorkToFork,
