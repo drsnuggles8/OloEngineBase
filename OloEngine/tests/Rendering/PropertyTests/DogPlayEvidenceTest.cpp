@@ -1250,6 +1250,11 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
         SetMouse(chinPixel, true);
         Tick(2);
         ASSERT_EQ(ParentOf(m_Ball), m_Hand) << "the cursor on the ball under the chin did not grab it";
+        // The 64 frames since the last tracked one were not tracked: the turn
+        // rate compares consecutive frames, so it starts again from here. Taken
+        // across that gap, a second's slow drift read as one frame's whip, at
+        // 5.7 rad/s before scripts read a toy's current place, 6.7 after (#1649).
+        lastLook = headLook();
         const glm::vec3 headTop = BoneWorld("head") + glm::vec3(0.0f, 0.12f, 0.0f);
         f32 nearest = std::numeric_limits<f32>::max();
         for (u32 i = 0; i <= 90u; ++i)
