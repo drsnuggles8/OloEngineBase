@@ -43,7 +43,7 @@ engine work that is merely good.
   real mountain in an unnamed Austrian or Swiss valley, a 1950 start, one full year of seasons, the
   first slice of the tech tree (about 1950–1965), sandbox only.
 - **Target hardware and frame budget:** a GTX 1660 / RX 5600 class PC (6 GB VRAM, 16 GB RAM, 6-core
-  CPU) at 1080p, 60 fps (16.6 ms) on the slice's busiest view. Photoreal, with graphics presets, and
+  CPU) at 1080p, 60 fps on the slice's busiest view: a 95th-percentile frame time of 16.6 ms or less. Photoreal, with graphics presets, and
   heavy optimisation so it looks good on older PCs.
 - **Out of scope for the milestone:** Drift / Adrift only: no further Drift islands, keeper, crane or
   other Drift gameplay work. The renderer research items (#654, #1046, #1353, #805) and #437 stay where
@@ -54,7 +54,7 @@ Not on the critical path: riding your runs, the multi-resort empire, the scenari
 
 ## Critical path
 
-One line per capability the milestone cannot ship without, confirmed by the user on #1727; the
+One line per capability the milestone cannot ship without, confirmed by the user on #1727 (the Steam line on #1819, from AUD-16); the
 first line (the project scaffold) follows from the user's layout decision. A confirmed line goes in as
 `- [ ] …` at once, so `lint` reports it until it gains its `(#N)` when its issues are filed, and it is
 ticked when all of them close. Draft lines nobody has confirmed stay out until the user agrees.
@@ -71,10 +71,11 @@ ticked when all of them close. Draft lines nobody has confirmed stay out until t
   - [ ] Skier model and skiing animation (#1748)
   - [x] Crowd rendering with animated level of detail (#1749). At native 1080p, 5,000 stand-ins added 2.876–2.885 ms on the RX 5600 XT. [Benchmark](https://github.com/drsnuggles8/OloEngineBase/actions/runs/45456157390)
 - [ ] Staff: lift operators, ski patrol, groomers, simple for the slice (#1750)
-- [ ] Economy and reputation: ticket prices, running costs, loans, a finance screen, a star rating (#1751)
-- [ ] Tech tree and eras: research with unlocks gated by year, 1950 to about 1965 (#1752)
+- [ ] Economy and reputation: ticket prices, running costs, loans, a finance screen, a star rating that summarises the resort's category reputations and shows what drives them, never an input to guests' resort choice ([G-11](../../OloEditor/KestrelProject/docs/gameplay/guests-and-networks.md#g-11), [G-03](../../OloEditor/KestrelProject/docs/gameplay/guests-and-networks.md#g-03)) (#1751)
+- [ ] Tech tree and eras: research with unlocks gated by year, 1950 to about 1965, as a rule for the slice only: the full game's era locking stays open ([P-11](../../OloEditor/KestrelProject/docs/gameplay/progression-and-research.md#p-11)) (#1752)
 - [ ] Game UI: HUD, build menus, info panels, map overlays, notifications (#1753, #1754)
 - [ ] Save and load the whole resort mid-season (#1755)
 - [ ] Sound: lifts, crowds, wind, weather (#1756)
-- [ ] Performance gate: 1080p60 on a GTX 1660 in the busiest view, with graphics presets (#1757, #1758)
+- [ ] Performance gate: 1080p60 at the 95th percentile on a GTX 1660 in the busiest view, with graphics presets (#1757, #1758)
 - [ ] A packaged build with a main menu and settings (#1759)
+- [ ] Steam test distribution, started early rather than after the slice: packaged builds uploaded automatically to a private Steam branch the owner promotes, with lightweight private feedback ([AUD-16](../../OloEditor/KestrelProject/docs/validation/steam-and-feedback.md#aud-16)). The app ID, Steamworks access and credentials are the owner's steps

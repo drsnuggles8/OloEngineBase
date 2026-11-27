@@ -6,17 +6,17 @@ mountains, with the milestone *KESTREL: vertical slice* (mid-2027). The user dec
 game is developed in the open, in this repository, beside `SandboxProject`, and that game and engine issues
 share one queue ([decisions comment](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7060665000)).
 
-This ADR records that layout, the codename policy and the engine/game boundary, which are decided (§1–§3), and
-proposes an answer to the question the layout leaves open: where the game's simulation code lives (§4).
+This ADR records that layout, the codename policy and the engine/game boundary (§1–§3), and
+answers the question the layout left open: where the game's simulation code lives (§4).
 
 ## Status
 
 - §1–§3: **Accepted** (the user's decisions on #1727).
-- §4: **Proposed.** The user accepts or changes it in review of the PR that adds this file.
-  [#1731](https://github.com/drsnuggles8/OloEngineBase/issues/1731), which implements it, carries
-  `blocked_by_external` until then, so the picker cannot start it on a proposal. It sits in the milestone
-  (the simulation issues depend on it) but not on north-star.md's critical-path checklist, which holds
-  only lines the user confirmed. Accepting §4 means removing that field and marking §4 Accepted here.
+- §4: **Accepted** 2026-11-27 (option C, the user's decision on
+  [#1819](https://github.com/drsnuggles8/OloEngineBase/pull/1819)). It was proposed in the PR that added
+  this file. [#1731](https://github.com/drsnuggles8/OloEngineBase/issues/1731) implements it; it sits in
+  the milestone (the simulation issues list it in `blocked_by`) but not on north-star.md's critical-path
+  checklist, which holds only lines the user confirmed.
 
 ## 1. Layout
 
@@ -25,7 +25,7 @@ OloEditor/
   SandboxProject/   the engine's demo and test project (Sandbox.oloproj), unchanged
   KestrelProject/   the game (Kestrel.oloproj)
     Assets/         scenes, terrain, models, data tables, Scripts/ (Kestrel-Scripting C# assembly)
-    Source/         the native game module, if §4 is accepted
+    Source/         the native game module (§4)
 ```
 
 - One repository, one CMake tree, one CI. The editor, `OloRuntime` and `OloServer` open either project, and
@@ -64,7 +64,7 @@ user-facing strings change; the paths and identifiers do not need to.
 A critical-path issue says which of its parts is engine and which is game. When in doubt, the test is whether a
 second, different game (a city builder, a survival game) would want the piece unchanged.
 
-## 4. Where the game's simulation code lives (proposed)
+## 4. Where the game's simulation code lives
 
 The slice simulates thousands of skiers (target 5 000 on a busy day,
 [#1747](https://github.com/drsnuggles8/OloEngineBase/issues/1747)), lifts, a whole-mountain snowpack and an
@@ -79,12 +79,12 @@ economy, inside a 16.6 ms frame on a 6-core CPU, next to the renderer. That budg
 | Serialization, inspector, bindings | OloHeaderTool, as today | hand-written C# fields | OloHeaderTool, once it scans the module's headers |
 | New engine work | none | none | a CMake convention, a registration entry point, OloHeaderTool scanning a second source root |
 
-**Recommendation: C, a native game module, with C# kept for scenario scripting, tutorials and UI glue.**
+**Decision: C, a native game module, with C# kept for scenario scripting, tutorials and UI glue.**
 
 - B fails the deciding constraint: the per-agent update must be data-oriented and parallel on the task system,
   and C# scripts reach neither the scheduler nor the worker threads. This is reasoning from the engine's
-  structure, not a measurement made here; if the user prefers B, the first step is to measure 5 000 agents
-  updated through internal calls against the same loop in C++ before the guest simulation is built on it.
+  structure, not a measurement made here; revisiting B would start by measuring 5 000 agents updated
+  through internal calls against the same loop in C++.
 - A meets the budget but puts ski-resort rules into the engine library every other consumer links, which is the
   boundary §3 exists to prevent.
 - C costs one engine task, [#1731](https://github.com/drsnuggles8/OloEngineBase/issues/1731): a project with
@@ -103,5 +103,4 @@ The game-simulation issues ([#1743](https://github.com/drsnuggles8/OloEngineBase
 [#1745](https://github.com/drsnuggles8/OloEngineBase/issues/1745),
 [#1751](https://github.com/drsnuggles8/OloEngineBase/issues/1751),
 [#1752](https://github.com/drsnuggles8/OloEngineBase/issues/1752),
-[#1755](https://github.com/drsnuggles8/OloEngineBase/issues/1755)) list #1731 in `blocked_by`. If the user
-chooses A or B instead, #1731 closes as not planned and those edges are removed.
+[#1755](https://github.com/drsnuggles8/OloEngineBase/issues/1755)) list #1731 in `blocked_by`.
