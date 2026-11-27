@@ -62,6 +62,7 @@ TEST(VulkanAsyncCompute, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <cstddef>
 #include <functional>
 #include <set>
@@ -716,9 +717,40 @@ TEST(VulkanAsyncComputeDevice, AnAsyncBatchCrossesToTheComputeQueueAndBack)
         << "queue-family ownership transfers and the cross-queue submits must be validation-clean";
 }
 
+namespace
+{
+    // The VSM shaders are runtime assets resolved against the working
+    // directory, and the test binary runs from the repository root. Without
+    // this, VirtualShadowMap::Init falls back to CSM and the test fails on a
+    // missing file rather than on what it is about.
+    class ScopedEditorWorkingDirectory
+    {
+      public:
+        ScopedEditorWorkingDirectory()
+            : m_Previous(std::filesystem::current_path())
+        {
+            std::error_code ec;
+            std::filesystem::current_path(std::filesystem::path{ OLO_TEST_EDITOR_ROOT }, ec);
+        }
+        ~ScopedEditorWorkingDirectory()
+        {
+            std::error_code ec;
+            std::filesystem::current_path(m_Previous, ec);
+        }
+        ScopedEditorWorkingDirectory(const ScopedEditorWorkingDirectory&) = delete;
+        ScopedEditorWorkingDirectory& operator=(const ScopedEditorWorkingDirectory&) = delete;
+        ScopedEditorWorkingDirectory(ScopedEditorWorkingDirectory&&) = delete;
+        ScopedEditorWorkingDirectory& operator=(ScopedEditorWorkingDirectory&&) = delete;
+
+      private:
+        std::filesystem::path m_Previous;
+    };
+} // namespace
+
 TEST(VulkanAsyncComputeDevice, VsmMarkInputsSurviveTheNextFrameUploads)
 {
     OLO_VULKAN_DEVICE_OR_SKIP();
+    const ScopedEditorWorkingDirectory editorRoot;
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     VulkanContext context(VulkanContext::OffscreenTarget{ 32u, 32u });
     try
