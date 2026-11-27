@@ -16,7 +16,9 @@ both backends. The bounds are `render / physical` per axis (`DRSUBOData`,
    `oloInRenderedFrame` instead of a `[0, 1]` on-screen test. A velocity is a
    frame-uv delta: scale it by `oloRenderScaleBounds()` before it moves a
    texture uv. A world radius converted to pixels through the target height
-   is multiplied by `bounds.y` (SSAO, skin diffusion).
+   is multiplied by `bounds.y` (SSAO, skin diffusion). A temporal resolve sets
+   `OLO_TEMPORAL_HISTORY_BOUNDS` to `oloRenderScaleBounds()` before including
+   `TemporalResolve.glsl`; the header itself stays scale-free.
 2. **A shader whose binding 33 is a sampler defines `OLO_RENDER_SCALE_BOUNDS`
    before the include.** The deferred lighting shaders read it from
    `u_LightingFlags.yz` (filled from the G-Buffer's active viewport); the
@@ -34,8 +36,13 @@ both backends. The bounds are `render / physical` per axis (`DRSUBOData`,
    (`BeginSceneFrame`); the base `ApplyRenderViewport` only reaches `m_Target`.
    A pass that sets its own viewport after `Bind()` reads
    `GetActiveViewportWidth/Height`, never the specification.
-5. **Not covered: virtual geometry**, which sizes its raster, cull and HZB from
-   the G-Buffer storage ([#1822](https://github.com/drsnuggles8/OloEngineBase/issues/1822)); it changes nothing at scale 1.0.
+5. **Keep the bounds out of a header a device rig shares.** The include adds a
+   UBO at binding 33, and a rig that never publishes one fails every draw
+   (`ReSTIRPTDevice`, through `GBufferRaySurface.glsl`). Put the include in the
+   entry shader, or make the header take a macro.
+6. **Not covered: virtual geometry**, which sizes its raster, cull and HZB from
+   the G-Buffer storage ([#1822](https://github.com/drsnuggles8/OloEngineBase/issues/1822)), and the ReSTIR DI/GI/PT
+   tiers ([#1823](https://github.com/drsnuggles8/OloEngineBase/issues/1823)). Both change nothing at scale 1.0.
 
 ## How to check
 
