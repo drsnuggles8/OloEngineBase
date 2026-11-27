@@ -1282,6 +1282,7 @@ add_executable(OloEngine-Tests
 		Scene/SceneLightmapStalenessTest.cpp
 		# A parented local light shines from its world pose (#1707)
 		Scene/LocalLightWorldPoseTest.cpp
+		Scene/WorldPoseContractTest.cpp
 		# What the editor's selection outline covers (#1533)
 		Scene/SelectionOutlineSetTest.cpp
 		Scene/AnimalSchedulerContractTest.cpp

@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Pose.h"
 
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
@@ -191,7 +192,9 @@ namespace OloEngine
 
         // Body creation helpers
         JPH::Ref<JPH::Shape> CreateShapeForBody() const;
-        JPH::BodyCreationSettings CreateBodySettings(const glm::vec3& position, const glm::quat& rotation, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
+        // Takes the composed WorldPose (issue #1797): an authored TransformComponent
+        // value is parent-local and cannot be passed here (the #1714 bug class).
+        JPH::BodyCreationSettings CreateBodySettings(const WorldPose& pose, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const;
         void SetupCreatedBody(JPH::BodyID bodyID, const Rigidbody3DComponent& rigidBodyComponent);
 
         // Material application
