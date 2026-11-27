@@ -59,7 +59,7 @@
 // Slots mirror ShaderBindingLayout::TEX_REFLECTION_PROBE_* — published once
 // per frame by ReflectionProbeArray::BindForShading.
 layout(binding = 14) uniform samplerCubeArray u_ProbeRadianceArray; // prefilter chains (roughness mips)
-layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial d0 / d1 / d2 + max-mips; mip 0 read at texel centres (#1804)
+layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial d0 / d1 / d2 + max-mips, sampled NEAREST (#1804)
 
 // Mirrors UBOStructures::ReflectionProbeUBO (and ReflectionProbeCull.comp).
 struct OloReflectionProbe
@@ -100,57 +100,13 @@ uint oloProbeClusterMask(float viewDepth)
     return probeGrid[clusterIndex];
 }
 
-// Mip-0 face resolution of the distance array (kProbeDistanceResolution).
-#define OLO_PROBE_DISTANCE_RESOLUTION 128
-
-// The direction through the centre of the mip-0 texel covering `d`: GL's
-// major-axis face selection (DirectionToCubeFaceTexel), the texel snapped to
-// its centre, and the direction rebuilt. A sample there returns that texel
-// whatever the sampler's filter, so the march reads one direction's layers
-// exactly as the CPU reference's SampleLayersNearest does (#1804): a bilinear
+// One direction's three layers. The array is sampled NEAREST
+// (ReflectionProbeArray sets it on the texture), so this is the texel covering
+// `d`, as the CPU reference's SampleLayersNearest reads it (#1804): a bilinear
 // blend across a silhouette builds a solid shell where no surface is.
-vec3 oloProbeTexelCentre(vec3 d)
-{
-    vec3 a = abs(d);
-    float sc;
-    float tc;
-    float ma;
-    int face;
-    if (a.x >= a.y && a.x >= a.z)
-    {
-        ma = a.x;
-        face = d.x >= 0.0 ? 0 : 1;
-        sc = d.x >= 0.0 ? -d.z : d.z;
-        tc = -d.y;
-    }
-    else if (a.y >= a.z)
-    {
-        ma = a.y;
-        face = d.y >= 0.0 ? 2 : 3;
-        sc = d.x;
-        tc = d.y >= 0.0 ? d.z : -d.z;
-    }
-    else
-    {
-        ma = a.z;
-        face = d.z >= 0.0 ? 4 : 5;
-        sc = d.z >= 0.0 ? d.x : -d.x;
-        tc = -d.y;
-    }
-    float res = float(OLO_PROBE_DISTANCE_RESOLUTION);
-    vec2 uv = 0.5 * (vec2(sc, tc) / max(ma, 1.0e-20) + 1.0);
-    vec2 st = ((clamp(floor(uv * res), 0.0, res - 1.0) + 0.5) / res) * 2.0 - 1.0;
-    if (face == 0) return vec3(1.0, -st.y, -st.x);
-    if (face == 1) return vec3(-1.0, -st.y, st.x);
-    if (face == 2) return vec3(st.x, 1.0, st.y);
-    if (face == 3) return vec3(st.x, -1.0, -st.y);
-    if (face == 4) return vec3(st.x, -st.y, 1.0);
-    return vec3(-st.x, -st.y, -1.0);
-}
-
 vec3 oloProbeLayers(vec3 d, float layer)
 {
-    return textureLod(u_ProbeDistanceArray, vec4(oloProbeTexelCentre(d), layer), 0.0).rgb;
+    return textureLod(u_ProbeDistanceArray, vec4(d, layer), 0.0).rgb;
 }
 
 // Classification of a ray point at radius r along a texel's three layers

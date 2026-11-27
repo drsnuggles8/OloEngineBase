@@ -367,7 +367,6 @@ namespace OloEngine
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_MISS_THRESHOLD"), kProbeDistanceMissThreshold);
         EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_GAP_REFINE_STEPS")), kProbeGapRefineSteps);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_MARGIN"), kProbeInpaintMarginRadians);
-        EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_DISTANCE_RESOLUTION")), kProbeDistanceResolution);
         EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_RING_COUNT")), kProbeInpaintRingCount);
         EXPECT_EQ(static_cast<u32>(defineValue("OLO_PROBE_INPAINT_AZIMUTHS")), kProbeInpaintAzimuths);
         EXPECT_FLOAT_EQ(defineValue("OLO_PROBE_INPAINT_FIRST_RING"), kProbeInpaintFirstRing);

@@ -37,14 +37,12 @@
 //    huge float, and "no gap" is d2 = d1 and not d2 = sentinel, so any
 //    consumer that does interpolate (a mip, a debug view) blends toward
 //    values the march's tMax already excludes.
-//  - SAMPLING: the march reads mip 0 at the CENTRE of the texel covering a
-//    direction (oloProbeTexelCentre in the GLSL), never a bilinear blend
-//    (#1804). A blend across a silhouette mixes an occluder's layers with the
-//    wall's behind it into a solid shell at a distance where neither surface
-//    is; a ray passing behind the occluder hits that shell and the silhouette
-//    stretches. A centre sample returns the texel whatever the sampler's
-//    filter, on both backends; the CPU reference (SampleLayersNearest) reads
-//    the same texel.
+//  - SAMPLING: the distance array is sampled NEAREST, never bilinear
+//    (ReflectionProbeArray sets it on the texture object, #1804). A blend
+//    across a silhouette mixes an occluder's layers with the wall's behind it
+//    into a solid shell at a distance where neither surface is; a ray passing
+//    behind the occluder hits that shell and the silhouette stretches. The
+//    CPU reference (SampleLayersNearest) reads the same texel.
 //  - MIP CHAIN: strict 2x2 MAX-downsample per level and per layer
 //    (BuildNextMaxMip), never a box average and never
 //    glGenerateTextureMipmap. The only mip consumer is the cheap visibility

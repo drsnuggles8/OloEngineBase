@@ -169,12 +169,14 @@ the reflection stretched 31 px. The bake peels the two extra layers
 (`CaptureDistanceField`, three passes per face). `d2 = d1` means "nothing
 behind", which keeps walls solid all the way out.
 
-**Read mip 0 at the centre of the texel covering a direction** (GLSL
-`oloProbeTexelCentre`, CPU `SampleLayersNearest`). A bilinear read across a
-silhouette blends the occluder's layers with the wall's into a solid shell
-where neither surface is; the stretch survived the layers until the reads
-were snapped. On GL the slot route ignores an explicit `RHI::SamplerDesc`
-(`RendererAPI::BindTexture`), so a nearest sampler is not the fix there.
+**Sample the distance array nearest**, set on the texture object
+(`RenderCommand::SetTextureSampling` when `ReflectionProbeArray` creates it;
+CPU `SampleLayersNearest`). A bilinear read across a silhouette blends the
+occluder's layers with the wall's into a solid shell where neither surface is;
+the stretch survived the layers until the reads were nearest. A per-bind
+`RHI::SamplerDesc` is not enough: GL's slot route ignores it
+(`RendererAPI::BindTexture`). Snapping each read to its texel centre in GLSL
+works too, but doubled the probe's GL Forward cost.
 
 **A hit on a hidden `d2` surface takes radiance from the same surface, not
 from the occluder.** The probe's radiance in that direction is the
