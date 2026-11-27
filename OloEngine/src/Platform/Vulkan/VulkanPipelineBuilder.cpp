@@ -651,6 +651,8 @@ namespace OloEngine
             VkPipelineCreateFlags2CreateInfo flags2{};
             flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
             flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+            if (device->IsPipelineStatisticsEnabled())
+                flags2.flags |= VK_PIPELINE_CREATE_2_CAPTURE_STATISTICS_BIT_KHR;
             flags2.pNext = &feedbackInfo;
 
             VkComputePipelineCreateInfo pipelineInfo{};
@@ -855,6 +857,8 @@ namespace OloEngine
             VkPipelineCreateFlags2CreateInfo createFlags{};
             createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
             createFlags.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+            if (device->IsPipelineStatisticsEnabled())
+                createFlags.flags |= VK_PIPELINE_CREATE_2_CAPTURE_STATISTICS_BIT_KHR;
             createFlags.pNext = &rendering;
 
             VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -886,6 +890,10 @@ namespace OloEngine
         if (out.Result != VK_SUCCESS)
         {
             out.Pipeline = VK_NULL_HANDLE;
+        }
+        else if (device->IsPipelineStatisticsEnabled())
+        {
+            device->CapturePipelineStatistics(out.Pipeline, inputs.ShaderName.ToStdString());
         }
         if ((feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT) != 0)
         {
