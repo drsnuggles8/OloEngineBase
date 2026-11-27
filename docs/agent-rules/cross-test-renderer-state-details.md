@@ -33,9 +33,12 @@ That asymmetry is the most useful thing on this page.
 
 `OloEngine-Tests.exe` run as ONE process shares a single `Renderer3D::s_Data`, one GL context and one
 set of engine singletons across ~7,600 tests. **CI cannot see any of it**: `tests/CMakeLists.txt`
-uses `gtest_discover_tests`, which registers every case as its own ctest entry, so CI runs one
-process per test and no two of these tests ever share an address space. The monolithic run is the
-only configuration where this class of bug exists, and it is not part of the PR gate.
+uses `gtest_discover_tests`, which registers every case as its own ctest entry, so the ctest
+workflows run one process per test and no two of these tests ever share an address space. The
+exception is `vulkan-software.yml`, which runs its lavapipe scene subset (`vulkan_scene_filter.txt`)
+as one filtered process. It can catch pollution between those selected cases, on Vulkan only. The
+full-suite monolithic run is the only configuration where this class of bug exists across the whole
+suite, and it is not part of the PR gate.
 
 ## The failure signature, and why it points nowhere near the cause
 

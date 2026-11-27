@@ -1166,13 +1166,19 @@ Ordinary serializers keep their existing ownership when no cache is supplied.
 
 ### 8.1 The single-process run — what CI structurally cannot see
 
-Every workflow above runs the tests through `gtest_discover_tests`, which registers each case as its
-own ctest entry. **CI therefore runs one process per test**, and no two tests ever share an address
-space. That is good isolation and a real blind spot: cross-test state pollution — a test that leaves
-the process-global renderer configured differently from how it found it — cannot exist in that
-configuration, so nothing in the PR gate can catch it.
+The ctest workflows run the tests through `gtest_discover_tests`, which registers each case as its
+own ctest entry, so **they run one process per test** and no two tests share an address space. That
+is good isolation and a real blind spot: cross-test state pollution — a test that leaves the
+process-global renderer configured differently from how it found it — cannot exist in that
+configuration.
 
-The monolithic run is the only place it shows up, and it is not automated:
+The one exception is `vulkan-software.yml` (lavapipe). It calls the test binary directly with a
+`--gtest_filter`, so its Vulkan suites and its scene subset (`vulkan_scene_filter.txt`) each run as
+one shared process. That subset can show pollution between the cases it selects, on Vulkan only. It
+says nothing about the rest of the suite, or about OpenGL.
+
+The full-suite monolithic run is the only place pollution across the whole suite shows up, and it is
+not automated:
 
 ```powershell
 # Every test in ONE process. ~20 minutes; holds the test binary, so a
