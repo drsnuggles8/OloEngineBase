@@ -3015,6 +3015,58 @@ TEST(RenderGraph, AHeldRenderScaleDrawsFullSizeAndReturnsWhenReleased)
     EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().x, 0.75f);
 }
 
+// A framebuffer no node owns gets its viewport from the resolve alone. It must
+// follow every change of the scale in force: into the corner, back to full
+// size under a hold, and between two sub-1 values. A target that is not
+// display-sized (a square shadow map) is never given a corner.
+TEST(RenderGraph, AResolvedFramebufferNoNodeOwnsFollowsTheScaleInForce)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    graph.Init(640, 480);
+
+    auto display = Ref<StubFramebuffer>::Create(301u);
+    display->Resize(640, 480);
+    auto shadow = Ref<StubFramebuffer>::Create(302u);
+    shadow->Resize(512, 512);
+    const auto displayHandle = graph.ImportFramebuffer("UnownedDisplayTarget", display);
+    const auto shadowHandle = graph.ImportFramebuffer("UnownedShadowTarget", shadow);
+
+    const auto resolveBoth = [&]
+    {
+        EXPECT_EQ(graph.ResolveFramebuffer(displayHandle), display);
+        EXPECT_EQ(graph.ResolveFramebuffer(shadowHandle), shadow);
+    };
+
+    graph.SetRenderScale(0.5f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 320u);
+    EXPECT_EQ(display->GetRenderViewportHeight(), 240u);
+
+    graph.SetRenderScaleHeld(true);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 0u) << "a held scale must clear the old corner";
+    EXPECT_EQ(display->GetRenderViewportHeight(), 0u);
+
+    graph.SetRenderScale(0.75f);
+    graph.SetRenderScaleHeld(false);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 480u);
+    EXPECT_EQ(display->GetRenderViewportHeight(), 360u);
+
+    graph.SetRenderScale(0.5f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 320u) << "a change between two sub-1 scales must follow";
+    EXPECT_EQ(display->GetRenderViewportHeight(), 240u);
+
+    graph.SetRenderScale(1.0f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 0u);
+
+    EXPECT_EQ(shadow->GetRenderViewportWidth(), 0u) << "a target that is not display-sized never gets a corner";
+    EXPECT_EQ(shadow->GetRenderViewportHeight(), 0u);
+}
+
 TEST(RenderGraph, PassAddedAfterGraphInitializationInheritsCurrentLifecycleState)
 {
     RenderGraph graph;
