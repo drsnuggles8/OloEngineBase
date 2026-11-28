@@ -166,6 +166,14 @@ namespace OloEngine
         {
             return m_MemoryBudgetEnabled;
         }
+        // VK_KHR/EXT_calibrated_timestamps enabled: the spec then guarantees
+        // every queue's vkCmdWriteTimestamp values share one device time
+        // domain, so a compute-queue timestamp can be placed on the graphics
+        // queue's frame axis (#1341). FALSE means that comparison is unverified.
+        [[nodiscard]] bool DoQueueTimestampsShareOneDomain() const
+        {
+            return m_QueueTimestampsShareOneDomain;
+        }
         // ENABLED on the logical device (not merely supported by the physical
         // one) — the facade's SupportsInt64ShaderAtomics must report what a
         // shader can actually use.
@@ -461,6 +469,7 @@ namespace OloEngine
         mutable std::mutex m_PipelineStatisticsMutex;
         std::unordered_map<std::string, TArray<PipelineStatistic>> m_CapturedPipelineStatistics;
         bool m_MemoryBudgetEnabled = false;
+        bool m_QueueTimestampsShareOneDomain = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
         /// reached — the one thing VK_EXT_device_fault's address records do not

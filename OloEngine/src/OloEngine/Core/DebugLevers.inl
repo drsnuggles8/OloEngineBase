@@ -237,12 +237,28 @@ OLO_LEVER_TRISTATE(VulkanParallelRecording, "OLO_VK_PARALLEL_RECORDING",
                    "command buffers (#806). \"0\" runs every RecordParallel region inline on the render thread — "
                    "the one-thread A/B for a frame or validation difference; unset or \"1\" forks wherever the "
                    "device and the frame allow.")
+OLO_LEVER_INT(VulkanParallelMinPackets, "OLO_VK_PARALLEL_MIN_PACKETS", 0,
+              "Override every bucket replay family's fork threshold (#1340): a replay with fewer packets records "
+              "inline. Unset keeps each family's measured default (CommandBucket::ReplayPolicyFor); \"0\" forks "
+              "any replay that splits into two items. For threshold sweeps and the legacy-policy A/B (\"64\").")
+OLO_LEVER_INT(VulkanParallelPacketsPerItem, "OLO_VK_PARALLEL_PACKETS_PER_ITEM", 1,
+              "Override every bucket replay family's minimum packets per recording item (#1340). Unset keeps each "
+              "family's default; the legacy policy is \"32\".")
+OLO_LEVER_INT(VulkanParallelShadowMinWork, "OLO_VK_PARALLEL_SHADOW_MIN_WORK", 0,
+              "Override the shadow pass's fork threshold (#1340): a region with fewer frustum-visible view x "
+              "caster pairs records inline. Unset keeps the measured default; \"0\" forks every multi-view region, "
+              "the pre-#1340 behaviour.")
+OLO_LEVER_INT(VulkanParallelMaxItems, "OLO_VK_PARALLEL_MAX_ITEMS", 1,
+              "Override every bucket replay family's maximum recording items per region (#1340), capped at 16. "
+              "Unset keeps each family's default; the legacy policy is \"16\".")
 OLO_LEVER_TRISTATE(VulkanAsyncCompute, "OLO_VK_ASYNC_COMPUTE",
                    "Submit the render graph's async-compute batches to a dedicated compute queue on a device "
-                   "with a compute-only queue family (#808). \"0\" keeps every batch on the graphics queue — "
-                   "the A/B for attributing a frame, validation-layer or timing difference to the second queue, "
-                   "and the only way to exercise the no-async-queue degrade path on hardware that HAS one; "
-                   "unset or \"1\" crosses to the compute queue wherever the device and the frame allow.")
+                   "with a compute-only queue family (#808). \"1\" crosses wherever the device and the frame "
+                   "allow. Unset creates the queue but keeps every batch on the graphics queue with a named "
+                   "decline: the current submission makes the graphics queue wait for the whole batch, so "
+                   "crossing measured +2.3 ms of GPU frame time and no overlap (#1341). \"0\" does not create "
+                   "the queue at all, the only way to exercise the no-async-queue degrade path on hardware that "
+                   "HAS one.")
 OLO_LEVER_TRISTATE(VulkanPsoPrecache, "OLO_VK_PSO_PRECACHE",
                    "Request every pipeline the PSO manifest knows for a live shader before its first draw, and "
                    "create the requests on background workers within a per-frame budget (#1345). \"0\" makes "

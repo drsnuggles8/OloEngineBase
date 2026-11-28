@@ -212,7 +212,7 @@ namespace OloEngine
                 }
                 selected.push_back(packet);
             }
-            (void)CommandBucket::RecordPackets(api, selected, m_CommandBucket.GetViewState());
+            (void)CommandBucket::RecordPackets(api, selected, m_CommandBucket.GetViewState(), CommandBucket::ReplayFamily::Decal);
         };
 
         if (!m_SceneFramebuffer)
@@ -468,10 +468,15 @@ namespace OloEngine
         // layouts on the primary; the per-item mode cache then changes only
         // routing and channel masks, preserving sorted blend order.
         RenderCommand::SetFramebufferDrawAttachments(gbufferID, fullDrawBufs);
-        const auto plan = CommandBucket::PlanParallelReplay(opaquePackets);
+        const auto policy = CommandBucket::EffectiveReplayPolicy(CommandBucket::ReplayFamily::Decal);
+        const auto plan = CommandBucket::PlanParallelReplay(opaquePackets, policy);
         const bool replayable = CommandBucket::BeginReplay(opaquePackets);
-        RenderCommand::RecordParallel(opaquePackets.empty() || !replayable ? 0u : plan.ItemCount, [&](u32 item)
-                                      {
+        const ParallelRegionHint hint{ .Family = policy.Family,
+                                       .WorkUnits = static_cast<u32>(opaquePackets.size()),
+                                       .MinWorkUnitsToFork = policy.MinPacketsToFork,
+                                       .PolicyDecision = plan.Decision };
+        RenderCommand::RecordParallelRegion(opaquePackets.empty() || !replayable ? 0u : plan.ItemCount, [&](u32 item)
+                                            {
                                           using DecalMode = DrawDecalCommand::DecalMode;
                                           // Sentinel outside the valid enumerator range — forces the first
                                           // packet to reconfigure the draw buffers + masks.
@@ -551,7 +556,7 @@ namespace OloEngine
                                               }
 
                                               packet->Execute(rendererAPI);
-                                          } }, plan.InstanceCapacity);
+                                          } }, plan.InstanceCapacity, hint);
         if (replayable)
             CommandBucket::EndReplay(opaquePackets);
 

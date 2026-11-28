@@ -115,9 +115,9 @@ namespace OloEngine
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
             CommandDispatch::SetDepthPrepassColorPassActive(true);
-            m_CommandBucket.ExecuteParallel(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::Occlusion);
             if (m_ForwardPrepassDrewPhase2 && !m_Phase2Packets.empty())
-                (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
+                (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets, {}, CommandBucket::ReplayFamily::Occlusion);
             m_ForwardPrepassDrewPhase2 = false;
             CommandDispatch::SetDepthPrepassColorPassActive(false);
         }
@@ -178,7 +178,7 @@ namespace OloEngine
         // surviving instances + indirect command. Executing the bucket replays
         // those indirect draws into the scene framebuffer, on top of the
         // non-instanced opaque geometry ScenePass already drew.
-        m_CommandBucket.ExecuteParallel(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::Occlusion);
 
         // Phase 2 (#431): the phase-1 draws are now in the depth buffer.
         // Rebuild a Hi-Z from the live framebuffer depth (occluders + phase-1
@@ -214,7 +214,7 @@ namespace OloEngine
             BindSceneForDraw(context);
             if (prepassActive)
                 CommandDispatch::SetDepthPrepassActive(true, writesNormals);
-            (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
+            (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets, {}, CommandBucket::ReplayFamily::Occlusion);
             return true;
         }
         BindSceneForDraw(context);

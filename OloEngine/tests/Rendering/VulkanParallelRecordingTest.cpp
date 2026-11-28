@@ -1328,7 +1328,9 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
         api.SetViewport(0, 0, 32, 32);
         api.SetClearColor({ 0, 0, 0, 1 });
         api.Clear();
-        combined.ExecuteParallel(api);
+        // The legacy split (32 packets an item, up to 16 items) pins four
+        // items for 128 packets; this test is about partitioning, not policy.
+        combined.ExecuteParallel(api, CommandBucket::ParallelReplayPolicy{ .Family = "test", .MinPacketsToFork = 64u, .MinPacketsPerItem = 32u, .MaxItems = 16u });
         targets[0].Target->Unbind(); });
     EXPECT_EQ(combined.GetStatistics().DrawCalls, 128u);
     EXPECT_EQ(api.GetParallelRecordingStats().SecondariesExecuted, 4u);

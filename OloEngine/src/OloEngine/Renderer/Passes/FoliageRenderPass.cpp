@@ -117,7 +117,7 @@ namespace OloEngine
         // test back, and a lawn is shaded about once a pixel.
         if (colourAfterPrepass)
             CommandDispatch::SetDepthPrepassColorPassActive(true);
-        m_CommandBucket.ExecuteParallel(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::Foliage);
         if (colourAfterPrepass)
         {
             CommandDispatch::SetDepthPrepassColorPassActive(false);
@@ -171,7 +171,7 @@ namespace OloEngine
         // Depth + view normal: DrawFoliageLayer swaps each forward foliage
         // program for its Foliage_*_DepthNormal twin and opens attachment 2.
         CommandDispatch::SetDepthPrepassActive(true, true);
-        m_CommandBucket.ExecuteParallel(RenderCommand::GetRendererAPI());
+        m_CommandBucket.ExecuteParallel(RenderCommand::GetRendererAPI(), CommandBucket::ReplayFamily::Foliage);
         CommandDispatch::SetDepthPrepassActive(false);
         // Every forward foliage program has a depth-normal twin unless one
         // failed to load; a program without one skips the prepass (see

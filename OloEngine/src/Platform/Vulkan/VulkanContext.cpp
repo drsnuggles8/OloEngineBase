@@ -6,6 +6,7 @@
 // VulkanDevice.h pulls <volk.h> (and <vk_mem_alloc.h>) — volk must come before
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -840,6 +841,18 @@ namespace OloEngine
             // "disabled by OLO_VK_ASYNC_COMPUTE=0".
             m_AsyncComputeDeclineReason =
                 VulkanQueueSelection::Describe(d.Device.GetAsyncComputeUnavailableReason());
+            return false;
+        }
+        if (Levers::VulkanAsyncCompute() != Levers::Tristate::On)
+        {
+            // #1341: measured on an RTX 4090, crossing never overlapped. The
+            // continuation below waits for the compute segment at once, and
+            // the compute segment waits for every graphics command before it,
+            // so each batch left the graphics queue idle ~0.3 ms before and
+            // ~0.6 ms after its own work: +2.3 ms of GPU frame time on
+            // Courtyard with three batches and 0 ms of overlap. Until the
+            // wait moves to the batch's first consumer, crossing is opt-in.
+            m_AsyncComputeDeclineReason = kAsyncComputeNotOptedInReason;
             return false;
         }
         if (!CanSubmitRenderGraphFenceSegments() || d.AsyncComputeTimeline == VK_NULL_HANDLE)

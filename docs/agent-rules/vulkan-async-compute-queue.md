@@ -84,12 +84,30 @@ by construction in `VulkanAsyncComputeTest` rather than by looking at a frame:
 - the acquire has `srcStageMask`/`srcAccessMask` of `NONE`;
 - `oldLayout`, `newLayout`, the image and the subresource range are identical on both.
 
+### 2d. A barrier is not the only way a batch touches an image
+
+The first version split only the barriers `IssueBarrierBatch` issued inside the batch. An image
+the batch samples or stores through a descriptor while it is already in the descriptor's layout
+gets no barrier there (a graphics pass transitioned it earlier), and a native-id import gives the
+planner nothing to barrier at all. Such an image was read on the compute family while the graphics
+family owned it; a live Courtyard frame reported `batchesOnComputeQueue=3`, `ownershipTransfers=0`
+(#1341). `TransferImageIntoOwnershipRegion` is now the one per-image transfer, called from the
+barrier split **and** from the bind-time layout seam (`EnsureImageLayoutForDescriptor`, behind
+`BindTexture` and `BindImageTexture`) before its layout decision, **and** from every dispatch
+inside a batch (`TransferBoundImagesIntoOwnershipRegion`), because a slot published before the
+batch stays bound and a dispatch reads it without any bind revisiting it. A new route by which a
+batch can reach an image must call it too. The validation layer did not report the missing pair;
+the device tests `ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier` and
+`ASlotBoundBeforeTheBatchIsTransferredWhenTheBatchDispatches` guard it by count. An `UNDEFINED`
+layout run gets no transfer: its contents need no preserving.
+
 ## 3. The degrade path is the tested path
 
 Not every device exposes a compute-only family, and CI hardware does not. When the family is
-absent — or `OLO_VK_ASYNC_COMPUTE=0`, or the batch cannot be split for a local reason (an open
-occlusion query, a parallel-recording region in flight) — the batch runs inline on the graphics
-queue exactly as it did before, and the decline is **counted and named**:
+absent — or `OLO_VK_ASYNC_COMPUTE=0`, or the lever is unset (crossing is opt-in since #1341, see
+§4), or the batch cannot be split for a local reason (an open occlusion query, a
+parallel-recording region in flight) — the batch runs inline on the graphics queue exactly as it
+did before, and the decline is **counted and named**:
 `RendererAPI::AsyncComputeFrameStats::BatchesDeclined` plus a warn-once carrying the reason
 (`VulkanQueueSelection::Describe`). It is never a silent no-op
 ([no-silent-fallbacks.md](no-silent-fallbacks.md)).
@@ -99,6 +117,15 @@ Read the counters through `olo_perf_pass_timings`; a session that expects overla
 
 ## 4. What this does not do
 
+- **It does not overlap anything yet, so crossing is opt-in.** The continuation waits for the
+  compute segment as its first submission, and the graphics segment before the batch is submitted
+  only at the batch's end, so the graphics queue idles for every batch. Measured on an RTX 4090
+  (Courtyard, three batches): 0 ms of overlap, +2.3 ms of GPU frame time
+  ([vulkan-async-compute-overlap-1341.md](../analysis/vulkan-async-compute-overlap-1341.md)).
+  `OLO_VK_ASYNC_COMPUTE=1` crosses; unset declines with a named reason. Read
+  `queueOverlap.overlapMs` in `olo_perf_pass_timings` before claiming a gain from the queue; it is
+  null (`timeDomain: unverified`) on a device without calibrated timestamps, where queues are not
+  guaranteed one timestamp domain.
 - **It does not reorder passes.** The compute hoist in `RenderGraph::HoistComputePasses` decides
   what may run early and it respects every dependency edge, including the resource-derived ones.
   Async compute overlaps what the schedule already allows to overlap; it does not create the
