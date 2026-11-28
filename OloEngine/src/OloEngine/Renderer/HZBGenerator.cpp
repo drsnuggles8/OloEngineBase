@@ -280,8 +280,10 @@ namespace OloEngine
         // Both passes address their input with integer texel coordinates
         // (HZB.comp: the first pass clamps to the scene depth's last texel, the
         // reduce to the parent mip's; issue #1503), so the UV-mapping fields of
-        // the block are reserved and left zero.
+        // the block are reserved and left zero — except InputViewportMaxBound,
+        // which carries the source's rendered extent (SetSourceExtent).
         UBOStructures::HZBParamsUBO hzbParams{};
+        hzbParams.InputViewportMaxBound = glm::vec2(static_cast<f32>(m_SourceExtentWidth), static_cast<f32>(m_SourceExtentHeight));
         hzbParams.FirstLod = static_cast<i32>(startMip);
         hzbParams.IsFirstPass = isFirstPass ? 1 : 0;
         hzbParams.ReduceOp = static_cast<i32>(m_ReduceMode);

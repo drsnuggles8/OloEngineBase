@@ -41,9 +41,10 @@
 // viewport size (16:9 against the issue's 1024x683), and a dynamic-resolution
 // arm for the groom pass's own viewport. #1526 adds the benchmark capture core's
 // readback at those scales: SubScaleCapture_GL_<Path>_<FSR1Quality|FSR2Quality>.png
-// and, on Forward, SubScaleCapture_GL_Forward_RenderScale50[AfterUpscale].png, with
-// SubScaleCapture_GL_<Path>_Native.png as the control. Deferred refuses a dynamic
-// scale (#1537), and the test requires the refusal.
+// and SubScaleCapture_GL_<Path>_RenderScale50[AfterUpscale].png, with
+// SubScaleCapture_GL_<Path>_Native.png as the control. Deferred honours the
+// dynamic scale since #1537, so its RenderScale50 cells carry the same
+// framing contract as Forward's.
 //
 // Classification: L8 (full GL pipeline + RGBA8 readback + PNG evidence).
 // =============================================================================
@@ -975,14 +976,6 @@ namespace OloEngine::Tests
 
                 const auto beauty = capture("Beauty", "UIComposite", Benchmark::AttachmentFormat::Png);
                 const auto sceneColor = capture("SceneColorHDR", "SceneColor", Benchmark::AttachmentFormat::Hdr);
-                if (arm.RenderScale < 1.0f && path == RenderingPath::Deferred)
-                {
-                    // Not honoured on Deferred yet (#1537): the capture must
-                    // refuse rather than record a full-size frame as a corner.
-                    EXPECT_NE(beauty.Error.ToStdString().find("#1537"), std::string::npos) << beauty.Error.ToView();
-                    EXPECT_NE(sceneColor.Error.ToStdString().find("#1537"), std::string::npos);
-                    continue;
-                }
                 ASSERT_TRUE(beauty.Error.IsEmpty()) << beauty.Error.ToView();
                 ASSERT_TRUE(sceneColor.Error.IsEmpty()) << sceneColor.Error.ToView();
                 const auto resolution = Benchmark::SnapshotResolution();

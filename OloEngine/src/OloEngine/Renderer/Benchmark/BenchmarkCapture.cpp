@@ -131,6 +131,27 @@ namespace OloEngine::Benchmark
         }
     } // namespace
 
+    bool IsDrawnIntoRenderCorner(const RenderCornerQuery& query)
+    {
+        if (query.EffectiveScale >= 1.0f || query.TextureWidth != query.PhysicalWidth ||
+            query.TextureHeight != query.PhysicalHeight)
+        {
+            return false;
+        }
+        // A framebuffer's attachment: its render viewport is where the frame
+        // was drawn, and a display-sized target nothing drew into the corner (a
+        // square shadow map that matches the display) has none.
+        if (query.HasOwnerFramebuffer)
+        {
+            return query.OwnerViewportWidth == query.RenderWidth && query.OwnerViewportHeight == query.RenderHeight;
+        }
+        // A texture no framebuffer owns: only a screen-space 2D target. The
+        // shadow CSM and atlas are arrays, the volumetric shadow is 3D, and a
+        // probe atlas or LUT declares FixedExtent.
+        return query.Desc != nullptr && query.Desc->Kind == RGResourceHandle::Kind::Texture2D &&
+               !query.Desc->FixedExtent;
+    }
+
     CapturedAttachment CaptureAttachment(const ManifestAttachment& spec, const CaptureContext& context)
     {
         CapturedAttachment result;
@@ -205,17 +226,25 @@ namespace OloEngine::Benchmark
         // read the rendered rectangle. A target that is not display-sized (a
         // shadow map, an upscaler's reduced scene band, a half-resolution
         // buffer) is not in that contract and is read whole (#1526).
-        if (graph->GetRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
-            height == graph->GetPhysicalHeight())
+        //
+        // Which targets that covers is IsDrawnIntoRenderCorner's contract.
+        RenderCornerQuery corner;
+        corner.EffectiveScale = graph->GetEffectiveRenderScale();
+        corner.TextureWidth = width;
+        corner.TextureHeight = height;
+        corner.PhysicalWidth = graph->GetPhysicalWidth();
+        corner.PhysicalHeight = graph->GetPhysicalHeight();
+        corner.RenderWidth = graph->GetRenderWidth();
+        corner.RenderHeight = graph->GetRenderHeight();
+        if (const Ref<Framebuffer> owner = Renderer3D::ResolveFrameGraphFramebuffer(spec.Source.ToView()))
         {
-            // The parser refuses a Deferred manifest that pins the path; this
-            // catches one that leaves the path to the scene or the host (#1537).
-            if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
-            {
-                result.Error = "a dynamic render scale below 1.0 is not honoured on the Deferred path (#1537): " +
-                               spec.Source;
-                return result;
-            }
+            corner.HasOwnerFramebuffer = true;
+            corner.OwnerViewportWidth = owner->GetRenderViewportWidth();
+            corner.OwnerViewportHeight = owner->GetRenderViewportHeight();
+        }
+        corner.Desc = resource != nullptr ? &resource->Desc : nullptr;
+        if (IsDrawnIntoRenderCorner(corner))
+        {
             width = std::max(1u, graph->GetRenderWidth());
             height = std::max(1u, graph->GetRenderHeight());
             result.CroppedToRenderRegion = true;
@@ -824,7 +853,7 @@ namespace OloEngine::Benchmark
         }
         record.DisplayWidth = graph->GetPhysicalWidth();
         record.DisplayHeight = graph->GetPhysicalHeight();
-        record.RenderScale = graph->GetRenderScale();
+        record.RenderScale = graph->GetEffectiveRenderScale();
         record.RenderWidth = graph->GetRenderWidth();
         record.RenderHeight = graph->GetRenderHeight();
 

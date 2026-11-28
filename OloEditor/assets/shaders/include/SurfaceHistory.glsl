@@ -3,6 +3,14 @@
 #ifndef OLO_SURFACE_HISTORY_GLSL
 #define OLO_SURFACE_HISTORY_GLSL
 
+// Under a dynamic render scale (#1537) history lives in the [0, bounds) corner,
+// so the off-screen test reads the same OLO_TEMPORAL_HISTORY_BOUNDS that
+// include/TemporalResolve.glsl takes. A resolve under the scale defines it
+// before including either header; the default is the whole target.
+#ifndef OLO_TEMPORAL_HISTORY_BOUNDS
+#define OLO_TEMPORAL_HISTORY_BOUNDS vec2(1.0)
+#endif
+
 const uint OLO_SURFACE_REJECT_NONE             = 0u;
 const uint OLO_SURFACE_REJECT_NO_HISTORY       = 1u << 0u;
 const uint OLO_SURFACE_REJECT_OFF_SCREEN       = 1u << 1u;
@@ -96,7 +104,7 @@ uint OloEvaluateSurfaceHistory(OloSurfaceHistoryRecord current,
     if (!historyAvailable)
         reasons |= OLO_SURFACE_REJECT_NO_HISTORY;
     if (!OloSurfaceFinite(reprojectedUV) || any(lessThan(reprojectedUV, vec2(0.0))) ||
-        any(greaterThan(reprojectedUV, vec2(1.0))))
+        any(greaterThanEqual(reprojectedUV, OLO_TEMPORAL_HISTORY_BOUNDS)))
         reasons |= OLO_SURFACE_REJECT_OFF_SCREEN;
 
     bool currentHasHit = (current.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;

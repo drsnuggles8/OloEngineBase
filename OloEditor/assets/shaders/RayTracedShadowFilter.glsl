@@ -62,6 +62,7 @@ layout(location = 0) out vec4 o_Mask;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+#include "include/RenderScaleBounds.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_RayTracedShadowResolved OLO_HEAP_TEX_2D(0)
@@ -162,7 +163,7 @@ void main()
         for (int x = -RT_SHADOW_FILTER_HALF_TAPS; x <= RT_SHADOW_FILTER_HALF_TAPS; ++x)
         {
             vec2 sampleUV = uv + vec2(float(x), float(y)) * step;
-            if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
+            if (!oloInRenderedFrame(sampleUV)) // the rendered corner (#1537)
                 continue;
 
             float sampleDepth = texture(u_DepthTexture, sampleUV).r;

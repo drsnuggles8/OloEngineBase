@@ -37,6 +37,8 @@
 #ifndef OLO_SPATIAL_DENOISE_GLSL
 #define OLO_SPATIAL_DENOISE_GLSL
 
+#include "RenderScaleBounds.glsl"
+
 // -----------------------------------------------------------------------------
 // The sky sentinel
 // -----------------------------------------------------------------------------
@@ -135,7 +137,8 @@ mat2 OloDenoiseDiscRotation(uint frameIndex, uint stage)
 // the pass already has in its UBO.
 vec3 OloDenoiseViewPosition(mat4 invProjection, vec2 uv, float viewDepth)
 {
-    vec4 clip = vec4(uv * 2.0 - 1.0, -1.0, 1.0);
+    // `uv` is a texture uv (#1537, include/RenderScaleBounds.glsl).
+    vec4 clip = vec4(oloFrameUV(uv) * 2.0 - 1.0, -1.0, 1.0);
     vec4 nearPoint = invProjection * clip;
     vec3 ray = nearPoint.xyz / nearPoint.w;
     // ray.z is negative (view space looks down -z); scale the ray so that its

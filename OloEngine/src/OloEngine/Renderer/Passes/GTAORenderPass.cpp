@@ -458,6 +458,12 @@ namespace OloEngine
         auto* gpuSubTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
         if (gpuSubTimers)
             gpuSubTimers->BeginSubPass("HZB");
+        {
+            // The rendered corner of the depth under a dynamic render scale.
+            const glm::vec2 bounds = RenderViewportBounds(m_Width, m_Height);
+            m_HZBGenerator.SetSourceExtent(static_cast<u32>(std::lround(static_cast<f32>(m_Width) * bounds.x)),
+                                           static_cast<u32>(std::lround(static_cast<f32>(m_Height) * bounds.y)));
+        }
         m_HZBGenerator.Generate(inputs.Depth);
         if (gpuSubTimers)
             gpuSubTimers->EndSubPass();
@@ -619,7 +625,16 @@ namespace OloEngine
         // horizontal plane: invisible looking straight down (symmetric), a
         // full-frame visibility collapse to the 0.03 floor at grazing views
         // (the sea / quay "goosebumps" weave rode on that collapsed AO).
-        data.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
+        //
+        // Under a dynamic render scale (#1537) the frame fills only the
+        // [0, render) corner of these display-sized targets, so the [0,1]
+        // screen position the compute derives from its pixel is the frame's
+        // position times the bounds: dividing Mul by the bounds unprojects the
+        // corner as the whole frame, and the pixel radius (1 / Mul.x) shrinks
+        // with it. Add is unchanged (the corner starts at 0).
+        const glm::vec2 renderBounds = RenderViewportBounds(m_Width, m_Height);
+        data.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11) / renderBounds;
+        data.RenderBounds = glm::vec4(renderBounds, 0.0f, 0.0f);
         data.NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         f32 pixelSizeX = 1.0f / static_cast<f32>(m_Width);

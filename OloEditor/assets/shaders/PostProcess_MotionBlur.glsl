@@ -43,6 +43,8 @@ void main()
 // below is unchanged between them. Inert without OLO_BINDLESS; the engine only
 // defines it on the raw-GLSL compile route.
 #include "include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #include "include/SkyDepth.glsl"
 
 #ifdef OLO_BINDLESS
@@ -115,6 +117,8 @@ layout(std140, binding = 42) uniform MotionBlurParams
 // buffer) and the Forward fallback when no velocity buffer exists.
 vec2 ReconstructCameraVelocity(vec2 uv, float depth)
 {
+    // A FRAME-uv delta like the velocity buffer's; `uv` is the texture uv.
+    uv = oloFrameUV(uv);
     vec4 ndcPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldPos = u_InverseViewProjection * ndcPos;
     worldPos /= worldPos.w;
@@ -141,7 +145,9 @@ void main()
     else
         velocity = ReconstructCameraVelocity(v_TexCoord, depth);
 
-    velocity *= u_MotionBlurStrength;
+    // Both sources are frame-uv deltas; the blur walks texture uv, where the
+    // frame fills the [0, bounds) corner under a dynamic render scale (#1537).
+    velocity *= u_MotionBlurStrength * oloRenderScaleBounds();
 
     // Clamp velocity to prevent excessive blur
     float speed = length(velocity / vec2(u_InverseScreenWidth, u_InverseScreenHeight));
@@ -155,12 +161,15 @@ void main()
     vec3 result = texture(u_Texture, v_TexCoord).rgb;
     float totalWeight = 1.0;
 
+    // Half a texel inside the rendered corner: a tap clamped to the frame edge
+    // must not blend in the first texel of the unrendered margin.
+    vec2 sampleMax = oloRenderScaleBounds() - 0.5 / vec2(textureSize(u_Texture, 0));
     int numSamples = u_MotionBlurSamples;
     for (int i = 1; i < numSamples; i++)
     {
         float t = float(i) / float(numSamples - 1) - 0.5; // [-0.5, 0.5]
         vec2 sampleUV = v_TexCoord + velocity * t;
-        sampleUV = clamp(sampleUV, vec2(0.0), vec2(1.0));
+        sampleUV = clamp(sampleUV, vec2(0.0), sampleMax);
         result += texture(u_Texture, sampleUV).rgb;
         totalWeight += 1.0;
     }

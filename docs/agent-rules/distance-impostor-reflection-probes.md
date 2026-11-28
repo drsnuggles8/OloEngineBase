@@ -8,9 +8,10 @@ same "impostor" idea pointed at reflections instead of cards.
 
 ## 1. One contract file, three mirrors
 
-The encoding contract — linear radial distance in world units, R32F, fixed
-`kProbeDistanceResolution` faces, far-plane-as-miss-sentinel, MAX-downsampled
-mip chain, march budget — lives in
+The encoding contract — three linear radial distances per direction in world
+units (front, the first occluder's back, what it hides; RGBA16F, #1804),
+fixed `kProbeDistanceResolution` faces, far-plane-as-miss-sentinel,
+MAX-downsampled mip chain, march budget — lives in
 `OloEngine/Renderer/ReflectionProbeDistanceField.h` and is mirrored by:
 
 - the bake (`ReflectionProbeBaker::CaptureDistanceField` +
@@ -148,10 +149,9 @@ slots as that exception.
 
 ## 8. Known limitations (documented, not bugs)
 
-- Distance impostors assume the environment is piecewise representable from
-  the probe centre (star-shaped): rooms, corridors, open terrain work;
-  densely self-occluding scenes (forests) alias — reflections smear at
-  silhouettes the probe cannot see behind. Probe placement matters.
+- The layers describe one occluder per direction (#1804). Two occluders in a
+  row put the second one's gap back to solid, and densely self-occluding
+  scenes (forests) still alias. Probe placement matters.
 - Thin geometry between the shading point and the reflected surface can
   bracket on a silhouette texel; the refined hit lands on the discontinuity
   and smears. Inherent to the technique at reflection-quality budgets.
@@ -159,3 +159,39 @@ slots as that exception.
   probes for DIFFUSE); only the specular path is per-pixel.
 - Terrain and water keep the global-IBL reflection source (their ladders
   were left untouched); wiring them is mechanical if ever needed.
+
+## 9. Layered distances: read texel centres, inpaint hidden hits, swap the map (#1804)
+
+**A ray point is solid in `[d0, d1]` or beyond `d2`; the gap between is free.**
+With one distance per direction, everything radially behind an occluder read
+as solid, and floor rays passing behind the corridor pillar hit its "shadow":
+the reflection stretched 31 px. The bake peels the two extra layers
+(`CaptureDistanceField`, three passes per face). `d2 = d1` means "nothing
+behind", which keeps walls solid all the way out.
+
+**Sample the distance array nearest**, set on the texture object
+(`RenderCommand::SetTextureSampling` when `ReflectionProbeArray` creates it;
+CPU `SampleLayersNearest`). A bilinear read across a silhouette blends the
+occluder's layers with the wall's into a solid shell where neither surface is;
+the stretch survived the layers until the reads were nearest. A per-bind
+`RHI::SamplerDesc` is not enough: GL's slot route ignores it
+(`RendererAPI::BindTexture`). Snapping each read to its texel centre in GLSL
+works too, but doubled the probe's GL Forward cost.
+
+**A hit on a hidden `d2` surface borrows radiance from a nearby direction at
+the same distance, never from the occluder.** The probe's radiance in that
+direction is the occluder's, and the last visible point on the ray is usually
+a different surface (the corridor's mirror floor, which reflects the pillar).
+The march searches rings of directions around the hit and takes the first
+whose front distance is within tolerance of the hit's
+(`kProbeInpaintRingCount` and friends); with none, it falls back to the
+visible point stepped off the silhouette. Both are approximations: a
+different surface at a similar distance passes the match, and the fallback
+is the last visible side of the ray. Sky texels never match.
+
+**`ReflectionProbeArray` keys uploaded layers by `EnvironmentMap`.** Calling
+`SetProbeDistanceField` on a map already resident uploads nothing, and an
+empty probe set keeps its slots, so deactivating a probe for a frame does not
+help. A test that compares two fields gives each its own map
+(`ReflectionProbePillarSilhouetteTest` bakes twice); every arm rendered the
+first field until it did.

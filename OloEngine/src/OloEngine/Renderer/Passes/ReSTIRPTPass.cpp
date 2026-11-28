@@ -439,7 +439,10 @@ namespace OloEngine
         params.EstimatorParams = { emitterCount != 0u ? m_EmissiveTable->GetPdfArea() : 0.0f,
                                    m_EnvironmentIntensity, m_Settings.RadianceClamp, m_Settings.SpatialRadius };
         params.Environment = glm::vec4(m_Environment, 0.0f);
-        params.Screen = { static_cast<f32>(m_Width), static_cast<f32>(m_Height), 1.0f / m_Width, 1.0f / m_Height };
+        // zw: the dynamic render scale's bounds (#1823). The shader reads them
+        // here rather than from the DRS UBO, which its device rig never publishes.
+        const glm::vec2 renderBounds = RenderViewportBounds(m_Width, m_Height);
+        params.Screen = { static_cast<f32>(m_Width), static_cast<f32>(m_Height), renderBounds.x, renderBounds.y };
         params.Reuse = { m_Settings.TemporalReuse ? 1u : 0u, m_Settings.SpatialReuse ? 1u : 0u,
                          history ? 1u : 0u, static_cast<u32>(m_SceneEpoch >> 32u) };
         params.Debug = { static_cast<f32>(m_Settings.DebugView), static_cast<f32>(m_Settings.Seed), m_Settings.ConfidenceCap, static_cast<f32>(ReSTIR::PT::kLayoutVersion) };

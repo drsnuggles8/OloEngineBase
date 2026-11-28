@@ -231,6 +231,8 @@ layout(std140, binding = 23) uniform WaterParams
 
 // Environment map for reflection (same slot as PBR shaders)
 #include "include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #ifdef OLO_BINDLESS
 #define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)  // TEX_ENVIRONMENT
 #else
@@ -470,7 +472,7 @@ vec3 viewPosFromDepth(vec2 uv, float depth)
     // unmap, so the matrix must carry GL-convention z rows — the rasterizer
     // flavour would double-apply the remap on Vulkan.
     // NDC: [-1, 1]
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     // Inverse projection to view space
     mat4 invProj = inverse(u_ProjectionForReconstruction);
     vec4 viewPos = invProj * ndc;
@@ -484,7 +486,7 @@ vec2 projectToScreen(vec3 viewPos)
     // flavour (the two agree on rows 0/1 in both flavours).
     vec4 clipPos = u_ProjectionForReconstruction * vec4(viewPos, 1.0);
     vec2 ndc = clipPos.xy / clipPos.w;
-    return ndc * 0.5 + 0.5;
+    return oloTextureUV(ndc * 0.5 + 0.5);
 }
 
 // SSR ray march: returns vec4(color.rgb, confidence)
@@ -518,7 +520,7 @@ vec4 screenSpaceReflection(vec3 worldPos, vec3 reflectDirWorld)
         vec2 hitUV = projectToScreen(rayPos);
 
         // Off-screen check
-        if (hitUV.x < 0.0 || hitUV.x > 1.0 || hitUV.y < 0.0 || hitUV.y > 1.0)
+        if (!oloInRenderedFrame(hitUV))
         {
             break;
         }
@@ -537,8 +539,9 @@ vec4 screenSpaceReflection(vec3 worldPos, vec3 reflectDirWorld)
 
             // Compute confidence: fade at screen edges, fade with distance
             float edgeFade = 1.0;
-            edgeFade *= smoothstep(0.0, 0.05, hitUV.x) * smoothstep(1.0, 0.95, hitUV.x);
-            edgeFade *= smoothstep(0.0, 0.05, hitUV.y) * smoothstep(1.0, 0.95, hitUV.y);
+            vec2 hitFrameUV = oloFrameUV(hitUV);
+            edgeFade *= smoothstep(0.0, 0.05, hitFrameUV.x) * smoothstep(1.0, 0.95, hitFrameUV.x);
+            edgeFade *= smoothstep(0.0, 0.05, hitFrameUV.y) * smoothstep(1.0, 0.95, hitFrameUV.y);
 
             float distFade = 1.0 - clamp(totalDistance / maxDistance, 0.0, 1.0);
             float stepFade = 1.0 - clamp(float(i) / float(steps), 0.0, 1.0);
@@ -756,7 +759,9 @@ void main()
     float refrHeightFactor = u_DepthRefractionParams.z;
 
     vec2 refractionOffset = normal.xz * refrDistortion * (1.0 + v_WaveHeight * refrHeightFactor);
-    vec2 refractionUV = clamp(screenUV + refractionOffset, vec2(0.001), vec2(0.999));
+    // The offset is a distortion of the FRAME; screenUV is a texture uv, so the
+    // offset scales with the bounds or it doubles at scale 0.5 (#1537).
+    vec2 refractionUV = clamp(screenUV + oloTextureUV(refractionOffset), vec2(0.001), oloRenderScaleBounds() - vec2(0.001));
     vec3 refractionSample = texture(u_RefractionTexture, refractionUV).rgb;
 
     vec3 refrTint = u_RefractionColor.rgb;

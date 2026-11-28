@@ -51,9 +51,21 @@ vec3 OloGBufferOctDecode(vec2 e)
     return normalize(n);
 }
 
+// THE DYNAMIC RENDER SCALE (issues #1537, #1823). `uv` is a TEXTURE uv; under
+// Renderer3D::SetRenderScale the frame fills only the [0, bounds) corner of the
+// G-Buffer, and the inverse projection speaks FRAME uv (texture uv / bounds).
+// A caller that runs under the scale defines OLO_GBUFFER_RAY_SURFACE_BOUNDS (a
+// vec2 expression) before including this file: ReSTIR DI and GI through
+// include/ReSTIRRenderScale.glsl, ReSTIR PT from its own parameter block. The
+// default keeps this file free of the DRS UBO, which ReSTIR PT's device rig
+// does not publish.
+#ifndef OLO_GBUFFER_RAY_SURFACE_BOUNDS
+#define OLO_GBUFFER_RAY_SURFACE_BOUNDS vec2(1.0)
+#endif
+
 vec3 OloGBufferViewPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4((uv / OLO_GBUFFER_RAY_SURFACE_BOUNDS) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = u_InvProjection * ndc;
     return view.xyz / view.w;
 }

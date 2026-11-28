@@ -337,6 +337,19 @@ namespace OloEngine
                 m_Target->SetRenderViewportSize(width, height);
         }
 
+        // The dynamic render scale's bounds for a pass whose targets are
+        // storageWidth x storageHeight: (render / storage) per axis, the
+        // [0, bounds) corner the frame fills (include/RenderScaleBounds.glsl).
+        // (1, 1) without an active scale or a known size, never above 1.
+        [[nodiscard]] glm::vec2 RenderViewportBounds(u32 storageWidth, u32 storageHeight) const
+        {
+            if (m_RenderViewportWidth == 0u || m_RenderViewportHeight == 0u || storageWidth == 0u || storageHeight == 0u)
+                return glm::vec2(1.0f);
+            return glm::min(glm::vec2(static_cast<f32>(m_RenderViewportWidth) / static_cast<f32>(storageWidth),
+                                      static_cast<f32>(m_RenderViewportHeight) / static_cast<f32>(storageHeight)),
+                            glm::vec2(1.0f));
+        }
+
         virtual void OnReset() {}
 
         // The sampling context (#1348). A pass that keeps a frame index or a

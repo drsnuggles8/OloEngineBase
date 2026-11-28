@@ -78,8 +78,7 @@ namespace OloEngine::Tests
             {
                 const u32 effectiveSamples = path == RenderingPath::Deferred ? samples : 1u;
                 const std::string sampleName = samples != effectiveSamples ? "MSAARequest" + std::to_string(samples) + "xActual1x" : std::to_string(samples) + "x";
-                const std::string cell = std::string(pathName) + "_" + sampleName + "_" + std::string(arm) +
-                                         (arm == "Bilinear" && path == RenderingPath::Deferred ? "_Rejected1537" : "");
+                const std::string cell = std::string(pathName) + "_" + sampleName + "_" + std::string(arm);
                 SCOPED_TRACE(cell);
                 auto& settings = Renderer3D::GetRendererSettings();
                 settings.Path = path;
@@ -92,16 +91,6 @@ namespace OloEngine::Tests
                 capture(cell, arm == "FSR2" ? 16u : 2u);
                 if (::testing::Test::HasFatalFailure())
                     return;
-                if (arm == "Bilinear" && path == RenderingPath::Deferred)
-                {
-                    Benchmark::ManifestAttachment spec;
-                    spec.Name = "Beauty";
-                    spec.Source = "UIComposite";
-                    spec.Format = Benchmark::AttachmentFormat::Png;
-                    const auto rejected = Benchmark::CaptureAttachment(spec);
-                    EXPECT_NE(rejected.Error.ToStdString().find("#1537"), std::string::npos)
-                        << "Deferred dynamic scaling must report its current support rejection";
-                }
                 const auto& resolution = Renderer3D::GetUpscaleResolution();
                 EXPECT_TRUE(resolution.Latched);
                 EXPECT_EQ(resolution.Path, path);

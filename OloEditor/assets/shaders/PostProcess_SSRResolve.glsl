@@ -74,6 +74,9 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+// History lives in the [0, bounds) corner under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
+#define OLO_TEMPORAL_HISTORY_BOUNDS oloRenderScaleBounds()
 
 #ifdef OLO_BINDLESS
 #define u_StochasticSignal OLO_HEAP_TEX_2D(0)
@@ -150,7 +153,7 @@ void main()
     vec2 texel = u_ScreenParams.zw;
     vec2 velocity = vec2(0.0);
     if (u_TemporalParams.y > 0.5)
-        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg;
+        velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg * oloRenderScaleBounds(); // texture-uv delta (#1537)
 
     vec2 prevUV = uv - velocity;
     if (!OloTemporalHistoryUVValid(prevUV))

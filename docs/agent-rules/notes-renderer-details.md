@@ -301,10 +301,9 @@ Porting EASU/RCAS to GLSL:
    the kernel in a reversible per-channel proxy `t = c/(1+c)` ↔ `c = t/(1-t)`. Dering clamps to the
    local 2×2 envelope (HDR-safe), **not** a `[0,1]` saturate.
 
-The upscale is implemented via **reduced-size targets**, not the DRS "viewport-into-corner" route:
-DRS is broken for the deferred path (`DeferredLightingPass`/`SSAORenderPass` set viewport from their
-full-size spec and ignore the override; graph-owned FB passes are never reached by
-`ApplyRenderViewport`), and making it work needs ~15 scene-path passes made render-scale-aware.
+The upscale is implemented via **reduced-size targets**, not the DRS "viewport-into-corner" route.
+When FSR1 landed, DRS did not work on the deferred path; #1537 made it work since
+([dynamic-render-scale.md](dynamic-render-scale.md)), but the band stays the upscaler's mechanism.
 
 > **Two wiring gotchas.** The declaration key must carry `data.PostProcess.Upscale` (it is a
 > `FrameGraphDeclarationConfig` field since #1333), or

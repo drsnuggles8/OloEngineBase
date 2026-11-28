@@ -674,7 +674,11 @@ namespace OloEngine
                 occ.PrevViewProjection = MakeViewProjectionRelative(data.View.CullPrevViewProjectionMatrix, data.View.RenderOrigin);
                 occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
                                         static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
-                occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
+                // FRAME uv -> pyramid: the frame fills the [0, bounds) corner of
+                // the depth the pyramid was built from under a dynamic render
+                // scale (#1537); a scale change drops the pyramid (SetRenderScale).
+                occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor() *
+                                  (data.RGraph ? data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f));
                 occ.DepthBias = data.HZBOcclusionDepthBias;
                 data.GPUFrustumCuller->SetOcclusion(occ);
                 // A prologue read of the retained pyramid (#1331): the phase-1
@@ -2646,6 +2650,11 @@ namespace OloEngine
 
         // Upload DRS bounds so screen-space shaders can clamp UVs to the rendered region.
         {
+            // An upscale preset owns the internal scale this frame: hold the
+            // dynamic scale at 1.0 before anything reads the bounds
+            // (RenderGraph::SetRenderScaleHeld).
+            if (data.RGraph)
+                data.RGraph->SetRenderScaleHeld(data.PostProcess.Upscale != UpscaleMode::Off);
             const glm::vec2 bounds = data.RGraph ? data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f);
             data.SceneEffectsGPU.DRSData.RenderScaleBounds = bounds;
             data.SceneEffectsGPU.DRS->SetData(&data.SceneEffectsGPU.DRSData, DRSUBOData::GetSize());

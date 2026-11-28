@@ -220,6 +220,10 @@ float oloMSAASampleZeroDepth(vec2 uv)
 }
 #define OLO_SSAO_TAP_DEPTH(uv) oloMSAASampleZeroDepth(uv)
 #include "ScreenSpaceAOSampling.glsl"
+// The dynamic render scale's bounds (#1537) ride in u_LightingFlags.yz: this
+// file's binding 33 is a sampler, so the DRS UBO cannot be declared here.
+#define OLO_RENDER_SCALE_BOUNDS u_LightingFlags.yz
+#include "RenderScaleBounds.glsl"
 #define OLO_CONTACT_SHADOW_TAP_DEPTH(uv) oloMSAASampleZeroDepth(uv)
 #include "ContactShadowCommon.glsl"
 
@@ -277,7 +281,7 @@ void main()
     {
         float contactDepth = texelFetch(u_GBufferDepth, pixel, 0).r;
         vec3 contactN = OctDecodeGB(texelFetch(u_GBufferNormal, pixel, 0).xy);
-        sunContactVisibility = oloContactShadowVisibility(v_TexCoord, contactDepth, contactN, gl_FragCoord.xy);
+        sunContactVisibility = oloContactShadowVisibility(oloFrameUV(v_TexCoord), contactDepth, contactN, gl_FragCoord.xy);
     }
 
     vec3 accum = vec3(0.0);
@@ -323,7 +327,7 @@ void main()
         // ReconstructWorldPosGB returns an ABSOLUTE world position (world
         // inverse-VP); bring it into the render-RELATIVE space the lit inputs
         // use (issue #429). No-op near origin (u_RenderOrigin == 0).
-        vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth) - u_RenderOrigin;
+        vec3 worldPos = ReconstructWorldPosGB(oloFrameUV(v_TexCoord), depth) - u_RenderOrigin;
 
         vec4 bakedGI = texelFetch(u_GBufferBakedGI, pixel, s);
 

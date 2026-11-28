@@ -61,6 +61,9 @@ void main()
 // variants cannot disagree about which texture is which — and the shader BODY
 // below is unchanged between them. Inert without OLO_BINDLESS.
 #include "include/BindlessHeap.glsl"
+// History lives in the [0, bounds) corner under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
+#define OLO_TEMPORAL_HISTORY_BOUNDS oloRenderScaleBounds()
 
 #ifdef OLO_BINDLESS
 #define u_Current OLO_HEAP_TEX_2D(0)
@@ -124,11 +127,13 @@ layout(std140, binding = 32) uniform TAAParams
 // (RGBToYCoCg / YCoCgToRGB moved to include/TemporalResolve.glsl as
 // OloRGBToYCoCg / OloYCoCgToRGB — same matrices, one copy.)
 
-// Reconstruct camera-motion velocity from depth (Forward / Forward+ path)
+// Reconstruct camera-motion velocity from depth (Forward / Forward+ path), as
+// a FRAME-uv delta like RT3's: `uv` is the texture uv the depth is read at.
 vec2 ReconstructCameraVelocity(vec2 uv)
 {
     float depth = texture(u_DepthTexture, uv).r;
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec2 frameUV = oloFrameUV(uv);
+    vec4 ndc = vec4(frameUV * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldPos = u_InverseViewProjection * ndc;
     worldPos /= worldPos.w;
     vec4 prevClip = u_PrevViewProjection * worldPos;
@@ -136,7 +141,7 @@ vec2 ReconstructCameraVelocity(vec2 uv)
         return vec2(0.0);
     vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
     // current - prev, the jitter taken out (matches the convention of RT3 velocity)
-    return (uv - prevUV) - (u_MotionJitterUV.xy - u_MotionJitterUV.zw);
+    return (frameUV - prevUV) - (u_MotionJitterUV.xy - u_MotionJitterUV.zw);
 }
 
 // Find closest-depth pixel in 3x3 neighborhood — standard velocity-dilation
@@ -333,6 +338,10 @@ void main()
         velocity = ReconstructCameraVelocity(uv);
     }
 
+    // Both sources give a frame-uv delta; history is addressed in texture uv,
+    // where the frame fills the [0, bounds) corner under a dynamic render scale
+    // (#1537). Every later use of `velocity` is then in texture units.
+    velocity *= oloRenderScaleBounds();
     vec2 prevUV = uv - velocity;
 
     // 2) Sample current + history

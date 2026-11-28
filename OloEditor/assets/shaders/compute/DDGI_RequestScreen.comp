@@ -32,6 +32,8 @@ layout(local_size_x = 8, local_size_y = 8) in;
 #include "../include/DDGIProbeBuffers.glsl"
 
 #include "../include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "../include/RenderScaleBounds.glsl"
 #include "../include/SkyDepth.glsl"
 #ifdef OLO_BINDLESS
 #define u_SceneDepth OLO_HEAP_TEX_2D(0)
@@ -71,7 +73,7 @@ void main()
     }
 
     vec2 uv = (vec2(texel) + 0.5) / vec2(screenSize);
-    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 clip = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 world = u_DDGIInvViewProjection * clip;
     if (abs(world.w) < 1e-6)
     {

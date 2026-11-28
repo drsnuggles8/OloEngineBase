@@ -344,6 +344,7 @@ namespace OloEngine
             desc.Format = format;
             desc.Width = width;
             desc.Height = height;
+            desc.FixedExtent = true;
             [[maybe_unused]] const RGTextureHandle handle = builder.ImportTextureHandle(name, texture, desc);
         };
         for (u32 ping = 0; ping < 2u; ++ping)

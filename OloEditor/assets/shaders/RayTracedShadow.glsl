@@ -110,6 +110,7 @@ layout(location = 1) out vec4 o_HitDistance;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+#include "include/RenderScaleBounds.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
@@ -187,7 +188,9 @@ vec3 OctDecode(vec2 e)
 
 vec3 ViewPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    // `uv` is a texture uv: the frame fills the [0, bounds) corner under a
+    // dynamic render scale (#1537, include/RenderScaleBounds.glsl).
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = u_InvProjection * ndc;
     return view.xyz / view.w;
 }

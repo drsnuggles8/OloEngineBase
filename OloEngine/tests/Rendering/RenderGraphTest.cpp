@@ -2981,6 +2981,92 @@ TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
     EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
 }
 
+// An upscale preset owns the internal scale: while the pipeline holds the
+// dynamic scale, every node draws full-size and the bounds are (1, 1); the
+// requested scale returns when the hold is released (#1537, CodeRabbit on #1830).
+TEST(RenderGraph, AHeldRenderScaleDrawsFullSizeAndReturnsWhenReleased)
+{
+    RenderGraph graph;
+    auto node = Ref<TestGraphNode>::Create("HeldScaleNode");
+    graph.AddNode(node);
+    graph.Init(640, 480);
+    graph.SetRenderScale(0.5f);
+    ASSERT_EQ(node->GetLastRenderViewportWidth(), 320u);
+
+    graph.SetRenderScaleHeld(true);
+    EXPECT_TRUE(graph.IsRenderScaleHeld());
+    EXPECT_FLOAT_EQ(graph.GetRenderScale(), 0.5f) << "the requested scale is kept";
+    EXPECT_FLOAT_EQ(graph.GetEffectiveRenderScale(), 1.0f);
+    EXPECT_EQ(graph.GetRenderWidth(), 640u);
+    EXPECT_EQ(graph.GetRenderHeight(), 480u);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().x, 1.0f);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().y, 1.0f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 0u) << "a held scale must not leave a corner viewport";
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
+
+    // A scale set while held is remembered, not applied.
+    graph.SetRenderScale(0.75f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 0u);
+
+    graph.SetRenderScaleHeld(false);
+    EXPECT_FLOAT_EQ(graph.GetEffectiveRenderScale(), 0.75f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 480u);
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 360u);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().x, 0.75f);
+}
+
+// A framebuffer no node owns gets its viewport from the resolve alone. It must
+// follow every change of the scale in force: into the corner, back to full
+// size under a hold, and between two sub-1 values. A target that is not
+// display-sized (a square shadow map) is never given a corner.
+TEST(RenderGraph, AResolvedFramebufferNoNodeOwnsFollowsTheScaleInForce)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    graph.Init(640, 480);
+
+    auto display = Ref<StubFramebuffer>::Create(301u);
+    display->Resize(640, 480);
+    auto shadow = Ref<StubFramebuffer>::Create(302u);
+    shadow->Resize(512, 512);
+    const auto displayHandle = graph.ImportFramebuffer("UnownedDisplayTarget", display);
+    const auto shadowHandle = graph.ImportFramebuffer("UnownedShadowTarget", shadow);
+
+    const auto resolveBoth = [&]
+    {
+        EXPECT_EQ(graph.ResolveFramebuffer(displayHandle), display);
+        EXPECT_EQ(graph.ResolveFramebuffer(shadowHandle), shadow);
+    };
+
+    graph.SetRenderScale(0.5f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 320u);
+    EXPECT_EQ(display->GetRenderViewportHeight(), 240u);
+
+    graph.SetRenderScaleHeld(true);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 0u) << "a held scale must clear the old corner";
+    EXPECT_EQ(display->GetRenderViewportHeight(), 0u);
+
+    graph.SetRenderScale(0.75f);
+    graph.SetRenderScaleHeld(false);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 480u);
+    EXPECT_EQ(display->GetRenderViewportHeight(), 360u);
+
+    graph.SetRenderScale(0.5f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 320u) << "a change between two sub-1 scales must follow";
+    EXPECT_EQ(display->GetRenderViewportHeight(), 240u);
+
+    graph.SetRenderScale(1.0f);
+    resolveBoth();
+    EXPECT_EQ(display->GetRenderViewportWidth(), 0u);
+
+    EXPECT_EQ(shadow->GetRenderViewportWidth(), 0u) << "a target that is not display-sized never gets a corner";
+    EXPECT_EQ(shadow->GetRenderViewportHeight(), 0u);
+}
+
 TEST(RenderGraph, PassAddedAfterGraphInitializationInheritsCurrentLifecycleState)
 {
     RenderGraph graph;

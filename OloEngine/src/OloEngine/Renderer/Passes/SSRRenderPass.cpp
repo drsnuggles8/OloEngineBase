@@ -309,6 +309,12 @@ namespace OloEngine
         // space, the actual hit test is always against real depth — so fall back
         // to binding scene depth so the sampler is never left unbound.
         m_MinHZB.Resize(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        {
+            // The rendered corner of the depth under a dynamic render scale.
+            const glm::vec2 bounds = RenderViewportBounds(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+            m_MinHZB.SetSourceExtent(static_cast<u32>(std::lround(static_cast<f32>(m_FramebufferSpec.Width) * bounds.x)),
+                                     static_cast<u32>(std::lround(static_cast<f32>(m_FramebufferSpec.Height) * bounds.y)));
+        }
         m_MinHZB.Generate(sceneDepthID);
         const bool hzbIsPassOwned = m_MinHZB.GetHZBTexture().IsValid();
         const RHI::ResourceHandle minHZBID = hzbIsPassOwned ? m_MinHZB.GetHZBTexture() : sceneDepthID;

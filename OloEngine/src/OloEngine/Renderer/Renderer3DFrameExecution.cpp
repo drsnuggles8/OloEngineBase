@@ -166,7 +166,11 @@ namespace OloEngine
         inputs.PrevViewProjection = s_Data.View.ViewProjectionMatrix;
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
-        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
+        // The cull maps FRAME uv into the pyramid; under a dynamic render scale
+        // the frame fills only the [0, bounds) corner of the depth it was built
+        // from (#1537).
+        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor() *
+                             (s_Data.RGraph ? s_Data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f));
         inputs.DepthBias = s_Data.HZBOcclusionDepthBias;
         return inputs;
     }
@@ -193,7 +197,11 @@ namespace OloEngine
         inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.View.CullPrevViewProjectionMatrix, s_Data.View.RenderOrigin);
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
-        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
+        // The cull maps FRAME uv into the pyramid; under a dynamic render scale
+        // the frame fills only the [0, bounds) corner of the depth it was built
+        // from (#1537).
+        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor() *
+                             (s_Data.RGraph ? s_Data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f));
         inputs.DepthBias = s_Data.HZBOcclusionDepthBias;
         return inputs;
     }

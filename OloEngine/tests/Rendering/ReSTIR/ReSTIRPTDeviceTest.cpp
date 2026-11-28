@@ -533,7 +533,7 @@ namespace OloEngine::Tests
             rig.Values.Params = glm::vec4(1.0e-3f, 1.0e-3f, 1.0e4f, 0.25f);
             rig.Values.EstimatorParams = glm::vec4(emitterArea > 0.0f ? 1.0f / emitterArea : 0.0f, 0.0f, 0.0f, 2.0f);
             rig.Values.Environment = glm::vec4(environment.Radiance, 0.0f);
-            rig.Values.Screen = glm::vec4(kWidth, kHeight, 1.0f / kWidth, 1.0f / kHeight);
+            rig.Values.Screen = glm::vec4(kWidth, kHeight, 1.0f, 1.0f); // zw: no render scale (#1823)
             rig.Values.Reuse = glm::uvec4(1u, 1u, 1u, 0x23456u);
             rig.Values.Debug = glm::vec4(0.0f, 1211.0f, 256.0f, static_cast<f32>(PT::kLayoutVersion));
         }

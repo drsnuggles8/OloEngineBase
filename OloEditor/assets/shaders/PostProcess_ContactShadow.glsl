@@ -91,6 +91,6 @@ void main()
 
     float depth = texture(u_DepthTexture, v_TexCoord).r;
     vec3 Nworld = OctDecode(texture(u_GBufferNormal, v_TexCoord).xy);
-    float visibility = oloContactShadowVisibility(v_TexCoord, depth, Nworld, gl_FragCoord.xy);
+    float visibility = oloContactShadowVisibility(oloFrameUV(v_TexCoord), depth, Nworld, gl_FragCoord.xy);
     o_Color = vec4(vec3(visibility), 1.0);
 }

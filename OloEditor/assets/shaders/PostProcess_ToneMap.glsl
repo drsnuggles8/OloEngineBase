@@ -42,6 +42,8 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #include "include/SkyDepth.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). The BODY below is
@@ -232,6 +234,9 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
 {
     // Step from the pixel toward the sun, covering `density` of the screen-space
     // distance over `samples` steps.
+    // The march runs in FRAME uv, the space sunUV is in; depth is read at the
+    // texture uv of each tap (#1537).
+    uv = oloFrameUV(uv);
     vec2 delta = (uv - sunUV) * (density / float(samples));
     vec2 coord = uv;
     float illum = 1.0;
@@ -244,7 +249,10 @@ vec3 underwaterGodRays(vec2 uv, vec2 sunUV, int samples, float decay, float dens
         // Explicit LOD 0: the march UV is data-dependent, so an implicit-derivative
         // sample inside the loop would be undefined; the depth texture has no mips.
         vec2 c = clamp(coord, 0.0, 1.0);
-        float depth = textureLod(u_DepthTexture, c, 0.0).r;
+        // Half a texel inside the rendered corner: a tap clamped to the frame
+        // edge must not read the first texel of the unrendered margin.
+        vec2 depthHalfTexel = 0.5 / vec2(textureSize(u_DepthTexture, 0));
+        float depth = textureLod(u_DepthTexture, min(oloTextureUV(c), oloRenderScaleBounds() - depthHalfTexel), 0.0).r;
         float open = step(GODRAY_OPEN_DEPTH, depth); // 1 = clear toward sun, 0 = occluded
         // Localise the source around the sun so shafts radiate from it and fade out,
         // instead of the whole open sky lighting up uniformly (a white wash).
@@ -357,7 +365,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     // Reconstruct the world position of the opaque geometry (or far plane) at
     // this pixel; the segment between the camera and it that lies underwater is
     // what absorbs light.
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldH = u_UnderwaterInvViewProj * ndc;
     vec3 worldPos = worldH.xyz / worldH.w;
 
@@ -375,7 +383,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
     float wDepth = min(min(wTaps.x, wTaps.y), min(wTaps.z, wTaps.w));
     if (!oloDepthIsSky(wDepth))
     {
-        vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
+        vec4 sNdc = vec4(oloFrameUV(uv) * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
         vec3 surface = sH.xyz / sH.w;
         gradient = underwaterPixelSurfaceGradient(surface);
@@ -468,14 +476,17 @@ void main()
                                               u_UnderwaterRefraction.x * eyeSubmersion,
                                               u_UnderwaterRefraction.y,
                                               u_UnderwaterRefraction.z);
-        vec2 baseUV = clamp(v_TexCoord + off, 0.0, 1.0);
+        // The rendered corner (#1537), half a texel in so a bilinear tap at
+        // the edge does not blend in the unrendered margin.
+        vec2 bounds = oloRenderScaleBounds() - 0.5 / vec2(textureSize(u_Texture, 0));
+        vec2 baseUV = clamp(v_TexCoord + off, vec2(0.0), bounds);
         float chroma = u_UnderwaterRefraction.w;
         if (chroma > 0.0)
         {
             vec2 cOff = off * chroma;
-            hdrColor.r = texture(u_Texture, clamp(baseUV + cOff, 0.0, 1.0)).r;
+            hdrColor.r = texture(u_Texture, clamp(baseUV + cOff, vec2(0.0), bounds)).r;
             hdrColor.g = texture(u_Texture, baseUV).g;
-            hdrColor.b = texture(u_Texture, clamp(baseUV - cOff, 0.0, 1.0)).b;
+            hdrColor.b = texture(u_Texture, clamp(baseUV - cOff, vec2(0.0), bounds)).b;
         }
         else
         {

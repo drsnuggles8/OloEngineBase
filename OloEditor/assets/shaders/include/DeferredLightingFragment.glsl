@@ -252,6 +252,10 @@ layout(location = 1) out vec4 o_SkinDiffuse;
 
 #define OLO_SSAO_TAP_DEPTH(uv) texture(u_GBufferDepth, (uv)).r
 #include "ScreenSpaceAOSampling.glsl"
+// The dynamic render scale's bounds (#1537) ride in u_LightingFlags.yz: this
+// file's binding 33 is a sampler, so the DRS UBO cannot be declared here.
+#define OLO_RENDER_SCALE_BOUNDS u_LightingFlags.yz
+#include "RenderScaleBounds.glsl"
 #define OLO_CONTACT_SHADOW_TAP_DEPTH(uv) texture(u_GBufferDepth, (uv)).r
 #include "ContactShadowCommon.glsl"
 
@@ -306,7 +310,7 @@ void main()
     // render-RELATIVE camera / lights / shadow matrices / probe bounds (all shifted
     // by the render origin), so bring the reconstructed position into the same
     // relative space before lighting. No-op near origin (u_RenderOrigin == 0).
-    vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth) - u_RenderOrigin;
+    vec3 worldPos = ReconstructWorldPosGB(oloFrameUV(v_TexCoord), depth) - u_RenderOrigin;
     // RT5: baked lightmap irradiance + coverage (issue #865). A zero bind, an
     // unbaked scene, or a draw with no atlas region all arrive here as vec4(0),
     // which the ladder reads as "no baked GI" and falls through to probes/IBL.
@@ -332,7 +336,7 @@ void main()
     // visibility for THAT light, applied inside the loop — not to the frame.
     float sunContactVisibility = 1.0;
     if (u_LightingFlags.x > 0.5)
-        sunContactVisibility = oloContactShadowVisibility(v_TexCoord, depth, N, gl_FragCoord.xy);
+        sunContactVisibility = oloContactShadowVisibility(oloFrameUV(v_TexCoord), depth, N, gl_FragCoord.xy);
 
     vec3 color = ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, screenAO, sunContactVisibility,
                                          emissive, worldPos, bakedGI, snowWeight, o_SkinDiffuse);

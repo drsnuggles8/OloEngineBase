@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -20,6 +21,39 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // The distance array is read NEAREST, mip 0 and the reject's mip alike
+        // (#1804). The march classifies a point against ONE direction's layers,
+        // and a bilinear blend across a silhouette mixes an occluder's layers
+        // with the wall's behind it into a solid shell at a distance where
+        // neither surface is: rays passing behind the occluder hit it and the
+        // silhouette stretches. Nearest keeps the max-mip reject an upper bound
+        // (the texel covering a direction is the max over a footprint that
+        // contains it). Set on the texture object, before any bindless handle
+        // freezes its state, because GL's slot route ignores a per-bind sampler.
+        void SampleDistanceNearest(const Ref<TextureCubemapArray>& distance)
+        {
+            if (!distance)
+            {
+                return;
+            }
+            RHI::SamplerDesc nearest;
+            nearest.Source = RHI::SamplerSource::Explicit;
+            nearest.MinFilter = RHI::Filter::Nearest;
+            nearest.MagFilter = RHI::Filter::Nearest;
+            // Keep the mip chain: GL maps (Nearest, no mip filter) to
+            // GL_NEAREST, which ignores every mip but the base, and the reject
+            // reads mip 3. The shaders only ask for integer lods (0 and 3), so
+            // the "linear" mip blend never mixes two levels.
+            nearest.LinearMipFilter = true;
+            nearest.AddressU = RHI::AddressMode::ClampToEdge;
+            nearest.AddressV = RHI::AddressMode::ClampToEdge;
+            nearest.AddressW = RHI::AddressMode::ClampToEdge;
+            RenderCommand::SetTextureSampling(distance->GetRHIHandle(), nearest);
+        }
+    } // namespace
+
     void ReflectionProbeArray::Init()
     {
         OLO_PROFILE_FUNCTION();
@@ -45,8 +79,9 @@ namespace OloEngine
         placeholderSpec.MipLevels = 1;
         placeholderSpec.Format = ImageFormat::RGBA8;
         m_PlaceholderRadiance = TextureCubemapArray::Create(placeholderSpec);
-        placeholderSpec.Format = ImageFormat::R32F;
+        placeholderSpec.Format = ImageFormat::RGBA16F;
         m_PlaceholderDistance = TextureCubemapArray::Create(placeholderSpec);
+        SampleDistanceNearest(m_PlaceholderDistance);
 
         m_Initialized = m_ProbeUBO && m_GridSSBO && m_PlaceholderRadiance && m_PlaceholderDistance;
         if (!m_Initialized)
@@ -138,8 +173,8 @@ namespace OloEngine
         CubemapArraySpecification distanceSpec;
         distanceSpec.Resolution = kProbeDistanceResolution;
         distanceSpec.Layers = newCapacity;
-        distanceSpec.Format = ImageFormat::R32F;
-        distanceSpec.MipLevels = 0; // full chain — the CPU field builds every max-mip
+        distanceSpec.Format = ImageFormat::RGBA16F; // d0, d1, d2 (#1804)
+        distanceSpec.MipLevels = 0;                 // full chain — the CPU field builds every max-mip
 
         const auto estimate = [](const CubemapArraySpecification& spec)
         {
@@ -166,6 +201,7 @@ namespace OloEngine
             OLO_CORE_ERROR("ReflectionProbeArray: failed to (re)create probe arrays ({} layers)", newCapacity);
             return false;
         }
+        SampleDistanceNearest(distance);
 
         // Swap in the new arrays, then re-upload every occupied layer — the
         // old GPU contents die with the old textures.

@@ -77,6 +77,7 @@ layout(location = 1) out vec4 o_Guide;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+#include "include/RenderScaleBounds.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants — only these declarations move, and
@@ -150,20 +151,22 @@ vec3 OctDecode(vec2 e)
     return normalize(n);
 }
 
-// Reconstruct view-space position from screen UV + nonlinear depth.
+// Reconstruct view-space position from TEXTURE uv + nonlinear depth. Every uv
+// in this pass is a texture uv: under a dynamic render scale (#1537) the frame
+// fills the [0, bounds) corner (include/RenderScaleBounds.glsl).
 vec3 ViewPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndc = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 view = u_InvProjection * ndc;
     return view.xyz / view.w;
 }
 
-// Project a view-space position back to screen UV.
+// Project a view-space position back to TEXTURE uv.
 vec2 ProjectToUV(vec3 viewPos)
 {
     vec4 clip = u_Projection * vec4(viewPos, 1.0);
     vec2 ndc = clip.xy / clip.w;
-    return ndc * 0.5 + 0.5;
+    return oloTextureUV(ndc * 0.5 + 0.5);
 }
 
 // Nearest-surface device-Z in the level-`lod` HZB cell covering `screenUV`.
@@ -352,8 +355,8 @@ void main()
     vec4 hStart = u_Projection * vec4(vStart, 1.0);
     vec4 hEnd = u_Projection * vec4(vEnd, 1.0);
 
-    vec2 uvStart = (hStart.xy / hStart.w) * 0.5 + 0.5;
-    vec2 uvEnd = (hEnd.xy / hEnd.w) * 0.5 + 0.5;
+    vec2 uvStart = oloTextureUV((hStart.xy / hStart.w) * 0.5 + 0.5);
+    vec2 uvEnd = oloTextureUV((hEnd.xy / hEnd.w) * 0.5 + 0.5);
 
     // March parameter t in [0,1] along the VIEW-space segment; one tInc step
     // spans about one screen pixel. Stepping the view parameter (rather than an
@@ -376,8 +379,8 @@ void main()
                 break;
 
             vec4 clip = mix(hStart, hEnd, t);
-            vec2 uv = (clip.xy / clip.w) * 0.5 + 0.5;
-            if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+            vec2 uv = oloTextureUV((clip.xy / clip.w) * 0.5 + 0.5);
+            if (!oloInRenderedFrame(uv))
                 break;
 
             // Size the cell step in LOCAL screen pixels: perspective makes
@@ -386,7 +389,7 @@ void main()
             // global, view-uniform increment so grazing surfaces are still sampled
             // at the v1 linear march's depth granularity.
             vec4 clipProbe = mix(hStart, hEnd, min(t + tInc, 1.0));
-            vec2 uvProbe = (clipProbe.xy / clipProbe.w) * 0.5 + 0.5;
+            vec2 uvProbe = oloTextureUV((clipProbe.xy / clipProbe.w) * 0.5 + 0.5);
             float localPixPerT = max(length((uvProbe - uv) * u_ScreenParams.xy) / tInc, 1.0e-3);
             float cellStepT = (level == 0) ? tInc : (exp2(float(level)) / localPixPerT);
 
@@ -450,8 +453,9 @@ void main()
     float edgeFade = 1.0;
     if (edge > 0.0)
     {
-        edgeFade *= smoothstep(0.0, edge, hitUV.x) * smoothstep(0.0, edge, 1.0 - hitUV.x);
-        edgeFade *= smoothstep(0.0, edge, hitUV.y) * smoothstep(0.0, edge, 1.0 - hitUV.y);
+        vec2 hitFrameUV = oloFrameUV(hitUV);
+        edgeFade *= smoothstep(0.0, edge, hitFrameUV.x) * smoothstep(0.0, edge, 1.0 - hitFrameUV.x);
+        edgeFade *= smoothstep(0.0, edge, hitFrameUV.y) * smoothstep(0.0, edge, 1.0 - hitFrameUV.y);
     }
 
     float distFade = 1.0 - clamp(traveled / maxDist, 0.0, 1.0);

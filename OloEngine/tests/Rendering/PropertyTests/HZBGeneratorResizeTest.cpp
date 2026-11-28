@@ -294,4 +294,87 @@ namespace OloEngine::Tests
 
         gen.Shutdown();
     }
+
+    // -----------------------------------------------------------------------
+    // Under a dynamic render scale the frame fills only the [0, render)
+    // corner of the depth (#1537). With the source extent set, the margin's
+    // depth reaches no level: the mip-0 copy repeats the frame's edge, so a
+    // coarse texel at or past the edge reduces only rendered depth. Run for
+    // both reduce operators, with margin depth on the side each would pick
+    // (far for Max, near for Min), and the same pyramid without the extent as
+    // the control that shows the margin otherwise leaks in.
+    //
+    // Input: 64 x 64, rendered corner 32 x 32 at 0.5, margin at `margin`.
+    // -----------------------------------------------------------------------
+    TEST(HZBGeneratorResizeTest, ASourceExtentKeepsTheUnrenderedMarginOutOfEveryLevel)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64u;
+        constexpr u32 kRendered = 32u;
+        struct Case
+        {
+            HZBGenerator::ReduceMode Mode;
+            f32 Margin;
+            const char* Name;
+        };
+        for (const Case c : { Case{ HZBGenerator::ReduceMode::Max, 0.9f, "max" }, Case{ HZBGenerator::ReduceMode::Min, 0.1f, "min" } })
+        {
+            SCOPED_TRACE(c.Name);
+            std::vector<f32> depth(static_cast<std::size_t>(kSize) * kSize, c.Margin);
+            for (u32 y = 0; y < kRendered; ++y)
+                for (u32 x = 0; x < kRendered; ++x)
+                    depth[(y * kSize) + x] = 0.5f;
+            TextureSpecification spec;
+            spec.Width = kSize;
+            spec.Height = kSize;
+            spec.Format = ImageFormat::R32F;
+            spec.GenerateMips = false;
+            Ref<Texture2D> sceneDepth = Texture2D::Create(spec);
+            ASSERT_TRUE(sceneDepth);
+            sceneDepth->SetData(depth.data(), static_cast<u32>(depth.size() * sizeof(f32)));
+
+            const auto build = [&](u32 extent, auto&& check)
+            {
+                HZBGenerator gen;
+                gen.Initialize();
+                gen.SetReduceMode(c.Mode);
+                gen.Resize(kSize, kSize);
+                ASSERT_GE(gen.GetMipCount(), 6u);
+                gen.SetSourceExtent(extent, extent);
+                gen.Generate(sceneDepth->GetRHIHandle());
+                ::glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                const auto hzb = static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(gen.GetHZBTexture()));
+                ASSERT_NE(hzb, 0u);
+                const auto readLevel = [hzb](GLint level, GLint side)
+                {
+                    std::vector<f32> texels(static_cast<std::size_t>(side) * static_cast<std::size_t>(side), -1.0f);
+                    ::glGetTextureImage(hzb, level, GL_RED, GL_FLOAT, static_cast<GLsizei>(texels.size() * sizeof(f32)),
+                                        texels.data());
+                    return texels;
+                };
+                check(readLevel);
+                gen.Shutdown();
+            };
+
+            // The control: without an extent the margin reaches the levels
+            // past the edge.
+            build(0u, [&](const auto& readLevel)
+                  { EXPECT_FLOAT_EQ(readLevel(4, 4)[2], c.Margin) << "control: mip 4 past the edge must see the margin"; });
+
+            build(kRendered, [&](const auto& readLevel)
+                  {
+                      // Mip 1, the last rendered column pair and the first past it.
+                      const auto mip1 = readLevel(1, 32);
+                      EXPECT_FLOAT_EQ(mip1[(15u * 32u) + 15u], 0.5f) << "mip 1 at the rendered edge";
+                      EXPECT_FLOAT_EQ(mip1[(15u * 32u) + 16u], 0.5f) << "mip 1 past the edge repeats the frame's edge";
+                      // Mip 4 (16 x 16 blocks): inside, and the block past the edge.
+                      const auto mip4 = readLevel(4, 4);
+                      EXPECT_FLOAT_EQ(mip4[(1u * 4u) + 1u], 0.5f) << "mip 4 at the rendered edge";
+                      EXPECT_FLOAT_EQ(mip4[2], 0.5f) << "mip 4 past the edge must not reduce the margin";
+                      EXPECT_FLOAT_EQ(mip4[(3u * 4u) + 3u], 0.5f) << "mip 4 in the far corner of the margin";
+                      // Mip 5 (32 x 32 blocks): the block that is all margin.
+                      EXPECT_FLOAT_EQ(readLevel(5, 2)[1], 0.5f) << "mip 5 over the margin"; });
+        }
+    }
 } // namespace OloEngine::Tests

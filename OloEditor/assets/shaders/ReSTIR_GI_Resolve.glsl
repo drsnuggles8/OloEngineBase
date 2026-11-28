@@ -106,6 +106,8 @@ layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 
 #include "include/SkyDepth.glsl"
 #include "include/PBRCommon.glsl"
+// The dynamic render scale (#1823): reconstruction and temporal reuse in frame uv.
+#include "include/ReSTIRRenderScale.glsl"
 // OloTemporalMoments / OloAccumulateTemporalMoments and the #976 rejection bits.
 #include "include/SurfaceHistory.glsl"
 #include "include/ReSTIRGISceneAccess.glsl"

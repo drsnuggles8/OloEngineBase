@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/ProbeSceneCapture.h"
 #include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -25,6 +26,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -131,13 +133,18 @@ namespace OloEngine
 
         constexpr u32 kRes = kProbeDistanceResolution;
 
+        // Two same-sized targets, ping-ponged (issue #1804): each face is
+        // captured three times — the nearest surface (d0), then the nearest
+        // beyond d0 (d1), then the nearest beyond d1 (d2) — and every peel
+        // reads the previous layer from the target it is NOT drawing into, so
+        // no pass samples its own attachment.
         FramebufferSpecification spec;
         spec.Width = kRes;
         spec.Height = kRes;
         spec.Attachments = { FramebufferTextureFormat::RG32F, FramebufferTextureFormat::ShadowDepth };
-        auto fbo = Framebuffer::Create(spec);
+        std::array<Ref<Framebuffer>, 2> fbos = { Framebuffer::Create(spec), Framebuffer::Create(spec) };
         auto shader = Shader::Create("assets/shaders/ReflectionProbe_Distance.glsl");
-        if (!fbo || !shader)
+        if (!fbos[0] || !fbos[1] || !shader)
         {
             OLO_CORE_ERROR("ReflectionProbeBaker: distance-capture FBO or shader unavailable");
             return nullptr;
@@ -151,41 +158,24 @@ namespace OloEngine
         // radial distances are origin-independent anyway.
         glm::mat4 const proj = glm::perspective(glm::radians(90.0f), 1.0f, kProbeDistanceNear, kProbeDistanceFar);
 
-        TArray<f32> fieldData(static_cast<sizet>(kRes) * kRes * 6u, kProbeDistanceFar);
-        TArray<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
-        sizet const faceBytes = rgReadback.Num() * sizeof(f32);
+        constexpr sizet kFaceTexels = static_cast<sizet>(kRes) * kRes;
+        constexpr u32 kLayers = 3; // d0, d1, d2
+        TArray<f32> fieldData(static_cast<i32>(kFaceTexels * 6u * kProbeDistanceChannels), 0.0f);
+        std::array<TArray<f32>, kLayers> layerReadback;
+        for (auto& readback : layerReadback)
+        {
+            readback.SetNum(static_cast<i32>(kFaceTexels * 2u));
+        }
+        sizet const faceBytes = kFaceTexels * 2u * sizeof(f32);
 
         // Restore on every exit path, including a throwing face capture: FBO,
         // cull flip, pre-capture viewport, dispatch state cache, and — because
         // this bake rewrote it — the engine camera UBO (see the guard's header).
-        CaptureStateGuard stateGuard{ fbo, /*restoreCameraUBO=*/true };
+        CaptureStateGuard stateGuard{ fbos[0], /*restoreCameraUBO=*/true };
 
-        fbo->Bind();
-        RenderCommand::SetViewport(0, 0, kRes, kRes);
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
-        RenderCommand::SetBlendState(false);
-        // Backfaces must render: a probe looking at single-sided geometry
-        // from behind still needs the surface's distance, not a see-through.
-        RenderCommand::DisableCulling();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-
-        shader->Bind();
-        cameraUBO->Bind();
-        passUBO->Bind();
-
-        RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
         bool readbackOk = true;
-        for (u32 face = 0; face < 6; ++face)
+        for (u32 face = 0; face < 6 && readbackOk; ++face)
         {
-            // Un-covered texels keep the clear value == the miss sentinel of
-            // the encoding contract (ReflectionProbeDistanceField.h).
-            fbo->ClearAttachment(0, glm::vec4(kProbeDistanceFar, 0.0f, 0.0f, 0.0f));
-            RenderCommand::ClearDepthOnly();
-
             glm::mat4 const view = glm::lookAt(position, position + ProbeSceneCapture::FaceTarget(face),
                                                ProbeSceneCapture::FaceUp(face));
             UBOStructures::CameraUBO camera{};
@@ -205,38 +195,75 @@ namespace OloEngine
             camera.ProjectionForReconstruction = proj;
             cameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 
-            for (auto const& caster : casters)
+            for (u32 layer = 0; layer < kLayers; ++layer)
             {
-                if (!caster.vaoID.IsValid() || caster.indexCount == 0)
-                {
-                    continue;
-                }
-                ProbeDistanceCaptureUBO data{};
-                data.Model = caster.transform;
-                data.ProbePosition = glm::vec4(position, 0.0f);
-                passUBO->SetData(&data, sizeof(data));
-                RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
-            }
+                Ref<Framebuffer>& target = fbos[layer % 2u];
+                Ref<Framebuffer>& previous = fbos[(layer + 1u) % 2u];
 
-            if (!ProbeSceneCapture::SubmitFaceForReadback() ||
-                !RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RG32Float,
-                                                 faceBytes, rgReadback.GetData()))
+                target->Bind();
+                RenderCommand::SetViewport(0, 0, kRes, kRes);
+                RenderCommand::SetDepthTest(true);
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                RenderCommand::SetBlendState(false);
+                // Backfaces must render: a probe looking at single-sided
+                // geometry from behind still needs the surface's distance, not
+                // a see-through, and the peels find an occluder's far side.
+                RenderCommand::DisableCulling();
+                RenderCommand::DisableScissorTest();
+                RenderCommand::SetColorMask(true, true, true, true);
+                RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
+                // Un-covered texels keep the clear value == the miss sentinel
+                // of the encoding contract (ReflectionProbeDistanceField.h).
+                target->ClearAttachment(0, glm::vec4(kProbeDistanceFar, 0.0f, 0.0f, 0.0f));
+                RenderCommand::ClearDepthOnly();
+
+                shader->Bind();
+                cameraUBO->Bind();
+                passUBO->Bind();
+                // Layer 0 never reads it (w = 0), but the sampler is bound to
+                // the other target on every pass so it can never dangle.
+                HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_USER_0, previous->GetColorAttachmentHandle(0),
+                                                 RHI::HeapSlotLifetime::FrameTransient);
+                HeapBinding::FlushOffsets();
+
+                for (auto const& caster : casters)
+                {
+                    if (!caster.vaoID.IsValid() || caster.indexCount == 0)
+                    {
+                        continue;
+                    }
+                    ProbeDistanceCaptureUBO data{};
+                    data.Model = caster.transform;
+                    data.ProbePosition = glm::vec4(position, layer == 0u ? 0.0f : 1.0f);
+                    passUBO->SetData(&data, sizeof(data));
+                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
+                }
+
+                if (!ProbeSceneCapture::SubmitFaceForReadback() ||
+                    !RenderCommand::ReadTextureImage(target->GetColorAttachmentHandle(0), 0, RHI::Format::RG32Float,
+                                                     faceBytes, layerReadback[layer].GetData()))
+                {
+                    OLO_CORE_WARN("ReflectionProbeBaker: distance face {} layer {} readback failed", face, layer);
+                    readbackOk = false;
+                    break;
+                }
+            }
+            if (!readbackOk)
             {
-                OLO_CORE_WARN("ReflectionProbeBaker: distance face {} readback failed", face);
-                readbackOk = false;
                 break;
             }
 
-            sizet const faceBase = static_cast<sizet>(face) * kRes * kRes;
-            for (sizet i = 0; i < static_cast<sizet>(kRes) * kRes; ++i)
+            sizet const faceBase = static_cast<sizet>(face) * kFaceTexels;
+            for (sizet i = 0; i < kFaceTexels; ++i)
             {
-                // Clamp into the contract range — geometry closer than the
-                // near plane was clipped anyway, non-finite values must never
-                // reach the field.
-                f32 const distance = rgReadback[i * 2u];
-                fieldData[faceBase + i] = std::isfinite(distance)
-                                              ? std::clamp(distance, kProbeDistanceNear, kProbeDistanceFar)
-                                              : kProbeDistanceFar;
+                ProbeDistanceLayers const layers = NormalizeProbeDistanceLayers(
+                    layerReadback[0][i * 2u], layerReadback[1][i * 2u], layerReadback[2][i * 2u]);
+                sizet const out = (faceBase + i) * kProbeDistanceChannels;
+                fieldData[out + 0u] = layers.Front;
+                fieldData[out + 1u] = layers.Back;
+                fieldData[out + 2u] = layers.Behind;
+                fieldData[out + 3u] = 0.0f;
             }
         }
 
@@ -246,7 +273,7 @@ namespace OloEngine
         {
             return nullptr;
         }
-        return ReflectionProbeDistanceField::Create(std::move(fieldData), kRes);
+        return ReflectionProbeDistanceField::CreateLayered(std::move(fieldData), kRes);
     }
 
     bool ReflectionProbeBaker::BakeProbe(Ref<Scene>& scene,

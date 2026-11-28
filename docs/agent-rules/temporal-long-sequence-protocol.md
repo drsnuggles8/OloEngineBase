@@ -85,7 +85,7 @@ pass's declaration is, or the sweep never sees it go.
 |---|---|---|
 | camera cut / teleport (the editor and MCP seam) | new lineage | `CameraCut` |
 | projection change | new lineage | `ProjectionChanged` |
-| render-scale change (Forward paths; Deferred ignores dynamic scale, #1537) | new lineage | `DynamicResolutionChanged` |
+| render-scale change (every path since #1537) | new lineage | `DynamicResolutionChanged` |
 | FSR1 upscale preset change (every path) | new lineage, then imported again the next frame | `DynamicResolutionChanged` (TAA), `DescriptorChanged` (scene band) |
 | `ResetFrameSequences` | new lineage, every history | `SamplingSequenceReset` |
 | a tier stops declaring its history (disabled, stood down) | released by the populate sweep | `FeatureToggled`; TAA re-enabled: `JitterReset`, raised after the release |

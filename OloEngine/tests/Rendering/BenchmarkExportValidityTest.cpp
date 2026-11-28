@@ -317,3 +317,57 @@ TEST(BenchmarkExportValidity, RawPassDistributionsRetainFrameIdentityAndInvalidS
     EXPECT_EQ(row["passes"][1]["status"].get<std::string>(), "dropped");
     EXPECT_EQ(row["passes"][1]["parent"].get<std::string>(), "ScenePass");
 }
+
+// The capture crops a source to the rendered corner only when the dynamic
+// render scale drew into that corner. A size match alone is not that: a square
+// display can match a shadow atlas or a probe atlas exactly.
+TEST(BenchmarkExportValidity, OnlyATargetTheScaleDrewIntoIsCroppedToTheRenderCorner)
+{
+    Benchmark::RenderCornerQuery base;
+    base.EffectiveScale = 0.5f;
+    base.TextureWidth = 1024;
+    base.TextureHeight = 1024;
+    base.PhysicalWidth = 1024;
+    base.PhysicalHeight = 1024;
+    base.RenderWidth = 512;
+    base.RenderHeight = 512;
+
+    RGResourceDesc screen = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AOBuffer");
+    RGResourceDesc atlas = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "ShadowMapAtlas");
+    RGResourceDesc probeAtlas = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "DDGIIrradiance");
+    probeAtlas.FixedExtent = true;
+
+    // A screen-space compute output no framebuffer owns: cropped.
+    Benchmark::RenderCornerQuery q = base;
+    q.Desc = &screen;
+    EXPECT_TRUE(Benchmark::IsDrawnIntoRenderCorner(q));
+
+    // The display-sized shadow atlas (an array) and a fixed-extent probe atlas: whole.
+    q.Desc = &atlas;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q));
+    q.Desc = &probeAtlas;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q));
+
+    // A texture the registry does not know: whole.
+    q.Desc = nullptr;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q));
+
+    // A framebuffer attachment answers by its viewport, not its descriptor.
+    q = base;
+    q.HasOwnerFramebuffer = true;
+    q.OwnerViewportWidth = 512;
+    q.OwnerViewportHeight = 512;
+    EXPECT_TRUE(Benchmark::IsDrawnIntoRenderCorner(q));
+    q.OwnerViewportWidth = 0;
+    q.OwnerViewportHeight = 0;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q)) << "a display-sized shadow map has no corner viewport";
+
+    // At full scale, or for a target that is not display-sized, nothing is cropped.
+    q = base;
+    q.Desc = &screen;
+    q.EffectiveScale = 1.0f;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q));
+    q.EffectiveScale = 0.5f;
+    q.TextureWidth = 512;
+    EXPECT_FALSE(Benchmark::IsDrawnIntoRenderCorner(q));
+}

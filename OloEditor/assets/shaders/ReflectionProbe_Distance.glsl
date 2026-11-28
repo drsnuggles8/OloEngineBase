@@ -11,6 +11,15 @@
 // Texels no caster covers keep the clear value kProbeDistanceFar, which IS
 // the miss sentinel of the encoding contract in ReflectionProbeDistanceField.h.
 //
+// PEELING (issue #1804): each face is captured three times. With
+// u_CaptureProbePosition.w = 0 the pass keeps the nearest surface (d0). With
+// w = 1 it discards every fragment not strictly beyond the previous layer,
+// read texel-for-texel from u_PeelSource (TEX_USER_0, the previous pass's
+// RT0 on the same-sized target), so the depth test keeps the next surface
+// out: d1 against d0, then d2 against d1. The epsilon mirrors
+// kProbePeelEpsilonAbs/Rel; a previous layer at the sentinel discards
+// everything, so the next layer stays at the sentinel too.
+//
 // Depth-tests with a regular depth buffer: along one pixel's view ray, depth
 // order equals radial order, so the closest surface wins. Culling is disabled
 // by the pass so probe-behind-geometry reads backface distances rather than
@@ -51,7 +60,7 @@ layout(std140, binding = 0) uniform CameraMatrices
 layout(std140, binding = 7) uniform ProbeDistanceCaptureData
 {
     mat4 u_CaptureModel;         // caster world transform
-    vec4 u_CaptureProbePosition; // xyz = probe world position, w unused
+    vec4 u_CaptureProbePosition; // xyz = probe world position, w = 1 to peel against u_PeelSource
 };
 
 layout(location = 0) out vec3 v_WorldPos;
@@ -76,11 +85,33 @@ layout(std140, binding = 7) uniform ProbeDistanceCaptureData
     vec4 u_CaptureProbePosition;
 };
 
+#include "include/BindlessHeap.glsl"
+
+// The previous peel layer (TEX_USER_0). Heap-bindless conversion (issue #691):
+// only the declaration moves between the variants.
+#ifdef OLO_BINDLESS
+#define u_PeelSource OLO_HEAP_TEX_2D(10)
+#else
+layout(binding = 10) uniform sampler2D u_PeelSource;
+#endif
+
 layout(location = 0) in vec3 v_WorldPos;
 
 layout(location = 0) out vec2 o_Distance;
 
+#define OLO_PROBE_PEEL_EPSILON_ABS 0.01
+#define OLO_PROBE_PEEL_EPSILON_REL 0.002
+
 void main()
 {
-    o_Distance = vec2(length(v_WorldPos - u_CaptureProbePosition.xyz), 0.0);
+    float radial = length(v_WorldPos - u_CaptureProbePosition.xyz);
+    if (u_CaptureProbePosition.w > 0.5)
+    {
+        float previous = texelFetch(u_PeelSource, ivec2(gl_FragCoord.xy), 0).r;
+        if (radial <= previous + max(OLO_PROBE_PEEL_EPSILON_ABS, previous * OLO_PROBE_PEEL_EPSILON_REL))
+        {
+            discard;
+        }
+    }
+    o_Distance = vec2(radial, 0.0);
 }

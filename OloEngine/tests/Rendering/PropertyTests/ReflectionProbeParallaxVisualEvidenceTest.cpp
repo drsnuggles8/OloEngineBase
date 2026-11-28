@@ -51,6 +51,7 @@
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -71,9 +72,12 @@
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -548,6 +552,461 @@ namespace OloEngine::Tests
             << "Probe-Off floor strips differ left/right — the baseline is contaminated. "
             << "See ReflectionProbeParallax_Off_FloorAhead.png";
     }
+
+    // =========================================================================
+    // Occluder silhouettes (issue #1804).
+    //
+    // The corridor again, plus the orange pillar of ReflectionProbeCorridor.olo
+    // at (1.4, 1, -5), 0.6 x 2 x 0.6, standing 0.125 m above the mirror floor
+    // (the authored gap is kept as the control: the reference below has it
+    // too). The camera is the issue's: (0, 1.8, 9) looking at (0, -1.6, 0),
+    // 60 degree vertical field of view, 941 x 628.
+    //
+    // A single radial distance per direction treats everything behind the
+    // pillar, as seen from the probe, as solid: floor rays that pass beside
+    // the pillar and behind it reported a pillar hit, which stretched its
+    // reflection 31 px to the right. The reference is a geometric mirror:
+    // every pixel's camera ray is traced to the floor top, reflected, and
+    // tested against the pillar box on the CPU. The contracts compare the
+    // rendered orange mask on the floor with that reference, with a 2 px
+    // tolerance band for filtering at the edges.
+    // =========================================================================
+    namespace
+    {
+        constexpr u32 kPillarWidth = 941;
+        constexpr u32 kPillarHeight = 628;
+        constexpr f32 kFloorTop = -0.125f;
+        const glm::vec3 kPillarMin{ 1.1f, 0.0f, -5.3f };
+        const glm::vec3 kPillarMax{ 1.7f, 2.0f, -4.7f };
+
+        // Slab test; returns the entry distance or a negative value on a miss.
+        [[nodiscard]] f32 RayBox(const glm::vec3& origin, const glm::vec3& dir, const glm::vec3& lo, const glm::vec3& hi)
+        {
+            f32 tNear = 0.0f;
+            f32 tFar = 1.0e30f;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                if (std::abs(dir[axis]) < 1.0e-8f)
+                {
+                    if (origin[axis] < lo[axis] || origin[axis] > hi[axis])
+                        return -1.0f;
+                    continue;
+                }
+                f32 t0 = (lo[axis] - origin[axis]) / dir[axis];
+                f32 t1 = (hi[axis] - origin[axis]) / dir[axis];
+                if (t0 > t1)
+                    std::swap(t0, t1);
+                tNear = std::max(tNear, t0);
+                tFar = std::min(tFar, t1);
+                if (tNear > tFar)
+                    return -1.0f;
+            }
+            return tNear;
+        }
+
+        enum class MirrorPixel : u8
+        {
+            Other,       // not the floor (walls, the pillar itself, ...)
+            Floor,       // floor that does not reflect the pillar
+            FloorPillar, // floor whose ideal mirror ray hits the pillar
+        };
+
+        [[nodiscard]] bool IsOrange(const u8* px)
+        {
+            const f32 r = px[0];
+            const f32 g = px[1];
+            const f32 b = px[2];
+            // The emissive orange reads (179, 155, 86) after tone mapping. The
+            // walls do not pass: red and green fail the blue test, yellow and
+            // the grey ceiling fail R >= G + 10.
+            return r > 110.0f && r >= g + 10.0f && b < 0.7f * g;
+        }
+
+        struct SilhouetteMetrics
+        {
+            u32 ReferencePixels = 0;
+            u32 RenderedPixels = 0;
+            u32 Extra = 0;   // rendered orange more than 2 px outside the reference
+            u32 Missing = 0; // reference more than 2 px inside, not rendered orange
+            i32 MaxRightOvershoot = 0;
+            u32 WorstRow = 0;
+        };
+    } // namespace
+
+    class ReflectionProbePillarSilhouetteTest : public RendererAttachedTest,
+                                                public ::testing::WithParamInterface<ProbePath>
+    {
+      protected:
+        Entity m_Probe;
+
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            Scene& scene = GetScene();
+            EnableRendering(kPillarWidth, kPillarHeight);
+            scene.SetLightGizmosVisible(false);
+            scene.SetGridVisible(false);
+            scene.SetWorldAxisHelperVisible(false);
+
+            const auto addBox = [&scene](const char* name, const glm::vec3& pos, const glm::vec3& scale,
+                                         const glm::vec3& baseColor, const glm::vec3& emissive, f32 metallic,
+                                         f32 roughness)
+            {
+                Entity e = scene.CreateEntity(name);
+                auto& tc = e.GetComponent<TransformComponent>();
+                tc.Translation = pos;
+                tc.Scale = scale;
+                auto& mc = e.AddComponent<MeshComponent>();
+                mc.m_Primitive = MeshPrimitive::Cube;
+                if (Ref<Mesh> mesh = MeshPrimitives::CreateCube())
+                    mc.m_MeshSource = mesh->GetMeshSource();
+                auto& mat = e.AddComponent<MaterialComponent>();
+                mat.m_Material.SetBaseColorFactor(glm::vec4(baseColor, 1.0f));
+                mat.m_Material.SetEmissiveFactor(glm::vec4(emissive, 1.0f));
+                mat.m_Material.SetMetallicFactor(metallic);
+                mat.m_Material.SetRoughnessFactor(roughness);
+            };
+            const glm::vec3 dark(0.02f);
+            // ReflectionProbeCorridor.olo's geometry, emissive so the
+            // reflection colours do not depend on the lights.
+            addBox("Wall-X (red)", { -3.25f, 2.0f, 0.0f }, { 0.25f, 5.0f, 25.0f }, dark, { 0.9f, 0.04f, 0.04f }, 0.0f, 1.0f);
+            addBox("Wall+X (green)", { 3.25f, 2.0f, 0.0f }, { 0.25f, 5.0f, 25.0f }, dark, { 0.04f, 0.9f, 0.04f }, 0.0f, 1.0f);
+            addBox("Wall-Z (blue)", { 0.0f, 2.0f, -12.25f }, { 7.0f, 5.0f, 0.25f }, dark, { 0.04f, 0.04f, 0.9f }, 0.0f, 1.0f);
+            addBox("Wall+Z (yellow)", { 0.0f, 2.0f, 12.25f }, { 7.0f, 5.0f, 0.25f }, dark, { 0.9f, 0.9f, 0.04f }, 0.0f, 1.0f);
+            addBox("Ceiling", { 0.0f, 4.5f, 0.0f }, { 7.0f, 0.25f, 25.0f }, dark, { 0.15f, 0.15f, 0.15f }, 0.0f, 1.0f);
+            addBox("MirrorFloor", { 0.0f, -0.25f, 0.0f }, { 7.0f, 0.25f, 25.0f }, glm::vec3(1.0f), glm::vec3(0.0f), 1.0f, 0.08f);
+            addBox("Pillar", { 1.4f, 1.0f, -5.0f }, { 0.6f, 2.0f, 0.6f }, dark, { 0.85f, 0.5f, 0.1f }, 0.0f, 1.0f);
+
+            m_Probe = scene.CreateEntity("CorridorProbe");
+            m_Probe.GetComponent<TransformComponent>().Translation = { 0.0f, 2.0f, 0.0f };
+            auto& probe = m_Probe.AddComponent<ReflectionProbeComponent>();
+            probe.m_InfluenceRadius = 40.0f;
+            probe.m_Resolution = 256;
+            probe.m_Intensity = 1.0f;
+            probe.m_Active = true;
+        }
+
+        [[nodiscard]] static EditorCamera IssueCamera()
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kPillarWidth) / static_cast<f32>(kPillarHeight), 0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(kPillarWidth), static_cast<f32>(kPillarHeight));
+            // Looking from (0, 1.8, 9) at (0, -1.6, 0): pitch = atan(3.4 / 9), +down.
+            camera.SetPose({ 0.0f, 1.8f, 9.0f }, 0.0f, std::atan2(3.4f, 9.0f));
+            return camera;
+        }
+
+        // The geometric mirror reference, rows top-down.
+        [[nodiscard]] static std::vector<MirrorPixel> BuildReference(const EditorCamera& camera)
+        {
+            const glm::mat4 invViewProj = glm::inverse(camera.GetViewProjection());
+            const glm::vec3 eye = camera.GetPosition();
+            std::vector<MirrorPixel> out(static_cast<sizet>(kPillarWidth) * kPillarHeight, MirrorPixel::Other);
+            for (u32 y = 0; y < kPillarHeight; ++y)
+            {
+                for (u32 x = 0; x < kPillarWidth; ++x)
+                {
+                    const f32 ndcX = ((static_cast<f32>(x) + 0.5f) / static_cast<f32>(kPillarWidth)) * 2.0f - 1.0f;
+                    const f32 ndcY = 1.0f - ((static_cast<f32>(y) + 0.5f) / static_cast<f32>(kPillarHeight)) * 2.0f;
+                    const glm::vec4 farPoint = invViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+                    const glm::vec3 dir = glm::normalize(glm::vec3(farPoint) / farPoint.w - eye);
+                    if (dir.y >= 0.0f)
+                        continue;
+                    const f32 tFloor = (kFloorTop - eye.y) / dir.y;
+                    const glm::vec3 hit = eye + dir * tFloor;
+                    if (std::abs(hit.x) > 3.125f || std::abs(hit.z) > 12.125f)
+                        continue;
+                    const f32 tPillar = RayBox(eye, dir, kPillarMin, kPillarMax);
+                    if (tPillar >= 0.0f && tPillar < tFloor)
+                        continue; // the pillar itself, in front of the floor
+                    const glm::vec3 reflected(dir.x, -dir.y, dir.z);
+                    const bool seesPillar = RayBox(hit, reflected, kPillarMin, kPillarMax) >= 0.0f;
+                    out[static_cast<sizet>(y) * kPillarWidth + x] = seesPillar ? MirrorPixel::FloorPillar : MirrorPixel::Floor;
+                }
+            }
+            return out;
+        }
+
+        [[nodiscard]] static SilhouetteMetrics Measure(const std::vector<MirrorPixel>& reference, const std::vector<u8>& rgba)
+        {
+            const auto at = [&](i32 x, i32 y) -> MirrorPixel
+            {
+                if (x < 0 || y < 0 || x >= static_cast<i32>(kPillarWidth) || y >= static_cast<i32>(kPillarHeight))
+                    return MirrorPixel::Other;
+                return reference[static_cast<sizet>(y) * kPillarWidth + static_cast<sizet>(x)];
+            };
+            const auto withinTwoPixels = [&](i32 x, i32 y, MirrorPixel kind)
+            {
+                for (i32 dy = -2; dy <= 2; ++dy)
+                    for (i32 dx = -2; dx <= 2; ++dx)
+                        if (at(x + dx, y + dy) == kind)
+                            return true;
+                return false;
+            };
+            SilhouetteMetrics m;
+            for (i32 y = 0; y < static_cast<i32>(kPillarHeight); ++y)
+            {
+                i32 refRight = -1;
+                i32 gotRight = -1;
+                for (i32 x = 0; x < static_cast<i32>(kPillarWidth); ++x)
+                {
+                    const MirrorPixel kind = at(x, y);
+                    if (kind == MirrorPixel::Other)
+                        continue;
+                    const bool orange = IsOrange(&rgba[(static_cast<sizet>(y) * kPillarWidth + static_cast<sizet>(x)) * 4u]);
+                    if (kind == MirrorPixel::FloorPillar)
+                    {
+                        ++m.ReferencePixels;
+                        refRight = x;
+                        if (!orange && !withinTwoPixels(x, y, MirrorPixel::Floor))
+                            ++m.Missing;
+                    }
+                    if (orange)
+                    {
+                        ++m.RenderedPixels;
+                        gotRight = x;
+                        if (kind == MirrorPixel::Floor && !withinTwoPixels(x, y, MirrorPixel::FloorPillar))
+                            ++m.Extra;
+                    }
+                }
+                if (refRight >= 0 && gotRight >= 0 && gotRight - refRight > m.MaxRightOvershoot)
+                {
+                    m.MaxRightOvershoot = gotRight - refRight;
+                    m.WorstRow = static_cast<u32>(y);
+                }
+            }
+            return m;
+        }
+    };
+
+    TEST_P(ReflectionProbePillarSilhouetteTest, PillarReflectionFollowsTheGeometricMirror)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = GetParam().Path;
+        settings.Deferred.MSAASampleCount = GetParam().DeferredSamples;
+        Renderer3D::ApplyRendererSettings();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        EditorCamera camera = IssueCamera();
+        RunEditorFrames(camera, 2u);
+
+        Ref<Scene> sceneRef = GetSceneRef();
+        auto& probe = m_Probe.GetComponent<ReflectionProbeComponent>();
+        const glm::vec3 probePos = m_Probe.GetComponent<TransformComponent>().Translation;
+        bool baked = false;
+        RunInFrame([&]
+                   {
+                       if (TestRenderBackend::IsVulkanProcess())
+                       {
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       }
+                       else
+                       {
+                           GLStateGuard bakeGuard("ReflectionProbePillar::Bake", GLStateGuard::Policy::Restore);
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       } });
+        ASSERT_TRUE(baked) << "ReflectionProbeBaker::BakeProbe failed";
+        ASSERT_TRUE(probe.m_BakedEnvironment && probe.m_BakedEnvironment->HasProbeDistanceField());
+
+        Renderer3D::OnWindowResize(kPillarWidth, kPillarHeight);
+        SetViewport(kPillarWidth, kPillarHeight);
+        const std::vector<MirrorPixel> reference = BuildReference(camera);
+        const fs::path dir = fs::path("assets") / "tests" / "visual";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+
+        // Renders the current probe state, writes the frame and the reference
+        // overlaid on it (magenta: the reference has the pillar and the frame
+        // does not; cyan: orange outside the reference), and measures it.
+        const auto captureArm = [&](const std::string& arm, SilhouetteMetrics& out)
+        {
+            RunEditorFrames(camera, 2u);
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            ASSERT_TRUE(fb) << "No composited framebuffer";
+            std::vector<u8> rgba;
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kPillarWidth, kPillarHeight, rgba);
+            ASSERT_EQ(rgba.size(), static_cast<sizet>(kPillarWidth) * kPillarHeight * 4u);
+            const sizet rowBytes = static_cast<sizet>(kPillarWidth) * 4u;
+            std::vector<u8> tmp(rowBytes);
+            for (u32 y = 0; y < kPillarHeight / 2u; ++y)
+            {
+                u8* top = rgba.data() + static_cast<sizet>(y) * rowBytes;
+                u8* bot = rgba.data() + static_cast<sizet>(kPillarHeight - 1u - y) * rowBytes;
+                std::memcpy(tmp.data(), top, rowBytes);
+                std::memcpy(top, bot, rowBytes);
+                std::memcpy(bot, tmp.data(), rowBytes);
+            }
+            out = Measure(reference, rgba);
+
+            std::vector<u8> overlay = rgba;
+            for (sizet i = 0; i < reference.size(); ++i)
+            {
+                const bool orange = IsOrange(&rgba[i * 4u]);
+                if (reference[i] == MirrorPixel::FloorPillar && !orange)
+                {
+                    overlay[i * 4u + 0] = 255;
+                    overlay[i * 4u + 1] = 0;
+                    overlay[i * 4u + 2] = 255;
+                }
+                else if (reference[i] == MirrorPixel::Floor && orange)
+                {
+                    overlay[i * 4u + 0] = 0;
+                    overlay[i * 4u + 1] = 255;
+                    overlay[i * 4u + 2] = 255;
+                }
+            }
+            const std::string base = TestRenderBackend::EvidenceName(arm) + GetParam().Name;
+            EXPECT_NE(::stbi_write_png((dir / (base + "_Front.png")).string().c_str(), static_cast<int>(kPillarWidth),
+                                       static_cast<int>(kPillarHeight), 4, rgba.data(), static_cast<int>(rowBytes)),
+                      0);
+            EXPECT_NE(::stbi_write_png((dir / (base + "_MirrorDiff.png")).string().c_str(),
+                                       static_cast<int>(kPillarWidth), static_cast<int>(kPillarHeight), 4,
+                                       overlay.data(), static_cast<int>(rowBytes)),
+                      0);
+            std::cout << "[PillarSilhouette] " << base << ": reference " << out.ReferencePixels
+                      << " px, rendered orange " << out.RenderedPixels << " px, extra " << out.Extra << " px, missing "
+                      << out.Missing << " px, max right overshoot " << out.MaxRightOvershoot << " px (row "
+                      << out.WorstRow << ")\n";
+        };
+
+        // Control: the same bake collapsed to its front layer (d1 = d2 = d0,
+        // no gap anywhere), which is exactly the single-distance march this
+        // issue replaced. It must still show the stretch, or the contract
+        // below could not see it.
+        const Ref<EnvironmentMap> layeredEnvironment = probe.m_BakedEnvironment;
+        const Ref<ReflectionProbeDistanceField> layered = layeredEnvironment->GetProbeDistanceField();
+        Ref<ReflectionProbeDistanceField> frontOnly;
+        {
+            const std::span<const f32> mip0 = layered->GetMip(0);
+            TArray<f32> front(static_cast<i32>(mip0.size() / kProbeDistanceChannels), 0.0f);
+            for (sizet i = 0; i < static_cast<sizet>(front.Num()); ++i)
+            {
+                front[i] = mip0[i * kProbeDistanceChannels];
+            }
+            frontOnly = ReflectionProbeDistanceField::Create(std::move(front), layered->GetResolution());
+        }
+        // ReflectionProbeArray keys its layers by EnvironmentMap, so the
+        // control gets an EnvironmentMap of its own (a second bake of the same
+        // scene) carrying the collapsed field; switching arms swaps the map.
+        RunInFrame([&]
+                   {
+                       if (TestRenderBackend::IsVulkanProcess())
+                       {
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       }
+                       else
+                       {
+                           GLStateGuard bakeGuard("ReflectionProbePillar::BakeControl", GLStateGuard::Policy::Restore);
+                           baked = ReflectionProbeBaker::BakeProbe(sceneRef, probePos, probe);
+                       } });
+        ASSERT_TRUE(baked && probe.m_BakedEnvironment && probe.m_BakedEnvironment != layeredEnvironment);
+        Ref<EnvironmentMap> singleEnvironment = probe.m_BakedEnvironment;
+        singleEnvironment->SetProbeDistanceField(frontOnly);
+        const auto useEnvironment = [&](const Ref<EnvironmentMap>& environment)
+        {
+            probe.m_BakedEnvironment = environment;
+        };
+        useEnvironment(singleEnvironment);
+        SilhouetteMetrics single;
+        captureArm("ReflectionProbePillarSingleLayer", single);
+        if (HasFatalFailure())
+            return;
+
+        useEnvironment(layeredEnvironment);
+        SilhouetteMetrics m;
+        captureArm("ReflectionProbePillar", m);
+        if (HasFatalFailure())
+            return;
+
+        // Shading cost, reported, not asserted (a shared GPU box): the median
+        // frame GPU time of each arm over interleaved rounds, the probe off as
+        // the floor. Both probe arms run the same shader on the same RGBA16F
+        // array; their difference is the gap searches the layers trigger.
+        {
+            auto& pool = GPUPassTimerPool::GetInstance();
+            // Only frames rendered in the arm's own state, each once: the pool
+            // publishes the newest frame whose queries resolved, which can be a
+            // frame rendered before the arm switched the probe or its field.
+            const auto medianFrameMs = [&](u32 frames)
+            {
+                u64 lastFrame = pool.GetCurrentFrameNumber();
+                std::vector<f64> samples;
+                for (u32 i = 0; i < frames * 2u && samples.size() < frames; ++i)
+                {
+                    RunEditorFrames(camera, 1u);
+                    const auto timings = pool.GetLastFrameTimings();
+                    if (timings.Frame.IsValid() && timings.FrameNumber > lastFrame)
+                    {
+                        lastFrame = timings.FrameNumber;
+                        samples.push_back(timings.Frame.GpuMs);
+                    }
+                }
+                if (samples.empty())
+                    return std::nan("");
+                std::sort(samples.begin(), samples.end());
+                return samples[samples.size() / 2u];
+            };
+            std::array<std::vector<f64>, 3> arms;
+            for (u32 round = 0; round < 3u; ++round)
+            {
+                probe.m_Active = false;
+                arms[0].push_back(medianFrameMs(12u));
+                probe.m_Active = true;
+                useEnvironment(singleEnvironment);
+                arms[1].push_back(medianFrameMs(12u));
+                useEnvironment(layeredEnvironment);
+                arms[2].push_back(medianFrameMs(12u));
+            }
+            const auto median = [](std::vector<f64> v)
+            {
+                std::sort(v.begin(), v.end());
+                return v[v.size() / 2u];
+            };
+            std::cout << "[PillarSilhouette] " << TestRenderBackend::EvidenceName("ReflectionProbePillar")
+                      << GetParam().Name << " frame GPU ms (median of 3 interleaved rounds x 12 frames): probe off "
+                      << median(arms[0]) << ", single layer " << median(arms[1]) << ", layered " << median(arms[2])
+                      << "\n";
+        }
+
+        const std::string base = TestRenderBackend::EvidenceName("ReflectionProbePillar") + GetParam().Name;
+        ::testing::Test::RecordProperty("ReferencePixels", static_cast<int>(m.ReferencePixels));
+        ::testing::Test::RecordProperty("ExtraPixels", static_cast<int>(m.Extra));
+        ::testing::Test::RecordProperty("MissingPixels", static_cast<int>(m.Missing));
+        ::testing::Test::RecordProperty("MaxRightOvershoot", m.MaxRightOvershoot);
+        ::testing::Test::RecordProperty("SingleLayerMaxRightOvershoot", single.MaxRightOvershoot);
+
+        ASSERT_GT(m.ReferencePixels, 1000u) << "the reference has no pillar reflection: the camera or geometry moved";
+        EXPECT_GT(single.MaxRightOvershoot, 15) << "control: the single-layer probe no longer stretches the pillar, so "
+                                                   "this fixture cannot see the #1804 artefact";
+        EXPECT_LE(m.MaxRightOvershoot, 4) << "the reflection stretches past the mirrored pillar's right edge (row "
+                                          << m.WorstRow << "). See " << base << "_MirrorDiff.png";
+        EXPECT_LE(m.Extra, m.ReferencePixels / 50u) << "orange beyond the mirrored outline. See " << base << "_MirrorDiff.png";
+        EXPECT_LE(m.Missing, m.ReferencePixels / 10u) << "the mirrored pillar has holes. See " << base << "_MirrorDiff.png";
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, ReflectionProbePillarSilhouetteTest,
+                             ::testing::Values(ProbePath{ RenderingPath::Forward, 1u, "Forward" },
+                                               ProbePath{ RenderingPath::ForwardPlus, 1u, "ForwardPlus" },
+                                               ProbePath{ RenderingPath::Deferred, 1u, "Deferred" }),
+                             [](const auto& info)
+                             { return info.param.Name; });
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, ReflectionProbeParallaxVisualEvidenceTest,
                              ::testing::Values(ProbePath{ RenderingPath::Forward, 1u, "Forward" },

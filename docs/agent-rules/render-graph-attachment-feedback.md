@@ -100,8 +100,9 @@ resolve backing, transfer-only declarations, snapshots, and both backend policie
 The skin, snow, and fluid visual fixtures validate their real enabled graph and
 capture native, dynamic bilinear, and requested FSR2 frames with requested 1x/4x
 MSAA. Forward paths retain a single-sample target; Deferred MSAA forces FSR2's
-spatial fallback. Deferred dynamic scaling retains the explicit #1537 capture
-rejection. Vulkan FSR2 requests use the existing backend fallback.
+spatial fallback. Deferred dynamic scaling is captured like the forward paths'
+since #1537 ([dynamic-render-scale.md](dynamic-render-scale.md)). Vulkan FSR2
+requests use the existing backend fallback.
 
 ## Diagnostics must handle the snapshot storage contract
 

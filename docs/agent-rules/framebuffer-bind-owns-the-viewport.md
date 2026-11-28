@@ -36,6 +36,6 @@ over a body drawn into the sub-rectangle. It was off by 5 body radii in
 - Vulkan is live-only. The quickest check is `olo_renderer_settings_set upscale performance` and a
   screenshot: framing must match native, and `SceneColor` must report the reduced size.
 
-The fullscreen composite passes (OIT resolve, deferred lighting's debug overlay, selection outline)
-still use the spec. That is correct for the upscale band, where spec == band, but not under a DRS
-render scale. Fixing them needs the UV-bounds handling that DRS itself has not finished.
+The fullscreen composite passes (OIT resolve, deferred lighting, selection outline) still set a
+full-spec viewport. Under a DRS render scale that is deliberate: they sample 1:1 at texture uv
+and reconstruct through the render bounds ([dynamic-render-scale.md](dynamic-render-scale.md)).

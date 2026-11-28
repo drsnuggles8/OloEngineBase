@@ -96,6 +96,7 @@ namespace OloEngine
             noiseDesc.Format = RGResourceFormat::RG16Float;
             noiseDesc.Width = 4;
             noiseDesc.Height = 4;
+            noiseDesc.FixedExtent = true;
             [[maybe_unused]] const RGTextureHandle noiseHandle =
                 builder.ImportTextureHandle(kNoiseTargetName, m_NoiseTexture, noiseDesc);
         }

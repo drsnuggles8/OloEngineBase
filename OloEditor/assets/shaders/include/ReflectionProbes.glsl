@@ -31,6 +31,16 @@
 #define OLO_PROBE_MARCH_ITERATIONS 8
 #define OLO_PROBE_MARCH_TAPS 4
 #define OLO_PROBE_REFINE_STEPS 6
+#define OLO_PROBE_GAP_REFINE_STEPS 6
+// Radians a hidden hit's radiance lookup steps back across the silhouette.
+#define OLO_PROBE_INPAINT_MARGIN 0.02
+// The ring search for a hidden hit's radiance (kProbeInpaintRingCount & co.).
+#define OLO_PROBE_INPAINT_RING_COUNT 4
+#define OLO_PROBE_INPAINT_AZIMUTHS 8
+#define OLO_PROBE_INPAINT_FIRST_RING 0.03
+#define OLO_PROBE_INPAINT_MATCH_ABS 0.1
+#define OLO_PROBE_INPAINT_MATCH_REL 0.03
+#define OLO_PROBE_INPAINT_MATCH_SLOPE 0.5
 #define OLO_PROBE_INSIDE_BIAS_ABS 0.02
 #define OLO_PROBE_INSIDE_BIAS_REL 0.01
 // March-range slack: the crossing test carries the inside bias, so the plain
@@ -49,7 +59,7 @@
 // Slots mirror ShaderBindingLayout::TEX_REFLECTION_PROBE_* — published once
 // per frame by ReflectionProbeArray::BindForShading.
 layout(binding = 14) uniform samplerCubeArray u_ProbeRadianceArray; // prefilter chains (roughness mips)
-layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial distance + max-mips
+layout(binding = 15) uniform samplerCubeArray u_ProbeDistanceArray; // radial d0 / d1 / d2 + max-mips, sampled NEAREST (#1804)
 
 // Mirrors UBOStructures::ReflectionProbeUBO (and ReflectionProbeCull.comp).
 struct OloReflectionProbe
@@ -90,91 +100,251 @@ uint oloProbeClusterMask(float viewDepth)
     return probeGrid[clusterIndex];
 }
 
-// Raymarch one probe's distance field. Mirrors the CPU reference
-// (RaymarchProbeDistanceField): the environment is the star-shaped surface
-// dist(u)*u around the probe centre; a point p is INSIDE while
-// |p| < dist(p/|p|) + bias. March t over (0, dMax + |p0|], bracket the first
-// inside->outside transition, bisect, and return the parallax-corrected
-// lookup direction. Returns false on a miss (ray leaves through sky).
-bool oloProbeRaymarch(vec3 originProbeSpace, vec3 dir, float dMax, float layer, out vec3 hitDirection)
+// One direction's three layers. The array is sampled NEAREST
+// (ReflectionProbeArray sets it on the texture), so this is the texel covering
+// `d`, as the CPU reference's SampleLayersNearest reads it (#1804): a bilinear
+// blend across a silhouette builds a solid shell where no surface is.
+vec3 oloProbeLayers(vec3 d, float layer)
 {
+    return textureLod(u_ProbeDistanceArray, vec4(d, layer), 0.0).rgb;
+}
+
+// Classification of a ray point at radius r along a texel's three layers
+// (d0, d1, d2 — the encoding contract, #1804). Mirrors ClassifyProbeRayPoint.
+#define OLO_PROBE_KIND_FRONT 0
+#define OLO_PROBE_KIND_GAP 1
+#define OLO_PROBE_KIND_SOLID 2
+
+int oloProbeClassifyLayers(float r, vec3 layers)
+{
+    float bias = max(OLO_PROBE_INSIDE_BIAS_ABS, r * OLO_PROBE_INSIDE_BIAS_REL);
+    if (r < layers.x + bias)
+    {
+        return OLO_PROBE_KIND_FRONT;
+    }
+    if (r > layers.y + bias && r < layers.z + bias)
+    {
+        return OLO_PROBE_KIND_GAP;
+    }
+    return OLO_PROBE_KIND_SOLID;
+}
+
+int oloProbeClassify(vec3 originProbeSpace, vec3 dir, float t, float layer)
+{
+    vec3 p = originProbeSpace + dir * t;
+    float r = length(p);
+    if (r <= 0.0)
+    {
+        return OLO_PROBE_KIND_FRONT; // the ray passes through the probe centre
+    }
+    return oloProbeClassifyLayers(r, oloProbeLayers(p, layer));
+}
+
+// Raymarch one probe's layered distance field. Mirrors the CPU reference
+// (RaymarchProbeDistanceField): a ray point is solid in [d0, d1] or beyond
+// d2 of its direction, free in front of d0 or in the d1..d2 gap. March t over
+// (0, dMax + |p0|], bracket the first free->solid transition (searching for
+// a thin occluder between free samples of different kinds), bisect, and
+// return the hit direction and the radiance lookup direction: the last
+// point seen in front of d0 for a hit the probe cannot see. Returns false on
+// a miss (the ray leaves through sky, or hits a hidden surface without ever
+// having seen the probe's side of its occluder).
+bool oloProbeRaymarch(vec3 originProbeSpace, vec3 dir, float dMax, float layer, out vec3 hitDirection,
+                      out vec3 radianceDirection)
+{
+    hitDirection = vec3(0.0);
+    radianceDirection = vec3(0.0);
     float tMax = (dMax + length(originProbeSpace)) * OLO_PROBE_MARCH_SLACK_REL + OLO_PROBE_MARCH_SLACK_ABS;
     float stepT = tMax / float(OLO_PROBE_MARCH_ITERATIONS * OLO_PROBE_MARCH_TAPS);
 
-    // An outside sample only brackets a crossing after the march has SEEN an
-    // inside sample. A shading point the probe cannot see (the far side of a
-    // captured occluder) starts outside that occluder's radial cone, and
-    // accepting the first outside sample there reports a bogus hit ON the
-    // occluder's shell — leading outside samples are skipped instead until
-    // the ray re-enters the visible region (mirrors the CPU reference).
-    float tInside = -1.0;
+    // The origin is classified first, and a free origin seeds the bracket
+    // whatever the first coarse tap is. An origin that reads Solid counts as
+    // free only if the first tap is: a shading point the probe cannot see,
+    // and no gap explains, starts inside an occluder's radial cone, and
+    // accepting the first solid sample there reports a bogus hit ON the
+    // occluder's shell — leading solid samples are skipped instead (mirrors
+    // the CPU reference).
+    float tFree = -1.0;
+    int freeKind = OLO_PROBE_KIND_FRONT;
+    float tVisible = -1.0;
+    float tSolid = -1.0;
     {
-        vec3 p0 = originProbeSpace + dir * stepT;
-        float r0 = length(p0);
-        float d0 = textureLod(u_ProbeDistanceArray, vec4(p0, layer), 0.0).r;
-        float bias0 = max(OLO_PROBE_INSIDE_BIAS_ABS, r0 * OLO_PROBE_INSIDE_BIAS_REL);
-        if (r0 < d0 + bias0)
+        int origin = oloProbeClassify(originProbeSpace, dir, 0.0, layer);
+        if (origin == OLO_PROBE_KIND_SOLID)
         {
-            tInside = 0.0; // the t = 0 on-surface contract holds
+            origin = oloProbeClassify(originProbeSpace, dir, stepT, layer);
+        }
+        if (origin != OLO_PROBE_KIND_SOLID)
+        {
+            tFree = 0.0;
+            freeKind = origin;
+            if (origin == OLO_PROBE_KIND_FRONT)
+            {
+                tVisible = 0.0;
+            }
         }
     }
-    float tOutside = -1.0;
-    for (int it = 0; it < OLO_PROBE_MARCH_ITERATIONS && tOutside < 0.0; ++it)
+    for (int it = 0; it < OLO_PROBE_MARCH_ITERATIONS && tSolid < 0.0; ++it)
     {
-        for (int tap = 0; tap < OLO_PROBE_MARCH_TAPS; ++tap)
+        for (int tap = 0; tap < OLO_PROBE_MARCH_TAPS && tSolid < 0.0; ++tap)
         {
             float t = stepT * float(it * OLO_PROBE_MARCH_TAPS + tap + 1);
-            vec3 p = originProbeSpace + dir * t;
-            float r = length(p);
-            float d = textureLod(u_ProbeDistanceArray, vec4(p, layer), 0.0).r;
-            float bias = max(OLO_PROBE_INSIDE_BIAS_ABS, r * OLO_PROBE_INSIDE_BIAS_REL);
-            if (r < d + bias)
+            int kind = oloProbeClassify(originProbeSpace, dir, t, layer);
+            if (kind == OLO_PROBE_KIND_SOLID)
             {
-                tInside = t;
+                if (tFree >= 0.0)
+                {
+                    tSolid = t;
+                }
+                continue;
             }
-            else if (tInside >= 0.0)
+            if (tFree >= 0.0 && kind != freeKind)
             {
-                tOutside = t;
-                break;
+                // In front of d0 on one side, in the gap on the other: the
+                // ray crossed an occluder's silhouette or went through a
+                // thin one a coarse step jumped over.
+                float lo = tFree;
+                float hi = t;
+                for (int j = 0; j < OLO_PROBE_GAP_REFINE_STEPS; ++j)
+                {
+                    float mid = 0.5 * (lo + hi);
+                    int midKind = oloProbeClassify(originProbeSpace, dir, mid, layer);
+                    if (midKind == OLO_PROBE_KIND_SOLID)
+                    {
+                        tSolid = mid;
+                        break;
+                    }
+                    if (midKind == freeKind)
+                    {
+                        lo = mid;
+                    }
+                    else
+                    {
+                        hi = mid;
+                    }
+                }
+                if (tSolid >= 0.0)
+                {
+                    tFree = lo;
+                    break;
+                }
+                if (freeKind == OLO_PROBE_KIND_FRONT)
+                {
+                    tVisible = lo; // the edge of the shadow the ray enters
+                }
+            }
+            tFree = t;
+            freeKind = kind;
+            if (kind == OLO_PROBE_KIND_FRONT)
+            {
+                tVisible = t;
             }
         }
     }
-    if (tOutside < 0.0)
+    if (tSolid < 0.0)
     {
         return false;
     }
 
     for (int i = 0; i < OLO_PROBE_REFINE_STEPS; ++i)
     {
-        float tMid = 0.5 * (tInside + tOutside);
-        vec3 p = originProbeSpace + dir * tMid;
-        float r = length(p);
-        float d = textureLod(u_ProbeDistanceArray, vec4(p, layer), 0.0).r;
-        float bias = max(OLO_PROBE_INSIDE_BIAS_ABS, r * OLO_PROBE_INSIDE_BIAS_REL);
-        if (r < d + bias)
+        float tMid = 0.5 * (tFree + tSolid);
+        int midKind = oloProbeClassify(originProbeSpace, dir, tMid, layer);
+        if (midKind == OLO_PROBE_KIND_SOLID)
         {
-            tInside = tMid;
+            tSolid = tMid;
         }
         else
         {
-            tOutside = tMid;
+            tFree = tMid;
+            if (midKind == OLO_PROBE_KIND_FRONT)
+            {
+                tVisible = tMid;
+            }
         }
     }
 
-    vec3 hitPoint = originProbeSpace + dir * (0.5 * (tInside + tOutside));
+    vec3 hitPoint = originProbeSpace + dir * (0.5 * (tFree + tSolid));
     float hitRadius = length(hitPoint);
     if (hitRadius <= 0.0)
     {
         return false;
     }
     hitDirection = hitPoint / hitRadius;
+    vec3 layers = oloProbeLayers(hitDirection, layer);
+
+    // Past the middle of a gap the hit is on the d2 surface, hidden from the
+    // probe; otherwise it is on the d0 shell (or the occluder's far side).
+    // The crossing sits a bias past its layer, so the bias comes off first.
+    float hitSurfaceRadius = hitRadius - max(OLO_PROBE_INSIDE_BIAS_ABS, hitRadius * OLO_PROBE_INSIDE_BIAS_REL);
+    bool occluded = layers.z > layers.y && hitSurfaceRadius > 0.5 * (layers.y + layers.z);
 
     // A crossing whose stored distance is the miss sentinel is the ray
     // leaving through SKY, not a surface hit — report a miss so the caller
     // falls back to the live global sky (mirrors the CPU reference).
-    if (textureLod(u_ProbeDistanceArray, vec4(hitDirection, layer), 0.0).r >= OLO_PROBE_MISS_THRESHOLD)
+    if ((occluded ? layers.z : layers.x) >= OLO_PROBE_MISS_THRESHOLD)
     {
         return false;
+    }
+
+    radianceDirection = hitDirection;
+    bool inpainted = false;
+    if (occluded)
+    {
+        // The hit surface itself, just outside the occluder: the nearest ring
+        // direction whose front distance matches the hit (mirrors the CPU
+        // reference).
+        vec3 axis = abs(hitDirection.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        vec3 tangent = normalize(cross(hitDirection, axis));
+        vec3 bitangent = cross(hitDirection, tangent);
+        for (int ring = 0; ring < OLO_PROBE_INPAINT_RING_COUNT && !inpainted; ++ring)
+        {
+            float angle = OLO_PROBE_INPAINT_FIRST_RING * exp2(float(ring));
+            // An oblique wall's distance changes with the angle off the hit.
+            float tolerance =
+                max(OLO_PROBE_INPAINT_MATCH_ABS, hitRadius * (OLO_PROBE_INPAINT_MATCH_REL + OLO_PROBE_INPAINT_MATCH_SLOPE * angle));
+            for (int k = 0; k < OLO_PROBE_INPAINT_AZIMUTHS; ++k)
+            {
+                float phi = float(k) * (6.28318530718 / float(OLO_PROBE_INPAINT_AZIMUTHS));
+                vec3 candidate = hitDirection * cos(angle) + (tangent * cos(phi) + bitangent * sin(phi)) * sin(angle);
+                float candidateFront = oloProbeLayers(candidate, layer).x; // never a sky texel
+                if (candidateFront < OLO_PROBE_MISS_THRESHOLD && abs(candidateFront - hitRadius) <= tolerance)
+                {
+                    radianceDirection = candidate;
+                    inpainted = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (occluded && !inpainted)
+    {
+        if (tVisible < 0.0)
+        {
+            return false; // never saw the probe's side of the occluder: nothing to show
+        }
+        vec3 visiblePoint = originProbeSpace + dir * tVisible;
+        float visibleRadius = length(visiblePoint);
+        if (visibleRadius <= 0.0)
+        {
+            return false;
+        }
+        // Step the lookup a fixed angle back across the occluder's silhouette
+        // (mirrors the CPU reference): the visible point is one bisection step
+        // from it, inside the radiance cube's filter footprint.
+        vec3 visibleDirection = visiblePoint / visibleRadius;
+        radianceDirection = visibleDirection;
+        vec3 ahead = originProbeSpace + dir * (tVisible + stepT / 64.0);
+        float aheadRadius = length(ahead);
+        if (aheadRadius > 0.0)
+        {
+            vec3 drift = ahead / aheadRadius - visibleDirection;
+            float driftLength = length(drift);
+            if (driftLength > 1.0e-7)
+            {
+                radianceDirection = normalize(visibleDirection - drift * (OLO_PROBE_INPAINT_MARGIN / driftLength));
+            }
+        }
     }
     return true;
 }
@@ -229,7 +399,11 @@ vec4 oloSampleReflectionProbes(vec3 worldPos, vec3 N, vec3 R, float radianceLod,
         // Cheap reject (max-mip = conservative upper bound): if even the
         // largest distance in the cone toward the point is closer than the
         // point, the probe cannot see it — occluded, skip before marching.
-        float coneMax = textureLod(u_ProbeDistanceArray, vec4(toPoint, probe.Params.w), OLO_PROBE_REJECT_MIP).r;
+        // d2 (.b), not d0: a receiver in an occluder's gap (a wall behind a
+        // pillar) is past d0 but in front of d2, and the march handles it
+        // (#1804). d2 = d1 >= d0 where there is no gap, so this stays an upper
+        // bound and can only admit more.
+        float coneMax = textureLod(u_ProbeDistanceArray, vec4(toPoint, probe.Params.w), OLO_PROBE_REJECT_MIP).b;
         if (pointDistance > coneMax * OLO_PROBE_REJECT_REL_MARGIN + OLO_PROBE_REJECT_ABS_MARGIN)
         {
             continue;
@@ -237,12 +411,13 @@ vec4 oloSampleReflectionProbes(vec3 worldPos, vec3 N, vec3 R, float radianceLod,
 
         vec3 origin = (worldPos + N * OLO_PROBE_NORMAL_OFFSET) - probe.PositionRadius.xyz;
         vec3 hitDirection;
-        if (!oloProbeRaymarch(origin, R, probe.Params.z, probe.Params.w, hitDirection))
+        vec3 radianceDirection;
+        if (!oloProbeRaymarch(origin, R, probe.Params.z, probe.Params.w, hitDirection, radianceDirection))
         {
             continue; // miss — this probe defers to the sky fallback
         }
 
-        vec3 radiance = textureLod(u_ProbeRadianceArray, vec4(hitDirection, probe.Params.w), radianceLod).rgb;
+        vec3 radiance = textureLod(u_ProbeRadianceArray, vec4(radianceDirection, probe.Params.w), radianceLod).rgb;
         radianceSum += radiance * probe.Params.y * weight;
         weightSum += weight;
     }

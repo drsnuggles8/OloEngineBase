@@ -47,6 +47,8 @@ void main()
 // `layout(binding = N)` samplers alongside heap ones, and the pass simply keeps
 // binding those the old way.
 #include "include/BindlessHeap.glsl"
+// Texture uv vs frame uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)      // TEX_POSTPROCESS_DEPTH
@@ -131,7 +133,7 @@ layout(std140, binding = 46) uniform FroxelFogData
 // ---------------------------------------------------------------------------
 vec3 worldPosFromDepth(vec2 uv, float depth)
 {
-    vec4 ndcPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 ndcPos = vec4(oloFrameUV(uv) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldPos4 = u_MB.u_InverseViewProjection * ndcPos;
     return worldPos4.xyz / worldPos4.w;
 }
@@ -217,7 +219,8 @@ void main()
     float clampedDepth = max(viewDepth, froxelNear);
     float w = clamp(log2(clampedDepth / froxelNear) / froxelLogFN, 0.0, 1.0);
 
-    vec4 vol = texture(u_FroxelFogVolume, vec3(v_TexCoord, w));
+    // The volume spans the camera frustum in FRAME uv (#1537).
+    vec4 vol = texture(u_FroxelFogVolume, vec3(oloFrameUV(v_TexCoord), w));
     vec3 accumulatedLight = vol.rgb;
     float transmittance = vol.a;
 

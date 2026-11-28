@@ -46,6 +46,17 @@
 #ifndef OLO_TEMPORAL_RESOLVE_GLSL
 #define OLO_TEMPORAL_RESOLVE_GLSL
 
+// Under a dynamic render scale (#1537) the frame fills the [0, bounds) corner,
+// so a history uv is a TEXTURE uv in [0, bounds]. A resolve that runs under
+// the scale defines OLO_TEMPORAL_HISTORY_BOUNDS before including this file
+// (oloRenderScaleBounds() from include/RenderScaleBounds.glsl) and scales its
+// velocity (a frame-uv delta) by the same bounds. The default is the whole
+// target, so a consumer that never sees a scaled frame (the path tracer, the
+// ReSTIR tiers' device rigs) declares nothing new.
+#ifndef OLO_TEMPORAL_HISTORY_BOUNDS
+#define OLO_TEMPORAL_HISTORY_BOUNDS vec2(1.0)
+#endif
+
 // -----------------------------------------------------------------------------
 // Colour space
 //
@@ -217,7 +228,7 @@ vec3 OloTemporalClipHistory(vec3 historyYCoCg, OloTemporalStats stats, float gam
 // Off-screen history is not "old", it is a different pixel entirely.
 bool OloTemporalHistoryUVValid(vec2 prevUV)
 {
-    return all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, vec2(1.0)));
+    return all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThan(prevUV, OLO_TEMPORAL_HISTORY_BOUNDS));
 }
 
 // Question 1, for a pass that knows a WORLD POINT rather than a velocity — the
@@ -240,7 +251,7 @@ vec2 OloTemporalReprojectWorldPoint(mat4 prevViewProjection, vec3 worldPosition,
     valid = prevClip.w > 0.0;
     if (!valid)
         return vec2(-1.0);
-    return (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+    return ((prevClip.xy / prevClip.w) * 0.5 + 0.5) * OLO_TEMPORAL_HISTORY_BOUNDS;
 }
 
 // Confidence in [0,1] that `prevViewDepth` describes the same surface as

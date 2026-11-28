@@ -74,6 +74,9 @@ layout(std140, binding = 21) uniform DecalParams {
 };
 
 #include "include/BindlessHeap.glsl"
+// The decal reconstructs in FRAME uv (its own clip position); the depth it
+// reads lives in the [0, bounds) corner under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #ifdef OLO_BINDLESS
 #define u_DecalNormal OLO_HEAP_TEX_2D(11)  // TEX_USER_1
 #define u_SceneDepth OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
@@ -98,7 +101,7 @@ vec2 EncodeOct(vec3 n)
 void main()
 {
     vec2 screenUV = (v_ClipPos.xy / v_ClipPos.w) * 0.5 + 0.5;
-    float depth = texture(u_SceneDepth, screenUV).r;
+    float depth = texture(u_SceneDepth, oloTextureUV(screenUV)).r;
 
     vec4 clipPos = vec4(screenUV * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     vec4 worldPos4 = u_InverseViewProjection * clipPos;

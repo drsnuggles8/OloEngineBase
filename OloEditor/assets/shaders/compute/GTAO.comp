@@ -56,6 +56,10 @@ layout(std140, binding = 28) uniform GTAOParams
     // field the denoise shader reads. x = consume the rate image, y = paint the
     // rate heatmap into the AO term instead of the AO, zw reserved.
     ivec4 u_VRCSParams;
+
+    // The dynamic render scale's rendered corner [0, xy) (#1537); zw reserved.
+    // Appended after u_VRCSParams for the same reason.
+    vec4 u_RenderBounds;
 };
 
 // ---------------------------------------------------------------------------
@@ -150,7 +154,13 @@ float SampleHZBDepth(vec2 screenUV, float mipLevel)
     // (VulkanPassSuite.GtaoIsOpenOnUniformDepthAndDarkensACrease: 103/255 on an
     // open top row against 240); and on GL it had no mip filter, so every read
     // came from level 0 whatever mipLevel asked for.
-    vec2 clampedScreenUV = clamp(screenUV, vec2(0.0), vec2(1.0));
+    // Under a dynamic render scale the frame fills only [0, bounds): a horizon
+    // sample past it would read the unrendered margin's depth. Half a texel
+    // inside, so the trilinear fetch stays in the rendered corner at mip 0.
+    // An unfilled block (all zero) reads as scale 1.0, as in RenderScaleBounds.glsl.
+    vec2 bounds = all(greaterThan(u_RenderBounds.xy, vec2(0.0))) ? min(u_RenderBounds.xy, vec2(1.0)) : vec2(1.0);
+    vec2 uvMax = bounds - 0.5 / vec2(u_ScreenWidth, u_ScreenHeight);
+    vec2 clampedScreenUV = clamp(screenUV, vec2(0.0), uvMax);
     return textureLod(u_HZBDepth, clampedScreenUV * u_HZBUVFactor, mipLevel).r;
 }
 

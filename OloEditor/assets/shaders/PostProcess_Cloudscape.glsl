@@ -64,6 +64,8 @@ layout(location = 0) out vec4 o_Cloud;
 
 // Full-res scene depth (TEX_POSTPROCESS_DEPTH).
 #include "include/BindlessHeap.glsl"
+// The view ray comes from FRAME uv under a dynamic render scale (#1537).
+#include "include/RenderScaleBounds.glsl"
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)  // TEX_POSTPROCESS_DEPTH
 #else
@@ -140,7 +142,7 @@ void main()
 
     // Reconstruct the view ray in absolute world space.
     float depth = cloudConservativeDepth(ivec2(gl_FragCoord.xy));
-    vec4 ndc = vec4(v_TexCoord * 2.0 - 1.0, 1.0, 1.0); // far plane for direction
+    vec4 ndc = vec4(oloFrameUV(v_TexCoord) * 2.0 - 1.0, 1.0, 1.0); // far plane for direction
     vec4 worldFar = u_InverseViewProjection * ndc;
     worldFar.xyz /= worldFar.w;
     vec3 cameraPos = u_CameraPosition + u_RenderOrigin;
@@ -150,7 +152,7 @@ void main()
     float geomT = 1.0e12;
     if (cloudDepthContainsGeometry(depth))
     {
-        vec4 geomNdc = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+        vec4 geomNdc = vec4(oloFrameUV(v_TexCoord) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec4 geomWorld = u_InverseViewProjection * geomNdc;
         geomWorld.xyz /= geomWorld.w;
         geomT = length((geomWorld.xyz + u_RenderOrigin) - cameraPos);

@@ -853,8 +853,11 @@ TEST(GTAOMath, GtaoStatesItsHzbSamplerOnEveryBindPath)
     const auto sampleEnd = shader.find("\n}", sampleBegin);
     ASSERT_NE(sampleEnd, std::string::npos);
     const std::string sample = shader.substr(sampleBegin, sampleEnd - sampleBegin);
-    EXPECT_EQ(CountOccurrences(sample, "clamp(screenUV, vec2(0.0), vec2(1.0))"), 1)
-        << "off-screen samples no longer clamp to the viewport before the HZB UV factor";
+    // The rendered corner under a dynamic render scale (#1537), half a texel in.
+    EXPECT_EQ(CountOccurrences(sample, "clamp(screenUV, vec2(0.0), uvMax)"), 1)
+        << "off-screen samples no longer clamp to the rendered corner before the HZB UV factor";
+    EXPECT_EQ(CountOccurrences(sample, "vec2 uvMax = bounds - 0.5 / vec2(u_ScreenWidth, u_ScreenHeight);"), 1)
+        << "the clamp no longer stops half a texel inside the rendered corner";
     EXPECT_EQ(CountOccurrences(sample, "textureLod(u_HZBDepth, clampedScreenUV * u_HZBUVFactor, mipLevel)"), 1)
         << "SampleHZBDepth no longer reads the pyramid trilinear at the sample's mip";
     EXPECT_EQ(CountOccurrences(sample, "texelFetch("), 0) << "an integer fetch bypasses the sampler and the mip chain";
