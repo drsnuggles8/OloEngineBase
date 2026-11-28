@@ -266,7 +266,8 @@ namespace OloEngine::Tests::Lifecycle
         out << ",\n  \"build\": ";
         WriteString(out, report.Build);
         out << ",\n  \"seed\": " << report.Seed << ",\n  \"warmUpCycles\": " << report.WarmUpCycles
-            << ",\n  \"cycles\": " << report.Cycles << ",\n  \"operations\": ";
+            << ",\n  \"cycles\": " << report.Cycles << ",\n  \"completedCycles\": " << report.CompletedCycles
+            << ",\n  \"operations\": ";
         WriteArray(out, report.Operations, writeString);
         out << ",\n  \"skipped\": ";
         WriteArray(out, report.Skipped, writeString);
@@ -277,7 +278,14 @@ namespace OloEngine::Tests::Lifecycle
             WriteString(out, report.Executed[i].first);
             out << ": " << report.Executed[i].second;
         }
-        out << "},\n  \"validationDiagnostics\": " << report.ValidationDiagnostics << ",\n  \"frameTimes\": ";
+        out << "},\n  \"validationDiagnostics\": ";
+        if (report.ValidationDiagnostics)
+            out << *report.ValidationDiagnostics;
+        else
+            out << "null";
+        // frameTimes covers the trailing window of frameTimesWindow frames.
+        out << ",\n  \"totalFrames\": " << report.TotalFrames
+            << ",\n  \"frameTimesWindow\": " << report.AllFrameTimes.SampleCount << ",\n  \"frameTimes\": ";
         WriteTimes(out, report.AllFrameTimes);
 
         const auto writeOptionalGrowth = [&out](const char* key, const std::optional<GrowthVerdict>& growth)
@@ -317,9 +325,19 @@ namespace OloEngine::Tests::Lifecycle
         out << "\n  ]\n}\n";
     }
 
+    namespace
+    {
+        // The writer and the reader accept the same frames: a side of 1 to
+        // kMaxFrameSide pixels.
+        [[nodiscard]] bool SidesInRange(u32 width, u32 height)
+        {
+            return width != 0u && height != 0u && width <= kMaxFrameSide && height <= kMaxFrameSide;
+        }
+    } // namespace
+
     bool SaveFrame(const std::string& path, const Frame& frame)
     {
-        if (frame.Width == 0u || frame.Height == 0u ||
+        if (!SidesInRange(frame.Width, frame.Height) ||
             frame.Rgba.size() != static_cast<sizet>(frame.Width) * frame.Height * 4u)
             return false;
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -329,7 +347,9 @@ namespace OloEngine::Tests::Lifecycle
         out.write(reinterpret_cast<const char*>(&frame.Width), sizeof(frame.Width));
         out.write(reinterpret_cast<const char*>(&frame.Height), sizeof(frame.Height));
         out.write(reinterpret_cast<const char*>(frame.Rgba.data()), static_cast<std::streamsize>(frame.Rgba.size()));
-        return static_cast<bool>(out);
+        // A write the stream buffered can still fail when it is flushed.
+        out.close();
+        return !out.fail();
     }
 
     std::optional<Frame> LoadFrame(const std::string& path)
@@ -344,10 +364,18 @@ namespace OloEngine::Tests::Lifecycle
         Frame frame;
         in.read(reinterpret_cast<char*>(&frame.Width), sizeof(frame.Width));
         in.read(reinterpret_cast<char*>(&frame.Height), sizeof(frame.Height));
-        // A frame larger than 16K a side is not one this soak wrote.
-        if (!in || frame.Width == 0u || frame.Height == 0u || frame.Width > 16384u || frame.Height > 16384u)
+        if (!in || !SidesInRange(frame.Width, frame.Height))
             return std::nullopt;
-        frame.Rgba.resize(static_cast<sizet>(frame.Width) * frame.Height * 4u);
+        // A header promising more pixels than the file holds is refused before
+        // the buffer is allocated (a 16K-square header alone would ask for 1 GiB).
+        const sizet payload = static_cast<sizet>(frame.Width) * frame.Height * 4u;
+        const std::streamoff headerEnd = in.tellg();
+        in.seekg(0, std::ios::end);
+        const std::streamoff fileEnd = in.tellg();
+        if (headerEnd < 0 || fileEnd < headerEnd || static_cast<u64>(fileEnd - headerEnd) != payload)
+            return std::nullopt;
+        in.seekg(headerEnd);
+        frame.Rgba.resize(payload);
         in.read(reinterpret_cast<char*>(frame.Rgba.data()), static_cast<std::streamsize>(frame.Rgba.size()));
         if (!in)
             return std::nullopt;

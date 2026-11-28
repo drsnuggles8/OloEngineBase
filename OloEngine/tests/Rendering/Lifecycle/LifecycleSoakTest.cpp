@@ -65,6 +65,8 @@
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/DebugLevers.h"
@@ -301,12 +303,10 @@ namespace OloEngine::Tests::Lifecycle
             std::error_code ec;
             if (!m_PreviousCwd.empty())
                 fs::current_path(m_PreviousCwd, ec);
-            if (m_PreviousProject)
-                Project::NewInMemory(m_PreviousProject->GetDirectory(), m_PreviousProject->GetConfig());
-            else
-                Project::Unload();
-            if (m_PreviousAssetManager)
-                Project::SetAssetManager(m_PreviousAssetManager);
+            // The original project and asset manager objects, together, nulls
+            // included: a fresh in-memory copy with the soak's manager left
+            // behind is not what SetUp found.
+            Project::RestoreActive(m_PreviousProject, m_PreviousAssetManager);
         }
 
         // --- Contexts ------------------------------------------------------------
@@ -331,31 +331,49 @@ namespace OloEngine::Tests::Lifecycle
             Project::SetAssetManager(m_EditorAssetManager);
         }
 
-        // OloRuntime's MountGameProject: an in-memory project at the game
-        // directory, which is also the working directory, and a
-        // RuntimeAssetManager. The directory is laid out once per process by
-        // the build pipeline's own staging, from the editor's context.
+        // A shipped game, laid out in this test's temp directory from the
+        // editor's context: the build pipeline's own staging of the loose
+        // runtime content, and the asset pack beside it holding A and B. Then
+        // OloRuntime's mount: an in-memory project at the game directory,
+        // which is also the working directory, a RuntimeAssetManager, and the
+        // pack loaded from the relative path OloRuntime loads it from.
+        //
+        // The pack is checked to serve both scenes. OloRuntime itself
+        // activates a scene from its staged file (FindStartScene, then
+        // LoadSceneFile) and the pack answers handle lookups; A and B draw
+        // primitives and file-path environment maps, so a cycle reads no other
+        // pack asset.
         void EnterCookedRuntime()
         {
-            static fs::path s_Staged;
-            if (s_Staged.empty() || !fs::exists(s_Staged / "Scenes"))
+            ASSERT_NO_FATAL_FAILURE(EnterEditor());
+            const fs::path root = TempDir("LifecycleSoakGame");
+            std::string error;
+            ASSERT_TRUE(GameBuildPipeline::StageRuntimeContent(root, error)) << error;
+
+            AssetRegistry scenes;
+            std::vector<AssetHandle> packed;
+            for (const char* name : { kSceneA, kSceneB })
             {
-                ASSERT_NO_FATAL_FAILURE(EnterEditor());
-                const fs::path root = TempRoot() / "LifecycleSoakGame";
-                std::error_code ec;
-                fs::remove_all(root, ec);
-                fs::create_directories(root, ec);
-                ASSERT_FALSE(ec) << ec.message();
-                std::string error;
-                ASSERT_TRUE(GameBuildPipeline::StageRuntimeContent(root, error)) << error;
-                s_Staged = root;
-                // Back out of the editor context before mounting the game.
-                m_EditorAssetManager->Shutdown();
-                m_EditorAssetManager = nullptr;
-                ASSERT_TRUE(m_Registry->Restore());
-                m_Registry.reset();
+                const AssetHandle handle = m_EditorAssetManager->ImportAsset(LooseScene(name));
+                ASSERT_NE(static_cast<u64>(handle), 0u) << name << " is not an asset of the Sandbox project";
+                ASSERT_TRUE(scenes.AddAsset(m_EditorAssetManager->GetAssetMetadata(handle))) << name;
+                packed.push_back(handle);
             }
-            m_GameRoot = s_Staged;
+            AssetPackBuilder::BuildSettings pack;
+            pack.m_OutputPath = root / "Assets" / "AssetPack.olopack";
+            pack.m_IncludeScriptModule = false;
+            std::atomic<f32> progress{ 0.0f };
+            const auto built = AssetPackBuilder::BuildFromRegistry(scenes, pack, progress);
+            ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+            ASSERT_EQ(built.m_FailedAssetCount, 0u);
+            ASSERT_EQ(built.m_SceneCount, 2u) << "the pack must hold A and B";
+
+            // Back out of the editor context before mounting the game.
+            m_EditorAssetManager->Shutdown();
+            m_EditorAssetManager = nullptr;
+            ASSERT_TRUE(m_Registry->Restore());
+            m_Registry.reset();
+            m_GameRoot = root;
 
             ProjectConfig config;
             config.Name = "LifecycleSoakGame";
@@ -366,6 +384,14 @@ namespace OloEngine::Tests::Lifecycle
             std::error_code ec;
             fs::current_path(m_GameRoot, ec);
             ASSERT_FALSE(ec) << "cannot enter the game directory: " << ec.message();
+            ASSERT_TRUE(m_RuntimeAssetManager->LoadAssetPack("Assets/AssetPack.olopack"))
+                << "OloRuntime's pack mount failed in " << m_GameRoot.string();
+            for (const AssetHandle handle : packed)
+            {
+                EXPECT_TRUE(m_RuntimeAssetManager->IsAssetHandleValid(handle)) << static_cast<u64>(handle);
+                EXPECT_TRUE(m_RuntimeAssetManager->GetAsset(handle).As<Scene>())
+                    << "scene " << static_cast<u64>(handle) << " is not served from the mounted pack";
+            }
         }
 
         // CopySceneFiles keeps the asset-relative path under Scenes/, so the
@@ -519,6 +545,7 @@ namespace OloEngine::Tests::Lifecycle
             const f32 ms = std::chrono::duration<f32, std::milli>(std::chrono::steady_clock::now() - start).count();
             m_CycleTimes.Push(ms);
             m_AllTimes.Push(ms);
+            ++m_Report.TotalFrames;
         }
 
         void Frames(u32 count)
@@ -730,20 +757,31 @@ namespace OloEngine::Tests::Lifecycle
             return m_Host == Host::Editor ? "editor-loose" : "runtime-cooked";
         }
 
+        // The report is written however the run ends: a failed cycle still
+        // leaves the cycles that completed and the checks that ran, with every
+        // check that did not run null.
         void RunSoak(Host host)
         {
             m_Host = host;
+            m_Report.Leg = LegName();
+            m_Report.Backend = TestRenderBackend::IsVulkanProcess() ? "Vulkan" : "GL"; // as in the file names
+            m_Report.WarmUpCycles = Options().LifecycleSoakWarmUp;
+            m_Report.Cycles = Options().LifecycleSoakCycles;
+            RunSoakSteps();
+            if (!m_WroteControlOnly)
+                WriteReport();
+        }
+
+        void RunSoakSteps()
+        {
+            const Host host = m_Host;
             const TestOptions& options = Options();
             if (host == Host::Editor)
                 ASSERT_NO_FATAL_FAILURE(EnterEditor());
             else
                 ASSERT_NO_FATAL_FAILURE(EnterCookedRuntime());
 
-            m_Report.Leg = LegName();
-            m_Report.Backend = TestRenderBackend::IsVulkanProcess() ? "Vulkan" : "GL"; // as in the file names
             m_Report.Build = std::string(BuildInfo::GetGitDescribe()) + " (" + BuildInfo::GetGitHash() + ")";
-            m_Report.WarmUpCycles = options.LifecycleSoakWarmUp;
-            m_Report.Cycles = options.LifecycleSoakCycles;
             m_Report.Skipped = {
                 "msaa: not a production preset change; the state-machine harness owns MSAA transitions (#1349)",
                 "upscale: not a production preset change; the state-machine harness owns upscale transitions",
@@ -765,6 +803,7 @@ namespace OloEngine::Tests::Lifecycle
             if (!options.LifecycleSoakControlOut.empty())
             {
                 const std::string out = ReportPath(options.LifecycleSoakControlOut, LegName());
+                m_WroteControlOnly = true;
                 ASSERT_TRUE(SaveFrame(out, control.Image)) << out;
                 std::cout << "[LifecycleSoak] wrote the fresh-process control to " << out << '\n';
                 return;
@@ -803,6 +842,7 @@ namespace OloEngine::Tests::Lifecycle
                 record.ReturnToA = verdict.Diff;
                 record.FrameTimes = m_CycleTimes.Query();
                 m_Report.Records.push_back(record);
+                ++m_Report.CompletedCycles;
                 if (!warmUp)
                 {
                     gpuSamples.push_back(record.GpuResidentBytes);
@@ -812,10 +852,20 @@ namespace OloEngine::Tests::Lifecycle
             ASSERT_FALSE(HasFatalFailure());
 
             m_Report.GpuGrowth = JudgeGrowth(gpuSamples, kGpuGrowthTolerance);
-            m_Report.ProcessGrowth = JudgeGrowth(processSamples, kProcessGrowthTolerance);
             EXPECT_TRUE(m_Report.GpuGrowth->Bounded) << m_Report.GpuGrowth->Describe("GPU resident after returning to A");
-            EXPECT_TRUE(m_Report.ProcessGrowth->Bounded)
-                << m_Report.ProcessGrowth->Describe("process resident after returning to A");
+            // CurrentResidentBytes answers 0 when it cannot measure: a missing
+            // sample is no evidence of bounded growth, so the check fails and
+            // its verdict stays null in the report.
+            if (std::ranges::find(processSamples, u64{ 0 }) != processSamples.end())
+            {
+                ADD_FAILURE() << "process resident memory could not be measured in every cycle";
+            }
+            else
+            {
+                m_Report.ProcessGrowth = JudgeGrowth(processSamples, kProcessGrowthTolerance);
+                EXPECT_TRUE(m_Report.ProcessGrowth->Bounded)
+                    << m_Report.ProcessGrowth->Describe("process resident after returning to A");
+            }
 
             if (!options.LifecycleSoakControlIn.empty())
             {
@@ -857,21 +907,25 @@ namespace OloEngine::Tests::Lifecycle
             EXPECT_EQ(ReadMetadata(), controlMetadata) << "after restart: " << ReadMetadata().Describe();
 
             m_Report.ValidationDiagnostics = static_cast<u32>(ValidationErrors() - m_ValidationAtStart);
-            EXPECT_EQ(m_Report.ValidationDiagnostics, 0u) << "Vulkan validation errors during the soak";
+            EXPECT_EQ(*m_Report.ValidationDiagnostics, 0u) << "Vulkan validation errors during the soak";
+        }
+
+        void WriteReport()
+        {
             m_Report.AllFrameTimes = m_AllTimes.Query();
+            m_Report.Executed.clear();
             for (const auto& [op, count] : m_Executed)
                 m_Report.Executed.emplace_back(op, count);
 
-            WriteReport();
-        }
-
-        void WriteReport() const
-        {
             std::ostringstream summary;
             const FrameTimeTailStats& t = m_Report.AllFrameTimes;
             summary << "[LifecycleSoak] " << m_Report.Leg << " on " << m_Report.Backend << ": "
-                    << m_Report.WarmUpCycles << " warm-up + " << m_Report.Cycles << " cycles, " << t.SampleCount
-                    << " frames, p50 " << t.P50Ms << " ms, p95 " << t.P95Ms << " ms, p99 " << t.P99Ms << " ms\n";
+                    << m_Report.CompletedCycles << " of " << m_Report.WarmUpCycles << " warm-up + "
+                    << m_Report.Cycles << " cycles completed, " << m_Report.TotalFrames << " frames, p50 " << t.P50Ms
+                    << " ms, p95 " << t.P95Ms << " ms, p99 " << t.P99Ms << " ms";
+            if (t.SampleCount < m_Report.TotalFrames)
+                summary << " (over the last " << t.SampleCount << " frames)";
+            summary << '\n';
             for (const CycleRecord& r : m_Report.Records)
             {
                 summary << "  cycle " << r.Cycle << (r.WarmUp ? " (warm-up)" : "") << ": frame " << r.FrameIndexAtReturn
@@ -891,9 +945,14 @@ namespace OloEngine::Tests::Lifecycle
             if (!path.empty())
             {
                 std::ofstream out(path, std::ios::trunc);
-                EXPECT_TRUE(out.good()) << "cannot write " << path;
-                WriteJson(out, m_Report);
-                std::cout << "[LifecycleSoak] report: " << path << '\n';
+                if (out)
+                    WriteJson(out, m_Report);
+                // A buffered write can still fail when the file is closed.
+                out.close();
+                if (out.fail())
+                    ADD_FAILURE() << "cannot write the report " << path;
+                else
+                    std::cout << "[LifecycleSoak] report: " << path << '\n';
             }
         }
 
@@ -910,6 +969,7 @@ namespace OloEngine::Tests::Lifecycle
         FrameTimeTail m_CycleTimes{ 4096u };
         FrameTimeTail m_AllTimes{ 1u << 16u };
         Report m_Report;
+        bool m_WroteControlOnly = false; // the control process writes a frame, not a report
         u64 m_ValidationAtStart = 0;
         fs::path m_GameRoot;
 

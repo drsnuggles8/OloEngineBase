@@ -105,20 +105,27 @@ namespace OloEngine::Tests::Lifecycle
         std::string Build;   // commit and configuration the binary was built from
         u64 Seed = 0;        // the sequence is fixed; 0 says so
         u32 WarmUpCycles = 0;
-        u32 Cycles = 0;
+        u32 Cycles = 0;          // measured cycles requested
+        u32 CompletedCycles = 0; // warm-up and measured cycles that ran to their checkpoint
         std::vector<std::string> Operations; // one cycle's operations, in order
         std::vector<std::string> Skipped;    // "<operation>: <reason>"
         std::vector<std::pair<std::string, u32>> Executed;
         std::vector<CycleRecord> Records;
+        // Percentiles over the most recent AllFrameTimes.SampleCount frames; a
+        // long run keeps a trailing window, TotalFrames counts every one.
         FrameTimeTailStats AllFrameTimes;
+        u64 TotalFrames = 0;
         std::optional<GrowthVerdict> GpuGrowth;
         std::optional<GrowthVerdict> ProcessGrowth;
         std::optional<FrameDiff> AfterRestart;
         std::optional<FrameDiff> FreshProcessControl;
-        u32 ValidationDiagnostics = 0;
+        std::optional<u32> ValidationDiagnostics; // unset when the run stopped before counting
     };
 
     void WriteJson(std::ostream& out, const Report& report);
+
+    // The largest side, in pixels, of a frame SaveFrame writes and LoadFrame reads.
+    inline constexpr u32 kMaxFrameSide = 16384u;
 
     // A frame as a small binary file, for the fresh-process control: the soak
     // process reads what a process that only opened A wrote.

@@ -59,6 +59,10 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 if (-not $Exe) { $Exe = Join-Path $repo 'build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe' }
 if (-not $OutDir) { $OutDir = Join-Path $repo 'build-cached/lifecycle-soak' }
+# Relative paths mean the caller's directory; each process runs from the repo
+# root, so resolve both before anything changes directory.
+$Exe = [System.IO.Path]::GetFullPath($Exe, (Get-Location).Path)
+$OutDir = [System.IO.Path]::GetFullPath($OutDir, (Get-Location).Path)
 if (-not (Test-Path $Exe)) { throw "No test binary at $Exe; build OloEngine-Tests through build-lock.ps1 first." }
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
@@ -70,6 +74,11 @@ function Invoke-Soak([string]$label, [string[]]$arguments) {
     Write-Host "[lifecycle-soak] $label : $Exe $($arguments -join ' ')"
     # The test binary runs from the repo root; the fixture enters the editor
     # root (or the staged game directory) itself.
+    # A sharding environment inherited from a ctest or CI caller would hand
+    # this process an empty shard of the filter, which gtest passes.
+    $savedShards = $env:GTEST_TOTAL_SHARDS, $env:GTEST_SHARD_INDEX
+    $env:GTEST_TOTAL_SHARDS = $null
+    $env:GTEST_SHARD_INDEX = $null
     Push-Location $repo
     try {
         & $Exe @arguments *> $log
@@ -77,6 +86,7 @@ function Invoke-Soak([string]$label, [string[]]$arguments) {
     }
     finally {
         Pop-Location
+        $env:GTEST_TOTAL_SHARDS, $env:GTEST_SHARD_INDEX = $savedShards
     }
     Get-Content $log | Select-String -Pattern '^\[LifecycleSoak\]|^  (cycle|GPU|process|after restart)|^\[  (FAILED|PASSED|SKIPPED) ' |
         ForEach-Object { Write-Host "    $($_.Line)" }
@@ -85,6 +95,10 @@ function Invoke-Soak([string]$label, [string[]]$arguments) {
     }
     elseif (Select-String -Path $log -Pattern '\[  SKIPPED \]' -Quiet) {
         $failures.Add("$label skipped (no device?), log $log")
+    }
+    elseif (-not (Select-String -Path $log -Pattern '^\[  PASSED  \] [1-9][0-9]* tests?\.' -Quiet)) {
+        # Exit 0 with nothing run: the filter matched no test.
+        $failures.Add("$label ran no test, log $log")
     }
 }
 

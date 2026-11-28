@@ -13,8 +13,10 @@
 #include "TestTempDir.h"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -175,6 +177,20 @@ namespace OloEngine::Tests::Lifecycle
         Frame wrongSize = frame;
         wrongSize.Rgba.pop_back();
         EXPECT_FALSE(SaveFrame(TempFile("bad.olosoak").string(), wrongSize));
+
+        // The writer refuses what the reader would refuse, at the same limit.
+        const std::string widest = TempFile("widest.olosoak").string();
+        EXPECT_TRUE(SaveFrame(widest, Solid(kMaxFrameSide, 1, 9)));
+        EXPECT_TRUE(LoadFrame(widest).has_value()) << "the widest frame the writer takes round-trips";
+        const std::string tooWide = TempFile("toowide.olosoak").string();
+        EXPECT_FALSE(SaveFrame(tooWide, Solid(kMaxFrameSide + 1u, 1, 9)));
+        EXPECT_FALSE(std::filesystem::exists(tooWide)) << "a refused frame opens no file";
+
+        // A header that promises more pixels than follow it is refused.
+        const std::string shortFile = TempFile("short.olosoak").string();
+        ASSERT_TRUE(SaveFrame(shortFile, frame));
+        std::filesystem::resize_file(shortFile, std::filesystem::file_size(shortFile) - 1u);
+        EXPECT_FALSE(LoadFrame(shortFile).has_value()) << "a truncated payload is not a frame";
     }
 
     TEST(LifecycleSoakStats, TheReportIsJsonWithEveryAcceptanceField)
@@ -196,18 +212,41 @@ namespace OloEngine::Tests::Lifecycle
         mismatch.MaxTileShift = std::numeric_limits<f64>::infinity();
         report.AfterRestart = mismatch;
 
+        report.CompletedCycles = 1;
+        report.TotalFrames = 70000;
+
         std::ostringstream out;
         WriteJson(out, report);
-        const std::string json = out.str();
-        for (const char* key : { "\"schema\"", "\"operations\"", "\"skipped\"", "\"executed\"", "\"frameTimes\"",
-                                 "\"p99Ms\"", "\"gpuGrowth\"", "\"processGrowth\": null", "\"afterRestart\"",
-                                 "\"cycleRecords\"", "\"frameIndexAtReturn\"", "\"validationDiagnostics\"" })
+        const std::string text = out.str();
+        // A JSON reader takes the whole report, not just substrings of it.
+        const nlohmann::json json = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
+        ASSERT_FALSE(json.is_discarded()) << "not JSON:\n"
+                                          << text;
+        for (const char* key : { "schema", "build", "operations", "skipped", "executed", "frameTimes", "gpuGrowth",
+                                 "processGrowth", "afterRestart", "freshProcessControl", "cycleRecords",
+                                 "validationDiagnostics", "cycles", "completedCycles", "totalFrames",
+                                 "frameTimesWindow" })
         {
-            EXPECT_NE(json.find(key), std::string::npos) << key << " missing from\n"
-                                                         << json;
+            EXPECT_TRUE(json.contains(key)) << key << " missing from\n"
+                                            << text;
         }
-        EXPECT_NE(json.find(R"("abc \"quoted\"\n")"), std::string::npos) << "strings are escaped";
-        EXPECT_EQ(json.find("inf"), std::string::npos) << "JSON has no infinity";
-        EXPECT_NE(json.find("\"maxTileShift\":null"), std::string::npos);
+        EXPECT_EQ(json.value("schema", ""), "olo-lifecycle-soak 1");
+        EXPECT_EQ(json.value("build", ""), "abc \"quoted\"\n") << "strings are escaped";
+        EXPECT_EQ(json["operations"], nlohmann::json({ "open A", "play/stop" }));
+        EXPECT_EQ(json["executed"].value("open A", 0u), 3u);
+        EXPECT_TRUE(json["frameTimes"].contains("p99Ms"));
+        EXPECT_TRUE(json["processGrowth"].is_null()) << "a check that did not run is null, not zero";
+        EXPECT_TRUE(json["validationDiagnostics"].is_null()) << "a count that was not taken is null, not zero";
+        EXPECT_EQ(json.value("completedCycles", 0u), 1u);
+        EXPECT_EQ(json.value("totalFrames", 0u), 70000u);
+        EXPECT_TRUE(json["afterRestart"]["maxTileShift"].is_null()) << "JSON has no infinity";
+        ASSERT_EQ(json["cycleRecords"].size(), 1u);
+        EXPECT_EQ(json["cycleRecords"][0].value("cycle", 99u), 1u);
+        EXPECT_TRUE(json["cycleRecords"][0].contains("frameIndexAtReturn"));
+
+        report.ValidationDiagnostics = 0u;
+        std::ostringstream counted;
+        WriteJson(counted, report);
+        EXPECT_EQ(nlohmann::json::parse(counted.str()).value("validationDiagnostics", 99u), 0u);
     }
 } // namespace OloEngine::Tests::Lifecycle

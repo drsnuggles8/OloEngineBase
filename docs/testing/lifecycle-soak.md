@@ -54,9 +54,13 @@ Cells the soak does not run, and why:
 - **OloServer:** it has no renderer; `AppLaunchSmoke.OloServerStopsAHeadlessSceneCleanly` covers its
   only lifecycle step.
 
-The editor leg uses the Sandbox project with an `EditorAssetManager`. The runtime leg uses the game
-directory `GameBuildPipeline::StageRuntimeContent` lays out and a `RuntimeAssetManager`, as
-OloRuntime's `MountGameProject` does. OloRuntime's `RuntimeLayer` is compiled into the executable
+The editor leg uses the Sandbox project with an `EditorAssetManager`. The runtime leg lays out a
+game in the test's own temp directory: `GameBuildPipeline::StageRuntimeContent`'s loose content and
+an `Assets/AssetPack.olopack` built from A and B. It then mounts that game as OloRuntime does: an
+in-memory project, a `RuntimeAssetManager` and `LoadAssetPack`. The test checks that the mounted
+pack serves both scenes. OloRuntime activates a scene from its staged file and uses the pack for
+handle lookups. A and B draw primitives and file-path environment maps, so a cycle reads no other
+asset from the pack. OloRuntime's `RuntimeLayer` is compiled into the executable
 only, so the test mirrors its `ActivateScene` call for call instead of calling it.
 
 ## What is checked
@@ -69,7 +73,8 @@ only, so the test mirrors its `ActivateScene` call for call instead of calling i
   (`RendererMemoryTracker`), read after the deletion queues are drained, within 1 MiB. Retiring
   bytes before the drain are recorded too.
 - **Process resident memory** is recorded and judged within 64 MiB, because the heap, the driver
-  and the shader cache keep pages a process does not give back.
+  and the shader cache keep pages a process does not give back. A cycle whose sample could not be
+  taken fails the check rather than passing it as zero.
 - **The restarted renderer draws A as A**, and its `Shutdown` leaves no history, pose records,
   hand-offs or GPU-owning statics.
 - **No Vulkan validation error** (the fixture's tick already fails on one).
@@ -84,9 +89,12 @@ only, so the test mirrors its `ActivateScene` call for call instead of calling i
 
 `--olo-lifecycle-soak-report=<path>` writes `<stem>_<leg>_<backend>.json` per leg. The fields
 (schema `olo-lifecycle-soak 1`): the build, the sequence's operations and skips, executed counts
-per operation, every cycle's frame index, GPU resident and retiring bytes, process resident bytes,
-its A comparison and frame-time distribution, the run's p50/p95/p99, the growth verdicts, the
-after-restart and fresh-process comparisons, and the Vulkan validation count. The sequence is fixed
+per operation, the cycles requested and completed, every cycle's frame index, GPU resident and
+retiring bytes, process resident bytes, its A comparison and frame-time distribution, the run's
+p50/p95/p99, the growth verdicts, the after-restart and fresh-process comparisons, and the Vulkan
+validation count. A run that fails part-way still writes its report. A check that did not run is
+`null`, never zero. `totalFrames` counts every frame. The run's percentiles cover the trailing
+`frameTimesWindow` frames, which is every frame up to 65,536 (about 1,200 editor cycles). The sequence is fixed
 (`seed` 0), so the report and the binary's commit are enough to replay a run.
 
 Frame times are wall-clock time per tick on the CPU, including any GPU wait the tick makes. They
