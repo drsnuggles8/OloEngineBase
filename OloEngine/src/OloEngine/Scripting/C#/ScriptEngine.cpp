@@ -194,6 +194,10 @@ namespace OloEngine
 
     static ScriptEngineData* s_Data = nullptr;
     static Scene* s_TestSceneContext = nullptr;
+    // Field values for an engine that was never initialised: they still
+    // round-trip through the scene (serialisation, undo) as the engine-less
+    // build's stub keeps them. Cleared by Shutdown, like s_Data's own map.
+    static std::unordered_map<UUID, ScriptFieldMap> s_FieldsWithoutEngine;
 
     static void QueueAssemblyReload(u64 generation)
     {
@@ -240,6 +244,7 @@ namespace OloEngine
     {
         OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
         s_TestSceneContext = nullptr;
+        s_FieldsWithoutEngine.clear();
         if (!s_Data || !s_Data->RootDomain)
         {
             delete s_Data;
@@ -572,12 +577,7 @@ namespace OloEngine
 
         UUID entityID = entity.GetUUID();
         if (!s_Data)
-        {
-            // No engine: field values still round-trip through the scene
-            // (serialisation, undo) as the engine-less build's stub keeps them.
-            static std::unordered_map<UUID, ScriptFieldMap> s_FieldsWithoutEngine;
             return s_FieldsWithoutEngine[entityID];
-        }
         return s_Data->EntityScriptFields[entityID];
     }
 

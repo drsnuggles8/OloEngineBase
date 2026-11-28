@@ -54,4 +54,21 @@ namespace OloEngine::Tests
         EXPECT_FALSE(scene->IsRunning());
         EXPECT_EQ(ScriptEngine::GetSceneContext(), nullptr) << "Stop left the scene as the script context";
     }
+
+    // The field values an absent engine keeps belong to the session, as an
+    // initialised engine's do: Shutdown drops them, so a UUID seen again later
+    // does not get the old fields back.
+    TEST(SceneStartWithoutHost, FieldValuesKeptWithoutAnEngineEndAtShutdown)
+    {
+        if (ScriptEngine::GetCoreAssemblyImage() != nullptr)
+            GTEST_SKIP() << "this process initialised the C# engine; the case needs it absent";
+
+        Ref<Scene> scene = Scene::Create();
+        Entity scripted = scene->CreateEntity("Scripted");
+        ScriptEngine::GetScriptFieldMap(scripted)["Speed"] = ScriptFieldInstance{};
+        ASSERT_EQ(ScriptEngine::GetScriptFieldMap(scripted).size(), 1u) << "kept for the session";
+
+        ScriptEngine::Shutdown();
+        EXPECT_TRUE(ScriptEngine::GetScriptFieldMap(scripted).empty()) << "Shutdown left the old fields";
+    }
 } // namespace OloEngine::Tests
