@@ -198,6 +198,11 @@ namespace OloEngine
         // mid-run — the RNG is thread_local, so an eager seed would only touch the
         // calling thread).
         void SetRandomSeed(u64 seed);
+        // Golden-ratio-derived constant; an arbitrary but fixed default so runs
+        // are reproducible without an explicit SetRandomSeed call. Public: a
+        // scene started with no Application (a renderer-attached test, a tool)
+        // runs on this seed too.
+        static constexpr u64 kDefaultRandomSeed = 0x9E3779B97F4A7C15ULL;
         [[nodiscard("Store this!")]] u64 GetRandomSeed() const
         {
             return m_RandomSeed;
@@ -289,9 +294,6 @@ namespace OloEngine
         LayerStack m_LayerStack;
         TArray<TFunction<void()>> m_FrameWork;
         static constexpr f32 s_MaxTimestep = 0.25f;
-        // Golden-ratio-derived constant; an arbitrary but fixed default so runs
-        // are reproducible without an explicit SetRandomSeed call.
-        static constexpr u64 kDefaultRandomSeed = 0x9E3779B97F4A7C15ULL;
         f32 m_LastFrameTime = 0.0f;
         f32 m_TimeScale = 1.0f;
         f32 m_UnscaledDeltaTime = 0.0f;

@@ -151,6 +151,11 @@ OLO_LEVER_TEXT(FaultOmitOutOfBandDeclaration, "OLO_FAULT_OMIT_OUT_OF_BAND_DECLAR
                "they declare still runs. \"Boundary\" drops every pass's declaration of it, \"Pass/Boundary\" one "
                "pass's. The out-of-band ledger must report the undeclared access. Read once; tests override it "
                "through RGOutOfBand::SetOmittedDeclarationFault.")
+OLO_LEVER_EXACT(FaultSkipSceneRenderSettingsPublish, "OLO_FAULT_SKIP_SCENE_RENDER_SETTINGS_PUBLISH",
+                "FAULT (#1796 negative control): SceneTransition::ApplySceneRenderSettings publishes nothing, so a "
+                "scene that becomes the one a host draws keeps the previous scene's path, post-process stack and "
+                "quality tier. Re-creates the missing activation reset of #1563 and #1601; the lifecycle soak's "
+                "return-to-A comparison proves it sees it.")
 OLO_LEVER_EXACT(FaultShortenTransientLifetimes, "OLO_FAULT_SHORTEN_TRANSIENT_LIFETIMES",
                 "FAULT (#1349 negative control): end every transient's planned lifetime one pass before its last "
                 "access, so the alias-slot assigner can hand its backing to another transient while it is still "

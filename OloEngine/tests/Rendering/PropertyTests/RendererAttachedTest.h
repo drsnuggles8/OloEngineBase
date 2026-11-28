@@ -219,6 +219,22 @@ namespace OloEngine::Tests
         {
             return m_Scene;
         }
+        /// Make `scene` the one `RunFrames` / `RunEditorFrames` / `ResizeRenderTarget`
+        /// drive: what a host does when it activates another scene (the lifecycle
+        /// soak, #1796). The caller has put it into 3D rendering mode at
+        /// `RenderWidth()` x `RenderHeight()`. Null is allowed only on the way out.
+        void SetScene(Ref<Scene> scene)
+        {
+            m_Scene = std::move(scene);
+        }
+        [[nodiscard]] u32 RenderWidth() const
+        {
+            return m_RenderWidth;
+        }
+        [[nodiscard]] u32 RenderHeight() const
+        {
+            return m_RenderHeight;
+        }
 
         // Default viewport that the renderer renders into. Subclasses
         // can call `SetViewport(w, h)` from `BuildScene` before any tick.

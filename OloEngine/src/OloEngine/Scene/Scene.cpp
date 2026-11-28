@@ -1697,6 +1697,26 @@ namespace OloEngine
         return true;
     }
 
+    namespace
+    {
+        // The run seed and the host mode, from the Application when there is
+        // one. A scene started with no Application -- the renderer-attached
+        // test process (#1796), a tool -- is a windowed host on the
+        // Application's default seed. Application::Get() there dereferenced a
+        // null instance.
+        [[nodiscard]] u64 RunSeed()
+        {
+            const Application* app = Application::TryGet();
+            return app ? app->GetRandomSeed() : Application::kDefaultRandomSeed;
+        }
+
+        [[nodiscard]] bool HostIsHeadless()
+        {
+            const Application* app = Application::TryGet();
+            return app != nullptr && app->IsHeadless();
+        }
+    } // namespace
+
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
@@ -1811,7 +1831,7 @@ namespace OloEngine
         m_InterpCurr.clear();
         m_HasInterpSnapshots = false;
         m_RenderInterpAlpha = 0.0f;
-        RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
+        RandomUtils::SetGlobalSeed(RunSeed());
 
         // Seed each particle system's own deterministic RNG (issue #452 / #576).
         // Particle emission draws from a per-ParticleSystem stream rather than
@@ -1822,7 +1842,7 @@ namespace OloEngine
         // every child sub-emitter, via a distinct sub-stream index) its own
         // independent, replay-stable stream.
         {
-            const u64 runSeed = Application::Get().GetRandomSeed();
+            const u64 runSeed = RunSeed();
             for (auto psView = m_Registry.view<ParticleSystemComponent, IDComponent>(); auto entity : psView)
             {
                 auto& psc = psView.get<ParticleSystemComponent>(entity);
@@ -1857,7 +1877,7 @@ namespace OloEngine
         PropagateWorldTransforms();
 
         // In headless mode, disable rendering
-        if (Application::Get().IsHeadless())
+        if (HostIsHeadless())
         {
             m_RenderingEnabled = false;
         }
@@ -1865,7 +1885,7 @@ namespace OloEngine
         OnPhysics2DStart();
         OnPhysics3DStart();
 
-        if (!Application::Get().IsHeadless())
+        if (!HostIsHeadless())
         {
             InitAudioRuntime();
         }

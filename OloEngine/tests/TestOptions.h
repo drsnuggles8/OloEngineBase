@@ -211,6 +211,23 @@ namespace OloEngine::Tests
         std::string CrossPathExportDir;
         u32 StateMachineLength = 12;
         u32 StateMachineMinimizeBudget = 24;
+        // The lifecycle soak (issue #1796, Rendering/Lifecycle/). With none of
+        // these the suite runs its per-PR smoke: one warm-up cycle and two
+        // measured cycles per leg. scripts/lifecycle-soak.ps1 is the long run.
+        //   --olo-lifecycle-soak-cycles=<n> : measured cycles after warm-up.
+        //   --olo-lifecycle-soak-warmup=<n> : warm-up cycles (default 1).
+        //   --olo-lifecycle-soak-report=<path> : write the run's replay data
+        //       (operations, counts, frame IDs, memory, frame times) as JSON;
+        //       each leg appends its backend and leg to the file name.
+        //   --olo-lifecycle-soak-control-out=<path> : write scene A's settled
+        //       frame (the fresh-process control) and stop after it.
+        //   --olo-lifecycle-soak-control-in=<path> : compare A after the soak
+        //       against a frame a fresh process wrote with -control-out.
+        u32 LifecycleSoakCycles = 2;
+        u32 LifecycleSoakWarmUp = 1;
+        std::string LifecycleSoakReport;
+        std::string LifecycleSoakControlOut;
+        std::string LifecycleSoakControlIn;
     };
 
     // Parse and consume the `--olo-*` flags. Call before InitGoogleTest so the

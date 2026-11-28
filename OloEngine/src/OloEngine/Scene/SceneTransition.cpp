@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Scene/SceneTransition.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -274,6 +275,14 @@ namespace OloEngine::SceneTransition
 
     void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering)
     {
+        if (Levers::FaultSkipSceneRenderSettingsPublish())
+        {
+            OLO_CORE_WARN("[SceneTransition] FAULT lever on: scene '{}' activated without publishing its render "
+                          "settings (#1796 negative control)",
+                          scene.GetName());
+            return;
+        }
+
         // Said out loud, because a wrong path is otherwise invisible: the game
         // boots, draws, and simply lacks every Deferred-only effect (#1601). It
         // also tells an editor user why opening a scene switched their path.
