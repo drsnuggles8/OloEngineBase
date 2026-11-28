@@ -10665,9 +10665,20 @@ namespace OloEngine::Tests
                         Peaks::Firefly n;
                         n.Frame = frameIndex;
                         n.At = at;
-                        n.OnSkin = at < frame.Ids.size() && std::ranges::find(skin, frame.Ids[at]) != skin.end();
                         const u32 cx = static_cast<u32>(at % frame.Width);
                         const u32 cy = static_cast<u32>(at / frame.Width);
+                        // Skin within one pixel: a glint on the nose's
+                        // silhouette can sit on its edge in either run's
+                        // jitter phase.
+                        for (u32 y = std::max(cy, 1u) - 1u; y <= std::min(cy + 1u, frame.Height - 1u); ++y)
+                        {
+                            for (u32 x = std::max(cx, 1u) - 1u; x <= std::min(cx + 1u, frame.Width - 1u); ++x)
+                            {
+                                const sizet i = (static_cast<sizet>(y) * frame.Width) + x;
+                                n.OnSkin = n.OnSkin || (i < frame.Ids.size() &&
+                                                        std::ranges::find(skin, frame.Ids[i]) != skin.end());
+                            }
+                        }
                         for (u32 y = std::max(cy, 4u) - 4u; y <= std::min(cy + 4u, kHeight - 1u); ++y)
                         {
                             for (u32 x = std::max(cx, 4u) - 4u; x <= std::min(cx + 4u, kWidth - 1u); ++x)
