@@ -161,6 +161,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md): animated surfaces need a producer that writes the pose to a buffer before a BLAS can hold it.
 - [vulkan-extension-adoption-claims.md](vulkan-extension-adoption-claims.md): check an extension's claims against the pinned SDK's `validusage.json` and `vk.xml` before building on them.
 - [vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md): bind the descriptor heaps from a recording's first command and again right after every `vkCmdExecuteCommands`.
+- [nvidia-shader-local-memory-cap.md](nvidia-shader-local-memory-cap.md): keep a shader's per-thread local memory under 2^32 B ÷ the GPU's resident threads; NVIDIA creates a larger pipeline and loses the device on its first spill.
 - [vulkan-device-fault-address-ownership.md](vulkan-device-fault-address-ownership.md): a device-fault address means nothing alone, so turn on device-fault, NV checkpoints, the address binding report and Aftermath together.
 - [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md): bisect a Vulkan parallel-recording fault by forcing one region inline at a time.
 - [shared-uniform-binding-bind-before-dispatch.md](shared-uniform-binding-bind-before-dispatch.md): call `Bind()` on a uniform buffer before every dispatch that reads it when its binding point is shared.

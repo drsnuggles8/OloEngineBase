@@ -23,6 +23,9 @@ Every PR may add a postmortem, so style and size matter more than completeness:
   postmortem, one row in [failure-modes.md](../../docs/agent-rules/failure-modes.md). A rule that
   should load when certain files are touched gets a line in the matching `.claude/rules/*.md`.
 - `CLAUDE.md` stays under 200 lines; path-specific instructions belong in `.claude/rules/`.
+- KESTREL's game design is not engine documentation: it lives in `OloEditor/KestrelProject/docs/` under
+  its own `README.md`, never in `docs/`.
 - `pre-commit`'s `docs-consistency` hook fails on a dead link or anchor and on a doc unreachable
-  from `docs/README.md`.
+  from `docs/README.md` (a KESTREL design doc: from its own `README.md`), and on a KESTREL decision
+  without exactly one record and one `DECISIONS.md` row.
 - To audit instruction files for stale or contradictory content, run `/doctor prompt-audit`.
