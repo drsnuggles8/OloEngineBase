@@ -150,7 +150,7 @@ namespace OloEngine
             m_CommandBucket.SortCommands();
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
-            m_CommandBucket.ExecuteParallel(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::Overlay);
         }
 
         // The write ceiling ends with the pass; the full draw list it ran with

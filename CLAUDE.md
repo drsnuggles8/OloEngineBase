@@ -178,7 +178,8 @@ C++23, OpenGL 4.6 with DSA, Vulkan behind the RHI. ECS is EnTT under an `Entity`
 
 - Issue tracker: GitHub Issues at `drsnuggles8/OloEngineBase` via `gh`.
 - Skills (manual, `/name`): `start-work`, `cleanup-worktree`, `resume-worktrees`; `run-oloengine`
-  builds, runs and screenshots the apps.
+  builds, runs and screenshots the apps. `/loop /orchestrate` in the base repo runs the fleet:
+  launches workers as background sessions (`claude agents` lists them), unblocks them, cleans up.
 - Subagents in [.claude/agents/](.claude/agents/): `rules-lookup`, `spec-reviewer`, `ci-triage`,
   `live-verifier`. [task-loop.md](docs/process/task-loop.md) says which phase uses which.
 - The `olo-*` mods hold the process rules in the tool loop; they must be installed once per machine

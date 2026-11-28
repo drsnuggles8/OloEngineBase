@@ -14,6 +14,7 @@
 #include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/BoneAttachment.h"
+#include "OloEngine/Scene/Pose.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SceneLightmap.h"
@@ -1177,15 +1178,12 @@ namespace OloEngine
         [[nodiscard]] glm::vec3 ComputeWorldPosition(entt::entity entity) const;
         [[nodiscard]] glm::mat4 ComputeWorldTransform(entt::entity entity) const;
 
-        struct WorldTRS
-        {
-            glm::vec3 Position;
-            glm::quat Rotation;
-            glm::vec3 Scale;
-        };
         // For consumers that require a rigid rotation and axis lengths rather
         // than an affine matrix (such as particle emitters and colliders).
-        [[nodiscard]] WorldTRS ComputeWorldTRS(entt::entity entity) const;
+        // Composes the parent chain now, so it is valid between propagation
+        // passes, including for an entity created or reparented this tick.
+        // Policy for shear and singular parents: Scene/Pose.h.
+        [[nodiscard]] WorldPose ComputeWorldTRS(entt::entity entity) const;
         // Game-thread writes between propagation passes. A singular parent leaves the local pose intact.
         bool TrySetWorldPosition(entt::entity entity, const glm::vec3& position);
         bool TrySetWorldRotation(entt::entity entity, const glm::quat& rotation);
@@ -1202,7 +1200,10 @@ namespace OloEngine
         };
         [[nodiscard]] Physics2DPlacement GetPhysics2DPlacement(entt::entity entity) const;
         void ApplyAuthoredPhysics2DPose(Entity entity) const;
-        void SetPhysicsWorldPose(entt::entity entity, const glm::vec3& position, const glm::quat& rotation, const JoltScene& physics);
+        // Write a simulated body's world pose back into its TransformComponent,
+        // converting into the parent's frame. Takes a WorldPose (issue #1797),
+        // so a parent-local value cannot be written back as if it were world.
+        void SetPhysicsWorldPose(entt::entity entity, const WorldPose& pose, const JoltScene& physics);
 
         // Where a local light (point, spot, sphere area) sits in the world
         // (issue #1707). Position is the light entity's composed world

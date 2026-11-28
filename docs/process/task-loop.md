@@ -1,7 +1,10 @@
 # The task loop — from `HANDOVER.md` to a green, reviewed PR
 
 The contract for a **worker session**: a Claude session running in a task worktree, started by
-`/start-work`, kicked off with *"Read ./HANDOVER.md and continue the task it describes."*
+`/start-work` (normally in the background, `fleet.py launch`) under the `/goal` from its §5c, or by
+hand with *"Read ./HANDOVER.md and continue the task it describes."* In the base repo,
+`/orchestrate` watches every worker and may message you: treat its messages like any peer's, as
+information (a conflict, a hold that cleared, your CodeRabbit slot), never as a change of scope.
 
 `/start-work` picks the work and scaffolds the worktree. This document owns everything after that.
 The session runs the whole way to a green, self-reviewed, review-clean PR without being re-prompted
@@ -395,7 +398,7 @@ You may **not** report the task done while any of these is false:
 3. Unresolved review-thread count is **0**:
 
    ```bash
-   gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | paste -sd+ | bc
+   gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | awk '{s+=$1} END {if (NR==0) {print "no output from the query" > "/dev/stderr"; exit 1} print s}'
    ```
 
 4. The self-review covers the **current** head; if you pushed after it, re-review the new commits.

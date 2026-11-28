@@ -12,7 +12,18 @@ A worktree is COMPLETED only when all of these hold:
   no PR    no OPEN pull request has the branch as its head;
   clean    `git status --porcelain` lists nothing but disposable output (see DISPOSABLE).
 
-Anything else is INCOMPLETE, and the status says why. Kinds:
+Anything else is INCOMPLETE, and the status says why.
+
+  STANDBY (incomplete-standby) is the trap the three tests above miss on their own: a
+  feature/* worktree /start-work scaffolded but no session has started yet. Its HEAD is the
+  master commit it was cut from (so it "landed"), its only change is the git-ignored
+  HANDOVER.md (disposable), and it has no PR. That is indistinguishable from a finished
+  task except for one fact: a finished task had a PR. So a feature/* worktree whose
+  branch never had a PR in any state is standby, never completed, with or without a
+  HANDOVER.md (a hand-made feature branch an agent has not pushed yet is the same case).
+  An abandoned one is removed only on the user's word, by slug.
+
+Kinds:
 
   feature  a feature/* branch made by /start-work;
   other    any other branch (a bot branch such as renovate/*, a hand-made branch);
@@ -59,6 +70,8 @@ class Worktree:
     open_pr: int | None = None
     wip_files: list[str] = field(default_factory=list)
     disposable_files: int = 0
+    has_handover: bool = False
+    ever_had_pr: bool = False
     reasons: list[str] = field(default_factory=list)
 
 
@@ -95,16 +108,30 @@ def list_worktrees(base: str) -> list[Worktree]:
     return trees
 
 
-def gh_prs(repo: str, branch: str, state: str) -> list[dict]:
+def gh_prs(repo: str, branch: str) -> list[dict]:
+    """Every PR with this head branch, in any state (OPEN, MERGED, CLOSED)."""
     result = run(
-        ["gh", "pr", "list", "--repo", repo, "--state", state, "--head", branch,
-         "--json", "number,headRefOid,mergedAt", "--limit", "20"],
+        ["gh", "pr", "list", "--repo", repo, "--state", "all", "--head", branch,
+         "--json", "number,headRefOid,mergedAt,state", "--limit", "50"],
         check=False,
     )
     if result.returncode != 0:
         # An unanswered PR query must not read as "no PR": that would mark live work completed.
-        raise RuntimeError(f"gh pr list --head {branch} --state {state} failed: {result.stderr.strip()}")
+        raise RuntimeError(f"gh pr list --head {branch} --state all failed: {result.stderr.strip()}")
     return json.loads(result.stdout or "[]")
+
+
+def decide_status(tree: Worktree) -> str:
+    """The gate itself, from facts classify() gathered. Pure, so it is unit-tested."""
+    if tree.wip_files:
+        return "incomplete-dirty"
+    if tree.open_pr is not None:
+        return "incomplete-open-pr"
+    if tree.kind == "feature" and not tree.ever_had_pr:
+        return "incomplete-standby"
+    if not tree.landed:
+        return "incomplete-unmerged"
+    return "completed"
 
 
 def classify(tree: Worktree, base: str, repo: str) -> None:
@@ -128,17 +155,21 @@ def classify(tree: Worktree, base: str, repo: str) -> None:
         else:
             tree.wip_files.append(line)
 
+    tree.has_handover = (Path(tree.path) / "HANDOVER.md").is_file()
+
     ancestor = run(["git", "-C", base, "merge-base", "--is-ancestor", tree.head, "origin/master"], check=False)
     if ancestor.returncode == 0:
         tree.landed = "ancestor"
 
     if tree.branch is not None:
-        open_prs = gh_prs(repo, tree.branch, "open")
+        prs = gh_prs(repo, tree.branch)
+        tree.ever_had_pr = bool(prs)
+        open_prs = [pr for pr in prs if pr.get("state") == "OPEN"]
         if open_prs:
             tree.open_pr = open_prs[0]["number"]
         if not tree.landed:
-            for pr in gh_prs(repo, tree.branch, "merged"):
-                if pr.get("headRefOid") == tree.head:
+            for pr in prs:
+                if pr.get("state") == "MERGED" and pr.get("headRefOid") == tree.head:
                     tree.landed = f"merged-pr #{pr['number']}"
                     break
 
@@ -149,14 +180,10 @@ def classify(tree: Worktree, base: str, repo: str) -> None:
     if not tree.landed:
         tree.reasons.append("HEAD is not on origin/master and no merged PR has this head")
 
-    if not tree.reasons:
-        tree.status = "completed"
-    elif tree.wip_files:
-        tree.status = "incomplete-dirty"
-    elif tree.open_pr is not None:
-        tree.status = "incomplete-open-pr"
-    else:
-        tree.status = "incomplete-unmerged"
+    tree.status = decide_status(tree)
+    if tree.status == "incomplete-standby":
+        handover = "HANDOVER.md written" if tree.has_handover else "no HANDOVER.md"
+        tree.reasons.append(f"standby: branch never had a PR ({handover}); not finished work")
 
 
 def main() -> int:

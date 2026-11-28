@@ -728,6 +728,7 @@ namespace OloEngine
         bool hasMemoryBudgetExtension = false;
         bool hasAddressBindingExtension = false;
         bool hasDiagnosticsConfigExtension = false;
+        const char* calibratedTimestampsExtension = nullptr;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -744,6 +745,10 @@ namespace OloEngine
             hasShaderSMBuiltinsExtension = listed(VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             hasMemoryBudgetExtension = listed(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            if (listed(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
+                calibratedTimestampsExtension = VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
+            else if (listed(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
+                calibratedTimestampsExtension = VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
             hasAddressBindingExtension = listed(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
             hasDiagnosticsConfigExtension = listed(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
@@ -1005,6 +1010,18 @@ namespace OloEngine
             deviceExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
         }
         m_MemoryBudgetEnabled = hasMemoryBudgetExtension;
+        // Calibrated timestamps (#1341): Vulkan guarantees that every queue of a
+        // device writes timestamps in ONE time domain only when the device
+        // supports VK_KHR/EXT_calibrated_timestamps (VkTimeDomainKHR), and
+        // orders happens-after timestamp writes across submissions only when it
+        // is enabled (vkCmdWriteTimestamp2). The GPU queue timeline places
+        // async-compute passes on the graphics queue's frame axis, which is
+        // only meaningful under that guarantee. No feature struct; free when unused.
+        if (calibratedTimestampsExtension)
+        {
+            deviceExtensions.push_back(calibratedTimestampsExtension);
+        }
+        m_QueueTimestampsShareOneDomain = calibratedTimestampsExtension != nullptr;
 
         // Aftermath is armed BEFORE vkCreateDevice on purpose: the driver reads
         // its state at device creation, so arming later yields a dump with no

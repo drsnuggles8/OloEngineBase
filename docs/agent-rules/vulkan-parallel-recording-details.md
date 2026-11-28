@@ -144,7 +144,16 @@ without a begun frame, regions execute inline.
 ## 7. Bucket replay and region diagnostics
 
 `CommandBucket::ExecuteParallel` and `RecordPackets` partition immutable, sorted packets into
-contiguous ranges, at least 32 packets per item and at most `MAX_RENDER_WORKERS` items.
+contiguous ranges under the caller's `ReplayFamily` policy (`CommandBucket::ReplayPolicyFor`):
+no fork below `MinPacketsToFork`, items of at least `MinPacketsPerItem` packets, at most
+`MaxItems` items. The #1340 measurement set 192 packets for every family, 8 items for depth-only
+replay and 3 for shaded replay: shaded items contend, so summed worker time grows faster than the
+item count and 16 items recorded 1,580 packets slower than 3 did. The decision travels with the
+region as a `ParallelRegionHint`, so telemetry says `inlineBelowThreshold` rather than leaving an
+item count of one unexplained. The live levers `OLO_VK_PARALLEL_MIN_PACKETS`,
+`OLO_VK_PARALLEL_PACKETS_PER_ITEM` and `OLO_VK_PARALLEL_MAX_ITEMS` override every family; the
+numbers and method are in
+[vulkan-parallel-recording-policy-1340.md](../analysis/vulkan-parallel-recording-policy-1340.md).
 The dispatcher classifier rejects query-bearing meshes, observed decals and unsupported
 packet kinds; any rejected packet keeps the whole span inline. Instance capacity is computed
 before the fork. Each item owns replay statistics and a scoped view override. The caller

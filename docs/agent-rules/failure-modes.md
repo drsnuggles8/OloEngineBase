@@ -10,6 +10,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 |---|---|
 | [groom-scene-lighting-and-wetness.md](groom-scene-lighting-and-wetness.md) | A coat in a closed red room stayed lit by open sky its body could not see. |
 | [asset-loads-belong-to-the-game-thread.md](asset-loads-belong-to-the-game-thread.md) | Build Game worked on GL and lost the Vulkan device. |
+| [world-space-consumers-take-a-worldpose.md](world-space-consumers-take-a-worldpose.md) | Root-only tests passed while every parented body, emitter and light was placed at its parent-local position (#1714, #1707). |
 | [scene-render-settings.md](scene-render-settings.md) | A game shipped through Build Game ran Forward whatever the scene was authored on. |
 | [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md) | A greedy terrain that lost its authored voxel volume on undo, Play or reload re-seeded a plausible copy. |
 | [headless-input-window.md](headless-input-window.md) | A server ran its scene, then dereferenced its absent window on cursor release during shutdown. |

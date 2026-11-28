@@ -24,6 +24,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 
 - [testing.md](testing.md) — the canonical testing opinion doc: *why* we test what we test, the renderer L1–L11 pyramid + Functional axis, value heuristic, anti-patterns, classification. The hub the test suite, CI, and `agent-rules/testing-architecture.md` all point at.
 - `test-catalogue.{renderer,functional,unit}.md` — **generated & git-ignored** per-file catalogues, rendered from `test_catalogue.json` + in-file `// OLO_TEST_LAYER` tags by `OloEngine/tests/scripts/generate_test_catalogue.py`. Not tracked; regenerate on demand.
+- [testing/lifecycle-soak.md](testing/lifecycle-soak.md) — the long-lived editor and cooked-runtime lifecycle soak (#1796): the sequence, what it checks, the report, how to run the long soak and who owns it, and the coverage manifest against the state-machine harness.
 - [testing/restir-pt-1211-evidence.md](testing/restir-pt-1211-evidence.md) — numerical validation of the experimental ReSTIR PT prototype (#1211): what it supports, what makes it stand down, and the measured bias and variance.
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
 - [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
@@ -103,7 +104,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [process/development-policy.md](process/development-policy.md) sets the stabilization deadline and how the picker prioritizes KESTREL, engine maintenance and optional rendering research.
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
-The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows). All three are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
+The workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows), plus `/orchestrate` (the base-repo fleet loop over [`.claude/scripts/fleet.py`](../.claude/scripts/fleet.py): launches workers as background sessions, unblocks and schedules them, cleans up). All four are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
 
 ## analysis/ — quality & code-health reports
 
@@ -127,6 +128,8 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 - [Textured hybrid reflection hits](analysis/hybrid-reflection-hit-shading-1355.md) — canonical hit shading, the ray footprint and separated HDR evidence (#1355).
 - [Rough-specular reflection trial](analysis/hybrid-reflection-rough-specular-1356.md) — visible-normal sampling, reconstruction limits and the decision to keep the mirror tier (#1356).
 - [analysis/vulkan-parallel-recording-1013.md](analysis/vulkan-parallel-recording-1013.md) — Vulkan parallel command recording measurements (#1013): elapsed region time kept separate from summed worker time.
+- [analysis/vulkan-async-compute-overlap-1341.md](analysis/vulkan-async-compute-overlap-1341.md) — async compute measured no-go (#1341): zero overlap and +2.3 ms of GPU frame time, so crossing to the compute queue is opt-in.
+- [analysis/vulkan-parallel-recording-policy-1340.md](analysis/vulkan-parallel-recording-policy-1340.md) — the measured fork policy (#1340): a 192-packet threshold, three items for shaded replay because its items contend, and a visible-caster estimate for shadow regions.
 - Groom (epic #1223) measured comparisons: [strand visibility (#1246)](analysis/groom-strand-visibility-1246.md), [fibre scattering (#1247)](analysis/groom-fibre-scattering-1247.md), [coat self-shadowing (#1248)](analysis/groom-coat-self-shadowing-1248.md), [guide simulation (#1250)](analysis/groom-guide-simulation-1250.md), [representation LOD (#1252)](analysis/groom-representation-lod-1252.md), [ray-tracing proxies (#1253)](analysis/groom-rt-proxies-1253.md).
 - [analysis/groom-textured-shell-spike-1611.md](analysis/groom-textured-shell-spike-1611.md) — cooked-coat alpha-tested shell bake, GL comparison and production go/no-go gate (#1611).
 - [analysis/renderer-docs-reconcile-1357.md](analysis/renderer-docs-reconcile-1357.md) — the renderer documentation reconcile (#1357); see the Renderer section above.

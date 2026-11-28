@@ -143,7 +143,7 @@ namespace OloEngine
                 Renderer3D::DispatchOcclusionPhase2(cull, currentHZB);
 
             bindGBufferForDraw();
-            (void)CommandBucket::RecordPackets(rendererAPI, std::span{ m_Phase2Packets.GetData(), static_cast<sizet>(m_Phase2Packets.Num()) });
+            (void)CommandBucket::RecordPackets(rendererAPI, std::span{ m_Phase2Packets.GetData(), static_cast<sizet>(m_Phase2Packets.Num()) }, {}, CommandBucket::ReplayFamily::Occlusion);
 
             targetFB->Unbind();
 

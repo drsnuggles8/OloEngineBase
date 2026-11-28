@@ -263,6 +263,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md): component copies share the voxel volume and separate worlds detach it; only authored volumes are persisted.
 - [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
 - [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md): a precondition asserted in a constructor delegates safety to every call site.
+- [world-space-consumers-take-a-worldpose.md](world-space-consumers-take-a-worldpose.md): a world-space placement API takes `const WorldPose&` from `Scene::ComputeWorldTRS`, never `TransformComponent` values, which are parent-local.
 - [derived-graph-must-outlive-its-source.md](derived-graph-must-outlive-its-source.md): before answering "what points at X" from an existing graph, enumerate its writers and check the direction of every edge.
 
 ## Gameplay, physics and simulation

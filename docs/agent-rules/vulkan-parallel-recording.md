@@ -20,17 +20,19 @@ Covers how a pass records independent work items on task workers via `RenderComm
 14. **Verify on both backends.** OpenGL runs the same code inline. A Vulkan frame with `OLO_VK_PARALLEL_RECORDING=0` (forces inline) must match one with it on, and the validation layer must stay clean. [Details](vulkan-parallel-recording-details.md#4-converting-a-pass-the-checklist)
 15. **Measure speedup in Release only.** Debug validates correctness; MSVC debug iterators serialise containers on a global lock. Compare interleaved off/on runs with an untouched control pass and report the control's drift. [Details](vulkan-parallel-recording-details.md#5-what-a-measurement-in-a-debug-build-tells-you)
 16. **Expect inline execution without a begun frame.** Secondary pools reset with `VulkanFrameArena`'s generation and `BeginFrame(slot)` only follows that slot's fence; headless fixtures use the same clock. [Details](vulkan-parallel-recording-details.md#6-where-the-frame-clock-comes-from)
-17. **Respect the bucket replay limits.** `CommandBucket::ExecuteParallel` / `RecordPackets` use contiguous ranges of at least 32 packets per item and at most `MAX_RENDER_WORKERS` items; any rejected packet (query-bearing mesh, observed decal, unsupported kind) keeps the whole span inline. Compute instance capacity before the fork. [Details](vulkan-parallel-recording-details.md#7-bucket-replay-and-region-diagnostics)
+17. **Pass every bucket replay its `ReplayFamily`, and change a family's policy only with a Release measurement.** `CommandBucket::ExecuteParallel` / `RecordPackets` fork only at `MinPacketsToFork` packets, split into contiguous items of at least `MinPacketsPerItem`, at most `MaxItems` (#1340: 192 packets; depth 8 items, shaded families 3, because shaded replay contends as items grow). Any rejected packet (query-bearing mesh, observed decal, unsupported kind) keeps the whole span inline. Compute instance capacity before the fork. [Details](vulkan-parallel-recording-details.md#7-bucket-replay-and-region-diagnostics)
 18. **Whole-pass recording follows its own contract.** See [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md) for prepared passes, topological grouping, fences and ordered publication. [Details](vulkan-parallel-recording-details.md#8-whole-pass-recording)
 
 ## Commands and checks
 
 ```
 OLO_VK_PARALLEL_RECORDING=0     # forces inline recording, for off/on comparison
-OLO_VK_RECORDING_COSTS=1        # adds selectionSeedMs, attachmentPrepareMs, sampledImagePrepareMs, pipelineLookupMs per region
+OLO_VK_RECORDING_COSTS=1        # adds selectionSeedMs, attachmentPrepareMs, sampledImagePrepareMs, pipelineLookupMs, frontendPrepareMs per region
+OLO_VK_PARALLEL_MIN_PACKETS / OLO_VK_PARALLEL_PACKETS_PER_ITEM / OLO_VK_PARALLEL_MAX_ITEMS   # live overrides of every replay family's policy ("64"/"32"/"16" is the pre-#1340 rule)
+python scripts/perf/parallel-recording-policy-live.py --port <p> --output <json>   # interleaved off/legacy/policy A/B over MCP
 ```
 
-Leave `OLO_VK_RECORDING_COSTS` unset for the final off/on frame-time comparison. `olo_perf_pass_timings` shows region decisions and timings.
+Leave `OLO_VK_RECORDING_COSTS` unset for the final off/on frame-time comparison. `olo_perf_pass_timings` shows each region's `decision` (`parallel`, `inlineBelowThreshold`, `inlineRejectedWork`, `inlineSingleItem`, `inlineLeverOff`, `inlineNested`, `inlineUnsupported`, `inlineNoSecondary`), its `family`, `workUnits`, `itemCount` and timings.
 
 ---
 
