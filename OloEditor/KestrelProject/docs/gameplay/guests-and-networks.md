@@ -10,6 +10,8 @@ Represent physical skiable corridors, directed navigation edges/junctions and na
 
 Rendering LOD never changes authoritative behavior. Guest movement may use compact state and event-driven updates rather than per-frame decision logic. Exact pathfinding and risk algorithms remain engineering experiments.
 
+Population scale is an architectural requirement from the start ([AUD-21](#aud-21)): the vertical slice simulates at least 20,000 concurrent, individually represented skiers, and the full game's engineering ambition is about 100,000 to 200,000 concurrent guests in a large region. The slice includes a basic functional ski school ([AUD-25](#aud-25)).
+
 ## Decision records
 
 <a id="g-01"></a>
@@ -171,6 +173,22 @@ Design workshops and audit precede implementation issue edits. Consolidation is 
 **Disposition:** Accepted.
 
 Separate physical corridor, directed navigation segments/junctions and named piste identity/classification. Distinguish responsibility for stranded guests: fees may apply when clear warnings were ignored; operator bears costs for operator-caused or unexpected failures. Recovery is available irrespective of payment.
+
+<a id="aud-21"></a>
+
+### AUD-21
+
+**Disposition:** Accepted (owner decision, 2026-11-28; changes the slice's population target).
+
+The vertical-slice minimum is at least **20,000 concurrent, individually represented simulated skiers** on a representative busy region, with identity, needs, route choices, queues, transport and financial effects authoritative; idle records do not count. It replaces the earlier 5,000 target. Hardware (GTX 1660 / RX 5600 class, 6 GB VRAM, 16 GB RAM, six-core CPU) and the p95 frame time of 16.6 ms or less at 1080p on the busiest slice view are unchanged, and the population is never silently reduced if a measurement fails. The full game's engineering ambition is about **100,000 to 200,000 concurrent guests per large region**, a scalability investigation target rather than a measured capability or a requirement at the slice's frame budget; multi-region capacity is a separate measure. No arbitrary player-facing population cap. Simulation scale, rendered crowd count, daily distinct visitors and empire-wide totals are reported separately. Scalability is designed in from the first guest implementation and exercised at representative load (a 1k to 20k ladder plus 50k to 200k stress runs that report achieved rates), not deferred to optimisation. Simulation fidelity never depends on the camera ([G-17](#g-17)); render LOD and culling are allowed. Internal representation is chosen after profiling. Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q1 and Q9.
+
+<a id="aud-25"></a>
+
+### AUD-25
+
+**Disposition:** Accepted (owner decision, 2026-11-28; slice scope for G-13).
+
+A basic functional ski school is in the vertical slice, after the first external playtest checkpoint: bounded skill improvement, capacity, cost and income, and consequences for guests' later choices, with no instant mastery. Detailed lessons, individually managed instructors and multi-day or return-guest progression remain later work. A decorative building does not satisfy this. Refines [G-13](#g-13). Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q14.
 
 ## Validation and acceptance (proposed test focus)
 

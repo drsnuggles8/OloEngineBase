@@ -6,7 +6,7 @@ Status: consolidated v1.0 draft, adopted into the repository 2026-11-27 as docum
 
 Snow is a signature simulation system: persistent spatial conditions, snowfall, ice/powder, compaction, melt, grooming and traffic wear. Weather varies across a mountain; forecast uncertainty and climate evolution affect investments. Snowmaking has physical coverage, water and weather constraints; detailed utility networks are not required by default. Grooming uses fleets, terrain capabilities and automatic priorities; preserve deliberately ungroomed areas.
 
-No destructive natural disasters. Avalanche mechanics emphasize abstract protection and off-piste guest risk; exact restrictions are open. Configurable wind/realism restrictions and environmental settings preserve player choice. Keep environmental and operational effects independent of rendering. Use gameplay-driven multiresolution state and conserve snow mass/history during refinement; benchmark alternatives, including piste-aligned fields with no double ownership of mass.
+No destructive natural disasters. Avalanche mechanics emphasize abstract protection and off-piste guest risk; exact restrictions are open. Occasional visible avalanche incidents with guest exposure, patrol response and consequences are in scope, and never damage lifts or buildings ([AUD-24](#aud-24)). Configurable wind/realism restrictions and environmental settings preserve player choice. Keep environmental and operational effects independent of rendering. Use gameplay-driven multiresolution state and conserve snow mass/history during refinement; benchmark alternatives, including piste-aligned fields with no double ownership of mass.
 
 Competent automation is the baseline; optional manual optimization rewards better decisions, not more clicks.
 
@@ -131,6 +131,14 @@ Gameplay-driven multiresolution snow state independent of camera; preserve snow 
 **Disposition:** Accepted.
 
 Competent default automation, policy customization and optional expert intervention; reward improved decisions rather than repeated clicking. Preserve strategic/creative/tactical agency and reduce administrative repetition. Respect delegated authority and explain effective inherited settings. A successful mature resort may legitimately require less attention. Exact default policy competence, optimization advantages and override interactions remain playtest questions.
+
+<a id="aud-24"></a>
+
+### AUD-24
+
+**Disposition:** Accepted (owner decision, 2026-11-28; refines W-10).
+
+Actual visible avalanche incidents are wanted, with guest risk, ski patrol response and rescue, closures with stated reasons, and appropriately attributed consequences. They never damage lifts or buildings and there is no infrastructure-destruction simulation ([W-16](#w-16)); the player's resort is never destroyed. Authoritative incident state and its visual presentation are separate. Exact triggering, frequency, control measures and presentation fidelity are open experiments; avoid both a merely invisible abstract penalty and a full destructive physical avalanche solver. This updates the earlier abstract-only candidate in [W-10](#w-10). Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q12.
 
 ## Validation and acceptance (proposed test focus)
 

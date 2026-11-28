@@ -47,7 +47,7 @@ Status: consolidated v1.0 draft. Each source decision has one canonical topic ho
 | G-10 | Accepted | [G-10](gameplay/guests-and-networks.md#g-10) |
 | G-11 | Accepted | [G-11](gameplay/guests-and-networks.md#g-11) |
 | G-12 | Accepted | [G-12](gameplay/guests-and-networks.md#g-12) |
-| G-13 | Accepted | [G-13](gameplay/guests-and-networks.md#g-13) |
+| G-13 | Accepted; slice scope set by AUD-25 | [G-13](gameplay/guests-and-networks.md#g-13) |
 | G-14 | Accepted; AUD-04 controls responsibility | [G-14](gameplay/guests-and-networks.md#g-14) |
 | G-15 | Accepted | [G-15](gameplay/guests-and-networks.md#g-15) |
 | G-16 | Accepted | [G-16](gameplay/guests-and-networks.md#g-16) |
@@ -79,7 +79,7 @@ Status: consolidated v1.0 draft. Each source decision has one canonical topic ho
 | W-07 | Accepted | [W-07](gameplay/snow-and-weather.md#w-07) |
 | W-08 | Accepted | [W-08](gameplay/snow-and-weather.md#w-08) |
 | W-09 | Accepted direction; configurable | [W-09](gameplay/snow-and-weather.md#w-09) |
-| W-10 | Accepted with modification | [W-10](gameplay/snow-and-weather.md#w-10) |
+| W-10 | Accepted with modification; refined by AUD-24 | [W-10](gameplay/snow-and-weather.md#w-10) |
 | W-11 | Accepted | [W-11](gameplay/snow-and-weather.md#w-11) |
 | W-12 | Accepted | [W-12](gameplay/geography.md#w-12) |
 | W-13 | Accepted direction | [W-13](gameplay/snow-and-weather.md#w-13) |
@@ -195,7 +195,7 @@ Status: consolidated v1.0 draft. Each source decision has one canonical topic ho
 | V-18 | Accepted | [V-18](validation/automated-balancing.md#v-18) |
 | V-19 | Accepted | [V-19](validation/playtesting.md#v-19) |
 | V-20 | Accepted | [V-20](validation/playtesting.md#v-20) |
-| V-21 | Accepted with explicit distribution decision | [V-21](validation/steam-and-feedback.md#v-21) |
+| V-21 | Accepted with explicit distribution decision; Steam Playtest app chosen by AUD-26 | [V-21](validation/steam-and-feedback.md#v-21) |
 | V-22 | Accepted with priority | [V-22](validation/playtesting.md#v-22) |
 | V-23 | Accepted | [V-23](validation/playtesting.md#v-23) |
 | V-24 | Accepted | [V-24](validation/playtesting.md#v-24) |
@@ -219,5 +219,15 @@ Status: consolidated v1.0 draft. Each source decision has one canonical topic ho
 | AUD-18 | Accepted with owner concern | [AUD-18](validation/production-checkpoints.md#aud-18) |
 | AUD-19 | Accepted | [AUD-19](validation/automated-balancing.md#aud-19) |
 | AUD-20 | Accepted | [AUD-20](content/regional-and-historical-data.md#aud-20) |
+| AUD-21 | Accepted; owner decision 2026-11-28, changes the slice population target | [AUD-21](gameplay/guests-and-networks.md#aud-21) |
+| AUD-22 | Accepted as experimental default; owner decision 2026-11-28 | [AUD-22](gameplay/construction.md#aud-22) |
+| AUD-23 | Accepted; owner decision 2026-11-28 | [AUD-23](gameplay/construction.md#aud-23) |
+| AUD-24 | Accepted; owner decision 2026-11-28, refines W-10 | [AUD-24](gameplay/snow-and-weather.md#aud-24) |
+| AUD-25 | Accepted; owner decision 2026-11-28, slice scope for G-13 | [AUD-25](gameplay/guests-and-networks.md#aud-25) |
+| AUD-26 | Accepted; owner decision 2026-11-28 | [AUD-26](validation/steam-and-feedback.md#aud-26) |
+| AUD-27 | Accepted; owner decision 2026-11-28 | [AUD-27](gameplay/time-and-history.md#aud-27) |
+| AUD-28 | Accepted; owner decision 2026-11-28 | [AUD-28](gameplay/geography.md#aud-28) |
+
+AUD-21 to AUD-28 are owner decisions of 2026-11-28 from the EXP-17 backlog reconciliation, recorded [on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309).
 
 Source: [v0.15 register](archive/KESTREL-design-register-v0.15.md) and [v0.4 audit](archive/KESTREL-consistency-audit-v0.4.md).

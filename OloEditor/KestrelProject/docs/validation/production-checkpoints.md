@@ -8,6 +8,8 @@ Preserve full-game ambition and the current vertical-slice milestone unless expl
 
 Suggested sequence, not approved issue order or dates: first descent → functioning business → congestion problem → difficult winter → entire year → different mountain → connected resorts → growing empire. Steam/feedback preparation starts early in parallel where possible. The First Fun Prototype is a validation checkpoint, not a replacement milestone.
 
+Checkpoint plan reconciled with the backlog on 2026-11-28 (EXP-17 v0.3, owner decisions [AUD-21](../gameplay/guests-and-networks.md#aud-21) to [AUD-28](../gameplay/geography.md#aud-28)): CP0 foundation, CP1 First Descent ([#1865](https://github.com/drsnuggles8/OloEngineBase/issues/1865)), CP2 First Business ([#1866](https://github.com/drsnuggles8/OloEngineBase/issues/1866)), CP3 congestion as the First Fun Prototype ([#1867](https://github.com/drsnuggles8/OloEngineBase/issues/1867)) and the first external Steam playtest ([#1868](https://github.com/drsnuggles8/OloEngineBase/issues/1868), [AUD-26](steam-and-feedback.md#aud-26)), CP4 difficult winter, CP5 whole year on the real mountain, CP6 the vertical slice. Checkpoints set no dates; each carries representative-scale evidence from the start ([AUD-21](../gameplay/guests-and-networks.md#aud-21)).
+
 ## Decision records
 
 <a id="aud-18"></a>

@@ -8,6 +8,8 @@ Build and manage ski resorts on geographically distinct mountains. The core loop
 
 The full-game vision is deliberately ambitious. The current engineering north star remains a separate scope/time contract: June 30, 2027 internal vertical slice, one real Alpine mountain (approximately 10 × 10 km), 1950 start, one seasonal cycle, early technology circa 1950–1965, sandbox only, representative 1080p60 p95 on GTX 1660/RX 5600-class hardware, 6 GB VRAM, 16 GB RAM and six-core CPU. These details are recorded in the workshop history, not reverified against current code. No new milestone or release date is set here. The repository states that contract in its [north star](../../../docs/process/north-star.md). The owner settled the frame budget on 2026-11-27: the north star now gives 60 fps as a 95th-percentile frame time of 16.6 ms or less on the slice's busiest view, matching the p95 above.
 
+Scale is part of the vision ([AUD-21](gameplay/guests-and-networks.md#aud-21)): the vertical slice simulates at least 20,000 concurrent, individually represented skiers, and the full game's engineering ambition is about 100,000 to 200,000 concurrent guests in a large region, with no arbitrary player-facing population cap.
+
 ## Decision records
 
 <a id="d-001"></a>

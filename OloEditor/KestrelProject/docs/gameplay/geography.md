@@ -8,6 +8,8 @@ Base official regions on real mountains and available environmental data whereve
 
 Use data provenance and authored adjustments transparently. Do not present synthetic local snowfall or estimated historical prices as measured facts.
 
+Synthetic mountains may stand in for prototypes and labs if player-facing maps look and feel like real mountains; real terrain enters gameplay as soon as it is available ([AUD-28](#aud-28)).
+
 ## Decision records
 
 <a id="w-01"></a>
@@ -41,6 +43,14 @@ Abstract environmental impact and government/development relationships, with reg
 **Disposition:** Accepted.
 
 Real geographical data as the preferred starting point, with authored gameplay adjustments and fictional maps also supported. Data-driven maps and eventual community content are compatible; release/editor scope open.
+
+<a id="aud-28"></a>
+
+### AUD-28
+
+**Disposition:** Accepted (owner decision, 2026-11-28).
+
+Synthetic mountains are acceptable for prototypes and Gameplay Labs provided player-facing maps keep realistic terrain scale, slopes, ridges, valleys and visual coherence, so they look and feel like actual mountains. Controlled synthetic fixtures for automated correctness and scale tests may be deliberately simple or pathological. Real-data import, provenance and forest and terrain work progress in parallel, and real geography enters gameplay as soon as feasible. The vertical slice keeps its real mountain. Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q8.
 
 ## Validation and acceptance (proposed test focus)
 
