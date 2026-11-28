@@ -36,9 +36,12 @@
 // The async-compute queue pick (#808) is a pure policy over the family
 // properties the driver reports; the device owns the RESULT, not the rule.
 #include "Platform/Vulkan/VulkanQueueSelection.h"
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 
 #include <functional>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -173,6 +176,14 @@ namespace OloEngine
         [[nodiscard]] bool IsHdrMetadataEnabled() const
         {
             return m_HdrMetadataEnabled;
+        }
+        // VK_KHR/EXT_calibrated_timestamps enabled: the spec then guarantees
+        // every queue's vkCmdWriteTimestamp values share one device time
+        // domain, so a compute-queue timestamp can be placed on the graphics
+        // queue's frame axis (#1341). FALSE means that comparison is unverified.
+        [[nodiscard]] bool DoQueueTimestampsShareOneDomain() const
+        {
+            return m_QueueTimestampsShareOneDomain;
         }
         // ENABLED on the logical device (not merely supported by the physical
         // one) — the facade's SupportsInt64ShaderAtomics must report what a
@@ -374,6 +385,34 @@ namespace OloEngine
         // pending. (#691 — added to diagnose the foliage device
         // loss, kept as a permanent post-mortem instrument.)
         void LogDeviceFaultInfo() const;
+        // Levers::VulkanPipelineStatistics (#1807): pipelines are created with
+        // CAPTURE_STATISTICS, and CapturePipelineStatistics logs each
+        // executable's driver statistics and keeps, per shader name, the
+        // largest value each (executable, statistic) reached across that
+        // shader's pipeline variants — on NVIDIA the local-memory (stack) size
+        // that a device-lost scratch write points at. No-op when the lever is off.
+        struct PipelineStatistic
+        {
+            FString Executable; ///< The driver's executable name, e.g. "FS".
+            FString Name;       ///< The statistic, e.g. "Local Memory Size".
+            u64 Value = 0;      ///< Integer and boolean statistics only; a negative INT64 reads 0.
+        };
+        [[nodiscard]] bool IsPipelineStatisticsEnabled() const
+        {
+            return m_PipelineStatisticsEnabled;
+        }
+        void CapturePipelineStatistics(VkPipeline pipeline, const std::string& shaderName);
+        [[nodiscard]] TArray<PipelineStatistic> GetCapturedPipelineStatistics(const std::string& shaderName) const;
+        // VK_NV_shader_sm_builtins' SM count and resident warps per SM, read
+        // only while pipeline statistics are on; 0 when unknown.
+        [[nodiscard]] u32 GetShaderSMCount() const
+        {
+            return m_ShaderSMCount;
+        }
+        [[nodiscard]] u32 GetShaderWarpsPerSM() const
+        {
+            return m_ShaderWarpsPerSM;
+        }
         // The two halves of LogDeviceFaultInfo, each behind its own extension.
         void LogDeviceFaultRecords() const;
         // Resolve one device-fault address to the object that owned it, using the
@@ -435,9 +474,15 @@ namespace OloEngine
         f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
+        bool m_PipelineStatisticsEnabled = false;
+        u32 m_ShaderSMCount = 0;
+        u32 m_ShaderWarpsPerSM = 0;
+        mutable std::mutex m_PipelineStatisticsMutex;
+        std::unordered_map<std::string, TArray<PipelineStatistic>> m_CapturedPipelineStatistics;
         bool m_MemoryBudgetEnabled = false;
         bool m_SwapchainColorspaceEnabled = false;
         bool m_HdrMetadataEnabled = false;
+        bool m_QueueTimestampsShareOneDomain = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue
         /// reached — the one thing VK_EXT_device_fault's address records do not
@@ -476,6 +521,16 @@ namespace OloEngine
         bool m_RayTracingPipelineEnabled = false;
         RayTracing::UnsupportedReason m_RayTracingUnsupportedReason = RayTracing::UnsupportedReason::ExtensionMissing;
         RayTracing::DeviceProperties m_RayTracingProperties{};
+    };
+
+    // Two strings that own separate heap buffers and a scalar; nothing points
+    // into a statistic, so TArray growth may relocate it.
+    template<>
+    struct TIsTriviallyRelocatable<VulkanDevice::PipelineStatistic>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Executable)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Name)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(VulkanDevice::PipelineStatistic::Value)>::Value;
     };
 } // namespace OloEngine
 

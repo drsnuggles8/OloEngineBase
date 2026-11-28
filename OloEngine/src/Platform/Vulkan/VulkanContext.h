@@ -162,6 +162,12 @@ namespace OloEngine
         // parallel-recording region in flight, an open occlusion query.
         // GetAsyncComputeDeclineReason names which; it is a string literal, so
         // the view never dangles.
+        // The decline reason when the lever is unset (#1341): a decline by
+        // design, which the renderer counts without warning. Compared by
+        // address, so rewording it cannot turn the warning back on.
+        static constexpr const char* kAsyncComputeNotOptedInReason =
+            "not opted in: the graphics queue would wait for the whole batch, so crossing adds idle time without "
+            "overlap (#1341); OLO_VK_ASYNC_COMPUTE=1 crosses";
         [[nodiscard]] bool BeginAsyncComputeSegment(u32 batchIndex);
         [[nodiscard]] bool EndAsyncComputeSegment(u32 batchIndex);
         [[nodiscard]] std::string_view GetAsyncComputeDeclineReason() const

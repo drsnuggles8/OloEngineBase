@@ -5,6 +5,7 @@
 #include "FrameDataBufferFixture.h"
 #include "MockRendererAPI.h"
 #include "RenderingTestUtils.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
@@ -919,7 +920,7 @@ TEST_F(CommandLifecycleTest, SerialAndParallelReplayOfAFrozenFrameAreEquivalent)
     {
         table.Slots.assign(packets.size(), ConsumedDraw{});
         ThreadedReplayAPI threaded;
-        bucket.ExecuteParallel(threaded, 8u);
+        bucket.ExecuteParallel(threaded, CommandBucket::ParallelReplayPolicy{ .Family = "test", .MinPacketsToFork = 16u, .MinPacketsPerItem = 8u });
         ASSERT_GE(threaded.ItemsLastRegion, 2u) << "The parallel replay did not fork; the comparison would be serial against serial";
 
         EXPECT_EQ(table.UnknownPackets.load(), 0u);
@@ -931,4 +932,155 @@ TEST_F(CommandLifecycleTest, SerialAndParallelReplayOfAFrozenFrameAreEquivalent)
         }
     }
     EXPECT_EQ(RaisedTotal(), 0u);
+}
+
+// =============================================================================
+// Replay fork policy (#1340): a replay forks only above its family's threshold,
+// and every inline outcome is named
+// =============================================================================
+
+namespace
+{
+    // Records the policy context the bucket hands the backend.
+    class HintRecordingAPI final : public MockRendererAPI
+    {
+      public:
+        void RecordParallelRegion(u32 itemCount, const std::function<void(u32 item)>& body, u32 /*instanceCapacity*/,
+                                  const ParallelRegionHint& hint) override
+        {
+            ItemCount = itemCount;
+            Hint = hint;
+            for (u32 item = 0; item < itemCount; ++item)
+                body(item);
+        }
+        u32 ItemCount = 0;
+        ParallelRegionHint Hint{};
+    };
+
+    u32 RejectEverything(const CommandPacket&)
+    {
+        return 0u;
+    }
+
+    // Restores a lever override however the test leaves.
+    struct ScopedMinPacketsOverride
+    {
+        explicit ScopedMinPacketsOverride(std::optional<i64> minPackets, std::optional<i64> perItem)
+            : m_PrevMin(Levers::VulkanParallelMinPackets()), m_PrevPerItem(Levers::VulkanParallelPacketsPerItem())
+        {
+            Levers::SetVulkanParallelMinPackets(minPackets);
+            Levers::SetVulkanParallelPacketsPerItem(perItem);
+        }
+        ~ScopedMinPacketsOverride()
+        {
+            Levers::SetVulkanParallelMinPackets(m_PrevMin);
+            Levers::SetVulkanParallelPacketsPerItem(m_PrevPerItem);
+        }
+        ScopedMinPacketsOverride(const ScopedMinPacketsOverride&) = delete;
+        ScopedMinPacketsOverride& operator=(const ScopedMinPacketsOverride&) = delete;
+        ScopedMinPacketsOverride(ScopedMinPacketsOverride&&) = delete;
+        ScopedMinPacketsOverride& operator=(ScopedMinPacketsOverride&&) = delete;
+
+      private:
+        std::optional<i64> m_PrevMin;
+        std::optional<i64> m_PrevPerItem;
+    };
+} // namespace
+
+TEST_F(CommandLifecycleTest, ReplayPlanForksOnlyAboveThePolicyThreshold)
+{
+    CaptureTable table;
+    ScopedCaptureHooks hooks(table);
+    CommandBucket bucket;
+    bucket.SetAllocator(&m_Allocator);
+    for (i32 i = 0; i < 128; ++i)
+        (void)SubmitOne(bucket, i);
+    bucket.Freeze();
+    const auto all = bucket.GetPackets();
+    const CommandBucket::ParallelReplayPolicy policy{ .Family = "test", .MinPacketsToFork = 128u, .MinPacketsPerItem = 32u };
+
+    const auto below = CommandBucket::PlanParallelReplay(all.first(127), policy);
+    EXPECT_EQ(below.ItemCount, 1u);
+    EXPECT_EQ(below.Decision, ParallelRegionDecision::InlineBelowThreshold);
+
+    const auto at = CommandBucket::PlanParallelReplay(all, policy);
+    EXPECT_EQ(at.ItemCount, 4u);
+    EXPECT_EQ(at.Decision, ParallelRegionDecision::Parallel);
+
+    // No threshold, but too few packets for two items of the minimum grain.
+    const auto coarse = CommandBucket::PlanParallelReplay(all.first(100), { .Family = "test", .MinPacketsToFork = 0u, .MinPacketsPerItem = 64u });
+    EXPECT_EQ(coarse.ItemCount, 1u);
+    EXPECT_EQ(coarse.Decision, ParallelRegionDecision::InlineSingleItem);
+
+    // The item count stays capped however many packets there are.
+    const auto fine = CommandBucket::PlanParallelReplay(all, { .Family = "test", .MinPacketsToFork = 0u, .MinPacketsPerItem = 1u });
+    EXPECT_EQ(fine.ItemCount, MAX_RENDER_WORKERS);
+}
+
+TEST_F(CommandLifecycleTest, ReplayPlanNamesARejectedPacketAndAMissingClassifier)
+{
+    CaptureTable table;
+    ScopedCaptureHooks hooks(table);
+    CommandBucket bucket;
+    bucket.SetAllocator(&m_Allocator);
+    for (i32 i = 0; i < 128; ++i)
+        (void)SubmitOne(bucket, i);
+    bucket.Freeze();
+    const CommandBucket::ParallelReplayPolicy policy{ .Family = "test", .MinPacketsToFork = 64u, .MinPacketsPerItem = 32u };
+
+    CommandBucket::SetParallelReplayClassifier(&RejectEverything);
+    const auto rejected = CommandBucket::PlanParallelReplay(bucket.GetPackets(), policy);
+    EXPECT_EQ(rejected.ItemCount, 1u);
+    EXPECT_EQ(rejected.Decision, ParallelRegionDecision::InlineRejectedWork);
+
+    CommandBucket::SetParallelReplayClassifier(nullptr);
+    const auto unclassified = CommandBucket::PlanParallelReplay(bucket.GetPackets(), policy);
+    EXPECT_EQ(unclassified.ItemCount, 1u);
+    EXPECT_EQ(unclassified.Decision, ParallelRegionDecision::InlineUnsupported);
+    // ScopedCaptureHooks restores the classifier it found.
+}
+
+TEST_F(CommandLifecycleTest, ReplayHandsTheBackendItsFamilyWorkAndDecision)
+{
+    CaptureTable table;
+    ScopedCaptureHooks hooks(table);
+    CommandBucket bucket;
+    bucket.SetAllocator(&m_Allocator);
+    for (i32 i = 0; i < 96; ++i)
+        (void)SubmitOne(bucket, i);
+    bucket.SortCommands();
+    PrepareCapture(table, bucket.GetPackets());
+
+    const ScopedMinPacketsOverride defaults(std::nullopt, std::nullopt);
+    const auto family = CommandBucket::ReplayFamily::SceneColor;
+    const auto expected = CommandBucket::ReplayPolicyFor(family);
+
+    HintRecordingAPI api;
+    bucket.ExecuteParallel(api, family);
+    EXPECT_STREQ(api.Hint.Family, "sceneColor");
+    EXPECT_EQ(api.Hint.WorkUnits, 96u);
+    EXPECT_EQ(api.Hint.MinWorkUnitsToFork, expected.MinPacketsToFork);
+    const bool forks = 96u >= expected.MinPacketsToFork && 96u / expected.MinPacketsPerItem >= 2u;
+    EXPECT_EQ(api.Hint.PolicyDecision, forks ? ParallelRegionDecision::Parallel : ParallelRegionDecision::InlineBelowThreshold);
+    EXPECT_EQ(api.ItemCount > 1u, forks);
+    EXPECT_EQ(bucket.GetStatistics().DrawCalls, 96u) << "Every packet replays whichever way the policy decides";
+}
+
+TEST_F(CommandLifecycleTest, ReplayLeversOverrideEveryFamily)
+{
+    {
+        const ScopedMinPacketsOverride legacy(64, 32);
+        for (const auto family : { CommandBucket::ReplayFamily::SceneDepth, CommandBucket::ReplayFamily::Decal })
+        {
+            const auto policy = CommandBucket::EffectiveReplayPolicy(family);
+            EXPECT_EQ(policy.MinPacketsToFork, 64u);
+            EXPECT_EQ(policy.MinPacketsPerItem, 32u);
+            EXPECT_STREQ(policy.Family, CommandBucket::ToString(family));
+        }
+    }
+    const ScopedMinPacketsOverride none(std::nullopt, std::nullopt);
+    const auto policy = CommandBucket::EffectiveReplayPolicy(CommandBucket::ReplayFamily::SceneDepth);
+    const auto table = CommandBucket::ReplayPolicyFor(CommandBucket::ReplayFamily::SceneDepth);
+    EXPECT_EQ(policy.MinPacketsToFork, table.MinPacketsToFork);
+    EXPECT_EQ(policy.MinPacketsPerItem, table.MinPacketsPerItem);
 }

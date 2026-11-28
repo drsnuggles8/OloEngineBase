@@ -57,6 +57,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <limits>
 #include <array>
 #include <cmath>
 #include <filesystem>
@@ -188,18 +189,28 @@ namespace
         const u32 probe = std::max(2u, static_cast<u32>(0.25f * kCubeSize / (2.0f * halfWidth) * static_cast<f32>(width)));
 
         const glm::vec3 edge = MeanColour(rgba, width, probe + 2u, row, probe);
-        for (const f32 gapX : { -1.0f, 1.0f })
-        {
-            const glm::vec3 gap = MeanColour(rgba, width, ColumnOf(gapX, width), row, probe);
-            EXPECT_LT(Distance(gap, edge), 24.0f) << "the gap at x=" << gapX << " is not background: (" << gap.x << ", " << gap.y << ", "
-                                                  << gap.z << ") against (" << edge.x << ", " << edge.y << ", " << edge.z << ")";
-        }
+        f32 weakestCube = std::numeric_limits<f32>::max();
         for (const f32 cubeX : kCubeX)
         {
             const glm::vec3 cube = MeanColour(rgba, width, ColumnOf(cubeX, width), row, probe);
+            weakestCube = std::min(weakestCube, Distance(cube, edge));
             EXPECT_GT(Distance(cube, edge), 40.0f) << "no geometry where the cube at x=" << cubeX << " projects: (" << cube.x << ", " << cube.y
                                                    << ", " << cube.z << ") against background (" << edge.x << ", " << edge.y << ", " << edge.z << ")";
             EXPECT_GT(cube.x + cube.y + cube.z, 60.0f) << "the cube at x=" << cubeX << " is unlit";
+        }
+        // The gaps are background RELATIVE TO THE CUBES in the same frame. Bloom (a rung
+        // this ladder requests) and the indirect terms lift the gaps a little above the frame
+        // edge; an absolute 24-level bound sat one level above the gap on every vendor and
+        // failed when ClosureV2 brightened the cubes by one (#1803). A smeared frame pulls a
+        // gap a large fraction of the way to the cubes, which this still fails. The 32-level
+        // ceiling keeps very bright cubes from widening it past a real halo regression.
+        const f32 gapBound = std::min(0.2f * weakestCube, 32.0f);
+        for (const f32 gapX : { -1.0f, 1.0f })
+        {
+            const glm::vec3 gap = MeanColour(rgba, width, ColumnOf(gapX, width), row, probe);
+            EXPECT_LT(Distance(gap, edge), gapBound)
+                << "the gap at x=" << gapX << " is not background: (" << gap.x << ", " << gap.y << ", " << gap.z << ") against ("
+                << edge.x << ", " << edge.y << ", " << edge.z << "), with the weakest cube " << weakestCube << " from it";
         }
     }
 

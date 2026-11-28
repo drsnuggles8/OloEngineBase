@@ -1150,11 +1150,14 @@ namespace OloEngine::Tests
                 RHI::TextureFormatInfo format;
                 ASSERT_TRUE(RenderCommand::QueryTextureFormat(texture->GetRHIHandle(), 0, format));
                 EXPECT_EQ(format.Neutral, RHI::Format::RGBA8UNorm);
-                std::array<f32, 4> pixel{};
+                // Read the stored bytes back as bytes. A float readback of an
+                // RGBA8 texel is a driver conversion, not the texel: radeonsi
+                // routes it through fp16 and returns 0.199951 for 51/255 (#1803).
+                std::array<u8, 4> pixel{};
                 ASSERT_TRUE(RenderCommand::ReadTextureSubImage(texture->GetRHIHandle(), 0, 0, 0, 0, 1, 1, 1,
-                                                               RHI::Format::RGBA32Float, sizeof(pixel), pixel.data()));
-                EXPECT_NEAR(pixel[1], static_cast<f32>(roughness) / 255.0f, 1e-6f);
-                EXPECT_NEAR(pixel[2], static_cast<f32>(metallic) / 255.0f, 1e-6f);
+                                                               RHI::Format::RGBA8UNorm, sizeof(pixel), pixel.data()));
+                EXPECT_EQ(pixel[1], roughness);
+                EXPECT_EQ(pixel[2], metallic);
             }
         };
         ASSERT_NO_FATAL_FAILURE(expectBound(128, 128, 51, 0));

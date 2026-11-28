@@ -421,7 +421,7 @@ namespace OloEngine
         gpuSubTimers.BeginSubPass("DepthPrepass");
         // Pass 1: depth only — CommandDispatch overrides per-command state
         CommandDispatch::SetDepthPrepassActive(true, writeViewNormals);
-        m_CommandBucket.ExecuteParallel(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::SceneDepth);
         CommandDispatch::SetDepthPrepassActive(false);
         // The prepass masks every colour write, and nothing after it may inherit
         // that: on the forward paths the next pass is no longer this pass's own
@@ -617,7 +617,7 @@ namespace OloEngine
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
-            m_CommandBucket.ExecuteParallel(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI, CommandBucket::ReplayFamily::SceneColor);
         gpuSubTimers.EndSubPass();
 
         // Withdraw per-attachment write-mask narrowing. A packet narrows its

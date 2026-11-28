@@ -28,6 +28,8 @@ OloEditor/SandboxProject/Assets/Models/DriftKeeper/Keeper.abc filter=lfs diff=lf
 *.sh  text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# Checksum manifests: `sha256sum -c` reads a CR as part of the file name
+SHA256SUMS text eol=lf
 
 # Windows scripts keep CRLF
 *.bat text eol=crlf
