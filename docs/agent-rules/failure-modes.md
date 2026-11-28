@@ -209,7 +209,7 @@ No crash, no error, no log line: work or data disappears and the system keeps ru
 
 | Doc | What was dropped |
 |---|---|
-| [raw-bindless-route-driver-front-end.md](raw-bindless-route-driver-front-end.md) | The bindless route itself, per program: NVIDIA rejected a parameter named `packed` and a 15th fragment uniform block, both programs fell back and rendered, and every SPIR-V check stayed green. |
+| [raw-bindless-route-driver-front-end.md](raw-bindless-route-driver-front-end.md) | The bindless route itself, per program: NVIDIA rejected a parameter named `packed`, a 15th fragment uniform block and a mutable global lookup table (C5041, the four largest lighting programs), each program fell back and rendered, and every SPIR-V check stayed green. |
 | [ci-oom-read-the-kernel-report.md](ci-oom-read-the-kernel-report.md) | The heavy-TU compile bound, so the AMD nightly was OOM-killed for 20 nights. |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The neighbour rebuild after a carve, leaving a stale wall. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A field, from every save. |

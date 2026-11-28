@@ -47,6 +47,17 @@
 // the worst shader. Nothing writes to it; ClosureV2Test fails if `const`
 // comes back.
 //
+// EXCEPT ON THE RAW BINDLESS ROUTE (#1814), where it IS `const`. That route
+// (OpenGL only) hands this text to the driver's own GLSL front end with no
+// SPIRV-Cross in between, so nothing re-materialises the array,
+// and the global form is what fails there: NVIDIA 621.14 refused to link
+// PBR_MultiLight, PBR_MultiLight_Skinned, DeferredLighting and
+// DeferredIndirectSpecular with "C5041: cannot locate suitable resource to
+// bind variable @TMP... Possibly large array" at ggxEnergyEntry, and they fell
+// back to the slotted route. A `const` array is a native constant table to
+// that front end and links. OLO_GGX_ENERGY_TABLE_STORAGE below is the one
+// switch; ClosureV2Test pins both arms.
+//
 // Half precision costs at most 2^-12 = 2.44e-4 absolute on any entry — the
 // generator audits that bound and refuses to emit a table exceeding it.
 //
@@ -65,7 +76,8 @@
 //     a 64-point midpoint quadrature over mu at 2048 points per evaluation.
 //
 // The C++ twin is OloEngine/src/OloEngine/Renderer/PathTracing/GgxEnergyTables.h
-// — the SAME packed words, decoded with glm::unpackHalf2x16, so the two sides
+// — the SAME packed words, decoded at compile time to exactly what
+// glm::unpackHalf2x16 returns (ClosureV2Test pins it), so the two sides
 // evaluate identical quantized values. ClosureV2Test pins both files against
 // the estimator and against each other; the GPU parity probe covers the full
 // closure.
@@ -75,9 +87,20 @@
 
 #define OLO_GGX_ENERGY_TABLE_SIZE 16
 
+// The storage qualifier of both tables: `const` on the raw bindless route,
+// a plain global everywhere else (see the two paragraphs above). Keyed on
+// OLO_RAW_BINDLESS_ROUTE, which only that route's prologue defines, and NOT on
+// OLO_BINDLESS: naming the opt-in token here would put every shader that
+// includes this file on the raw route, unconverted samplers and all.
+#ifdef OLO_RAW_BINDLESS_ROUTE
+#define OLO_GGX_ENERGY_TABLE_STORAGE const
+#else
+#define OLO_GGX_ENERGY_TABLE_STORAGE
+#endif
+
 // One grid node per word: half(1 - Ess) | half(Schlick) << 16.
 // Entry index i = row * 16 + column; word = kGgxEnergyPacked[i >> 2][i & 3].
-uvec4 kGgxEnergyPacked[64] = uvec4[64](
+OLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyPacked[64] = uvec4[64](
     uvec4(0x3b972260u, 0x3b452bcdu, 0x3b421c99u, 0x3a831170u),
     uvec4(0x39870834u, 0x3870035fu, 0x36b00199u, 0x34af00d8u),
     uvec4(0x3201007au, 0x2edf0048u, 0x2ac6002cu, 0x2567001au),
@@ -146,7 +169,7 @@ uvec4 kGgxEnergyPacked[64] = uvec4[64](
 
 // The averages row, one roughness node per word:
 // half(1 - E_avg) | half(Schlick_avg) << 16.
-uvec4 kGgxEnergyAvgPacked[4] = uvec4[4](
+OLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyAvgPacked[4] = uvec4[4](
     uvec4(0x2a1800beu, 0x2a1800beu, 0x2a1800beu, 0x2a1800beu),
     uvec4(0x2a130694u, 0x2a001021u, 0x29cb18fdu, 0x295f1fdbu),
     uvec4(0x28b524fau, 0x27b1296eu, 0x25d82d46u, 0x242630a5u),

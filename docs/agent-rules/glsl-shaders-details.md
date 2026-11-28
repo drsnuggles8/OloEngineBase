@@ -1023,6 +1023,19 @@ Rules distilled:
   To measure a shader's scratch on the AMD box: `AMD_DEBUG=stats,ps` (or `cs`) with
   `MESA_SHADER_CACHE_DISABLE=true`; the `Shader Stats:` lines carry `Scratch:` and
   `PrivMem VGPRs:`. `AMD_DEBUG=vm` lists every driver buffer with its size.
+- **Except on the raw bindless route, where the global form is what fails** (#1814). That
+  route hands the text to the driver's own GLSL front end; no SPIRV-Cross re-materialises
+  anything. On NVIDIA 621.14 the global table took the four largest lighting programs
+  (`PBR_MultiLight`, `PBR_MultiLight_Skinned`, `DeferredLighting`,
+  `DeferredIndirectSpecular`) off the route at link: `C5041: cannot locate suitable
+  resource to bind variable "@TMP9741". Possibly large array`, at the line of
+  `ggxEnergyEntry`'s `kGgxEnergyPacked[i >> 2][i & 3]`. Declared `const` there, all four
+  link. `PBRClosureV2Energy.glsl` therefore declares both tables through
+  `OLO_GGX_ENERGY_TABLE_STORAGE`, `const` under `OLO_RAW_BINDLESS_ROUTE` (a marker only the route's
+  prologue defines; `OLO_BINDLESS` here would be the opt-in trap in the §5e table) and empty
+  otherwise, and
+  `ClosureV2.EnergyTablesGlslTwinCarriesTheSameNumbers` pins both arms. Smaller programs
+  that include the same table linked either way, so again only the largest consumer shows it.
 - **glslc validation and single-shader GPU tests do not cover the biggest consumer.**
   A shared-include change is only proven by compiling (or running) the largest shader
   that includes it — the full-suite visual tests are what caught this one.

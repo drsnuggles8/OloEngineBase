@@ -474,7 +474,7 @@ namespace OloEngine
         // instead, so a patch-logic-only change is otherwise invisible to the
         // key and would silently keep serving binaries built from the old
         // patch (caught in review).
-        constexpr std::string_view kBindlessPatchVersion = "bindless-patch-v1";
+        constexpr std::string_view kBindlessPatchVersion = "bindless-patch-v2";
 
         // Mirrors VulkanTierOptions above for the SPIRV-Cross → GLSL → OpenGL
         // SPIR-V tier (CompileOrGetOpenGLBinaries): the cross-compiler options
@@ -1458,9 +1458,18 @@ namespace OloEngine
             // Utils::kBindlessPatchVersion — this route's program-binary
             // cache key hashes the raw pre-patch source, which can't see a
             // patch-logic-only change (issue #906).
+            //
+            // OLO_RAW_BINDLESS_ROUTE (#1814) tells a SHARED include it is being
+            // compiled by the driver's own front end, so it can pick the
+            // spelling that front end accepts (PBRClosureV2Energy.glsl's
+            // `const` tables). It is deliberately NOT the opt-in token: an
+            // include that tested `#ifdef OLO_BINDLESS` would name the opt-in
+            // in every includer's resolved source and move all of them onto
+            // this route, unconverted samplers and all.
             static constexpr std::string_view kPrologue =
                 "#extension GL_ARB_bindless_texture : require\n"
-                "#define OLO_BINDLESS 1\n";
+                "#define OLO_BINDLESS 1\n"
+                "#define OLO_RAW_BINDLESS_ROUTE 1\n";
 
             std::string patched = stageSource;
 

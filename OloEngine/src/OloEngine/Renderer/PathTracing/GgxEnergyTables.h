@@ -2,9 +2,10 @@
 
 #include "OloEngine/Core/Base.h"
 
-#include <glm/gtc/packing.hpp>
+#include <glm/vec2.hpp>
 
 #include <array>
+#include <bit>
 
 // =============================================================================
 // GGX SINGLE-SCATTER ENERGY TABLES — GENERATED, DO NOT HAND-EDIT
@@ -39,8 +40,8 @@
 // assignment too complex" once the lookups were inlined at PBR_MultiLight.glsl's
 // three lighting call sites (SPIRV-Cross materialises a dynamically-indexed
 // constant array as a local temporary per site). Both languages therefore
-// carry the packed words and decode them identically (glm::unpackHalf2x16
-// here, unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized
+// carry the packed words and decode them identically (DecodeHalf at compile
+// time here, unpackHalf2x16 in GLSL), so the two sides evaluate the SAME quantized
 // values. Half quantization costs at most 2^-12 = 2.44e-4 absolute on any
 // entry (half an ulp of the [0.5, 1) binade) — the generator audits that bound
 // and refuses to emit a table exceeding it.
@@ -130,18 +131,70 @@ namespace OloEngine::PathTracing
         0x28b524fau, 0x27b1296eu, 0x25d82d46u, 0x242630a5u, 0x21923379u, 0x1f2f3584u, 0x1c86377fu, 0x19a538bau
     };
 
-    // Decode one grid node (i in [0, 255]): x = 1 - Ess, y = Schlick.
+    // One IEEE-754 binary16 -> binary32, at compile time (issue #997). Every
+    // half is exactly representable as a float, so this is exact, and it is
+    // the conversion glm::unpackHalf2x16 performs at runtime: ClosureV2Test
+    // compares the two bit for bit on every table entry. Zero, subnormal,
+    // normal, infinity and NaN are all decoded, though the tables hold only
+    // finite non-negative values.
+    [[nodiscard]] constexpr f32 DecodeHalf(u32 half) noexcept
+    {
+        const u32 sign = (half & 0x8000u) << 16;
+        const u32 exponent = (half >> 10) & 0x1Fu;
+        u32 mantissa = half & 0x3FFu;
+        if (exponent == 0x1Fu)
+            return std::bit_cast<f32>(sign | 0x7F800000u | (mantissa << 13));
+        if (exponent != 0u)
+            return std::bit_cast<f32>(sign | ((exponent + 112u) << 23) | (mantissa << 13));
+        if (mantissa == 0u)
+            return std::bit_cast<f32>(sign);
+        // Subnormal half: m * 2^-24. Shift until the implicit bit appears.
+        u32 floatExponent = 113u;
+        while ((mantissa & 0x400u) == 0u)
+        {
+            mantissa <<= 1;
+            --floatExponent;
+        }
+        return std::bit_cast<f32>(sign | (floatExponent << 23) | ((mantissa & 0x3FFu) << 13));
+    }
+
+    // The packed words decoded once, at compile time: entry i is
+    // { low half, high half } = { x, y }, unpackHalf2x16's order. The packed
+    // arrays above stay the single generated artefact; these are derived.
+    template<sizet N>
+    [[nodiscard]] consteval std::array<std::array<f32, 2>, N> DecodeHalfPairs(
+        const std::array<u32, N>& words) noexcept
+    {
+        std::array<std::array<f32, 2>, N> decoded{};
+        for (sizet i = 0; i < N; ++i)
+            decoded[i] = { DecodeHalf(words[i] & 0xFFFFu), DecodeHalf(words[i] >> 16) };
+        return decoded;
+    }
+
+    inline constexpr std::array<std::array<f32, 2>, 256> kGgxEnergyDecoded = DecodeHalfPairs(kGgxEnergyPacked);
+    inline constexpr std::array<std::array<f32, 2>, 16> kGgxEnergyAvgDecoded = DecodeHalfPairs(kGgxEnergyAvgPacked);
+
+    // Compared as bit patterns: 1.0f, 0.5f, +0.0f, then 2^-24 and 1023 * 2^-24.
+    static_assert(std::bit_cast<u32>(DecodeHalf(0x3C00u)) == 0x3F800000u &&
+                      std::bit_cast<u32>(DecodeHalf(0x3800u)) == 0x3F000000u &&
+                      std::bit_cast<u32>(DecodeHalf(0x0000u)) == 0x00000000u,
+                  "DecodeHalf disagrees with IEEE-754 binary16 on a normal value");
+    static_assert(std::bit_cast<u32>(DecodeHalf(0x0001u)) == 0x33800000u &&
+                      std::bit_cast<u32>(DecodeHalf(0x03FFu)) == 0x387FC000u,
+                  "DecodeHalf disagrees with IEEE-754 binary16 on a subnormal");
+
+    // One grid node (i in [0, 255]): x = 1 - Ess, y = Schlick. A plain array load.
     // GLSL twin: ggxEnergyEntry in PBRClosureV2Energy.glsl.
     [[nodiscard]] inline glm::vec2 GgxEnergyEntry(u32 i) noexcept
     {
-        return glm::unpackHalf2x16(kGgxEnergyPacked[i]);
+        return { kGgxEnergyDecoded[i][0], kGgxEnergyDecoded[i][1] };
     }
 
-    // Decode one averages node (i in [0, 15]): x = 1 - E_avg, y = Schlick_avg.
+    // One averages node (i in [0, 15]): x = 1 - E_avg, y = Schlick_avg. A plain array load.
     // GLSL twin: ggxEnergyAvgEntry in PBRClosureV2Energy.glsl.
     [[nodiscard]] inline glm::vec2 GgxEnergyAvgEntry(u32 i) noexcept
     {
-        return glm::unpackHalf2x16(kGgxEnergyAvgPacked[i]);
+        return { kGgxEnergyAvgDecoded[i][0], kGgxEnergyAvgDecoded[i][1] };
     }
 
 } // namespace OloEngine::PathTracing

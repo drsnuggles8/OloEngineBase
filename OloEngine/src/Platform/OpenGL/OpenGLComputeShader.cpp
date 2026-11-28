@@ -128,8 +128,11 @@ namespace OloEngine
                               ShaderSourceScan::MentionsOutsideComments(source, "OLO_BINDLESS");
         if (m_IsBindlessVariant)
         {
+            // OLO_RAW_BINDLESS_ROUTE: the marker the graphics route's prologue
+            // defines for shared includes (OpenGLShader.cpp, #1814).
             static constexpr std::string_view kPrologue =
-                "#extension GL_ARB_bindless_texture : require\n#define OLO_BINDLESS 1\n";
+                "#extension GL_ARB_bindless_texture : require\n#define OLO_BINDLESS 1\n"
+                "#define OLO_RAW_BINDLESS_ROUTE 1\n";
             if (const sizet versionPos = patched.find("#version"); versionPos != std::string::npos)
             {
                 const sizet eol = patched.find('\n', versionPos);

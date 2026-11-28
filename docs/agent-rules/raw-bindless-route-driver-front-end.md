@@ -4,7 +4,7 @@
 include-resolved source names `OLO_BINDLESS`) reaches the driver as GLSL text through
 `OpenGLShader::CreateProgramFromRawGLSL`. No shaderc, no SPIR-V and no SPIRV-Cross stand between
 your source and the driver, so a shader that compiles everywhere else can still be rejected there.
-Two limits apply that the slotted route never shows you:
+Three limits apply that the slotted route never shows you:
 
 1. **Do not name an identifier `packed`, `row_major`, `register` or `char`.** NVIDIA's front end
    reserves them; glslang does not. As a parameter or local name they fail with `C1012: abstract
@@ -15,6 +15,13 @@ Two limits apply that the slotted route never shows you:
    minimum; Mesa radeonsi reports 15. The slotted route prunes inactive blocks in SPIRV-Cross and has
    no heap block, so a stage can sit at the limit there and be over it here (`C5058: no buffers
    available for bindable uniform`, at link time).
+3. **Declare a dynamically indexed lookup table `const` on this route.** As a mutable global
+   (which the SPIR-V routes need, glsl-shaders.md rule 23) NVIDIA 621.14 refuses the large
+   lighting programs at link with `C5041: cannot locate suitable resource to bind variable
+   "@TMP…". Possibly large array` (#1814). Switch the qualifier under
+   `#ifdef OLO_RAW_BINDLESS_ROUTE`, which only the route's prologue defines, as
+   `include/PBRClosureV2Energy.glsl` does. Never switch it under `OLO_BINDLESS`: in a shared
+   include that token is the opt-in, and it moves every includer onto the route.
 
 A program the driver rejects **falls back to the slotted route per program** and still renders, so
 the only symptom is a log line. Since #1565/#1567 that line is
@@ -73,6 +80,9 @@ count toward its own limit of 16 and touched every bindless consumer.
 A standalone WGL program that compiles and links files with `glShaderSource` and prints the
 info log and `GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER` counts answers both questions in
 seconds. Feed it the `.bindless.failed.glsl` dump from `%LOCALAPPDATA%\OloEngine\ShaderCache\opengl\`
-(the exact text the driver saw), or a flattened stage with the route's two-line prologue
-(`#extension GL_ARB_bindless_texture : require`, `#define OLO_BINDLESS 1`) inserted after
-`#version`.
+(the exact text the driver saw; written for a failed compile, and since #1814 for every stage of
+a failed link too, because NVIDIA reports link errors against a stage's line), or a flattened
+stage with the route's two-line prologue (`#extension GL_ARB_bindless_texture : require`,
+`#define OLO_BINDLESS 1`) inserted after `#version`. A vertex stage also needs the route's two
+builtin substitutions, `gl_InstanceIndex` → `gl_InstanceID` and `gl_VertexIndex` → `gl_VertexID`,
+or it fails to compile with C7531 before the link is reached.

@@ -26,10 +26,13 @@
 #include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 
+#include <glm/gtc/packing.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -231,11 +234,34 @@ namespace OloEngine::Tests
         EXPECT_EQ(count("const uvec4 kGgxEnergy"), 0u)
             << "an energy table is declared `const` again -- see the NOT A CONSTANT ARRAY paragraph of "
                "PBRClosureV2Energy.glsl's header before reverting that";
-        EXPECT_EQ(count("\nuvec4 kGgxEnergyPacked[64] = "), 1u);
-        EXPECT_EQ(count("\nuvec4 kGgxEnergyAvgPacked[4] = "), 1u);
+        EXPECT_EQ(count("\nOLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyPacked[64] = "), 1u);
+        EXPECT_EQ(count("\nOLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyAvgPacked[4] = "), 1u);
 
-        const std::vector<u32> table = ParseGlslPackedArray(src, "\nuvec4 kGgxEnergyPacked[64]");
-        const std::vector<u32> avg = ParseGlslPackedArray(src, "\nuvec4 kGgxEnergyAvgPacked[4]");
+        // ...EXCEPT on the raw bindless route (#1814), where the global form
+        // fails NVIDIA's link with C5041 and `const` is the fix. Both arms of
+        // the one switch, spelled exactly: the SPIR-V routes must see nothing.
+        std::string lf = src; // the working tree may be CRLF (core.autocrlf)
+        std::erase(lf, '\r');
+        EXPECT_NE(lf.find("#ifdef OLO_RAW_BINDLESS_ROUTE\n#define OLO_GGX_ENERGY_TABLE_STORAGE const\n#else\n"
+                          "#define OLO_GGX_ENERGY_TABLE_STORAGE\n#endif\n"),
+                  std::string::npos)
+            << "the table storage switch changed: `const` belongs on the raw bindless route ONLY (see the "
+               "EXCEPT ON THE RAW BINDLESS ROUTE paragraph of PBRClosureV2Energy.glsl's header)";
+
+        // And the switch must not be keyed on the route's OPT-IN token. Every
+        // lit shader includes this file, and OpenGLShader::WantsBindlessVariant
+        // opts a program in when its include-resolved source names OLO_BINDLESS
+        // outside comments: `#ifdef OLO_BINDLESS` here moved twenty programs
+        // with unconverted samplers onto the raw route, where those samplers
+        // read black (caught in review of #1814's first fix).
+        EXPECT_FALSE(ShaderSourceScan::MentionsOutsideComments(src, "OLO_BINDLESS"))
+            << "PBRClosureV2Energy.glsl names OLO_BINDLESS outside a comment, which opts every includer onto "
+               "the raw bindless route; key on OLO_RAW_BINDLESS_ROUTE instead";
+
+        const std::vector<u32> table =
+            ParseGlslPackedArray(src, "\nOLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyPacked[64]");
+        const std::vector<u32> avg =
+            ParseGlslPackedArray(src, "\nOLO_GGX_ENERGY_TABLE_STORAGE uvec4 kGgxEnergyAvgPacked[4]");
 
         // 256 + 16 packed words (one per node) is the full generated payload;
         // a miscount means the parse anchored on the wrong text or the arrays
@@ -259,6 +285,44 @@ namespace OloEngine::Tests
             EXPECT_EQ(avg[i], kGgxEnergyAvgPacked[i])
                 << "kGgxEnergyAvgPacked word " << i << " differs between PBRClosureV2Energy.glsl and "
                 << "GgxEnergyTables.h — the two generated files have drifted; regenerate BOTH.";
+        }
+    }
+
+    // =========================================================================
+    // 2b. The compile-time decode is the runtime decode (issue #997).
+    //
+    // GgxEnergyEntry / GgxEnergyAvgEntry read tables DecodeHalf filled at
+    // compile time instead of calling glm::unpackHalf2x16 per lookup. The
+    // GLSL side still calls unpackHalf2x16, so a decoder that differs in one
+    // bit on one entry splits the CPU/GPU parity. Compared as BITS, not as
+    // floats, on every entry: equal values are not enough to be bit-identical.
+    // =========================================================================
+    TEST(ClosureV2, CompileTimeDecodedTablesMatchUnpackHalf2x16BitForBit)
+    {
+        const auto expectBitIdentical = [](u32 word, const glm::vec2& decoded, const std::string& where)
+        {
+            const glm::vec2 runtime = glm::unpackHalf2x16(word);
+            EXPECT_EQ(std::bit_cast<u32>(decoded.x), std::bit_cast<u32>(runtime.x)) << where << ", low half";
+            EXPECT_EQ(std::bit_cast<u32>(decoded.y), std::bit_cast<u32>(runtime.y)) << where << ", high half";
+        };
+        for (u32 i = 0; i < static_cast<u32>(kGgxEnergyPacked.size()); ++i)
+            expectBitIdentical(kGgxEnergyPacked[i], GgxEnergyEntry(i), "kGgxEnergyPacked word " + std::to_string(i));
+        for (u32 i = 0; i < static_cast<u32>(kGgxEnergyAvgPacked.size()); ++i)
+            expectBitIdentical(kGgxEnergyAvgPacked[i], GgxEnergyAvgEntry(i),
+                               "kGgxEnergyAvgPacked word " + std::to_string(i));
+
+        // The decoder on every binary16 class glm handles, not only the ones
+        // today's tables happen to hold: a regenerated table may land on any.
+        for (u32 half = 0; half <= 0xFFFFu; ++half)
+        {
+            const f32 runtime = glm::unpackHalf2x16(half).x;
+            const f32 decoded = DecodeHalf(half);
+            if (std::isnan(runtime))
+            {
+                EXPECT_TRUE(std::isnan(decoded)) << "half 0x" << std::hex << half;
+                continue;
+            }
+            ASSERT_EQ(std::bit_cast<u32>(decoded), std::bit_cast<u32>(runtime)) << "half 0x" << std::hex << half;
         }
     }
 
