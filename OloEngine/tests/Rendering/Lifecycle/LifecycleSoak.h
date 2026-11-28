@@ -105,8 +105,8 @@ namespace OloEngine::Tests::Lifecycle
         std::string Build;   // commit and configuration the binary was built from
         u64 Seed = 0;        // the sequence is fixed; 0 says so
         u32 WarmUpCycles = 0;
-        u32 Cycles = 0;          // measured cycles requested
-        u32 CompletedCycles = 0; // warm-up and measured cycles that ran to their checkpoint
+        u32 Cycles = 0;                      // measured cycles requested
+        u32 CompletedCycles = 0;             // warm-up and measured cycles that ran to their checkpoint
         std::vector<std::string> Operations; // one cycle's operations, in order
         std::vector<std::string> Skipped;    // "<operation>: <reason>"
         std::vector<std::pair<std::string, u32>> Executed;
