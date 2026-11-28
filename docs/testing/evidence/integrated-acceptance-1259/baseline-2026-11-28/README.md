@@ -8,8 +8,9 @@ directories (captures, `measurement.csv`, editor logs) are not tracked (#1610).
 ## Host state per attempt
 
 `nvidia-smi` before launch and after exit: graphics / memory clock, board power, temperature. They
-are taken just before launch and just after exit (a launch right after another run still reads boost
-clocks), not under the run's own load; the harness does not sample clocks during a run, and it records
+are taken just before launch and just after exit (a launch right after another run can still read boost
+clocks: 3 of 29 attempts did, `gl-deferred` round 1, `gl-forward-repeat` round 1 and `vk-deferred`
+round 2 attempt 3), not under the run's own load; the harness does not sample clocks during a run, and it records
 no CPU clock. During the run it samples GPU utilisation and the process list every
 30 s: the samples column counts them, and *foreign* lists any competing or new GPU process.
 
@@ -46,6 +47,170 @@ no CPU clock. During the run it samples GPU utilisation and the process list eve
 | vk-hybrid | round-03-attempt-4 | counted | 13:02:53 | 383 | 210 MHz / 405 MHz, 16.19 W, 43.48 °C | 405 MHz / 5001 MHz, 31.95 W, 40.08 °C | 14 | 0–75 | none |
 
 The two `failed` attempts are the editor capture stalls (#1871).
+
+## ShadowPass sub-passes
+
+Every `ShadowPass/<Family>` and `ShadowPass/<Family>/<Class>` bracket (#1590) above 0.05 ms, for the
+GL Forward VSM cell, the GL Forward CSM control and the Vulkan Forward cell, from the campaign's
+`summary.json`. `campaign-summary.md` lists only each camera's ten largest sub-passes; the report's
+caster-class comparison reads this table. A bracket missing from a camera did not run there.
+
+| cell | camera | sub-pass | p50 ms (range over counted runs) |
+|---|---|---|---:|
+| gl-forward | head-closeup | `ShadowPass/VsmLocal` | 23.0–23.3 |
+| gl-forward | head-closeup | `ShadowPass/VsmLocal/FoliageCasters` | 0.1 |
+| gl-forward | head-closeup | `ShadowPass/VsmLocal/FoliageCull` | 1.1–1.3 |
+| gl-forward | head-closeup | `ShadowPass/VsmLocal/GroomCasters` | 21.0–21.5 |
+| gl-forward | head-closeup | `ShadowPass/VsmLocal/MeshCasters` | 0.5 |
+| gl-forward | head-closeup | `ShadowPass/VsmPages` | 0.3–0.4 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun` | 6.1–6.2 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/FoliageCasters` | 0.9 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/FoliageCull` | 2.0 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/GroomCasters` | 1.9–2.0 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/MeshCasters` | 0.3 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/SkinnedCasters` | 0.3 |
+| gl-forward | head-closeup | `ShadowPass/VsmSun/TerrainCasters` | 0.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmLocal` | 24.2–25.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmLocal/FoliageCull` | 0.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmLocal/GroomCasters` | 23.1–24.4 |
+| gl-forward | head-backlit | `ShadowPass/VsmLocal/MeshCasters` | 0.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmPages` | 0.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun` | 5.4–5.5 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun/FoliageCasters` | 0.9 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun/FoliageCull` | 2.0 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun/GroomCasters` | 1.4 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun/MeshCasters` | 0.3 |
+| gl-forward | head-backlit | `ShadowPass/VsmSun/TerrainCasters` | 0.5–0.6 |
+| gl-forward | coats-closeup | `ShadowPass/VsmLocal` | 5.4–5.5 |
+| gl-forward | coats-closeup | `ShadowPass/VsmLocal/FoliageCasters` | 2.3 |
+| gl-forward | coats-closeup | `ShadowPass/VsmLocal/FoliageCull` | 0.6 |
+| gl-forward | coats-closeup | `ShadowPass/VsmLocal/GroomCasters` | 2.5 |
+| gl-forward | coats-closeup | `ShadowPass/VsmPages` | 0.4 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun` | 15.9–16.0 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun/FoliageCasters` | 8.7–8.8 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun/FoliageCull` | 2.0–2.1 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun/GroomCasters` | 4.1 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun/SkinnedCasters` | 0.3 |
+| gl-forward | coats-closeup | `ShadowPass/VsmSun/TerrainCasters` | 0.7 |
+| gl-forward | population-dolly | `ShadowPass/VsmPages` | 0.5 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun` | 19.3–19.4 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun/FoliageCasters` | 11.1–11.4 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun/FoliageCull` | 2.1 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun/GroomCasters` | 4.7–4.8 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun/SkinnedCasters` | 0.3 |
+| gl-forward | population-dolly | `ShadowPass/VsmSun/TerrainCasters` | 0.8 |
+| gl-forward | rapid-turn | `ShadowPass/VsmLocal` | 1.0 |
+| gl-forward | rapid-turn | `ShadowPass/VsmLocal/FoliageCasters` | 0.1 |
+| gl-forward | rapid-turn | `ShadowPass/VsmLocal/FoliageCull` | 0.6 |
+| gl-forward | rapid-turn | `ShadowPass/VsmLocal/GroomCasters` | 0.1 |
+| gl-forward | rapid-turn | `ShadowPass/VsmPages` | 0.6 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun` | 16.6–16.8 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun/FoliageCasters` | 12.4–12.6 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun/FoliageCull` | 2.1 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun/GroomCasters` | 0.9 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun/SkinnedCasters` | 0.1 |
+| gl-forward | rapid-turn | `ShadowPass/VsmSun/TerrainCasters` | 0.9 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas` | 7.9–8.2 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas/FoliageCasters` | 0.1 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas/FoliageCull` | 1.1 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas/GroomCasters` | 6.3 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas/SkinnedCasters` | 0.2 |
+| gl-forward-csm | head-closeup | `ShadowPass/Atlas/TerrainCasters` | 0.1 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm` | 2.1 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm/FoliageCasters` | 0.6 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm/FoliageCull` | 0.5 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm/GroomCasters` | 0.2 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm/SkinnedCasters` | 0.6 |
+| gl-forward-csm | head-closeup | `ShadowPass/Csm/TerrainCasters` | 0.1 |
+| gl-forward-csm | head-backlit | `ShadowPass/Atlas` | 7.0–7.1 |
+| gl-forward-csm | head-backlit | `ShadowPass/Atlas/FoliageCasters` | 0.1 |
+| gl-forward-csm | head-backlit | `ShadowPass/Atlas/FoliageCull` | 0.5 |
+| gl-forward-csm | head-backlit | `ShadowPass/Atlas/GroomCasters` | 6.2 |
+| gl-forward-csm | head-backlit | `ShadowPass/Atlas/SkinnedCasters` | 0.1 |
+| gl-forward-csm | head-backlit | `ShadowPass/Csm` | 1.6 |
+| gl-forward-csm | head-backlit | `ShadowPass/Csm/FoliageCasters` | 0.6 |
+| gl-forward-csm | head-backlit | `ShadowPass/Csm/FoliageCull` | 0.5 |
+| gl-forward-csm | head-backlit | `ShadowPass/Csm/GroomCasters` | 0.2 |
+| gl-forward-csm | head-backlit | `ShadowPass/Csm/TerrainCasters` | 0.1 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Atlas` | 5.1–5.3 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Atlas/FoliageCasters` | 2.1–2.3 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Atlas/FoliageCull` | 0.6 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Atlas/GroomCasters` | 2.1–2.4 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Atlas/SkinnedCasters` | 0.1 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm` | 9.1–9.6 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm/FoliageCasters` | 7.0–7.5 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm/FoliageCull` | 0.5 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm/GroomCasters` | 0.5 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm/SkinnedCasters` | 0.9 |
+| gl-forward-csm | coats-closeup | `ShadowPass/Csm/TerrainCasters` | 0.2 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm` | 12.6–13.4 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm/FoliageCasters` | 10.5–11.2 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm/FoliageCull` | 0.6 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm/GroomCasters` | 0.5 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm/SkinnedCasters` | 0.9 |
+| gl-forward-csm | population-dolly | `ShadowPass/Csm/TerrainCasters` | 0.2 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Atlas` | 1.1–1.2 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Atlas/FoliageCasters` | 0.1–0.2 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Atlas/FoliageCull` | 0.6 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Atlas/GroomCasters` | 0.1 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Atlas/SkinnedCasters` | 0.1 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm` | 12.3–13.2 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm/FoliageCasters` | 10.8–11.8 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm/FoliageCull` | 0.6 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm/GroomCasters` | 0.2 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm/SkinnedCasters` | 0.4 |
+| gl-forward-csm | rapid-turn | `ShadowPass/Csm/TerrainCasters` | 0.2 |
+| vk-forward | head-closeup | `ShadowPass/VsmLocal` | 18.9–20.0 |
+| vk-forward | head-closeup | `ShadowPass/VsmLocal/FoliageCull` | 1.4–1.5 |
+| vk-forward | head-closeup | `ShadowPass/VsmLocal/GroomCasters` | 17.0–18.0 |
+| vk-forward | head-closeup | `ShadowPass/VsmLocal/MeshCasters` | 0.3 |
+| vk-forward | head-closeup | `ShadowPass/VsmLocal/TerrainCasters` | 0.1 |
+| vk-forward | head-closeup | `ShadowPass/VsmPages` | 0.3 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun` | 5.9–6.0 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/FoliageCasters` | 0.8 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/FoliageCull` | 2.7 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/GroomCasters` | 1.3–1.4 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/MeshCasters` | 0.3 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/SkinnedCasters` | 0.0–0.1 |
+| vk-forward | head-closeup | `ShadowPass/VsmSun/TerrainCasters` | 0.5 |
+| vk-forward | head-backlit | `ShadowPass/VsmLocal` | 18.4–19.6 |
+| vk-forward | head-backlit | `ShadowPass/VsmLocal/FoliageCull` | 0.9–1.0 |
+| vk-forward | head-backlit | `ShadowPass/VsmLocal/GroomCasters` | 17.0–18.4 |
+| vk-forward | head-backlit | `ShadowPass/VsmLocal/MeshCasters` | 0.3 |
+| vk-forward | head-backlit | `ShadowPass/VsmPages` | 0.4–0.6 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun` | 5.6–5.7 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun/FoliageCasters` | 0.8 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun/FoliageCull` | 2.7 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun/GroomCasters` | 1.1 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun/MeshCasters` | 0.3 |
+| vk-forward | head-backlit | `ShadowPass/VsmSun/TerrainCasters` | 0.5 |
+| vk-forward | coats-closeup | `ShadowPass/VsmLocal` | 7.2–7.6 |
+| vk-forward | coats-closeup | `ShadowPass/VsmLocal/FoliageCasters` | 3.7–3.9 |
+| vk-forward | coats-closeup | `ShadowPass/VsmLocal/FoliageCull` | 0.8–0.9 |
+| vk-forward | coats-closeup | `ShadowPass/VsmLocal/GroomCasters` | 2.5–2.6 |
+| vk-forward | coats-closeup | `ShadowPass/VsmLocal/TerrainCasters` | 0.2 |
+| vk-forward | coats-closeup | `ShadowPass/VsmPages` | 0.5 |
+| vk-forward | coats-closeup | `ShadowPass/VsmSun` | 15.5–15.6 |
+| vk-forward | coats-closeup | `ShadowPass/VsmSun/FoliageCasters` | 8.4–8.6 |
+| vk-forward | coats-closeup | `ShadowPass/VsmSun/FoliageCull` | 2.7 |
+| vk-forward | coats-closeup | `ShadowPass/VsmSun/GroomCasters` | 3.3 |
+| vk-forward | coats-closeup | `ShadowPass/VsmSun/TerrainCasters` | 0.8 |
+| vk-forward | population-dolly | `ShadowPass/VsmPages` | 0.5–0.7 |
+| vk-forward | population-dolly | `ShadowPass/VsmSun` | 15.3–15.4 |
+| vk-forward | population-dolly | `ShadowPass/VsmSun/FoliageCasters` | 9.3–9.6 |
+| vk-forward | population-dolly | `ShadowPass/VsmSun/FoliageCull` | 3.1–3.2 |
+| vk-forward | population-dolly | `ShadowPass/VsmSun/GroomCasters` | 1.3–1.4 |
+| vk-forward | population-dolly | `ShadowPass/VsmSun/TerrainCasters` | 0.8 |
+| vk-forward | rapid-turn | `ShadowPass/VsmLocal` | 1.2 |
+| vk-forward | rapid-turn | `ShadowPass/VsmLocal/FoliageCasters` | 0.2 |
+| vk-forward | rapid-turn | `ShadowPass/VsmLocal/FoliageCull` | 0.8 |
+| vk-forward | rapid-turn | `ShadowPass/VsmLocal/GroomCasters` | 0.1 |
+| vk-forward | rapid-turn | `ShadowPass/VsmPages` | 0.5 |
+| vk-forward | rapid-turn | `ShadowPass/VsmSun` | 14.6–15.0 |
+| vk-forward | rapid-turn | `ShadowPass/VsmSun/FoliageCasters` | 10.0–10.3 |
+| vk-forward | rapid-turn | `ShadowPass/VsmSun/FoliageCull` | 2.7 |
+| vk-forward | rapid-turn | `ShadowPass/VsmSun/GroomCasters` | 0.7 |
+| vk-forward | rapid-turn | `ShadowPass/VsmSun/TerrainCasters` | 0.9 |
 
 ## Plan
 
