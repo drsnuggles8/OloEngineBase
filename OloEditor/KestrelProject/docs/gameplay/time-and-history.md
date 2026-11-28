@@ -8,6 +8,8 @@ All ordinary play uses one continuous calendar with pause, five speeds and confi
 
 Preserve RNG state by default, support optional future reseeding and diagnostic save lineage. No Ironman mode or ordinary reload penalties. Replay from a versioned initial state and timestamped commands; same seed/actions must give equivalent authoritative results across camera, speed, presentation presets, save/load and headless execution. A change of regional ruleset, such as simplified or frozen inactive-region operation ([T-08](#t-08), [T-11](#t-11)), is a different ruleset and need not replay equivalently (owner clarification, 2026-11-27). Keyed independent streams are a candidate, not a mandated algorithm.
 
+Tester saves are generally preserved across ordinary playtest updates; a breaking change is versioned and announced, and an incompatible save is backed up and rejected without mutation, never silently overwritten ([AUD-27](#aud-27)).
+
 ## Decision records
 
 <a id="t-01"></a>
@@ -113,6 +115,14 @@ One coherent continuous calendar with pause and five speed levels; configurable 
 **Disposition:** Accepted.
 
 Preserve random state by default; optional reseeding of future uncertainty, deterministic action replay and save/load lineage for diagnostics. Owner explicitly rejects Ironman-style mode. Do not punish ordinary reloads. Independent keyed RNG domains and stable event identifiers are proposed implementation approaches. Restore authoritative state including randomness, validate camera/preset/speed/headless/save equivalence for identical actions, and record version/seed provenance. Exact reseed scope and lineage persistence remain implementation questions; no intrusive anti-cheat.
+
+<a id="aud-27"></a>
+
+### AUD-27
+
+**Disposition:** Accepted (owner decision, 2026-11-28).
+
+External tester saves are generally preserved across ordinary updates, through explicit migration of supported versions. Breaking changes will occur: they are versioned and communicated, the old save is safely backed up, and an incompatible save is clearly rejected without mutation; nothing is silently overwritten or lost. Saves carry versioned authoritative state, RNG state, the ledger, content IDs and fingerprint, and operating history. Internal experimental formats need not be supported indefinitely, and there is no guarantee of migrating every prototype. Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q13.
 
 ## Validation and acceptance (proposed test focus)
 

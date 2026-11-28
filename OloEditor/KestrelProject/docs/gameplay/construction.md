@@ -6,7 +6,7 @@ Status: consolidated v1.0 draft, adopted into the repository 2026-11-27 as docum
 
 The player creates functional infrastructure directly on the mountain. Free-form lifts and pistes receive live geometry/cost/rights validation and optional precision aids; buildings support attractive ready-made variants and optional customization. Preserve the terrain as a meaningful constraint.
 
-The operating lifecycle is red (closed), yellow (test run), green (open). Construction may be corrected before first opening only where the underlying transaction is safe. Opening is the irreversible operational refund boundary; later closure or retesting never restores the original refund. Keep structural modification and demolition separate from preview editing. Handle terrain, rights, reservations and dependent objects transactionally even before opening. No ordinary passenger revenue during testing.
+The operating lifecycle is red (closed), yellow (test run), green (open). Construction may be corrected before first opening only where the underlying transaction is safe. Opening is the irreversible operational refund boundary; later closure or retesting never restores the original refund. Keep structural modification and demolition separate from preview editing. Handle terrain, rights, reservations and dependent objects transactionally even before opening. No ordinary passenger revenue during testing. The experimental developer-default refund for an eligible pre-opening correction is 100 % ([AUD-22](#aud-22)). Lift lines may cross when a conservative clearance check passes ([AUD-23](#aud-23)).
 
 Blueprints describe designs, not paid assets or reservations. Revalidate all dependencies and prices against the destination at placement. Do not implement persistent project-management commitments as an accepted requirement.
 
@@ -115,6 +115,22 @@ Owner proposes RollerCoaster Tycoon-style red (closed/construction), yellow (tes
 **Disposition:** Accepted.
 
 Blueprints are reusable editable construction descriptions, not reservations, assets or financial commitments. Revalidate terrain, rights, technology, collisions, dependencies and current prices at placement; use ordinary authoritative construction commands. Elaborate persistent multi-project management remains deferred.
+
+<a id="aud-22"></a>
+
+### AUD-22
+
+**Disposition:** Accepted as an experimental default (owner decision, 2026-11-28).
+
+An eligible, transaction-safe correction made before an object's first opening refunds 100 % of the amount actually paid as the developer default. It is an experimental value: configurable refund rates and demolition recovery remain tunables (EXP-03), and the ordinary rate stays bounded between 0 and 100 %. Operating costs already incurred, such as a test run's, are not refunded because construction is undone. Redo re-quotes at current prices ([AUD-13](#aud-13)). Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q10.
+
+<a id="aud-23"></a>
+
+### AUD-23
+
+**Disposition:** Accepted (owner decision, 2026-11-28).
+
+Lift crossings are not prohibited categorically. A crossing is allowed when geometric and operational constraints permit: appropriate 3D separation under relevant operating conditions, accounting for cable sag, carrier envelope and swing, tower and station geometry, and equipment-specific limits. Validation is conservative and every refusal states its reason. Exact clearance values are research and tuning decisions in game terms, not real-world engineering certification. Provenance: [owner decisions of 2026-11-28 on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7241796309), Q11.
 
 ## Validation and acceptance (proposed test focus)
 

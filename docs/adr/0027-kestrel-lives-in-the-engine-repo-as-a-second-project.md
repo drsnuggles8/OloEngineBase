@@ -66,8 +66,9 @@ second, different game (a city builder, a survival game) would want the piece un
 
 ## 4. Where the game's simulation code lives
 
-The slice simulates thousands of skiers (target 5 000 on a busy day,
-[#1747](https://github.com/drsnuggles8/OloEngineBase/issues/1747)), lifts, a whole-mountain snowpack and an
+The slice simulates thousands of skiers (at least 20 000 concurrent on a busy day since the owner's decision of
+2026-11-28, [AUD-21](../../OloEditor/KestrelProject/docs/gameplay/guests-and-networks.md#aud-21); the target was 5 000 when
+this ADR was accepted, [#1747](https://github.com/drsnuggles8/OloEngineBase/issues/1747)), lifts, a whole-mountain snowpack and an
 economy, inside a 16.6 ms frame on a 6-core CPU, next to the renderer. That budget decides the question.
 
 | | A. Engine C++ systems in `OloEngine/` | B. The project's C# assembly | C. A native game module in `KestrelProject/Source/` |
@@ -83,7 +84,7 @@ economy, inside a 16.6 ms frame on a 6-core CPU, next to the renderer. That budg
 
 - B fails the deciding constraint: the per-agent update must be data-oriented and parallel on the task system,
   and C# scripts reach neither the scheduler nor the worker threads. This is reasoning from the engine's
-  structure, not a measurement made here; revisiting B would start by measuring 5 000 agents updated
+  structure, not a measurement made here; revisiting B would start by measuring 20 000 agents updated
   through internal calls against the same loop in C++.
 - A meets the budget but puts ski-resort rules into the engine library every other consumer links, which is the
   boundary §3 exists to prevent.
