@@ -435,6 +435,19 @@ namespace OloEngine
         {
             return s_RendererAPI && s_RendererAPI->IsRecordingParallelItem();
         }
+        // RecordParallel with the caller's policy context (#1340), recorded
+        // with the region's telemetry.
+        static void RecordParallelRegion(const u32 itemCount, const std::function<void(u32 item)>& body, const u32 instanceCapacity,
+                                         const ParallelRegionHint& hint)
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->RecordParallelRegion(itemCount, body, instanceCapacity, hint);
+                return;
+            }
+            for (u32 item = 0; item < itemCount; ++item)
+                body(item);
+        }
         static void RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity = 1u)
         {
             if (s_RendererAPI)

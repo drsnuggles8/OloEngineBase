@@ -10,6 +10,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 |---|---|
 | [groom-scene-lighting-and-wetness.md](groom-scene-lighting-and-wetness.md) | A coat in a closed red room stayed lit by open sky its body could not see. |
 | [asset-loads-belong-to-the-game-thread.md](asset-loads-belong-to-the-game-thread.md) | Build Game worked on GL and lost the Vulkan device. |
+| [world-space-consumers-take-a-worldpose.md](world-space-consumers-take-a-worldpose.md) | Root-only tests passed while every parented body, emitter and light was placed at its parent-local position (#1714, #1707). |
 | [scene-render-settings.md](scene-render-settings.md) | A game shipped through Build Game ran Forward whatever the scene was authored on. |
 | [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md) | A greedy terrain that lost its authored voxel volume on undo, Play or reload re-seeded a plausible copy. |
 | [headless-input-window.md](headless-input-window.md) | A server ran its scene, then dereferenced its absent window on cursor release during shutdown. |
@@ -21,6 +22,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job on a driver below the ADR 0010 contract skipped every device-gated test and printed `[  PASSED  ]`. |
 | [assimp-smooth-normals-on-indexed-meshes.md](assimp-smooth-normals-on-indexed-meshes.md) | A flat-grid test of smooth normal generation passed while every shared vertex of a curved glTF kept one face's normal. |
 | [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md) | Eight `ReSTIRPTDevice` cases "timed out on slow software compute". |
+| [nvidia-shader-local-memory-cap.md](nvidia-shader-local-memory-cap.md) | The ReSTIR PT replay suite passed on AMD and lavapipe while its 21 984 B stack lost every NVIDIA device that created the pipeline. |
 | [vulkan-support-matrix.md](vulkan-support-matrix.md) | A green `Windows.yml` while no runner could execute the Vulkan device or L7 ray-query suites. |
 | [generated-evidence-stays-out-of-git.md](generated-evidence-stays-out-of-git.md) | Every PR stayed green while evidence commits grew the tracked tree to 2.19 GB. |
 | [renderer-pr-gpu-tests-run-after-merge.md](renderer-pr-gpu-tests-run-after-merge.md) | A GTAO fix merged green because every GPU test skips on PR CI. |

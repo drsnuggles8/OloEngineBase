@@ -4,6 +4,7 @@
 #include "JoltShapes.h"
 #include "JoltLayerInterface.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <cmath>
@@ -969,7 +970,7 @@ namespace OloEngine
         return shape;
     }
 
-    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const glm::vec3& position, const glm::quat& rotation, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
+    JPH::BodyCreationSettings JoltBody::CreateBodySettings(const WorldPose& pose, const Rigidbody3DComponent& rigidBodyComponent, JPH::Ref<JPH::Shape> shape) const
     {
         // Convert body type
         EBodyType bodyType = static_cast<EBodyType>(rigidBodyComponent.m_Type);
@@ -981,8 +982,8 @@ namespace OloEngine
         // Create body creation settings
         JPH::BodyCreationSettings bodySettings(
             shape,
-            JoltUtils::ToJoltVector(position),
-            JoltUtils::ToJoltQuat(rotation),
+            JoltUtils::ToJoltVector(pose.Position),
+            JoltUtils::ToJoltQuat(pose.Rotation),
             motionType,
             objectLayer);
 
@@ -1078,6 +1079,13 @@ namespace OloEngine
 
         const auto& rigidBodyComponent = m_Entity.GetComponent<Rigidbody3DComponent>();
         const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
+        // A non-finite parent frame has no world pose. Jolt would place the
+        // body at NaN and poison every broadphase query that touches it.
+        if (!Math::IsFinite(pose.Position) || !Math::IsFinite(glm::vec4(pose.Rotation.x, pose.Rotation.y, pose.Rotation.z, pose.Rotation.w)))
+        {
+            OLO_CORE_ERROR("Not creating a Jolt body for entity {0}: its world pose is not finite", (u64)m_Entity.GetUUID());
+            return;
+        }
 
         // Create shape for the entity
         JPH::Ref<JPH::Shape> shape = CreateShapeForBody();
@@ -1087,7 +1095,7 @@ namespace OloEngine
         }
 
         // Create body creation settings
-        JPH::BodyCreationSettings bodySettings = CreateBodySettings(pose.Position, pose.Rotation, rigidBodyComponent, shape);
+        JPH::BodyCreationSettings bodySettings = CreateBodySettings(pose, rigidBodyComponent, shape);
 
         // Create the body
         m_BodyID = m_Scene->GetBodyInterface().CreateAndAddBody(bodySettings, JPH::EActivation::Activate);

@@ -69,6 +69,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <functional>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -129,17 +130,25 @@ namespace OloEngine::Tests
             }
         };
 
-        // The steepest HORIZONTAL luminance step anywhere inside a normalised
-        // box, and the mean luminance over it.
+        // How steep the steepest HORIZONTAL luminance steps inside a normalised
+        // box are, and the mean luminance over it.
         //
         // A GRADIENT, NOT A BLUR RADIUS. "Is it blurred?" has no direct
         // measurement in a frame, but "how fast does the image change here?" has
         // one, and a blur can only ever lower it. That makes claim 1 a
         // one-directional inequality and claim 3 a two-sided bound, both of
         // which survive a change of exposure, tonemapper or path.
+        //
+        // THE MEAN OF THE STEEPEST FEW, NOT THE SINGLE STEEPEST. Since ClosureV2
+        // (#1497) the control terminator is a 4-level step in 8-bit luma, so an
+        // 8% softening is a third of one level, and one sample's max reads the
+        // gather at 0.93 of the control where the 16 steepest read 0.80 (#1803).
+        // Averaging the peak keeps "the steepest step here" and drops most of
+        // the quantisation.
+        static constexpr sizet kPeakGradientSamples = 16;
         struct BoxStats
         {
-            f32 MaxGradient = 0.0f;
+            f32 PeakGradient = 0.0f;
             f32 MeanLuma = 0.0f;
             f32 MeanRedFraction = 0.0f;
             u64 Samples = 0;
@@ -160,6 +169,8 @@ namespace OloEngine::Tests
             BoxStats stats{};
             f64 lumaSum = 0.0;
             f64 redSum = 0.0;
+            std::vector<f32> gradients;
+            gradients.reserve(static_cast<sizet>(x1 - x0 + 1u) * (y1 - y0 + 1u));
             for (u32 y = y0; y <= y1; ++y)
             {
                 for (u32 x = x0; x <= x1; ++x)
@@ -172,8 +183,18 @@ namespace OloEngine::Tests
 
                     const f32 left = LumaAt(capture.Pixels, capture.Index(x - 1u, y));
                     const f32 right = LumaAt(capture.Pixels, capture.Index(x + 1u, y));
-                    stats.MaxGradient = std::max(stats.MaxGradient, std::abs(right - left));
+                    gradients.push_back(std::abs(right - left));
                 }
+            }
+            const sizet peak = std::min(kPeakGradientSamples, gradients.size());
+            std::partial_sort(gradients.begin(), gradients.begin() + static_cast<std::ptrdiff_t>(peak), gradients.end(),
+                              std::greater<>());
+            if (peak > 0)
+            {
+                f64 peakSum = 0.0;
+                for (sizet i = 0; i < peak; ++i)
+                    peakSum += static_cast<f64>(gradients[i]);
+                stats.PeakGradient = static_cast<f32>(peakSum / static_cast<f64>(peak));
             }
             if (stats.Samples > 0)
             {
@@ -222,12 +243,40 @@ namespace OloEngine::Tests
         // fallen to nothing.
         constexpr f32 kShadowedOffset = 0.055f;
 
+        [[nodiscard]] f32 FindHighlightX(const Capture& capture);
+
+        // How far right of the specular highlight the terminator search starts,
+        // as a fraction of the frame width. The highlight's own flank is a
+        // luminance edge too, and since ClosureV2 (#1497) it is STEEPER than the
+        // terminator: the search picked x=0.33 beside a highlight at x=0.30, put
+        // every box on the lit side, and reported "the terminator did not
+        // soften" about a region with no terminator in it (#1803).
+        constexpr f32 kHighlightClearance = 0.08f;
+
+        // The smallest terminator-box PeakGradient that still counts as "the
+        // frame has a terminator": 2.5 steps of 8-bit luma across the two-pixel
+        // difference. A missing key light leaves the box flat (at most one step).
+        // ClosureV2's terminator measures 0.0154 (4 steps); the 0.02 this
+        // replaced was set on the harder Legacy-closure edge (#1803).
+        constexpr f32 kMinTerminatorGradient = 0.01f;
+
         // The x of the steepest vertical-band luminance edge -- the terminator.
         // Searched only over the MIDDLE of the frame, so the sphere's silhouette
-        // (a far harder edge than any terminator) cannot win.
+        // (a far harder edge than any terminator) cannot win, and only right of
+        // the highlight lobe (the key light is on the left), so its flank
+        // cannot either.
         [[nodiscard]] f32 FindTerminatorX(const Capture& capture)
         {
-            const u32 x0 = static_cast<u32>(0.30f * static_cast<f32>(capture.Width));
+            const f32 searchStart = std::max(0.30f, FindHighlightX(capture) + kHighlightClearance);
+            // A highlight right of 0.62 leaves no window: say so, rather than
+            // fall back to mid-frame, which would be on the lit side again.
+            if (searchStart >= 0.70f)
+            {
+                ADD_FAILURE() << "the highlight sits at x=" << searchStart - kHighlightClearance
+                              << ", leaving no room right of it to search for the terminator";
+                return searchStart;
+            }
+            const u32 x0 = static_cast<u32>(searchStart * static_cast<f32>(capture.Width));
             const u32 x1 = static_cast<u32>(0.70f * static_cast<f32>(capture.Width));
             const u32 y0 = static_cast<u32>((kBoxCy - kBoxHalfH) * static_cast<f32>(capture.Height));
             const u32 y1 = static_cast<u32>((kBoxCy + kBoxHalfH) * static_cast<f32>(capture.Height));
@@ -457,14 +506,14 @@ namespace OloEngine::Tests
             ASSERT_GT(offHighlight.MeanLuma, 0.05f)
                 << pathName << ": nothing lit in the highlight box — the scene did not render; see "
                 << VisualOutputPath(offName).string();
-            ASSERT_GT(offTerminator.MaxGradient, 0.02f)
+            ASSERT_GT(offTerminator.PeakGradient, kMinTerminatorGradient)
                 << pathName << ": no terminator in the frame — the key light is not where this test thinks; see "
                 << VisualOutputPath(offName).string();
 
             // CLAIM 1 — the terminator softens.
-            EXPECT_LT(onTerminator.MaxGradient, offTerminator.MaxGradient * 0.92f)
-                << where << ": the terminator did not soften (" << offTerminator.MaxGradient << " -> "
-                << onTerminator.MaxGradient << "); see " << VisualOutputPath(onName).string();
+            EXPECT_LT(onTerminator.PeakGradient, offTerminator.PeakGradient * 0.92f)
+                << where << ": the terminator did not soften (" << offTerminator.PeakGradient << " -> "
+                << onTerminator.PeakGradient << "); see " << VisualOutputPath(onName).string();
 
             // CLAIM 2 — red bleeds into the shadowed side. Red's mean free path
             // is nearly three times blue's, so the light that survives the trip
@@ -483,9 +532,9 @@ namespace OloEngine::Tests
             // highlight is legitimately blurred, and it contributes to the same
             // pixels. What must not happen is the highlight itself smearing,
             // which would be a change of tens of percent.
-            EXPECT_GT(onHighlight.MaxGradient, offHighlight.MaxGradient * 0.95f)
+            EXPECT_GT(onHighlight.PeakGradient, offHighlight.PeakGradient * 0.95f)
                 << where << ": the specular highlight SOFTENED — the composite is being blurred ("
-                << offHighlight.MaxGradient << " -> " << onHighlight.MaxGradient << "); see "
+                << offHighlight.PeakGradient << " -> " << onHighlight.PeakGradient << "); see "
                 << VisualOutputPath(onName).string();
             EXPECT_NEAR(PeakLuma(on), PeakLuma(off), 0.05f)
                 << pathName << ": the frame's peak moved — the highlight is being spread; see "
@@ -587,24 +636,27 @@ namespace OloEngine::Tests
         // rather than a loosened tolerance. At a 25-degree grazing view the N.L
         // falloff is spread over several times the pixels it covers head-on, so
         // the same terminator is genuinely a shallower step: measured 0.0193
-        // here against 0.0656 head-on, on the same subject and the same key.
+        // here against 0.0656 head-on, on the same subject and the same key
+        // (single-sample maxima, Legacy closure). Under ClosureV2 and the
+        // 16-sample peak the oblique terminator measures 0.0153 and the whole
+        // frame 0.19, against the 0.012 and 0.02 floors (#1803).
         // The floor still separates "there is an edge" from "the frame is
         // blank" (~0), and the assertion that actually discriminates is the
         // RELATIVE one below, which no threshold choice can weaken.
-        ASSERT_GT(offTerminator.MaxGradient, 0.012f)
+        ASSERT_GT(offTerminator.PeakGradient, 0.012f)
             << "no terminator in the oblique control frame at x=" << terminatorCx << "; see "
             << VisualOutputPath("SkinDiffusionOff_GL_Deferred_Oblique").string();
-        EXPECT_LT(onTerminator.MaxGradient, offTerminator.MaxGradient * 0.92f)
-            << "the oblique terminator did not soften (" << offTerminator.MaxGradient << " -> "
-            << onTerminator.MaxGradient << ") — the diffusion is inert at this angle; see "
+        EXPECT_LT(onTerminator.PeakGradient, offTerminator.PeakGradient * 0.92f)
+            << "the oblique terminator did not soften (" << offTerminator.PeakGradient << " -> "
+            << onTerminator.PeakGradient << ") — the diffusion is inert at this angle; see "
             << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
 
         const BoxStats offAll = MeasureBox(off, 0.5f, 0.5f, 0.45f, 0.45f);
         const BoxStats onAll = MeasureBox(on, 0.5f, 0.5f, 0.45f, 0.45f);
-        ASSERT_GT(offAll.MaxGradient, 0.02f) << "the oblique control frame has no edges in it at all";
-        EXPECT_LE(onAll.MaxGradient, offAll.MaxGradient * 1.02f)
-            << "the oblique view got a HARDER edge than it started with (" << offAll.MaxGradient << " -> "
-            << onAll.MaxGradient << "); see " << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
+        ASSERT_GT(offAll.PeakGradient, 0.02f) << "the oblique control frame has no edges in it at all";
+        EXPECT_LE(onAll.PeakGradient, offAll.PeakGradient * 1.02f)
+            << "the oblique view got a HARDER edge than it started with (" << offAll.PeakGradient << " -> "
+            << onAll.PeakGradient << "); see " << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
     }
 
     TEST_F(SkinDiffusionScene, AVersionZeroProfileIsNotDiffusedWithTheRendererSwitchOn)
@@ -633,14 +685,14 @@ namespace OloEngine::Tests
         const BoxStats diffusedTerminator =
             MeasureBox(withDiffusingProfile, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
 
-        ASSERT_GT(offTerminator.MaxGradient, 0.02f) << "no terminator in the control frame";
+        ASSERT_GT(offTerminator.PeakGradient, kMinTerminatorGradient) << "no terminator in the control frame";
         // Non-vacuity: the diffusing profile DID do something in this same
         // fixture, so "the legacy profile did nothing" is a statement about the
         // profile and not about the pass being dead.
-        ASSERT_LT(diffusedTerminator.MaxGradient, offTerminator.MaxGradient * 0.92f)
+        ASSERT_LT(diffusedTerminator.PeakGradient, offTerminator.PeakGradient * 0.92f)
             << "the diffusing profile did not diffuse — this test cannot say anything about the legacy one";
 
-        EXPECT_NEAR(legacyTerminator.MaxGradient, offTerminator.MaxGradient, offTerminator.MaxGradient * 0.03f)
+        EXPECT_NEAR(legacyTerminator.PeakGradient, offTerminator.PeakGradient, offTerminator.PeakGradient * 0.03f)
             << "a version-0 profile was diffused by the renderer switch; see "
             << VisualOutputPath("SkinDiffusion_GL_Deferred_VersionZero").string();
     }
@@ -684,12 +736,12 @@ namespace OloEngine::Tests
         const BoxStats sepTerm = MeasureBox(separable, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
         const BoxStats gatherTerm = MeasureBox(gather, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
 
-        ASSERT_GT(offTerm.MaxGradient, 0.02f) << "no terminator in the control frame";
+        ASSERT_GT(offTerm.PeakGradient, kMinTerminatorGradient) << "no terminator in the control frame";
 
         // CLAIM 1 — the gather diffuses at all.
-        EXPECT_LT(gatherTerm.MaxGradient, offTerm.MaxGradient * 0.92f)
-            << "the version-6 gather did not soften the terminator (" << offTerm.MaxGradient << " -> "
-            << gatherTerm.MaxGradient << "); see "
+        EXPECT_LT(gatherTerm.PeakGradient, offTerm.PeakGradient * 0.92f)
+            << "the version-6 gather did not soften the terminator (" << offTerm.PeakGradient << " -> "
+            << gatherTerm.PeakGradient << "); see "
             << VisualOutputPath("SkinDiffusion_GL_Deferred_Gather").string();
 
         // CLAIM 2 — it is warm, like the separable pass, because the colour
@@ -769,10 +821,10 @@ namespace OloEngine::Tests
             const f32 cx = FindTerminatorX(off);
             const BoxStats offTerm = MeasureBox(off, cx, kBoxCy, kBoxHalfW, kBoxHalfH);
             const BoxStats onTerm = MeasureBox(gather, cx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            ASSERT_GT(offTerm.MaxGradient, 0.02f) << name << ": no terminator in the control frame";
-            EXPECT_LT(onTerm.MaxGradient, offTerm.MaxGradient * 0.92f)
-                << name << ": the gather did not soften the terminator (" << offTerm.MaxGradient << " -> "
-                << onTerm.MaxGradient << ")";
+            ASSERT_GT(offTerm.PeakGradient, kMinTerminatorGradient) << name << ": no terminator in the control frame";
+            EXPECT_LT(onTerm.PeakGradient, offTerm.PeakGradient * 0.92f)
+                << name << ": the gather did not soften the terminator (" << offTerm.PeakGradient << " -> "
+                << onTerm.PeakGradient << ")";
         }
     }
 

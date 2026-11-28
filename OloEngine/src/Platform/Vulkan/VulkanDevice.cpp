@@ -692,6 +692,12 @@ namespace OloEngine
         VkPhysicalDeviceAddressBindingReportFeaturesEXT supportedAddressBinding{};
         supportedAddressBinding.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
         bool hasDeviceFaultExtension = false;
+        // VK_KHR_pipeline_executable_properties: an opt-in measurement
+        // (Levers::VulkanPipelineStatistics, #1807), probed like device-fault.
+        VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR supportedPipelineExecutable{};
+        supportedPipelineExecutable.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR;
+        bool hasPipelineExecutableExtension = false;
+        bool hasShaderSMBuiltinsExtension = false;
         // VK_EXT_mesh_shader (issue #813): OPTIONAL, same when-supported rule
         // as EDS3 / device-fault — never an ADR 0010 gate row (requiring it
         // would silently widen the contract; the facade's SupportsMeshShaders
@@ -722,6 +728,7 @@ namespace OloEngine
         bool hasMemoryBudgetExtension = false;
         bool hasAddressBindingExtension = false;
         bool hasDiagnosticsConfigExtension = false;
+        const char* calibratedTimestampsExtension = nullptr;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -734,8 +741,14 @@ namespace OloEngine
             };
             hasEds3Extension = listed(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
             hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+            hasPipelineExecutableExtension = listed(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
+            hasShaderSMBuiltinsExtension = listed(VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             hasMemoryBudgetExtension = listed(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            if (listed(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
+                calibratedTimestampsExtension = VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
+            else if (listed(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
+                calibratedTimestampsExtension = VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
             hasAddressBindingExtension = listed(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
             hasDiagnosticsConfigExtension = listed(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
@@ -744,7 +757,8 @@ namespace OloEngine
             hasRayQueryExtension = listed(VK_KHR_RAY_QUERY_EXTENSION_NAME);
             hasRayPipelineExtension = listed(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension || hasAccelStructExtension ||
-                hasRayQueryExtension || hasRayPipelineExtension || hasAddressBindingExtension)
+                hasRayQueryExtension || hasRayPipelineExtension || hasAddressBindingExtension ||
+                hasPipelineExecutableExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -758,6 +772,11 @@ namespace OloEngine
                 {
                     supportedAddressBinding.pNext = probe.pNext;
                     probe.pNext = &supportedAddressBinding;
+                }
+                if (hasPipelineExecutableExtension)
+                {
+                    supportedPipelineExecutable.pNext = probe.pNext;
+                    probe.pNext = &supportedPipelineExecutable;
                 }
                 if (hasMeshShaderExtension)
                 {
@@ -785,6 +804,7 @@ namespace OloEngine
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
                 supportedFault.pNext = nullptr;
                 supportedAddressBinding.pNext = nullptr;
+                supportedPipelineExecutable.pNext = nullptr;
                 supportedMeshShader.pNext = nullptr;
                 // Scrub every reused struct: these are probe results now and
                 // request structs later, and a stale pNext would splice the
@@ -962,6 +982,18 @@ namespace OloEngine
             // deviceFaultVendorBinary deliberately left off: it gates a
             // vendor blob dump we have no decoder for.
         }
+        // Pipeline executable statistics (#1807): per-stage register and
+        // local-memory figures from the driver, the one number that says a
+        // shader's stack is larger than the device backs. Opt-in only.
+        VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipelineExecutableFeatures{};
+        pipelineExecutableFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR;
+        const bool wantPipelineStatistics = Levers::VulkanPipelineStatistics() && hasPipelineExecutableExtension &&
+                                            supportedPipelineExecutable.pipelineExecutableInfo == VK_TRUE;
+        if (wantPipelineStatistics)
+        {
+            deviceExtensions.push_back(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
+            pipelineExecutableFeatures.pipelineExecutableInfo = VK_TRUE;
+        }
         // Checkpoints (NVIDIA only, no feature struct): a fault report names an
         // address; the checkpoints name the PASS each queue was executing. Free
         // when unused, and the difference between "READ of invalid address"
@@ -978,6 +1010,18 @@ namespace OloEngine
             deviceExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
         }
         m_MemoryBudgetEnabled = hasMemoryBudgetExtension;
+        // Calibrated timestamps (#1341): Vulkan guarantees that every queue of a
+        // device writes timestamps in ONE time domain only when the device
+        // supports VK_KHR/EXT_calibrated_timestamps (VkTimeDomainKHR), and
+        // orders happens-after timestamp writes across submissions only when it
+        // is enabled (vkCmdWriteTimestamp2). The GPU queue timeline places
+        // async-compute passes on the graphics queue's frame axis, which is
+        // only meaningful under that guarantee. No feature struct; free when unused.
+        if (calibratedTimestampsExtension)
+        {
+            deviceExtensions.push_back(calibratedTimestampsExtension);
+        }
+        m_QueueTimestampsShareOneDomain = calibratedTimestampsExtension != nullptr;
 
         // Aftermath is armed BEFORE vkCreateDevice on purpose: the driver reads
         // its state at device creation, so arming later yields a dump with no
@@ -1141,6 +1185,11 @@ namespace OloEngine
             faultFeatures.pNext = featureChainHead;
             featureChainHead = &faultFeatures;
         }
+        if (wantPipelineStatistics)
+        {
+            pipelineExecutableFeatures.pNext = featureChainHead;
+            featureChainHead = &pipelineExecutableFeatures;
+        }
         if (addressBindingFeatures.reportAddressBinding == VK_TRUE)
         {
             addressBindingFeatures.pNext = featureChainHead;
@@ -1200,6 +1249,21 @@ namespace OloEngine
             OLO_CORE_WARN("[RHI/Vulkan] unified image layouts disabled: {}; using optimal sampled layouts", reason);
         }
         m_DeviceFaultEnabled = wantDeviceFault;
+        m_PipelineStatisticsEnabled = wantPipelineStatistics;
+        // The SM layout a statistics reader needs to turn a per-thread
+        // local-memory size into a whole-GPU reservation (#1807). A property
+        // query only: the extension is never enabled.
+        if (wantPipelineStatistics && hasShaderSMBuiltinsExtension)
+        {
+            VkPhysicalDeviceShaderSMBuiltinsPropertiesNV smLayout{};
+            smLayout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SM_BUILTINS_PROPERTIES_NV;
+            VkPhysicalDeviceProperties2 smProps2{};
+            smProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            smProps2.pNext = &smLayout;
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &smProps2);
+            m_ShaderSMCount = smLayout.shaderSMCount;
+            m_ShaderWarpsPerSM = smLayout.shaderWarpsPerSM;
+        }
         m_CheckpointsEnabled = hasCheckpointsExtension;
         // Same commit-after-create rule: the flag describes the LOGICAL
         // device's enabled features, which exist only once the create returns.
@@ -1694,6 +1758,97 @@ namespace OloEngine
                            "never created) or {} could not be written",
                            path.string());
         }
+    }
+
+    void VulkanDevice::CapturePipelineStatistics(VkPipeline pipeline, const std::string& shaderName)
+    {
+        if (!m_PipelineStatisticsEnabled || pipeline == VK_NULL_HANDLE || vkGetPipelineExecutablePropertiesKHR == nullptr ||
+            vkGetPipelineExecutableStatisticsKHR == nullptr)
+            return;
+        VkPipelineInfoKHR pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR;
+        pipelineInfo.pipeline = pipeline;
+        u32 executableCount = 0;
+        if (vkGetPipelineExecutablePropertiesKHR(m_Device, &pipelineInfo, &executableCount, nullptr) != VK_SUCCESS)
+            return;
+        TArray<VkPipelineExecutablePropertiesKHR> executables;
+        executables.SetNumZeroed(static_cast<i32>(executableCount));
+        for (auto& executable : executables)
+            executable.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR;
+        if (vkGetPipelineExecutablePropertiesKHR(m_Device, &pipelineInfo, &executableCount, executables.GetData()) != VK_SUCCESS)
+            return;
+        TArray<PipelineStatistic> captured;
+        for (u32 index = 0; index < executableCount; ++index)
+        {
+            VkPipelineExecutableInfoKHR executableInfo{};
+            executableInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INFO_KHR;
+            executableInfo.pipeline = pipeline;
+            executableInfo.executableIndex = index;
+            u32 statisticCount = 0;
+            if (vkGetPipelineExecutableStatisticsKHR(m_Device, &executableInfo, &statisticCount, nullptr) != VK_SUCCESS)
+                continue;
+            TArray<VkPipelineExecutableStatisticKHR> statistics;
+            statistics.SetNumZeroed(static_cast<i32>(statisticCount));
+            for (auto& statistic : statistics)
+                statistic.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR;
+            if (vkGetPipelineExecutableStatisticsKHR(m_Device, &executableInfo, &statisticCount, statistics.GetData()) != VK_SUCCESS)
+                continue;
+            FString line;
+            for (const auto& statistic : statistics)
+            {
+                FString value;
+                std::optional<u64> integer;
+                switch (statistic.format)
+                {
+                    case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:
+                        integer = statistic.value.b32 ? 1u : 0u;
+                        value = statistic.value.b32 ? "true" : "false";
+                        break;
+                    case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
+                        integer = static_cast<u64>(std::max<i64>(statistic.value.i64, 0));
+                        value = FString::FromInt(statistic.value.i64);
+                        break;
+                    case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:
+                        integer = statistic.value.u64;
+                        value = FString(std::to_string(statistic.value.u64));
+                        break;
+                    case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_FLOAT64_KHR:
+                        value = FString(std::to_string(statistic.value.f64));
+                        break;
+                    default:
+                        value = "?";
+                        break;
+                }
+                if (integer)
+                    captured.Add({ FString(executables[index].name), FString(statistic.name), *integer });
+                if (!line.IsEmpty())
+                    line += ", ";
+                line += statistic.name;
+                line += "=";
+                line += value;
+            }
+            OLO_CORE_INFO("[Vulkan/PSO stats] '{}' {} ({}): {}", shaderName, executables[index].name,
+                          executables[index].description, *line);
+        }
+        std::lock_guard lock(m_PipelineStatisticsMutex);
+        TArray<PipelineStatistic>& kept = m_CapturedPipelineStatistics[shaderName];
+        for (const PipelineStatistic& statistic : captured)
+        {
+            PipelineStatistic* existing = kept.FindByPredicate([&statistic](const PipelineStatistic& candidate)
+                                                               { return candidate.Executable == statistic.Executable &&
+                                                                        candidate.Name == statistic.Name; });
+            if (existing == nullptr)
+                kept.Add(statistic);
+            else
+                existing->Value = std::max(existing->Value, statistic.Value);
+        }
+    }
+
+    TArray<VulkanDevice::PipelineStatistic> VulkanDevice::GetCapturedPipelineStatistics(const std::string& shaderName) const
+    {
+        std::lock_guard lock(m_PipelineStatisticsMutex);
+        const auto it = m_CapturedPipelineStatistics.find(shaderName);
+        return it != m_CapturedPipelineStatistics.end() ? it->second : TArray<PipelineStatistic>{};
     }
 
     void VulkanDevice::LogDeviceFaultInfo() const

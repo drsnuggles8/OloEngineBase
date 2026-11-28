@@ -47,6 +47,9 @@
     "!build-clang/**",
     "!**/node_modules/**",
     // Generated and git-ignored.
-    "!docs/test-catalogue.*.md"
+    "!docs/test-catalogue.*.md",
+    // Frozen historical snapshots, byte-identical to the KESTREL v1.0 design package; a repo-wide
+    // `--fix` must never rewrite them (OloEditor/KestrelProject/docs/AGENT_GUIDE.md).
+    "!OloEditor/KestrelProject/docs/archive/**"
   ]
 }

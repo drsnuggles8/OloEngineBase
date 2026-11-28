@@ -68,6 +68,7 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <optional>
 #include <filesystem>
 #include <iostream>
 #include <span>
@@ -774,9 +775,8 @@ namespace OloEngine::Tests
     // Worker replay with real draws (ADR 0025 V5, issue #1330).
     //
     // The tests above run scenes too small to fork. This one draws enough
-    // unbatchable meshes that the scene bucket is replayed by recording workers
-    // (CommandBucket::ExecuteParallel: 32 packets per item), asserts that a
-    // region really forked, and holds worker replay to the serial one: the same
+    // unbatchable meshes that the scene bucket is replayed by recording workers,
+    // asserts that a region really forked, and holds worker replay to the serial one: the same
     // frame with OLO_VK_PARALLEL_RECORDING=0, nothing refused in either. Then
     // the control: another layout on the light-list binding, which the forward
     // shading programs read in every item, must be refused BY THE ITEMS.
@@ -784,6 +784,35 @@ namespace OloEngine::Tests
     // OpenGL records every region inline, so the Vulkan process is where this
     // means anything; there it is the artefact-backed worker-replay cell.
     // =========================================================================
+    // The scene's ~96 packets sit below the shaded families' measured fork
+    // threshold (CommandBucket::ReplayPolicyFor, #1340), which would record
+    // the scene bucket inline and leave the light-list control with no worker
+    // item to refuse in. This suite tests the contract inside worker items,
+    // not the policy, so it pins the legacy thresholds (fork at 64 packets,
+    // 32 per item) through the policy's own levers for the whole test.
+    struct ScopedLegacyReplayThresholds
+    {
+        ScopedLegacyReplayThresholds()
+            : m_PrevMin(Levers::VulkanParallelMinPackets()), m_PrevPerItem(Levers::VulkanParallelPacketsPerItem())
+        {
+            Levers::SetVulkanParallelMinPackets(64);
+            Levers::SetVulkanParallelPacketsPerItem(32);
+        }
+        ~ScopedLegacyReplayThresholds()
+        {
+            Levers::SetVulkanParallelMinPackets(m_PrevMin);
+            Levers::SetVulkanParallelPacketsPerItem(m_PrevPerItem);
+        }
+        ScopedLegacyReplayThresholds(const ScopedLegacyReplayThresholds&) = delete;
+        ScopedLegacyReplayThresholds& operator=(const ScopedLegacyReplayThresholds&) = delete;
+        ScopedLegacyReplayThresholds(ScopedLegacyReplayThresholds&&) = delete;
+        ScopedLegacyReplayThresholds& operator=(ScopedLegacyReplayThresholds&&) = delete;
+
+      private:
+        std::optional<i64> m_PrevMin;
+        std::optional<i64> m_PrevPerItem;
+    };
+
     class FrameWorkerReplay : public FramePredecessorPoison
     {
       protected:
@@ -844,6 +873,7 @@ namespace OloEngine::Tests
         if (!TestRenderBackend::IsVulkanProcess())
             GTEST_SKIP() << "worker replay is a Vulkan execution mode: OpenGL records every region inline";
         ScopedMockTime mockTime(kCaptureTime);
+        const ScopedLegacyReplayThresholds legacyThresholds;
         const char* path = PathName(GetParam());
 
         std::vector<u8> worker;

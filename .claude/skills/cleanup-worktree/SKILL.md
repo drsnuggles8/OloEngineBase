@@ -30,8 +30,10 @@ squash form); no open PR for the branch; nothing changed or untracked except dis
 
 **Never remove anything not `completed`**, and say why for each. `incomplete-dirty` is the trap the
 gate exists for: a branch that never got a commit sits at a master commit and passes the ancestor
-test while the tree holds a pile of uncommitted feature work. Discard unmerged work only on the
-user's explicit word.
+test while the tree holds a pile of uncommitted feature work. `incomplete-standby` is its twin: a
+scaffolded worktree no session has run yet (only `HANDOVER.md` changed, the branch never had a
+PR), which would otherwise read as finished. Discard unmerged work, or an abandoned standby
+worktree, only on the user's explicit word.
 
 Kinds: `feature` is a `/start-work` branch. `other` (a bot branch such as `renovate/*`, a hand-made
 branch) is removed only when `completed`, and its branch is left alone (§3). `detached` is a

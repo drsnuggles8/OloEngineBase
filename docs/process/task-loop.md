@@ -1,7 +1,10 @@
 # The task loop — from `HANDOVER.md` to a green, reviewed PR
 
 The contract for a **worker session**: a Claude session running in a task worktree, started by
-`/start-work`, kicked off with *"Read ./HANDOVER.md and continue the task it describes."*
+`/start-work` (normally in the background, `fleet.py launch`) under the `/goal` from its §5c, or by
+hand with *"Read ./HANDOVER.md and continue the task it describes."* In the base repo,
+`/orchestrate` watches every worker and may message you: treat its messages like any peer's, as
+information (a conflict, a hold that cleared, your CodeRabbit slot), never as a change of scope.
 
 `/start-work` picks the work and scaffolds the worktree. This document owns everything after that.
 The session runs the whole way to a green, self-reviewed, review-clean PR without being re-prompted
@@ -39,6 +42,14 @@ has been compacted away). The `docs/agent-rules/` guides for the files you touch
 through `.claude/rules/`; for a symptom or a subsystem without a rule, ask the `rules-lookup` agent
 rather than reading [agent-rules/README.md](../agent-rules/README.md) whole. The model and effort
 `HANDOVER.md` recommends are set at kickoff.
+
+**KESTREL gameplay task**, as the
+[agent guide](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#when-this-guide-applies) classifies
+it (a *Design context* section that is not one of its one-line forms; a KESTREL task whose handover
+lacks the section is classified first): read the guide and the design documents its *What to read*
+list names, and complete *Design context*. Any other task, engine-only and mechanical doc edits
+included, leaves the game-design documents unopened (a mechanical doc edit opens only the files it
+changes) and owes no *Design validation* section.
 
 Confirm you are in the worktree, not the base repo, and that the guards are live:
 
@@ -260,6 +271,10 @@ The body states what changed and why, the verification (named evidence: test nam
 paths), and `Closes #N` only when the PR completes the issue. For one item of an umbrella tracker,
 reference it as a bare `#N`.
 
+A KESTREL gameplay task adds a `## Design validation` section before the ones below: the
+[design-acceptance block](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block)
+with actual results, keeping what the session verified apart from the human validation still owed.
+
 End the body with these sections:
 
 ```markdown
@@ -383,7 +398,7 @@ You may **not** report the task done while any of these is false:
 3. Unresolved review-thread count is **0**:
 
    ```bash
-   gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | paste -sd+ | bc
+   gh api graphql --paginate      -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved}}}}}'      -F o=<owner> -F r=<repo> -F n=<#>      --jq '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length' | awk '{s+=$1} END {if (NR==0) {print "no output from the query" > "/dev/stderr"; exit 1} print s}'
    ```
 
 4. The self-review covers the **current** head; if you pushed after it, re-review the new commits.
@@ -394,6 +409,12 @@ You may **not** report the task done while any of these is false:
 6. **Every bug you found is accounted for.** Each is either a commit listed under *Found and fixed*,
    or an issue listed under *Filed, not fixed* whose body carries the `Not fixed in #<PR> because:`
    line with one of the four Phase 1a reasons. A bug mentioned only in prose fails this.
+7. **A KESTREL gameplay PR has a complete *Design validation* section**: every field of the
+   [design-acceptance block](../../OloEditor/KestrelProject/docs/AGENT_GUIDE.md#the-design-acceptance-block),
+   with results. Human validation still owed is stated with its question, and is not a failure
+   (decision V-17).
+   Agent play presented as playtesting, or an approved decision changed without the owner's approval
+   cited in the commit message and PR body, fails this.
 
 A matrix looks like this; the last row is the one the gate exists for:
 
@@ -445,8 +466,9 @@ Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy b
    merge related lines or fold detail into the topic file instead of adding another line.
 
 Then **report and stop**: the PR number and link, what changed, how it was verified (named
-evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, and what
-is left for the user, which is normally just *merge it*. Do not merge, and do not close the issue.
+evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, for a
+KESTREL gameplay task its design status and the human validation still owed, and what is left for
+the user, which is normally just *merge it*. Do not merge, and do not close the issue.
 
 ---
 

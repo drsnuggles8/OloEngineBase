@@ -20,7 +20,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <utility>
@@ -49,7 +51,131 @@ namespace OloEngine::MCP::PassTimings
         // and silently dropped out of passGpuTotalMs.
         bool IsSubPass = false;
         std::string ParentName;
+        // #1341: the interval's place in the frame and the queue it ran on
+        // (GPUPassTiming::BeginMs / EndMs / Queue / AsyncBatch).
+        f64 BeginMs = 0.0;
+        f64 EndMs = 0.0;
+        bool HasOffsets = false;
+        GPUPassQueue Queue = GPUPassQueue::Graphics;
+        i32 AsyncBatch = -1;
     };
+
+    // The frame's cross-queue picture (#1341), from the top-level intervals
+    // that carry offsets. Busy times are UNIONS of intervals, so nested or
+    // touching brackets are not double-counted. OverlapMs is time both queues
+    // had a bracket open: an upper bound on concurrent execution (a bracket
+    // can be open while its queue waits), never proof of it.
+    struct QueueOverlap
+    {
+        f64 GraphicsBusyMs = 0.0;
+        f64 AsyncComputeBusyMs = 0.0;
+        f64 OverlapMs = 0.0;
+        u32 AsyncComputeIntervals = 0;
+        // Counted passes (valid time, top-level by the SumTopLevel rule) with
+        // no interval on the frame axis: an unreadable frame-begin stamp, or
+        // offsets withheld for an unverified time domain. Any of them makes
+        // that queue's busy time, and the overlap, incomplete.
+        u32 UnplacedGraphicsPasses = 0;
+        u32 UnplacedAsyncComputePasses = 0;
+        // Per render-graph async batch, on whichever queue it ran.
+        struct Batch
+        {
+            i32 Index = -1;
+            GPUPassQueue Queue = GPUPassQueue::Graphics;
+            f64 BeginMs = 0.0;
+            f64 EndMs = 0.0;
+            f64 PassGpuMs = 0.0; // sum of the batch's valid top-level pass times
+            u32 Passes = 0;
+            bool HasOffsets = false;
+        };
+        std::vector<Batch> Batches;
+    };
+
+    namespace Detail
+    {
+        // Sorts and merges [begin, end) intervals in place; returns their union length.
+        inline f64 MergeIntervals(std::vector<std::pair<f64, f64>>& intervals)
+        {
+            std::sort(intervals.begin(), intervals.end());
+            std::vector<std::pair<f64, f64>> merged;
+            for (const auto& interval : intervals)
+            {
+                if (!merged.empty() && interval.first <= merged.back().second)
+                    merged.back().second = std::max(merged.back().second, interval.second);
+                else
+                    merged.push_back(interval);
+            }
+            intervals = std::move(merged);
+            f64 total = 0.0;
+            for (const auto& [begin, end] : intervals)
+                total += end - begin;
+            return total;
+        }
+    } // namespace Detail
+
+    [[nodiscard]] inline QueueOverlap ComputeQueueOverlap(const std::vector<GpuPassEntry>& gpuPasses)
+    {
+        QueueOverlap out;
+        std::vector<std::pair<f64, f64>> graphics;
+        std::vector<std::pair<f64, f64>> compute;
+        // The SumTopLevel rule: a sub-pass whose parent is in the list is
+        // inside that bracket and skipped; an orphan sub-pass is published
+        // top-level by BuildPassTimings, so it counts here too.
+        const auto parentPresent = [&gpuPasses](const std::string& parentName)
+        {
+            return std::any_of(gpuPasses.begin(), gpuPasses.end(), [&](const GpuPassEntry& candidate)
+                               { return !candidate.IsSubPass && candidate.Name == parentName; });
+        };
+        for (const auto& pass : gpuPasses)
+        {
+            if ((pass.IsSubPass && parentPresent(pass.ParentName)) || !pass.Sample.IsValid())
+                continue;
+            const bool hasInterval = pass.HasOffsets && pass.EndMs >= pass.BeginMs;
+            if (pass.AsyncBatch >= 0)
+            {
+                auto it = std::find_if(out.Batches.begin(), out.Batches.end(),
+                                       [&](const QueueOverlap::Batch& b)
+                                       { return b.Index == pass.AsyncBatch; });
+                if (it == out.Batches.end())
+                {
+                    out.Batches.push_back({ .Index = pass.AsyncBatch, .Queue = pass.Queue });
+                    it = std::prev(out.Batches.end());
+                }
+                it->PassGpuMs += pass.Sample.GpuMs;
+                ++it->Passes;
+                if (hasInterval)
+                {
+                    it->BeginMs = it->HasOffsets ? std::min(it->BeginMs, pass.BeginMs) : pass.BeginMs;
+                    it->EndMs = it->HasOffsets ? std::max(it->EndMs, pass.EndMs) : pass.EndMs;
+                    it->HasOffsets = true;
+                }
+            }
+            if (!hasInterval)
+            {
+                ++(pass.Queue == GPUPassQueue::AsyncCompute ? out.UnplacedAsyncComputePasses : out.UnplacedGraphicsPasses);
+                continue;
+            }
+            (pass.Queue == GPUPassQueue::AsyncCompute ? compute : graphics).emplace_back(pass.BeginMs, pass.EndMs);
+        }
+        out.AsyncComputeIntervals = static_cast<u32>(compute.size());
+        out.GraphicsBusyMs = Detail::MergeIntervals(graphics);
+        out.AsyncComputeBusyMs = Detail::MergeIntervals(compute);
+        // Both lists are now sorted and disjoint: a linear sweep intersects them.
+        sizet g = 0;
+        sizet c = 0;
+        while (g < graphics.size() && c < compute.size())
+        {
+            const f64 begin = std::max(graphics[g].first, compute[c].first);
+            const f64 end = std::min(graphics[g].second, compute[c].second);
+            if (end > begin)
+                out.OverlapMs += end - begin;
+            if (graphics[g].second < compute[c].second)
+                ++g;
+            else
+                ++c;
+        }
+        return out;
+    }
 
     // One render-graph pass's CPU (submission/dispatch) time.
     struct CpuPassEntry
@@ -81,6 +207,13 @@ namespace OloEngine::MCP::PassTimings
         // Caller-side seeding of every item's frontend context (dispatcher
         // caches plus the per-item copy of each shared upload object).
         f64 FrontendPrepareMs = 0.0;
+        // #1340: the named fork/inline decision, and the caller's policy
+        // context (family, work units, threshold) when the region carried one.
+        std::string Decision;
+        std::string Family;
+        u32 WorkUnits = 0;
+        u32 MinWorkUnitsToFork = 0;
+        u32 ItemCount = 0;
     };
 
     struct ParallelRecordingStats
@@ -109,6 +242,10 @@ namespace OloEngine::MCP::PassTimings
         u32 OwnershipTransfers = 0;
         u32 ComputeSubmits = 0;
         std::string DeclineReason;
+        // The device guarantees one timestamp domain across queues (#1341).
+        // Without it an async-compute offset cannot be placed on the graphics
+        // queue's frame axis, so BuildPassTimings withholds those offsets.
+        bool QueueTimestampsShareOneDomain = false;
     };
 
     struct FrameTotals
@@ -186,10 +323,30 @@ namespace OloEngine::MCP::PassTimings
     // It used to be re-derived here by looking for a '/' in the name, so a pass
     // whose own name contained a slash was misfiled as somebody's sub-pass and
     // its GPU time silently left out of the frame total.
-    [[nodiscard]] inline Json BuildPassTimings(const std::vector<GpuPassEntry>& gpuPasses,
+    [[nodiscard]] inline Json BuildPassTimings(const std::vector<GpuPassEntry>& measuredPasses,
                                                const std::vector<CpuPassEntry>& cpuPasses,
                                                const FrameTotals& totals)
     {
+        // #1341: every offset is measured from the graphics queue's frame-begin
+        // stamp. An async-compute pass's offset compares timestamps across
+        // queues, which Vulkan defines only when the device guarantees one time
+        // domain (calibrated timestamps). Without that guarantee those offsets
+        // are withheld here, so neither the pass list nor queueOverlap places
+        // compute work on an axis it may not share.
+        const bool oneTimeDomain = totals.AsyncCompute.QueueTimestampsShareOneDomain;
+        u32 withheldComputeOffsets = 0;
+        std::vector<GpuPassEntry> gpuPasses = measuredPasses;
+        if (!oneTimeDomain)
+        {
+            for (auto& pass : gpuPasses)
+            {
+                if (pass.Queue == GPUPassQueue::AsyncCompute && pass.HasOffsets)
+                {
+                    pass.HasOffsets = false;
+                    ++withheldComputeOffsets;
+                }
+            }
+        }
         Json passes = Json::array();
         // The total comes from the pool's own rule, not a loop of this file's:
         // a sub-pass whose parent is in the list is inside that bracket and
@@ -263,6 +420,15 @@ namespace OloEngine::MCP::PassTimings
             }
             Json entry{ { "pass", gpuPass.Name }, { "cpuMs", Round3(findCpuMs(gpuPass.Name)) } };
             EmitSample(entry, "gpuMs", "gpuStatus", gpuPass.Sample);
+            // #1341: where the bracket sits in the frame and on which queue.
+            entry["queue"] = gpuPass.Queue == GPUPassQueue::AsyncCompute ? "asyncCompute" : "graphics";
+            if (gpuPass.AsyncBatch >= 0)
+                entry["asyncBatch"] = gpuPass.AsyncBatch;
+            if (gpuPass.HasOffsets)
+            {
+                entry["beginMs"] = Round3(gpuPass.BeginMs);
+                entry["endMs"] = Round3(gpuPass.EndMs);
+            }
             passes.push_back(std::move(entry));
         }
 
@@ -309,6 +475,60 @@ namespace OloEngine::MCP::PassTimings
                     { "currentFrameId", totals.CurrentFrameId } };
         EmitSample(frame, "gpuMs", "gpuStatus", totals.Gpu);
         o["frame"] = std::move(frame);
+        // #1341: the cross-queue picture of the same resolved frame. Offsets
+        // on the async queue are compared with the graphics queue's
+        // frame-begin stamp, which Vulkan only defines within one time domain.
+        {
+            const QueueOverlap overlap = ComputeQueueOverlap(gpuPasses);
+            Json batches = Json::array();
+            for (const auto& batch : overlap.Batches)
+            {
+                Json b{ { "batch", batch.Index },
+                        { "queue", batch.Queue == GPUPassQueue::AsyncCompute ? "asyncCompute" : "graphics" },
+                        { "passGpuMs", Round3(batch.PassGpuMs) },
+                        { "passes", batch.Passes } };
+                if (batch.HasOffsets)
+                {
+                    b["beginMs"] = Round3(batch.BeginMs);
+                    b["endMs"] = Round3(batch.EndMs);
+                }
+                batches.push_back(std::move(b));
+            }
+            Json queueOverlap{ { "graphicsBusyMs", Round3(overlap.GraphicsBusyMs) },
+                               { "asyncComputeBusyMs", Round3(overlap.AsyncComputeBusyMs) },
+                               { "overlapMs", Round3(overlap.OverlapMs) },
+                               { "asyncComputeIntervals", overlap.AsyncComputeIntervals },
+                               // "oneDeviceTimeDomain": the device guarantees it
+                               // (Vulkan calibrated timestamps enabled).
+                               // "unverified": compute-queue offsets are withheld.
+                               { "timeDomain", oneTimeDomain ? "oneDeviceTimeDomain" : "unverified" },
+                               { "batches", std::move(batches) } };
+            // A number built from incomplete placement would read as a
+            // measurement, so it goes out as null with the reason. A frame
+            // with no compute-queue work keeps its zero overlap: that needs no
+            // cross-queue comparison.
+            const bool computeWork = overlap.AsyncComputeIntervals > 0 || overlap.UnplacedAsyncComputePasses > 0;
+            if (overlap.UnplacedGraphicsPasses > 0)
+                queueOverlap["graphicsBusyMs"] = nullptr;
+            if (overlap.UnplacedAsyncComputePasses > 0)
+                queueOverlap["asyncComputeBusyMs"] = nullptr;
+            if (overlap.UnplacedAsyncComputePasses > 0 || (computeWork && overlap.UnplacedGraphicsPasses > 0))
+            {
+                queueOverlap["overlapMs"] = nullptr;
+                queueOverlap["overlapUnavailableReason"] =
+                    withheldComputeOffsets > 0
+                        ? "the device does not guarantee one timestamp domain across queues (no calibrated "
+                          "timestamps), so async-compute offsets cannot be placed on the graphics queue's frame axis"
+                        : "some passes have no frame offsets (the frame-begin timestamp was unreadable), so the "
+                          "queue intervals are incomplete";
+            }
+            if (overlap.UnplacedGraphicsPasses > 0 || overlap.UnplacedAsyncComputePasses > 0)
+                queueOverlap["unplacedPasses"] = Json{ { "graphics", overlap.UnplacedGraphicsPasses },
+                                                       { "asyncCompute", overlap.UnplacedAsyncComputePasses } };
+            if (withheldComputeOffsets > 0)
+                queueOverlap["withheldComputeOffsets"] = withheldComputeOffsets;
+            o["queueOverlap"] = std::move(queueOverlap);
+        }
         // Parallel command recorder telemetry (#806). Counters go out as
         // integers. The block is always present (zeros on a backend that never
         // forks) so a caller can rely on the key. The frame-level recording
@@ -327,7 +547,7 @@ namespace OloEngine::MCP::PassTimings
             for (const f64 itemMs : region.ItemRecordMs)
                 items.push_back(Round3(itemMs));
             o["parallelRecording"]["regionTimings"].push_back(
-                Json{ { "pass", region.PassName }, { "parallel", region.Parallel }, { "workerRecordMs", Round3(region.WorkerRecordMs) }, { "regionWallMs", Round3(region.RegionWallMs) }, { "joinWaitMs", Round3(region.JoinWaitMs) }, { "itemRecordMs", std::move(items) }, { "itemPassNames", region.ItemPassNames }, { "selectionSeedMs", Round3(region.SelectionSeedMs) }, { "attachmentPrepareMs", Round3(region.AttachmentPrepareMs) }, { "sampledImagePrepareMs", Round3(region.SampledImagePrepareMs) }, { "pipelineLookupMs", Round3(region.PipelineLookupMs) }, { "frontendPrepareMs", Round3(region.FrontendPrepareMs) } });
+                Json{ { "pass", region.PassName }, { "parallel", region.Parallel }, { "workerRecordMs", Round3(region.WorkerRecordMs) }, { "regionWallMs", Round3(region.RegionWallMs) }, { "joinWaitMs", Round3(region.JoinWaitMs) }, { "itemRecordMs", std::move(items) }, { "itemPassNames", region.ItemPassNames }, { "selectionSeedMs", Round3(region.SelectionSeedMs) }, { "attachmentPrepareMs", Round3(region.AttachmentPrepareMs) }, { "sampledImagePrepareMs", Round3(region.SampledImagePrepareMs) }, { "pipelineLookupMs", Round3(region.PipelineLookupMs) }, { "frontendPrepareMs", Round3(region.FrontendPrepareMs) }, { "decision", region.Decision }, { "family", region.Family }, { "workUnits", region.WorkUnits }, { "minWorkUnitsToFork", region.MinWorkUnitsToFork }, { "itemCount", region.ItemCount } });
         }
         // Async compute queue telemetry (#808). Always present, zeros on a
         // backend or device that never crosses queues, so a caller can rely on
