@@ -5,6 +5,9 @@ captured on every backend and path, measured under one protocol. This file is th
 cameras, manifests, protocol, gate) and, below it, the results. Decisions taken with the owner on
 2026-10-10 are recorded on the issue
 ([comment](https://github.com/drsnuggles8/OloEngineBase/issues/1259#issuecomment-6094959081)).
+The October results below are the first baseline; the
+[post-stabilization baseline of 2026-11-28](#post-stabilization-release-baseline-2026-11-28-1799)
+(#1799) follows them at the end of this page.
 
 ## Gate
 
@@ -329,3 +332,229 @@ would not change the verdict, and the CPU-bound frame would not get faster at a 
 ## Raw run output
 
 The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; `gl-summary.md` and `vulkan-live/README.md` stay. Regenerate it with the measurement protocol above. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/integrated-acceptance-1259/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/integrated-acceptance-1259` lists them.
+
+## Post-stabilization Release baseline, 2026-11-28 (#1799)
+
+A second baseline of the same gate, taken after the November stabilization work. Everything above this
+heading is the October baseline and is unchanged. **The gate is still not met on any cell**: every
+camera of every counted run misses 16.667 ms p95. Nothing was disabled or thinned. Per-pass tables
+for every cell and camera: [campaign-summary.md](../testing/evidence/integrated-acceptance-1259/baseline-2026-11-28/campaign-summary.md).
+
+### What was measured
+
+* **Commit.** Engine, editor, shaders and assets are master `ac23f1bdd` (2026-11-28), which includes
+  #1340 / #1341 (Vulkan recording policy, async compute; merged as #1825). The GL test host is the
+  same tree plus #1828's head `f9cd5bfe8`, merged locally as `a737d3655`: #1828 changes only test
+  files, and among them it starts the task workers in the GL capture host (b1ef0c205). Without it
+  every `ParallelFor` in a GL capture runs inline, which is not the frame the editor runs. Binaries:
+  test host `d1eafa7b0875…`, editor `4c55dd215077…`; shader tree `c8a48c4f4528…`, asset tree
+  `f3b83d93d4c7…` (full-tree hash). The only dirty file was `EditorPreferences.yaml` with
+  `ThrottleEditMode: false`, which the editor host requires.
+* **Still in flight, not in these numbers.** #1818 (the head's coat-volume rebake, decided, landing
+  with #1660), #1660 (strand-cache budget), #997 (ClosureV2 energy hoist), #1828 itself on master,
+  and #1824 (card-tier sky self-shadow).
+* **Hardware and host.** The October machine: RTX 4090 (driver 621.14, October 617.14), i7-14700KF,
+  64 GB, Windows 10.0.26300 (October 10.0.22631). Release with symbols, clang-cl, `dev-cached`.
+* **Protocol.** `acceptance-benchmark.py`, 9 cells × 3 counted runs, interleaved fresh processes,
+  start cell rotated each round, 96 warm-up + 300 measured frames per camera. **Both backends ran
+  under the controlled protocol this time**: the Vulkan cells are editor captures over MCP
+  (`olo_benchmark_capture`), which #1591 made possible. The two hosts measure different intervals
+  (GL: the `Scene::OnUpdateEditor` call; Vulkan: the completed editor-frame interval, which also
+  counts the pose-step frames, so 600 samples per camera) and are never pooled.
+* **Contention.** The campaign held the build lock exclusively (`-MaxConcurrent 1`), and the sibling
+  worktrees held builds, tests and editor runs for its window. The harness sampled other GPU load
+  and competing processes before and every 30 s during every run; no counted run overlapped any.
+  Two Vulkan editor attempts were not counted (see *Editor capture stalls* below); their reruns were.
+* **Settings.** Native 1920×1080, VSM on, TAA on, MSAA 1, no upscaler: every run's readback
+  confirms the internal size, the resolved upscaler (`native`, no fallback) and VSM selected.
+  Upscale and MSAA are not part of this baseline, as in October.
+* **Images.** Every run keeps Beauty, SceneColorHDR, Albedo, Normals, Velocity and SceneDepth for
+  every camera, and frame ids per sample, under the campaign directory (not tracked, see *Raw run
+  output* below). The population-dolly capture frame ends inside a woodland shrub, so the herd is out
+  of view in its last frame; the camera path is October's.
+
+### Workload changes since October
+
+The comparison with October is context, not a speedup. The rows differ in four ways besides the code:
+
+1. **The GL host** now runs task workers (above). The October GL rows measured inline parallel work.
+2. **The head's hair** is the re-authored rigged bob (#1593): 123,974 render strands against 44,235,
+   with new pigment and simulation settings.
+3. **The head's hair and both horse coats cast and receive scene shadows** (#1634), and every
+   shadowed light requests the ray-traced tier (373c6d6f5). The tier changes only the hybrid cell.
+4. **Driver and OS** moved (above).
+
+The foliage did not change: the October scene already set the decorrelated placement hash on all six
+layers that #1502 later made the default.
+
+### OpenGL: test host
+
+Ranges are min–max over the three counted runs, in ms. Top GPU passes are the middle of each pass's
+p50 range.
+
+| cell | camera | frame p50 | p95 | p99 | max | CPU p50 | GPU p50 | top GPU passes (p50 ms) |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Forward | head-closeup | 54–55 | 144–155 | 162–182 | 180–302 | 27–28 | 55–57 | ShadowPass 30.7, GroomPass 12.6, ScenePass 3.8 |
+| Forward | head-backlit | 42–43 | 139–150 | 151–165 | 155–173 | 20 | 41–43 | ShadowPass 31.5, GroomPass 4.2, ScenePass 2.1 |
+| Forward | coats-closeup | 68–70 | 86–94 | 106–117 | 390–429 | 67–69 | 66–67 | ShadowPass 26.4, FoliagePass 25.0, GroomPass 6.1 |
+| Forward | population-dolly | 52–53 | 101–104 | 180–185 | 212–221 | 19–20 | 54–55 | ShadowPass 21.0, FoliagePass 16.7, GroomPass 8.7 |
+| Forward | rapid-turn | 38 | 60–63 | 81–83 | 135–138 | 13 | 38–39 | ShadowPass 18.9, FoliagePass 13.5, GroomPass 2.0 |
+| Forward+ | head-closeup | 54 | 149–158 | 159–167 | 180–182 | 28 | 55–56 | ShadowPass 30.9, GroomPass 12.6, ScenePass 3.5 |
+| Forward+ | head-backlit | 42–43 | 136–140 | 149–153 | 151–161 | 20 | 42–43 | ShadowPass 31.6, GroomPass 4.2, ScenePass 2.0 |
+| Forward+ | coats-closeup | 68–69 | 87–92 | 112–127 | 386–394 | 67–68 | 66–67 | ShadowPass 26.5, FoliagePass 25.1, GroomPass 6.1 |
+| Forward+ | population-dolly | 53–55 | 103–106 | 188–197 | 215–242 | 20–21 | 54–56 | ShadowPass 21.3, FoliagePass 16.9, GroomPass 8.8 |
+| Forward+ | rapid-turn | 38–39 | 63–65 | 80–87 | 121–142 | 13 | 38–39 | ShadowPass 18.9, FoliagePass 13.6, GroomPass 2.1 |
+| Deferred | head-closeup | 49–50 | 147–172 | 162–248 | 174–395 | 28–29 | 50 | ShadowPass 29.8, GroomPass 14.4, ScenePass 1.9 |
+| Deferred | head-backlit | 40–41 | 137–143 | 149–151 | 159–176 | 20 | 39–41 | ShadowPass 30.9, GroomPass 5.2, DeferredLightingPass 1.7 |
+| Deferred | coats-closeup | 67–69 | 78–88 | 102–106 | 370–397 | 66–69 | 67–69 | ShadowPass 28.4, GroomPass 24.3, ScenePass 8.0 |
+| Deferred | population-dolly | 43–44 | 86–90 | 169–177 | 202–219 | 19–20 | 44–45 | ShadowPass 21.8, ScenePass 10.6, GroomPass 9.7 |
+| Deferred | rapid-turn | 33 | 49–55 | 75–82 | 114–121 | 13–14 | 33 | ShadowPass 19.5, ScenePass 9.0, GroomPass 2.5 |
+
+**Noise floor.** An identical-arms control (a second GL Forward cell, same binary and manifest,
+interleaved) agrees with Forward within 1–3 ms at every p50 and at the outdoor cameras' p95, but its
+head-camera p95 reaches 196–208 ms against 139–155 ms. A difference under about 60 ms at a head
+camera's p95 is not a result.
+
+On the GL host the frame is now GPU-paced at four of the five cameras (frame p50 tracks GPU p50; the
+CPU waits on the fence for 21–44 ms at p95). The exception is coats-closeup, where CPU and GPU
+are both about 67 ms.
+
+### Vulkan: editor host, controlled protocol
+
+| cell | camera | frame p50 | p95 | p99 | max | CPU p50 | GPU p50 | top GPU passes (p50 ms) |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Forward | head-closeup | 38–39 | 124–128 | 130–138 | 135–166 | 26–27 | 38–40 | ShadowPass 26.5, GroomPass 8.0, ScenePass 0.8 |
+| Forward | head-backlit | 31–32 | 114–122 | 121–185 | 131–243 | 18–19 | 31–32 | ShadowPass 25.6, GroomPass 3.0, ScenePass 0.5 |
+| Forward | coats-closeup | 43–45 | 71–80 | 95–97 | 335–343 | 34–35 | 37–39 | ShadowPass 24.3, FoliagePass 4.2, GroomPass 4.0 |
+| Forward | population-dolly | 29–30 | 32–34 | 70–72 | 286–292 | 17 | 29–30 | ShadowPass 16.6, GroomPass 4.2, FoliagePass 3.7 |
+| Forward | rapid-turn | 26–27 | 32–33 | 48–49 | 78–79 | 13 | 26–27 | ShadowPass 17.1, FoliagePass 3.6, FoliagePrepassPass 1.6 |
+| Forward+ | head-closeup | 38–39 | 124–127 | 133–135 | 144–161 | 26–27 | 38–39 | ShadowPass 26.1, GroomPass 8.1, ScenePass 0.7 |
+| Forward+ | head-backlit | 31–32 | 114–117 | 124–136 | 137–170 | 18–19 | 31 | ShadowPass 24.7, GroomPass 3.1, ScenePass 0.4 |
+| Forward+ | coats-closeup | 42–52 | 72–79 | 95–109 | 344–354 | 32–33 | 37–38 | ShadowPass 24.1, FoliagePass 4.2, GroomPass 4.0 |
+| Forward+ | population-dolly | 29 | 31–33 | 69–75 | 287–291 | 17–18 | 29 | ShadowPass 16.4, GroomPass 4.0, FoliagePass 3.7 |
+| Forward+ | rapid-turn | 26–28 | 33–38 | 48–52 | 78–79 | 13 | 26–27 | ShadowPass 17.1, FoliagePass 3.6, FoliagePrepassPass 1.6 |
+| Deferred | head-closeup | 38–57 | 125–128 | 132–142 | 151–166 | 26–27 | 38–40 | ShadowPass 26.4, GroomPass 8.3, ScenePass 1.0 |
+| Deferred | head-backlit | 31–32 | 116–118 | 121–126 | 130–150 | 18 | 31–32 | ShadowPass 25.3, GroomPass 3.1, ScenePass 0.4 |
+| Deferred | coats-closeup | 42–43 | 73–85 | 96–102 | 334–376 | 32–36 | 37–38 | ShadowPass 24.5, ScenePass 4.6, GroomPass 4.0 |
+| Deferred | population-dolly | 29 | 31–32 | 70 | 283–295 | 17–18 | 29 | ShadowPass 16.7, ScenePass 6.3, GroomPass 4.1 |
+| Deferred | rapid-turn | 26 | 32–33 | 48–51 | 77–81 | 13 | 26 | ShadowPass 17.4, ScenePass 5.6, GroomPass 1.5 |
+| Hybrid | head-closeup | 107–109 | 204–208 | 217–228 | 235–292 | 106–108 | 41–42 | ShadowPass 26.9, GroomPass 8.8, RayTracingScenePass 1.9 |
+| Hybrid | head-backlit | 47–53 | 144–145 | 153–156 | 162–166 | 45–46 | 33 | ShadowPass 25.2, GroomPass 3.1, RayTracingScenePass 1.4 |
+| Hybrid | coats-closeup | 88–101 | 126–136 | 147–156 | 408–419 | 85–92 | 39 | ShadowPass 24.9, ScenePass 4.7, GroomPass 4.1 |
+| Hybrid | population-dolly | 96–97 | 105–139 | 159–165 | 404–436 | 94–95 | 34–35 | ShadowPass 18.1, ScenePass 7.3, GroomPass 4.7 |
+| Hybrid | rapid-turn | 63–83 | 95–124 | 112–144 | 171–288 | 62–64 | 27–37 | ShadowPass 19.2, ScenePass 6.7, GroomPass 2.1 |
+
+The raster cells are GPU-paced (frame p50 equals GPU p50; CPU p50 13–36 ms). Recording takes
+0.2–1.0 ms of wall time with no join wait: the #1340 policy keeps these regions on one thread. Present
+wait follows frame time. The hybrid cell is CPU-bound (CPU p50 45–108 ms against GPU 27–42 ms);
+see *Hybrid* below.
+
+### Memory
+
+Renderer-tracked GPU memory at the end of each run (the #1342 report; live is what stays resident,
+peak the high-water mark):
+
+| cell | GPU live MiB | GPU peak MiB | largest GPU owners (MiB) |
+|---|---:|---:|---|
+| GL Forward / Forward+ | 1782–1785 | 3123–3124 | ShadowPass 602, GroomPass 408, unattributed 178, transient pool 174, RendererInit 144 |
+| GL Deferred | 1872 | 3210 | as Forward |
+| GL Forward, CSM | 1924 | 3339 | ShadowPass 603, GroomPass 408, foliage pinned representations 202 |
+| Vulkan Forward / Forward+ | 2670 | 3854 | ShadowPass 691, ShadowMap 640, unattributed 414, GroomPass 274, transient pool 264 |
+| Vulkan Deferred | 2755 | 3938 | as Forward |
+| Vulkan Hybrid | 3158 | 5094–5095 | unattributed 699, ShadowPass 691, ShadowMap 640, transient pool 281, GroomPass 274 |
+
+October recorded GL live 1674–1761 and peak 4253–4340 MiB, and Vulkan live 2.75 GiB and peak
+6.26 GiB: the GL peak is 1.1 GiB lower, and the Vulkan hybrid peak 1.2 GiB lower. The GL live set is
+about 100 MiB higher. Process private bytes and working set are not in the capture record.
+
+### Where the time goes now
+
+1. **ShadowPass is the largest GPU pass in every cell and camera** (16–31 ms), and its brackets
+   (#1590) now say why. GL Forward, p50 ms; the Vulkan rows agree within 4 ms:
+
+   | camera | VSM: `VsmLocal/GroomCasters` | VSM: `VsmSun` (of it `FoliageCasters`) | CSM control: `Atlas/GroomCasters` | CSM control: `Csm` (of it `FoliageCasters`) |
+   |---|---:|---:|---:|---:|
+   | head-closeup | 21.3 (Vulkan 17.5) | 6.1 | 6.3 | 2.1 |
+   | coats-closeup | 2.5 | 16.0 (8.7) | 2.2 | 9.4 (7.2) |
+   | population-dolly | 0.0 | 19.4 (11.3) | — | 13.0 (10.8) |
+   | rapid-turn | 1.0 | 16.7 (12.5) | — | 12.7 (11.3) |
+
+   At the head the lamps' VSM local layers draw the hair, now 2.8× the strands, for 17–21 ms, three
+   times what the same casters cost through the CSM control's shadow atlas. Outdoors the VSM sun
+   costs 3–6 ms more than CSM, most of it foliage casters (October: 25–35 ms more). The lamp atlas
+   route that cost 0.1–0.9 s in October costs 5–8 ms (the cull-slot fix, #1632).
+2. **The head cameras' p95 is the coat-volume rebake (#1818).** Frame p50 is 31–55 ms at both head
+   cameras, but p95 is 114–208 ms, and CPU p95 and GPU p95 rise together. On GL the spike lands in
+   whichever bracket is open (`GroomPass/RootFrames` at head-closeup, `FoliagePass` and
+   `VirtualShadowMapMarkPass` at head-backlit): the GL bracket artefact #1828 documents. On Vulkan no
+   pass exceeds 28 ms at p95 while the total GPU span reaches 100 ms, so the span covers a CPU stall
+   mid-frame. Both are the ~115 ms coat-volume rebake on the main thread.
+3. **Bound-coat CPU at the horses** (#1588): coats-closeup costs 66–69 ms of CPU on GL and 32–36 ms
+   on Vulkan, more than any other camera.
+4. **GL FoliagePass at the outdoor cameras** costs 13–25 ms against 3.6–4.2 ms on Vulkan at the same
+   poses.
+5. **A single CPU frame of 290–430 ms** at the same frame of every run, on both hosts: coats-closeup
+   frame 92 (GL) or 185 (editor), and population-dolly frame 11. At the coats-closeup one the editor
+   log shows the two horse coats building REST strand geometry (428 k and 489 k segments, 124 and
+   142 MiB) as the camera arrives. These single frames set every cell's max at those cameras.
+
+### Hybrid
+
+**The hybrid cell still traces no shadow ray** (#1870). `RayTracedShadowPass` reads 0.007 ms in every
+measured frame, and the editor logs once per run that all four lights fell back to shadow maps
+because the vegetation planner withholds the TLAS under its budget. That is October's finding, after
+#1578 closed. The cell still builds the ray-tracing scene (`RayTracingScenePass` 1.4–1.9 ms GPU) and
+pays 27–81 ms more CPU than Deferred at every camera (CPU p50 Hybrid against Deferred: head-closeup
+106–108 vs 26–27, head-backlit 45–46 vs 18, coats-closeup 85–92 vs 32–36, population-dolly 94–95 vs
+17–18, rapid-turn 62–64 vs 13 ms). Its GPU peak is 1.2 GiB above Deferred's. The campaign records no
+CPU scopes, so which producer spends that time is not attributed here (October: `Vegetation::Queue`).
+
+### Editor capture stalls
+
+Two of 14 Vulkan editor attempts stopped completing frames mid-capture for 10–14 minutes and were
+not counted: `vk-hybrid` round 1 (head-backlit, frame 386, silent from 11:45:03 for 844 s, just after
+a same-size window resize) and `vk-deferred` round 2 (coats-closeup, frame 250, silent from 12:24:14
+for 607 s, just after a horse coat built its stride-1 REST geometry). The editor recovered both times
+and ran the capture's cleanup. Neither preceding event explains it (the stride-1 build occurs in 28
+runs that did not stall), counted runs never go silent for more than 102 s, and the GL host never
+stalled. The reruns counted. Filed with the logs as #1871.
+
+### Live Vulkan, like-for-like with October
+
+Not run. The October Vulkan rows were measured live (`acceptance-live.py`, the scene opened once,
+animal paths still), not under the controlled protocol, so they are not paired with the editor rows
+above, and no difference between them is reported. When the second GPU window opened, the measuring
+machine was in interactive use (a game at 41% GPU), so a live re-run would have been contended.
+
+### Cells not measured
+
+* **GL Hybrid**: OpenGL has no ray tracing; October did not measure it either.
+* **Forward+ and Deferred under CSM**: October ran one CSM control (Forward); this baseline repeats
+  that control only, with three counted runs.
+* **Upscale and MSAA**: outside this baseline (the issue fixes native 1080p), as in October.
+* **AMD rows**: the AMD box is a CI runner reached by workflow dispatch, with no editor and no
+  interactive session, so the controlled protocol cannot run on it.
+
+### Residual failures and owners
+
+| what misses the gate | cells | owner |
+|---|---|---|
+| head-camera p95: the coat-volume rebake, ~115 ms on the main thread | every cell, both head cameras | #1818 (decided; lands with #1660) |
+| ShadowPass: the head's hair in the VSM local layers (17–21 ms) and VSM-sun foliage casters (8.5–12.5 ms) | every VSM cell | #1838 |
+| bound-coat deformation and strand-pass CPU at the horses | coats-closeup, both backends | #1588 |
+| REST strand geometry built on the main thread as a coat arrives (290–430 ms frame) | coats-closeup, population-dolly | #1839 |
+| GL FoliagePass 3–6× the Vulkan cost at the outdoor cameras | GL, outdoor | #1840 |
+| hybrid: TLAS withheld, so no ray is traced, and 27–81 ms of CPU for unread proxies | Vulkan hybrid | #1870 |
+| editor capture stalls of 10–14 min (2 of 14 attempts) | Vulkan editor host | #1871 |
+| no separable eyes or mouth | criterion 1 | #1402 |
+| Deferred dynamic scale; RT proxy for skinned virtual geometry | unreachable cells | #1537, #1525 |
+| the strand cache over its 1 GiB budget at the herd cameras | memory | #1660 |
+
+### Raw run output of this baseline
+
+Not tracked (#1610). The campaign ran `acceptance-benchmark.py --plan plan.json --output campaign2`
+under `build-lock.ps1 -MaxConcurrent 1`, with cells `gl-{forward, forward-repeat, forward-plus,
+deferred, forward-csm}` and `vk-{forward, forward-plus, deferred, hybrid}` on the matching
+`acceptance-*.yaml` manifests. Its `summary.md` is the evidence page linked at the top of this
+section. `runs.json`, `provenance.json`, `summary.json` and every attempt's captures,
+`measurement.csv` and editor log stay on the measuring machine; regenerate them with the same plan.
