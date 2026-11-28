@@ -1,10 +1,15 @@
 # On OpenGL, a GPU sub-pass bracket can hold CPU time that ran after it closed
 
 **Rule.** Before blaming a GL GPU bracket (`GPUPassTimerPool`'s `Pass/SubPass` pairs) for a spike,
-check the CPU time of the same pass. When the two match, the spike is CPU work, and the bracket
-that reads it is only the one whose end timestamp was still unflushed while that work ran. Time the
-CPU side (`RenderGraph::GetLastExecutionTimings()` gives each pass's CPU execute time, plus a
-`steady_clock` pair around the suspect calls) before cutting anything inside the bracket.
+check the CPU time of the same pass. A match alone proves nothing: a pass that ends in a blocking
+wait (`glFinish`, a fence wait, a readback) has that wait in its CPU time, so a GPU-bound pass
+matches too. Call the spike CPU work only when a CPU timer around the pass's own code, with no GL
+wait inside the timed interval, shows the time. Then the bracket that reads it is only the one
+whose end timestamp was still unflushed while that work ran. Time the CPU side
+(`RenderGraph::GetLastExecutionTimings()` gives each pass's CPU execute time, plus a
+`steady_clock` pair around the suspect calls, none of them containing a wait) before cutting
+anything inside the bracket. A match that does include a wait means inspecting both the CPU code
+and the synchronisation.
 
 **Why it happens.** A GL timestamp is written when the GPU reaches it, and the GPU only reaches
 what the driver has flushed. `EndSubPass` queues the end stamp into the open command buffer. When
