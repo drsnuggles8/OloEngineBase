@@ -1823,4 +1823,66 @@ namespace OloEngine::Tests
         }
     }
 
+    // =========================================================================
+    // The history bounds (issue #1537) that TemporalResolve.glsl and
+    // SurfaceHistory.glsl both read: history lives in the HALF-OPEN corner
+    // [0, bounds), so uv == bounds (the first unrendered texel under a texel
+    // fetch) is rejected, and the two tests agree on every case, which is
+    // what keeps a resolve from accepting a sample its moments never read.
+    // =========================================================================
+    TEST(ShaderUnitHistoryBoundsTest, BothHistoryTestsRejectEverythingOutsideTheHalfOpenCorner)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct Case
+        {
+            glm::vec2 Bounds;
+            glm::vec2 UV;
+            bool Valid;
+        };
+        const std::array<Case, 9> cases = { {
+            { { 0.5f, 0.75f }, { 0.25f, 0.5f }, true },
+            { { 0.5f, 0.75f }, { 0.4999f, 0.7499f }, true }, // the last rendered texel's far side
+            { { 0.5f, 0.75f }, { 0.5f, 0.3f }, false },      // exactly on the bound: the margin's first texel
+            { { 0.5f, 0.75f }, { 0.3f, 0.75f }, false },
+            { { 0.5f, 0.75f }, { 0.6f, 0.3f }, false }, // in the margin
+            { { 0.5f, 0.75f }, { -0.001f, 0.3f }, false },
+            { { 1.0f, 1.0f }, { 0.999f, 0.0f }, true }, // scale 1.0
+            { { 1.0f, 1.0f }, { 1.0f, 0.5f }, false },  // the exact edge, rejected at scale 1.0 too
+            { { 0.0f, 0.0f }, { 0.0f, 0.0f }, false },  // a zero bound admits nothing
+        } };
+
+        std::vector<f32> inputs;
+        for (const Case& c : cases)
+            inputs.insert(inputs.end(), { c.Bounds.x, c.Bounds.y, c.UV.x, c.UV.y });
+        const sizet outputFloats = cases.size() * 4u;
+        ScopedBuffer inputBuffer(static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), GL_DYNAMIC_STORAGE_BIT);
+        ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(outputFloats * sizeof(f32)),
+                                  GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        ::glNamedBufferSubData(inputBuffer, 0, static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)), inputs.data());
+
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_HistoryBounds.glsl");
+        ASSERT_TRUE(shader && shader->IsValid()) << "history-bounds compute shader failed to compile";
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, outputBuffer);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, inputBuffer);
+        ::glDispatchCompute(static_cast<GLuint>(cases.size()), 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+        std::vector<f32> raw(outputFloats);
+        ::glGetNamedBufferSubData(outputBuffer, 0, static_cast<GLsizeiptr>(outputFloats * sizeof(f32)), raw.data());
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+        ::glUseProgram(0);
+
+        for (sizet i = 0; i < cases.size(); ++i)
+        {
+            const Case& c = cases[i];
+            SCOPED_TRACE(::testing::Message() << "case " << i << ": bounds (" << c.Bounds.x << ", " << c.Bounds.y
+                                              << "), uv (" << c.UV.x << ", " << c.UV.y << ")");
+            const f32* out = raw.data() + (i * 4u);
+            EXPECT_EQ(out[0] > 0.5f, c.Valid) << "OloTemporalHistoryUVValid";
+            EXPECT_EQ(out[1] > 0.5f, !c.Valid) << "OloEvaluateSurfaceHistory's off-screen test";
+        }
+    }
+
 } // namespace OloEngine::Tests
