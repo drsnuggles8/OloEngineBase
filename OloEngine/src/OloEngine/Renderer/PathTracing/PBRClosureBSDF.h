@@ -47,16 +47,44 @@ namespace OloEngine::PathTracing::BSDF
         return SpecularLobeProbability(material.BaseColor, material.Metallic);
     }
 
+    // One path vertex's material, n and v with the closure's direction-
+    // independent terms already computed (issue #997). The integrator builds it
+    // once per vertex and evaluates every direction there (each NEE light, the
+    // emitter and sphere samples, the BSDF sample) against it. `Material` must
+    // outlive it.
+    struct PreparedSurface
+    {
+        const ReferenceMaterial* Material = nullptr;
+        ClosureV2Surface Closure;
+    };
+
+    [[nodiscard]] inline PreparedSurface Prepare(const ReferenceMaterial& material, const glm::vec3& n,
+                                                 const glm::vec3& v) noexcept
+    {
+        PreparedSurface prepared;
+        prepared.Material = &material;
+        if (!material.LambertianDiffuseOnly)
+            prepared.Closure =
+                ClosureV2PrepareSurface(n, v, material.BaseColor, material.Metallic, material.Roughness);
+        return prepared;
+    }
+
     // The single BRDF evaluation point for the whole integrator. The
     // Lambertian branch exists solely for the DDGI parity diagnostic (see
     // ReferenceMaterial::LambertianDiffuseOnly for why that is not a loophole)
-    // and overrides the model dispatch.
+    // and overrides the model dispatch. `prepared` is Prepare of the same n, v.
+    [[nodiscard]] inline glm::vec3 Evaluate(const PreparedSurface& prepared, const glm::vec3& n,
+                                            const glm::vec3& v, const glm::vec3& l) noexcept
+    {
+        if (prepared.Material->LambertianDiffuseOnly)
+            return prepared.Material->BaseColor * kInvPi;
+        return ClosureV2EvaluatePrepared(prepared.Closure, n, v, l);
+    }
+
     [[nodiscard]] inline glm::vec3 Evaluate(const ReferenceMaterial& material, const glm::vec3& n,
                                             const glm::vec3& v, const glm::vec3& l) noexcept
     {
-        if (material.LambertianDiffuseOnly)
-            return material.BaseColor * kInvPi;
-        return ClosureV2Evaluate(n, v, l, material.BaseColor, material.Metallic, material.Roughness);
+        return Evaluate(Prepare(material, n, v), n, v, l);
     }
 
     // Solid-angle density of the one-sample lobe mixture Sample() draws from.
@@ -87,10 +115,11 @@ namespace OloEngine::PathTracing::BSDF
     // below-horizon or zero-density direction, in which case the path carries
     // no energy and the caller terminates it — identical semantics to the
     // former PathTracer-internal SampleBsdf.
-    [[nodiscard]] inline bool Sample(const ReferenceMaterial& material, const glm::vec3& n,
+    [[nodiscard]] inline bool Sample(const PreparedSurface& prepared, const glm::vec3& n,
                                      const glm::vec3& v, f32 lobeXi, const glm::vec2& xi,
                                      BSDFSample& outSample) noexcept
     {
+        const ReferenceMaterial& material = *prepared.Material;
         const f32 pSpecular = SpecularProbability(material);
 
         glm::vec3 l;
@@ -116,9 +145,16 @@ namespace OloEngine::PathTracing::BSDF
             return false;
 
         outSample.Direction = l;
-        outSample.Value = Evaluate(material, n, v, l);
+        outSample.Value = Evaluate(prepared, n, v, l);
         outSample.Pdf = pdf;
         return true;
+    }
+
+    [[nodiscard]] inline bool Sample(const ReferenceMaterial& material, const glm::vec3& n,
+                                     const glm::vec3& v, f32 lobeXi, const glm::vec2& xi,
+                                     BSDFSample& outSample) noexcept
+    {
+        return Sample(Prepare(material, n, v), n, v, lobeXi, xi, outSample);
     }
 
 } // namespace OloEngine::PathTracing::BSDF

@@ -910,21 +910,37 @@ float ggxEnergyTableCoordinate(float value)
     return sqrt(clamp(value, 0.0, 1.0)) * float(OLO_GGX_ENERGY_TABLE_SIZE - 1);
 }
 
+// The roughness half of an energy-table lookup: the lower row of the pair and
+// the weight between the two. It depends on roughness alone, so a light loop
+// finds it once per pixel and every per-light lookup reuses it (issue #997).
+// C++ twin: GgxEnergyRow.
+struct GgxEnergyRow
+{
+    int Y0;
+    float Fy;
+};
+
+GgxEnergyRow ggxEnergyRow(float roughness)
+{
+    float y = ggxEnergyTableCoordinate(roughness);
+    int y0 = min(int(y), OLO_GGX_ENERGY_TABLE_SIZE - 2);
+    return GgxEnergyRow(y0, y - float(y0));
+}
+
 // Bilinear lookup of both single-scatter moments in the generated 16x16
 // table: x = 1 - Ess(mu, r), y = Schlick(mu, r). `roughness` is the AUTHORED
 // perceptual roughness (the table rows bake the v2 alpha clamp in, so callers
 // pass it un-floored). The lower cell index stops at N - 2 so value 1 reads the
 // last node with weight 1. Entries decode from the half-packed constants in
 // PBRClosureV2Energy.glsl — see that file's header for why the packing itself
-// is load-bearing (NVIDIA C5025 at link). C++ twin: GgxEnergy.
-vec2 ggxEnergy(float mu, float roughness)
+// is load-bearing (NVIDIA C5025 at link). C++ twin: GgxEnergyAtRow / GgxEnergy.
+vec2 ggxEnergyAtRow(float mu, GgxEnergyRow row)
 {
     float x = ggxEnergyTableCoordinate(mu);
-    float y = ggxEnergyTableCoordinate(roughness);
     int x0 = min(int(x), OLO_GGX_ENERGY_TABLE_SIZE - 2);
-    int y0 = min(int(y), OLO_GGX_ENERGY_TABLE_SIZE - 2);
+    int y0 = row.Y0;
     float fx = x - float(x0);
-    float fy = y - float(y0);
+    float fy = row.Fy;
     vec2 v00 = ggxEnergyEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
     vec2 v10 = ggxEnergyEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0 + 1);
     vec2 v01 = ggxEnergyEntry((y0 + 1) * OLO_GGX_ENERGY_TABLE_SIZE + x0);
@@ -932,14 +948,21 @@ vec2 ggxEnergy(float mu, float roughness)
     return mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
 }
 
+vec2 ggxEnergy(float mu, float roughness)
+{
+    return ggxEnergyAtRow(mu, ggxEnergyRow(roughness));
+}
+
 // Linear lookup of the averages row over the same roughness axis:
 // x = 1 - E_avg(r), y = Schlick_avg(r). C++ twin: GgxEnergyAverage.
+vec2 ggxEnergyAverageAtRow(GgxEnergyRow row)
+{
+    return mix(ggxEnergyAvgEntry(row.Y0), ggxEnergyAvgEntry(row.Y0 + 1), row.Fy);
+}
+
 vec2 ggxEnergyAverage(float roughness)
 {
-    float y = ggxEnergyTableCoordinate(roughness);
-    int y0 = min(int(y), OLO_GGX_ENERGY_TABLE_SIZE - 2);
-    float fy = y - float(y0);
-    return mix(ggxEnergyAvgEntry(y0), ggxEnergyAvgEntry(y0 + 1), fy);
+    return ggxEnergyAverageAtRow(ggxEnergyRow(roughness));
 }
 
 // The directional albedo of the WHOLE v2 specular lobe from one table read
@@ -987,31 +1010,71 @@ struct ClosureV2Energy
 // ~0.9 of it (1.83x at roughness 0.05). Symmetric, so v2 stays reciprocal. A
 // negative 1 - E_spec (bilinear overshoot) reads as 0; the 1e-4 denominator
 // floor is reached only by an F0 -> 1 channel, whose numerator is ~0 too.
-ClosureV2Energy closureV2Energy(float NdotV, float NdotL, float roughness, vec3 F0)
+//
+// SPLIT IN TWO (issue #997). Everything above except the NdotL lookup depends
+// on the view and the material alone, so closureV2EnergyView computes it once
+// per shading point and closureV2EnergyForLight does the per-light rest: one
+// table lookup at NdotL (on the row the view already found) and the products.
+// Every expression is the one the single-call body evaluated, operand for
+// operand, so the hoist is bit-identical; closureV2Energy below is the two
+// halves composed. C++ twins: ClosureV2EnergyView / ClosureV2EnergyForLight.
+struct ClosureV2EnergyViewTerms
 {
-    vec2 average = ggxEnergyAverage(roughness);
-    vec2 energyV = ggxEnergy(NdotV, roughness);
-    vec2 energyL = ggxEnergy(NdotL, roughness);
-    float lossAvg = average.x;
+    vec3 F0;
+    GgxEnergyRow Row;   // the authored roughness's table row
+    float LossV;        // energyV.x = 1 - Ess(NdotV)
+    bool Compensates;   // lossAvg >= 1e-4: the Kulla-Conty lobe is on
+    float PiLossAvg;    // PI * lossAvg, the lobe's denominator
+    vec3 FresnelMs;     // F_ms, zero when the lobe is off
+    vec3 RemainingV;    // max(1 - E_spec(NdotV), 0)
+    vec3 RemainingAvg;  // max(1 - E_spec_avg, 1e-4)
+};
 
-    ClosureV2Energy terms;
-    terms.MultiScatter = vec3(0.0);
+ClosureV2EnergyViewTerms closureV2EnergyView(float NdotV, float roughness, vec3 F0)
+{
+    ClosureV2EnergyViewTerms view;
+    view.F0 = F0;
+    view.Row = ggxEnergyRow(roughness);
+    vec2 average = ggxEnergyAverageAtRow(view.Row);
+    vec2 energyV = ggxEnergyAtRow(NdotV, view.Row);
+    float lossAvg = average.x;
+    view.LossV = energyV.x;
+
     vec3 fresnelMs = vec3(0.0);
     // Below the table's resolution the lobe is near-mirror and sheds nothing
     // worth compensating; this also guards the 1/lossAvg denominator.
-    if (lossAvg >= 1.0e-4)
+    view.Compensates = lossAvg >= 1.0e-4;
+    view.PiLossAvg = PI * lossAvg;
+    if (view.Compensates)
     {
         float eAvg = 1.0 - lossAvg;
         vec3 fAvg = F0 + (vec3(1.0) - F0) * (1.0 / 21.0);
         fresnelMs = fAvg * fAvg * eAvg / (vec3(1.0) - fAvg * lossAvg);
-        terms.MultiScatter = fresnelMs * (energyV.x * energyL.x) / (PI * lossAvg);
     }
+    view.FresnelMs = fresnelMs;
 
-    vec3 remainingV = max(vec3(1.0) - closureV2SpecularAlbedo(energyV, F0, fresnelMs), vec3(0.0));
-    vec3 remainingL = max(vec3(1.0) - closureV2SpecularAlbedo(energyL, F0, fresnelMs), vec3(0.0));
-    vec3 remainingAvg = max(vec3(1.0) - closureV2SpecularAlbedo(average, F0, fresnelMs), vec3(1.0e-4));
-    terms.DiffuseCoupling = remainingV * remainingL / remainingAvg;
+    view.RemainingV = max(vec3(1.0) - closureV2SpecularAlbedo(energyV, F0, fresnelMs), vec3(0.0));
+    view.RemainingAvg = max(vec3(1.0) - closureV2SpecularAlbedo(average, F0, fresnelMs), vec3(1.0e-4));
+    return view;
+}
+
+ClosureV2Energy closureV2EnergyForLight(ClosureV2EnergyViewTerms view, float NdotL)
+{
+    vec2 energyL = ggxEnergyAtRow(NdotL, view.Row);
+
+    ClosureV2Energy terms;
+    terms.MultiScatter = vec3(0.0);
+    if (view.Compensates)
+        terms.MultiScatter = view.FresnelMs * (view.LossV * energyL.x) / view.PiLossAvg;
+
+    vec3 remainingL = max(vec3(1.0) - closureV2SpecularAlbedo(energyL, view.F0, view.FresnelMs), vec3(0.0));
+    terms.DiffuseCoupling = view.RemainingV * remainingL / view.RemainingAvg;
     return terms;
+}
+
+ClosureV2Energy closureV2Energy(float NdotV, float NdotL, float roughness, vec3 F0)
+{
+    return closureV2EnergyForLight(closureV2EnergyView(NdotV, roughness, F0), NdotL);
 }
 
 // Single-scatter GGX for punctual and finite emitters. The caller supplies
@@ -1025,27 +1088,58 @@ vec3 closureV2SingleScatter(vec3 N, vec3 V, vec3 L, vec3 F0, float r)
     return D * Vis * F;
 }
 
-// v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
-// convention — callers multiply by NdotL.
-OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+// One shading point's view of the v2 closure: everything Evaluate needs that
+// does not depend on L (issue #997). A light loop builds it once, before the
+// loop, with closureV2PrepareSurface, and hands it to every per-light
+// evaluator; the per-light cost is then the single-scatter lobe plus one
+// energy-table lookup. C++ twin: ClosureV2Surface.
+struct ClosureV2Surface
 {
-    float r = closureV2Roughness(roughness);
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
+    vec3 Albedo;
+    float Metallic;
+    float Roughness;  // AUTHORED: what the energy lookups take
+    float R;          // closureV2Roughness(Roughness): what D and Vis take
+    vec3 F0;
+    ClosureV2EnergyViewTerms Energy;
+};
 
-    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+ClosureV2Surface closureV2PrepareSurface(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
+{
+    ClosureV2Surface s;
+    s.Albedo = albedo;
+    s.Metallic = metallic;
+    s.Roughness = roughness;
+    s.R = closureV2Roughness(roughness);
+    s.F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
     // The energy lookup takes the AUTHORED roughness per its contract — the
     // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
     // and 0.04 lands on node 3, so the clamped r would read the same value).
     // C++ twin agrees (ClosureV2Evaluate).
-    ClosureV2Energy energy = closureV2Energy(NdotV, NdotL, roughness, F0);
-    vec3 specular = closureV2SingleScatter(N, V, L, F0, r) + energy.MultiScatter;
+    s.Energy = closureV2EnergyView(max(dot(N, V), 0.0), roughness, s.F0);
+    return s;
+}
 
-    vec3 kD = energy.DiffuseCoupling * (1.0 - metallic);
+// v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
+// convention — callers multiply by NdotL. `s` is closureV2PrepareSurface of
+// the same N and V.
+OloSurfaceLighting closureV2EvaluateSplitPrepared(ClosureV2Surface s, vec3 N, vec3 V, vec3 L)
+{
+    float NdotL = max(dot(N, L), 0.0);
+    ClosureV2Energy energy = closureV2EnergyForLight(s.Energy, NdotL);
+    vec3 specular = closureV2SingleScatter(N, V, L, s.F0, s.R) + energy.MultiScatter;
+
+    vec3 kD = energy.DiffuseCoupling * (1.0 - s.Metallic);
     // Split, not summed (issue #1231). The multiple-scattering compensation is
     // part of the SPECULAR half (it folds back into the specular lobe the
     // single-scatter GGX term lost); the coupling belongs to the DIFFUSE half.
-    return OloSurfaceLighting(kD * albedo * INV_PI, specular);
+    return OloSurfaceLighting(kD * s.Albedo * INV_PI, specular);
+}
+
+// The one-shot spelling, for a caller that evaluates one direction per
+// shading point (a probe, a path vertex, a ReSTIR shade).
+OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    return closureV2EvaluateSplitPrepared(closureV2PrepareSurface(N, V, albedo, metallic, roughness), N, V, L);
 }
 
 // The combined spelling. Same expression, same order, as the body it replaced.
@@ -1281,10 +1375,12 @@ float sphereAreaLightNormalization(float roughness, float distance, float sphere
 }
 
 // Evaluate a sphere area light at the surface.
-// Returns the radiance contribution (radiance * NdotL * BRDF).
-OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
-                                                             vec3 lightColor, float lightIntensity, float range,
-                                                             vec3 albedo, float metallic, float roughness, vec3 worldPos)
+// Returns the radiance contribution (radiance * NdotL * BRDF). `s` is
+// closureV2PrepareSurface of the same N and V (issue #997).
+OloSurfaceLighting calculateSphereAreaLightContributionSplitPrepared(ClosureV2Surface s, vec3 N, vec3 V,
+                                                                     vec3 lightPos, float sphereRadius,
+                                                                     vec3 lightColor, float lightIntensity,
+                                                                     float range, vec3 worldPos)
 {
     vec3 toLight = lightPos - worldPos;
     float distance = length(toLight);
@@ -1308,21 +1404,28 @@ OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec
     // the centre direction, recovering point-light behaviour.
     vec3 Lspec = calculateSphereAreaLightRepresentativePoint(worldPos, N, V, lightPos, sphereRadius);
 
-    float r = closureV2Roughness(roughness);
-    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
     // The GGX peak is 1/(pi alpha^2). Broadening alpha to alpha' for
     // the emitter footprint therefore scales its peak by (alpha/alpha')^2.
     // Keep the material visibility at the representative direction. The
     // broad multi-scatter and coupled diffuse lobes use the centre cosine
     // and have no GGX peak to renormalize.
-    float peakRatio = sphereAreaLightNormalization(r, distance, sphereRadius);
+    float peakRatio = sphereAreaLightNormalization(s.R, distance, sphereRadius);
     float NdotLspec = max(dot(N, Lspec), 0.0);
-    ClosureV2Energy energy = closureV2Energy(max(dot(N, V), 0.0), NdotL, roughness, F0);
-    vec3 single = closureV2SingleScatter(N, V, Lspec, F0, r);
-    vec3 diffuse = energy.DiffuseCoupling * (1.0 - metallic) * albedo * INV_PI;
+    ClosureV2Energy energy = closureV2EnergyForLight(s.Energy, NdotL);
+    vec3 single = closureV2SingleScatter(N, V, Lspec, s.F0, s.R);
+    vec3 diffuse = energy.DiffuseCoupling * (1.0 - s.Metallic) * s.Albedo * INV_PI;
     vec3 radiance = lightColor * lightIntensity * distAtten;
     return OloSurfaceLighting(diffuse * NdotL * radiance,
                               (single * (NdotLspec * peakRatio) + energy.MultiScatter * NdotL) * radiance);
+}
+
+OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
+                                                             vec3 lightColor, float lightIntensity, float range,
+                                                             vec3 albedo, float metallic, float roughness, vec3 worldPos)
+{
+    return calculateSphereAreaLightContributionSplitPrepared(closureV2PrepareSurface(N, V, albedo, metallic, roughness),
+                                                             N, V, lightPos, sphereRadius, lightColor, lightIntensity,
+                                                             range, worldPos);
 }
 
 vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
@@ -1396,9 +1499,11 @@ bool oloLightSample(LightData light, vec3 worldPos, out vec3 L, out vec3 radianc
     return true;
 }
 
-// Split direct lighting into the diffuse and specular outputs consumed by the frame graph.
-OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
-                                                   float metallic, float roughness, vec3 worldPos)
+// Split direct lighting into the diffuse and specular outputs consumed by the
+// frame graph. `s` is closureV2PrepareSurface of the same N and V, built once
+// before the caller's light loop (issue #997).
+OloSurfaceLighting calculateLightContributionSplitPrepared(LightData light, ClosureV2Surface s, vec3 N, vec3 V,
+                                                           vec3 worldPos)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
@@ -1411,9 +1516,8 @@ OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3
     {
         float sphereRadius = light.spotParams.z;       // Packed by Scene::ProcessScene3DSharedLogic
         float range        = light.attenuationParams.w;
-        return calculateSphereAreaLightContributionSplit(N, V, light.position.xyz, sphereRadius,
-                                                        lightColor, lightIntensity, range,
-                                                        albedo, metallic, roughness, worldPos);
+        return calculateSphereAreaLightContributionSplitPrepared(s, N, V, light.position.xyz, sphereRadius,
+                                                                lightColor, lightIntensity, range, worldPos);
     }
 
     vec3 L;
@@ -1423,9 +1527,16 @@ OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3
 
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= EPSILON) return oloSurfaceLightingZero();
-    OloSurfaceLighting brdf = closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
+    OloSurfaceLighting brdf = closureV2EvaluateSplitPrepared(s, N, V, L);
 
     return oloSurfaceLightingScale(brdf, radiance * NdotL);
+}
+
+OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
+                                                   float metallic, float roughness, vec3 worldPos)
+{
+    return calculateLightContributionSplitPrepared(light, closureV2PrepareSurface(N, V, albedo, metallic, roughness),
+                                                   N, V, worldPos);
 }
 
 // Combined direct lighting for surfaces that use a single colour output.

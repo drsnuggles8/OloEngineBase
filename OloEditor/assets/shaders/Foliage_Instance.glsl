@@ -249,6 +249,8 @@ void main()
     vec3 transmitted = vec3(0.0);
 
     int lightCount = min(u_LightCount, MAX_LIGHTS);
+    // The reflected lobe's per-pixel terms, once, before the loop (issue #997).
+    ClosureV2Surface closureSurface = closureV2PrepareSurface(leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness);
     for (int i = 0; i < lightCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
@@ -323,8 +325,8 @@ void main()
         // The REFLECTED lobe — the front face's ordinary PBR response. Zero
         // where dot(N, L) <= 0, which is exactly the backlit case the
         // transmission lobe below exists to fill.
-        OloSurfaceLighting contrib = calculateLightContributionSplit(
-            u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos);
+        OloSurfaceLighting contrib = calculateLightContributionSplitPrepared(
+            u_Lights[i], closureSurface, leaf.Normal, V, v_WorldPos);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);

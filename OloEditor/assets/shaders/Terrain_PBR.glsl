@@ -574,14 +574,17 @@ void main()
     vec3 Lo = vec3(0.0);
     vec3 LoDiffuse = vec3(0.0);
 
+    // The closure's per-pixel terms, ONCE, for both light loops below
+    // (issue #997). Terrain is never skin: one lobe, no oral coat.
+    OloSkinClosureSurface closureSurface = oloSkinPrepareClosure(N, V, albedo, metallic, roughness, vec2(0.0, 1.0));
+
     // Forward+ path: per-cluster culled point/spot lights
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        OloSurfaceLighting fplusLit = fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic, roughness,
-                                                                   fplusViewDepth,
-                                                                   vec2(0.0, 1.0), vec4(0.0));
+        OloSurfaceLighting fplusLit = fplusEvaluateTileLightsSplitPrepared(closureSurface, N, V, v_WorldPos,
+                                                                           fplusViewDepth, vec4(0.0));
         Lo += oloSurfaceLightingSum(fplusLit);
         LoDiffuse += fplusLit.Diffuse;
     }
@@ -593,8 +596,8 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                        roughness, v_WorldPos);
+        OloSurfaceLighting lightSplit = calculateLightContributionSplitPrepared(u_Lights[i], closureSurface.Narrow,
+                                                                                N, V, v_WorldPos);
         vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
         // The visibility every branch below multiplies in, tracked alongside
         // so the diffuse twin is gated identically.

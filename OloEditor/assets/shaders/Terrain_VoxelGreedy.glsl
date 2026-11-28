@@ -301,11 +301,13 @@ void main()
     // The lighting tap (issue #1526) needs the diffuse half of the direct sum,
     // tracked beside it; `Lo` is the same expression it always was.
     vec3 LoDiffuse = vec3(0.0);
+    // The closure's per-pixel terms, once, before the loop (issue #997).
+    ClosureV2Surface closureSurface = closureV2PrepareSurface(N, V, albedo, metallic, roughness);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
     {
         // calculateLightContribution is the sum of this split, evaluated once.
-        OloSurfaceLighting lightSplit = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                        roughness, v_WorldPos);
+        OloSurfaceLighting lightSplit = calculateLightContributionSplitPrepared(u_Lights[i], closureSurface,
+                                                                                N, V, v_WorldPos);
         vec3 lightContrib = oloSurfaceLightingSum(lightSplit);
         float lightVisibility = 1.0;
 

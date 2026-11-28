@@ -649,16 +649,18 @@ void main()
     // scattering (#1241) can blur one half without touching the other.
     OloSurfaceLighting Lo = oloSurfaceLightingZero();
 
+    // The closure's per-pixel terms, ONCE, for both light loops below: the
+    // Forward+ tiles and the directional (or full) UBO loop (issue #997).
+    OloSkinClosureSurface closureSurface = oloSkinPrepareClosure(
+        N, V, albedo, metallic, roughness, oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel, u_SkinSpecularLane));
+
     // Forward+ path: use per-cluster culled light lists for point/spot lights
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic,
-                                                                    roughness, fplusViewDepth,
-                                                                    oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel,
-                                                                                   u_SkinSpecularLane),
-                                                                    skinOralLane));
+        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplitPrepared(closureSurface, N, V, v_WorldPos, fplusViewDepth,
+                                                                            skinOralLane));
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -673,9 +675,8 @@ void main()
         // calculateLightContributionSplit, which for a lobe mix of 0 — every
         // non-skin pixel, and every skin pixel below transport version 3 —
         // returns the identical result without evaluating anything twice.
-        OloSurfaceLighting lightContrib = oloSkinLightContributionSplit(
-            u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos,
-            oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel, u_SkinSpecularLane));
+        OloSurfaceLighting lightContrib = oloSkinLightContributionSplitPrepared(
+            u_Lights[i], closureSurface, N, V, v_WorldPos);
 
         // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1242).
         //

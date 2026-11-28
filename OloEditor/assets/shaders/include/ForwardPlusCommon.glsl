@@ -170,10 +170,14 @@ uvec2 fplusGetTileData(float viewDepth)
 // PLUMBED THROUGH for the reason `skinLobe` above it is: a scene must not shade
 // a wet lip differently depending on whether its lights happened to land in a
 // Forward+ cluster.
-OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
-                                                vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, vec2 skinLobe,
-                                                vec4 skinOral)
+//
+// PREPARED (issue #997): `surface` is oloSkinPrepareClosure of the same N and V
+// and the material's albedo, metallic, roughness and skin lobe, built ONCE per
+// pixel by the caller -- which hands the same value to its directional loop --
+// so every light below pays one energy-table lookup per evaluated lobe, not the
+// averages row, the NdotV lookup and the F_ms divide again.
+OloSurfaceLighting fplusEvaluateTileLightsSplitPrepared(OloSkinClosureSurface surface, vec3 N, vec3 V,
+                                                        vec3 worldPos, float viewDepth, vec4 skinOral)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
     uint offset = tileData.x;
@@ -243,7 +247,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             // it by one number — which is what makes the coat's partition hold
             // per light on this path too.
             OloSurfaceLighting contribution = oloSurfaceLightingScale(
-                oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+                oloSkinLayeredClosureSplitPrepared(surface, N, V, L), radiance);
             contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
             Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
@@ -256,9 +260,8 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             float intensity    = sl.ColorAndIntensity.w;
             float range        = sl.RangeAndPadding.x;
 
-            OloSurfaceLighting contribution = calculateSphereAreaLightContributionSplit(
-                N, V, lightPos, sphereRadius, lightColor, intensity, range,
-                albedo, metallic, roughness, worldPos);
+            OloSurfaceLighting contribution = calculateSphereAreaLightContributionSplitPrepared(
+                surface.Narrow, N, V, lightPos, sphereRadius, lightColor, intensity, range, worldPos);
 
 #ifdef FPLUS_ATLAS_SHADOWS
             // Sphere-area lights shadow from their centre through the point path
@@ -334,13 +337,22 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             // it by one number — which is what makes the coat's partition hold
             // per light on this path too.
             OloSurfaceLighting contribution = oloSurfaceLightingScale(
-                oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+                oloSkinLayeredClosureSplitPrepared(surface, N, V, L), radiance);
             contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
             Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
     }
 
     return Lo;
+}
+
+OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
+                                                vec3 albedo, float metallic, float roughness,
+                                                float viewDepth, vec2 skinLobe,
+                                                vec4 skinOral)
+{
+    return fplusEvaluateTileLightsSplitPrepared(oloSkinPrepareClosure(N, V, albedo, metallic, roughness, skinLobe),
+                                                N, V, worldPos, viewDepth, skinOral);
 }
 
 // Combined lighting for surfaces that consume one colour output.

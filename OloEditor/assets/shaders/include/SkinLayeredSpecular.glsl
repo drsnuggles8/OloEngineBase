@@ -214,18 +214,47 @@ vec3 oloSkinSpecularMix(vec3 narrow, vec3 broad, float broadWeight)
 // x <= 0 returns the single-lobe result without evaluating anything twice, so a
 // non-skin surface and a skin surface whose author left the mixture at zero both
 // cost exactly what they cost before this feature existed.
+//
+// HOISTED (issue #997). Both arms' per-pixel closure terms are prepared once,
+// before the light loop, by oloSkinPrepareClosure; the broad arm only when the
+// mixture is on, so a non-skin pixel still prepares one surface, not two. The
+// per-light function below then pays one energy lookup per evaluated arm.
+struct OloSkinClosureSurface
+{
+    ClosureV2Surface Narrow;
+    ClosureV2Surface Broad; // == Narrow when Lobe.x <= 0 (never evaluated)
+    vec2 Lobe;
+};
+
+OloSkinClosureSurface oloSkinPrepareClosure(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                                            vec2 skinLobe)
+{
+    OloSkinClosureSurface s;
+    s.Narrow = closureV2PrepareSurface(N, V, albedo, metallic, roughness);
+    s.Broad = s.Narrow;
+    s.Lobe = skinLobe;
+    if (!(skinLobe.x <= 0.0))
+        s.Broad = closureV2PrepareSurface(N, V, albedo, metallic, oloSkinBroadRoughness(roughness, skinLobe.y));
+    return s;
+}
+
+OloSurfaceLighting oloSkinLayeredClosureSplitPrepared(OloSkinClosureSurface s, vec3 N, vec3 V, vec3 L)
+{
+    OloSurfaceLighting narrow = closureV2EvaluateSplitPrepared(s.Narrow, N, V, L);
+    if (s.Lobe.x <= 0.0)
+        return narrow;
+
+    OloSurfaceLighting broad = closureV2EvaluateSplitPrepared(s.Broad, N, V, L);
+    return OloSurfaceLighting(narrow.Diffuse,
+                              oloSkinSpecularMix(narrow.Specular, broad.Specular, s.Lobe.x));
+}
+
 OloSurfaceLighting oloSkinLayeredClosureSplit(vec3 N, vec3 V, vec3 L,
                                               vec3 albedo, float metallic, float roughness,
                                               vec2 skinLobe)
 {
-    OloSurfaceLighting narrow = closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
-    if (skinLobe.x <= 0.0)
-        return narrow;
-
-    float broadRoughness = oloSkinBroadRoughness(roughness, skinLobe.y);
-    OloSurfaceLighting broad = closureV2EvaluateSplit(N, V, L, albedo, metallic, broadRoughness);
-    return OloSurfaceLighting(narrow.Diffuse,
-                              oloSkinSpecularMix(narrow.Specular, broad.Specular, skinLobe.x));
+    return oloSkinLayeredClosureSplitPrepared(oloSkinPrepareClosure(N, V, albedo, metallic, roughness, skinLobe),
+                                              N, V, L);
 }
 
 // One light's contribution with the layered closure — the skin twin of
@@ -245,15 +274,17 @@ OloSurfaceLighting oloSkinLayeredClosureSplit(vec3 N, vec3 V, vec3 L,
 // expression with no physical reading at all. Skin under a sphere-area light
 // therefore gets the filtered roughness (which is most of the benefit) and one
 // lobe. Stated here because the alternative is someone "fixing" it later.
-OloSurfaceLighting oloSkinLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
-                                                 float metallic, float roughness, vec3 worldPos,
-                                                 vec2 skinLobe)
+//
+// `s` is oloSkinPrepareClosure of the same N and V, built once before the
+// caller's light loop (issue #997).
+OloSurfaceLighting oloSkinLightContributionSplitPrepared(LightData light, OloSkinClosureSurface s, vec3 N, vec3 V,
+                                                         vec3 worldPos)
 {
     int lightType = int(light.position.w);
 
     if (lightType == SPHERE_AREA_LIGHT)
     {
-        return calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos);
+        return calculateLightContributionSplitPrepared(light, s.Narrow, N, V, worldPos);
     }
 
     vec3 L;
@@ -265,8 +296,16 @@ OloSurfaceLighting oloSkinLightContributionSplit(LightData light, vec3 N, vec3 V
     if (NdotL <= EPSILON)
         return oloSurfaceLightingZero();
 
-    OloSurfaceLighting brdf = oloSkinLayeredClosureSplit(N, V, L, albedo, metallic, roughness, skinLobe);
+    OloSurfaceLighting brdf = oloSkinLayeredClosureSplitPrepared(s, N, V, L);
     return oloSurfaceLightingScale(brdf, radiance * NdotL);
+}
+
+OloSurfaceLighting oloSkinLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
+                                                 float metallic, float roughness, vec3 worldPos,
+                                                 vec2 skinLobe)
+{
+    return oloSkinLightContributionSplitPrepared(
+        light, oloSkinPrepareClosure(N, V, albedo, metallic, roughness, skinLobe), N, V, worldPos);
 }
 
 // -----------------------------------------------------------------------------

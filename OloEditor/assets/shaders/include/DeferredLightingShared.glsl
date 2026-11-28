@@ -512,13 +512,17 @@ vec3 ComputeDeferredLitSplit(
         unsplitDirect += restirDirect;
     }
 
+    // The closure's per-pixel terms, ONCE, for both light loops below: the
+    // Forward+ tiles and the directional (or full) UBO loop (issue #997).
+    OloSkinClosureSurface closureSurface = oloSkinPrepareClosure(
+        N, V, albedo, metallic, roughness, skinLobe);
+
     bool fplusActive = !restirActive && (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
-        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
-                                                                    roughness, fplusViewDepth,
-                                                                    skinLobe, skinOralLane));
+        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplitPrepared(closureSurface, N, V, worldPos, fplusViewDepth,
+                                                                            skinOralLane));
     }
 
     // DIRECTIONAL-ONLY when either ReSTIR DI or Forward+ answered for the rest:
@@ -545,8 +549,8 @@ vec3 ComputeDeferredLitSplit(
         // a lobe mix of 0 — every non-skin pixel and every profile below
         // transport version 3 — it is the identical single-lobe result and
         // evaluates the closure once.
-        OloSurfaceLighting lightContrib = oloSkinLightContributionSplit(
-            u_Lights[i], N, V, albedo, metallic, roughness, worldPos, skinLobe);
+        OloSurfaceLighting lightContrib = oloSkinLightContributionSplitPrepared(
+            u_Lights[i], closureSurface, N, V, worldPos);
 
         // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1234).
         //

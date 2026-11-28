@@ -444,6 +444,144 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // 4b. The hoist changed no bit (issue #997).
+    //
+    // ClosureV2Evaluate is now ClosureV2PrepareSurface + ClosureV2EvaluatePrepared,
+    // with the direction-independent terms computed once per shading point. The
+    // claim is that each expression is the one the single-call body evaluated,
+    // so the result is bit-identical. This is that single-call body, copied
+    // verbatim from before the split (GgxEnergy, GgxEnergyAverage,
+    // ClosureV2Energy, ClosureV2Evaluate), compared as BITS over a grid that
+    // crosses every table cell, the below-gate rows (roughness < 0.04) and
+    // grazing and head-on directions. A rewrite that reorders one product
+    // fails here, where the furnace and parity tolerances would not notice.
+    // =========================================================================
+    namespace PreHoist
+    {
+        [[nodiscard]] static glm::vec2 GgxEnergy(f32 mu, f32 roughness)
+        {
+            const f32 x = GgxEnergyTableCoordinate(mu);
+            const f32 y = GgxEnergyTableCoordinate(roughness);
+            const u32 x0 = std::min(static_cast<u32>(x), kGgxEnergyTableSize - 2);
+            const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
+            const f32 fx = x - static_cast<f32>(x0);
+            const f32 fy = y - static_cast<f32>(y0);
+            const glm::vec2 v00 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0);
+            const glm::vec2 v10 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0 + 1);
+            const glm::vec2 v01 = GgxEnergyEntry((y0 + 1) * kGgxEnergyTableSize + x0);
+            const glm::vec2 v11 = GgxEnergyEntry((y0 + 1) * kGgxEnergyTableSize + x0 + 1);
+            return glm::mix(glm::mix(v00, v10, fx), glm::mix(v01, v11, fx), fy);
+        }
+
+        [[nodiscard]] static glm::vec2 GgxEnergyAverage(f32 roughness)
+        {
+            const f32 y = GgxEnergyTableCoordinate(roughness);
+            const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
+            const f32 fy = y - static_cast<f32>(y0);
+            return glm::mix(GgxEnergyAvgEntry(y0), GgxEnergyAvgEntry(y0 + 1), fy);
+        }
+
+        [[nodiscard]] static ClosureV2EnergyTerms Energy(f32 nDotV, f32 nDotL, f32 roughness, const glm::vec3& f0)
+        {
+            const glm::vec2 average = GgxEnergyAverage(roughness);
+            const glm::vec2 energyV = GgxEnergy(nDotV, roughness);
+            const glm::vec2 energyL = GgxEnergy(nDotL, roughness);
+            const f32 lossAvg = average.x;
+
+            ClosureV2EnergyTerms terms;
+            glm::vec3 fresnelMs(0.0f);
+            if (lossAvg >= 1.0e-4f)
+            {
+                const f32 eAvg = 1.0f - lossAvg;
+                const glm::vec3 fAvg = f0 + (glm::vec3(1.0f) - f0) * (1.0f / 21.0f);
+                fresnelMs = fAvg * fAvg * eAvg / (glm::vec3(1.0f) - fAvg * lossAvg);
+                terms.MultiScatter = fresnelMs * (energyV.x * energyL.x) / (kPi * lossAvg);
+            }
+
+            const glm::vec3 remainingV =
+                glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyV, f0, fresnelMs), 0.0f);
+            const glm::vec3 remainingL =
+                glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyL, f0, fresnelMs), 0.0f);
+            const glm::vec3 remainingAvg =
+                glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(average, f0, fresnelMs), 1.0e-4f);
+            terms.DiffuseCoupling = remainingV * remainingL / remainingAvg;
+            return terms;
+        }
+
+        [[nodiscard]] static glm::vec3 Evaluate(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
+                                                const glm::vec3& albedo,
+                                                f32 metallic, f32 roughness)
+        {
+            const f32 r = ClosureV2Roughness(roughness);
+            const glm::vec3 h = glm::normalize(v + l);
+            const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
+            const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
+
+            const glm::vec3 f0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
+            const f32 d = DistributionGGXSamplingDensity(n, h, r);
+            const f32 vis = VisibilitySmithGGXCorrelated(nDotV, nDotL, r);
+            const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
+
+            const ClosureV2EnergyTerms energy = Energy(nDotV, nDotL, roughness, f0);
+            const glm::vec3 specular = d * vis * f + energy.MultiScatter;
+
+            const glm::vec3 kD = energy.DiffuseCoupling * (1.0f - metallic);
+            return kD * albedo * kInvPi + specular;
+        }
+    } // namespace PreHoist
+
+    TEST(ClosureV2, PreparedEvaluateIsBitIdenticalToThePreHoistBody)
+    {
+        const glm::vec3 n(0.0f, 0.0f, 1.0f);
+        const auto bits = [](const glm::vec3& c)
+        { return glm::uvec3(std::bit_cast<u32>(c.x), std::bit_cast<u32>(c.y), std::bit_cast<u32>(c.z)); };
+
+        u32 compared = 0;
+        for (const glm::vec3 albedo : { glm::vec3(0.8f, 0.4f, 0.2f), glm::vec3(1.0f), glm::vec3(0.05f, 0.9f, 0.3f) })
+        {
+            for (const f32 metallic : { 0.0f, 0.37f, 1.0f })
+            {
+                // 0.0 and 0.02 sit below the v2 clamp and on the below-gate rows.
+                for (u32 ri = 0; ri <= 24; ++ri)
+                {
+                    const f32 roughness = (ri == 0) ? 0.0f : (ri == 1) ? 0.02f
+                                                                       : static_cast<f32>(ri) / 24.0f;
+                    for (const f32 cosV : { 1.0f, 0.83f, 0.5f, 0.21f, 0.04f, 0.001f })
+                    {
+                        const glm::vec3 v = DirectionFrom(cosV, 0.3f);
+                        // One prepared surface, many lights: exactly the shape
+                        // of a light loop.
+                        const ClosureV2Surface s = ClosureV2PrepareSurface(n, v, albedo, metallic, roughness);
+                        for (const f32 cosL : { 1.0f, 0.9f, 0.62f, 0.33f, 0.12f, 0.003f })
+                        {
+                            for (const f32 phiL : { 0.0f, 1.7f, 3.14f, 4.9f })
+                            {
+                                const glm::vec3 l = DirectionFrom(cosL, phiL);
+                                const glm::vec3 before = PreHoist::Evaluate(n, v, l, albedo, metallic, roughness);
+                                const glm::vec3 prepared = ClosureV2EvaluatePrepared(s, n, v, l);
+                                const glm::vec3 oneShot = ClosureV2Evaluate(n, v, l, albedo, metallic, roughness);
+                                ASSERT_EQ(bits(prepared), bits(before))
+                                    << "r=" << roughness << " m=" << metallic << " cosV=" << cosV << " cosL=" << cosL
+                                    << " phiL=" << phiL;
+                                ASSERT_EQ(bits(oneShot), bits(before));
+
+                                const ClosureV2EnergyTerms energyBefore =
+                                    PreHoist::Energy(cosV, cosL, roughness, s.F0);
+                                const ClosureV2EnergyTerms energyNow =
+                                    ClosureV2Energy(cosV, cosL, roughness, s.F0);
+                                ASSERT_EQ(bits(energyNow.MultiScatter), bits(energyBefore.MultiScatter));
+                                ASSERT_EQ(bits(energyNow.DiffuseCoupling), bits(energyBefore.DiffuseCoupling));
+                                ++compared;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        EXPECT_EQ(compared, 3u * 3u * 25u * 6u * 6u * 4u);
+    }
+
+    // =========================================================================
     // 5. Reciprocity: f(v, l) == f(l, v).
     //
     // Why this holds exactly (up to fp reassociation): F is evaluated at the

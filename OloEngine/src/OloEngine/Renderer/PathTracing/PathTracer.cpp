@@ -22,10 +22,13 @@ namespace OloEngine::PathTracing
         // integrator's call sites and, in SampleBsdf, own the sampler
         // DIMENSION DRAW ORDER (Get1D then Get2D, unconditionally), which is
         // part of the determinism contract.
-        [[nodiscard]] glm::vec3 EvaluateBRDF(const ReferenceMaterial& material, const glm::vec3& n,
+        // `prepared` is BSDF::Prepare of the vertex's material, n and v, built
+        // once per vertex (issue #997): every direction evaluated there reuses
+        // the closure's direction-independent terms.
+        [[nodiscard]] glm::vec3 EvaluateBRDF(const BSDF::PreparedSurface& prepared, const glm::vec3& n,
                                              const glm::vec3& v, const glm::vec3& l)
         {
-            return BSDF::Evaluate(material, n, v, l);
+            return BSDF::Evaluate(prepared, n, v, l);
         }
 
         [[nodiscard]] f32 BsdfPdf(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
@@ -37,12 +40,12 @@ namespace OloEngine::PathTracing
         using BsdfSample = BSDF::BSDFSample;
 
         [[nodiscard]] bool SampleBsdf(const glm::vec3& n, const glm::vec3& v,
-                                      const ReferenceMaterial& material, PathSampler& sampler,
+                                      const BSDF::PreparedSurface& prepared, PathSampler& sampler,
                                       BsdfSample& outSample)
         {
             const f32 lobeSelect = sampler.Get1D();
             const glm::vec2 xi = sampler.Get2D();
-            return BSDF::Sample(material, n, v, lobeSelect, xi, outSample);
+            return BSDF::Sample(prepared, n, v, lobeSelect, xi, outSample);
         }
 
         // Offset a ray origin off the surface along the geometric normal, on
@@ -182,6 +185,7 @@ namespace OloEngine::PathTracing
         [[nodiscard]] glm::vec3 SampleDirectLighting(const ReferenceScene& scene, const glm::vec3& position,
                                                      const glm::vec3& geometricNormal, const glm::vec3& n,
                                                      const glm::vec3& v, const ReferenceMaterial& material,
+                                                     const BSDF::PreparedSurface& prepared,
                                                      const PathTracerSettings& settings, PathSampler& sampler)
         {
             glm::vec3 direct(0.0f);
@@ -247,7 +251,7 @@ namespace OloEngine::PathTracing
                     continue;
 
                 const glm::vec3 radiance = light.Color * light.Intensity * attenuation;
-                const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
+                const glm::vec3 brdf = EvaluateBRDF(prepared, n, v, l);
                 direct += brdf * radiance * nDotL;
             }
 
@@ -284,7 +288,7 @@ namespace OloEngine::PathTracing
                                     OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
                                 if (!ShadowRayBlocked(scene, shadowOrigin, lightSample.Position, settings.RayEpsilon))
                                 {
-                                    const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
+                                    const glm::vec3 brdf = EvaluateBRDF(prepared, n, v, l);
                                     const f32 pdfBsdf = BsdfPdf(n, v, l, material);
                                     const f32 misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
                                     direct += brdf * nDotL * lightSample.Radiance * (misWeight / pdfSolidAngle);
@@ -327,7 +331,7 @@ namespace OloEngine::PathTracing
                 const glm::vec3 shadowOrigin = OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
                 if (ShadowRayBlocked(scene, shadowOrigin, position + l * t, settings.RayEpsilon))
                     continue;
-                const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
+                const glm::vec3 brdf = EvaluateBRDF(prepared, n, v, l);
                 const f32 pdfBsdf = BsdfPdf(n, v, l, material);
                 const f32 misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
                 direct += brdf * nDotL * view.Radiance * (misWeight / pdfSolidAngle);
@@ -586,11 +590,15 @@ namespace OloEngine::PathTracing
                 geometricNormal = -geometricNormal;
             }
 
+            // The closure's direction-independent terms, once for every
+            // direction this vertex evaluates below (issue #997).
+            const BSDF::PreparedSurface prepared = BSDF::Prepare(material, shadingNormal, v);
+
             // ---- next-event estimation ---------------------------------------
             if (settings.EnableNextEventEstimation)
             {
                 radiance += throughput * SampleDirectLighting(scene, hit.Position, geometricNormal, shadingNormal,
-                                                              v, material, settings, sampler);
+                                                              v, material, prepared, settings, sampler);
             }
 
             // Last allowed vertex: stop before scattering. (MaxBounces == 1 is
@@ -600,7 +608,7 @@ namespace OloEngine::PathTracing
 
             // ---- BSDF sample --------------------------------------------------
             BsdfSample bsdf;
-            if (!SampleBsdf(shadingNormal, v, material, sampler, bsdf))
+            if (!SampleBsdf(shadingNormal, v, prepared, sampler, bsdf))
                 break;
 
             const f32 nDotL = glm::dot(shadingNormal, bsdf.Direction);

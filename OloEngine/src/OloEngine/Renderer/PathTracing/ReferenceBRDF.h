@@ -296,14 +296,31 @@ namespace OloEngine::PathTracing
     // `roughness` is AUTHORED perceptual roughness; the table rows bake the v2
     // alpha clamp in. The lower cell index stops at N - 2 so value 1 reads the
     // last node with weight 1 instead of indexing past it.
-    [[nodiscard]] inline glm::vec2 GgxEnergy(f32 mu, f32 roughness) noexcept
+    //
+    // Split by axis (issue #997): GgxEnergyRow is the roughness half, which a
+    // shading point finds once and every per-light lookup reuses.
+    struct GgxEnergyRowCoord
+    {
+        u32 Y0 = 0;
+        f32 Fy = 0.0f;
+    };
+
+    // GLSL: ggxEnergyRow.
+    [[nodiscard]] inline GgxEnergyRowCoord GgxEnergyRow(f32 roughness) noexcept
+    {
+        const f32 y = GgxEnergyTableCoordinate(roughness);
+        const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
+        return { y0, y - static_cast<f32>(y0) };
+    }
+
+    // GLSL: ggxEnergyAtRow.
+    [[nodiscard]] inline glm::vec2 GgxEnergyAtRow(f32 mu, const GgxEnergyRowCoord& row) noexcept
     {
         const f32 x = GgxEnergyTableCoordinate(mu);
-        const f32 y = GgxEnergyTableCoordinate(roughness);
         const u32 x0 = std::min(static_cast<u32>(x), kGgxEnergyTableSize - 2);
-        const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
+        const u32 y0 = row.Y0;
         const f32 fx = x - static_cast<f32>(x0);
-        const f32 fy = y - static_cast<f32>(y0);
+        const f32 fy = row.Fy;
         const glm::vec2 v00 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0);
         const glm::vec2 v10 = GgxEnergyEntry(y0 * kGgxEnergyTableSize + x0 + 1);
         const glm::vec2 v01 = GgxEnergyEntry((y0 + 1) * kGgxEnergyTableSize + x0);
@@ -311,14 +328,21 @@ namespace OloEngine::PathTracing
         return glm::mix(glm::mix(v00, v10, fx), glm::mix(v01, v11, fx), fy);
     }
 
+    [[nodiscard]] inline glm::vec2 GgxEnergy(f32 mu, f32 roughness) noexcept
+    {
+        return GgxEnergyAtRow(mu, GgxEnergyRow(roughness));
+    }
+
     // GLSL: ggxEnergyAverage — linear lookup of the averages row,
     // x = 1 - E_avg(r), y = Schlick_avg(r).
+    [[nodiscard]] inline glm::vec2 GgxEnergyAverageAtRow(const GgxEnergyRowCoord& row) noexcept
+    {
+        return glm::mix(GgxEnergyAvgEntry(row.Y0), GgxEnergyAvgEntry(row.Y0 + 1), row.Fy);
+    }
+
     [[nodiscard]] inline glm::vec2 GgxEnergyAverage(f32 roughness) noexcept
     {
-        const f32 y = GgxEnergyTableCoordinate(roughness);
-        const u32 y0 = std::min(static_cast<u32>(y), kGgxEnergyTableSize - 2);
-        const f32 fy = y - static_cast<f32>(y0);
-        return glm::mix(GgxEnergyAvgEntry(y0), GgxEnergyAvgEntry(y0 + 1), fy);
+        return GgxEnergyAverageAtRow(GgxEnergyRow(roughness));
     }
 
     // GLSL: closureV2SpecularAlbedo — the directional albedo of the WHOLE v2
@@ -374,32 +398,75 @@ namespace OloEngine::PathTracing
     // negative 1 - E_spec (bilinear overshoot) reads as 0, and the denominator
     // is floored at 1e-4, which only an F0 -> 1 channel reaches — where the
     // numerator is ~0 too, so the floor darkens, never brightens.
-    [[nodiscard]] inline ClosureV2EnergyTerms ClosureV2Energy(f32 nDotV, f32 nDotL, f32 roughness,
-                                                              const glm::vec3& f0) noexcept
+    //
+    // SPLIT IN TWO (issue #997), like its GLSL twin: everything but the nDotL
+    // lookup depends on the view and the material alone, so
+    // ClosureV2EnergyView computes it once per shading point and
+    // ClosureV2EnergyForLight does the per-direction rest. Each expression is
+    // the one the single-call body evaluated, so the split is bit-identical
+    // (PathTracerCornellBox.RendersAreBitIdentical pins it).
+    struct ClosureV2EnergyViewTerms
     {
-        const glm::vec2 average = GgxEnergyAverage(roughness);
-        const glm::vec2 energyV = GgxEnergy(nDotV, roughness);
-        const glm::vec2 energyL = GgxEnergy(nDotL, roughness);
-        const f32 lossAvg = average.x;
+        glm::vec3 F0{ 0.0f };
+        GgxEnergyRowCoord Row;          // the authored roughness's table row
+        f32 LossV = 0.0f;               // 1 - Ess(nDotV)
+        bool Compensates = false;       // lossAvg >= 1e-4: the lobe is on
+        f32 PiLossAvg = 0.0f;           // kPi * lossAvg
+        glm::vec3 FresnelMs{ 0.0f };    // zero when the lobe is off
+        glm::vec3 RemainingV{ 0.0f };   // max(1 - E_spec(nDotV), 0)
+        glm::vec3 RemainingAvg{ 1.0f }; // max(1 - E_spec_avg, 1e-4)
+    };
 
-        ClosureV2EnergyTerms terms;
+    // GLSL: closureV2EnergyView.
+    [[nodiscard]] inline ClosureV2EnergyViewTerms ClosureV2EnergyView(f32 nDotV, f32 roughness,
+                                                                      const glm::vec3& f0) noexcept
+    {
+        ClosureV2EnergyViewTerms view;
+        view.F0 = f0;
+        view.Row = GgxEnergyRow(roughness);
+        const glm::vec2 average = GgxEnergyAverageAtRow(view.Row);
+        const glm::vec2 energyV = GgxEnergyAtRow(nDotV, view.Row);
+        const f32 lossAvg = average.x;
+        view.LossV = energyV.x;
+
         glm::vec3 fresnelMs(0.0f);
         // Below the table's resolution the lobe is near-mirror and sheds
         // nothing worth compensating; also guards the 1/lossAvg denominator.
-        if (lossAvg >= 1.0e-4f)
+        view.Compensates = lossAvg >= 1.0e-4f;
+        view.PiLossAvg = kPi * lossAvg;
+        if (view.Compensates)
         {
             const f32 eAvg = 1.0f - lossAvg;
             const glm::vec3 fAvg = f0 + (glm::vec3(1.0f) - f0) * (1.0f / 21.0f);
             fresnelMs = fAvg * fAvg * eAvg / (glm::vec3(1.0f) - fAvg * lossAvg);
-            terms.MultiScatter = fresnelMs * (energyV.x * energyL.x) / (kPi * lossAvg);
         }
+        view.FresnelMs = fresnelMs;
 
-        const glm::vec3 remainingV = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyV, f0, fresnelMs), 0.0f);
-        const glm::vec3 remainingL = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyL, f0, fresnelMs), 0.0f);
-        const glm::vec3 remainingAvg =
-            glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(average, f0, fresnelMs), 1.0e-4f);
-        terms.DiffuseCoupling = remainingV * remainingL / remainingAvg;
+        view.RemainingV = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyV, f0, fresnelMs), 0.0f);
+        view.RemainingAvg = glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(average, f0, fresnelMs), 1.0e-4f);
+        return view;
+    }
+
+    // GLSL: closureV2EnergyForLight — one table lookup at nDotL.
+    [[nodiscard]] inline ClosureV2EnergyTerms ClosureV2EnergyForLight(const ClosureV2EnergyViewTerms& view,
+                                                                      f32 nDotL) noexcept
+    {
+        const glm::vec2 energyL = GgxEnergyAtRow(nDotL, view.Row);
+
+        ClosureV2EnergyTerms terms;
+        if (view.Compensates)
+            terms.MultiScatter = view.FresnelMs * (view.LossV * energyL.x) / view.PiLossAvg;
+
+        const glm::vec3 remainingL =
+            glm::max(glm::vec3(1.0f) - ClosureV2SpecularAlbedo(energyL, view.F0, view.FresnelMs), 0.0f);
+        terms.DiffuseCoupling = view.RemainingV * remainingL / view.RemainingAvg;
         return terms;
+    }
+
+    [[nodiscard]] inline ClosureV2EnergyTerms ClosureV2Energy(f32 nDotV, f32 nDotL, f32 roughness,
+                                                              const glm::vec3& f0) noexcept
+    {
+        return ClosureV2EnergyForLight(ClosureV2EnergyView(nDotV, roughness, f0), nDotL);
     }
 
     // The multiple-scattering lobe alone, for the tests that integrate it.
@@ -415,28 +482,61 @@ namespace OloEngine::PathTracing
     // (height-correlated Smith visibility), alpha-clamped unclamped-denominator
     // D, Kulla-Conty compensation, and a Lambert diffuse weighted by the
     // energy-conserving coupling (1 - metallic) w_d of ClosureV2Energy.
-    [[nodiscard]] inline glm::vec3 ClosureV2Evaluate(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
-                                                     const glm::vec3& albedo, f32 metallic, f32 roughness) noexcept
+    //
+    // ClosureV2Surface is everything this needs that does not depend on l
+    // (issue #997; GLSL twin: ClosureV2Surface / closureV2PrepareSurface). An
+    // integrator that evaluates several directions at one vertex — NEE per
+    // light, the emitter and sphere samples, the BSDF sample — prepares it
+    // once and calls ClosureV2EvaluatePrepared per direction.
+    struct ClosureV2Surface
     {
-        const f32 r = ClosureV2Roughness(roughness);
-        const glm::vec3 h = glm::normalize(v + l);
-        const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
-        const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
+        glm::vec3 Albedo{ 0.0f };
+        f32 Metallic = 0.0f;
+        f32 R = 0.0f; // ClosureV2Roughness(authored): what D and Vis take
+        glm::vec3 F0{ 0.0f };
+        f32 NDotV = 0.0f;
+        ClosureV2EnergyViewTerms Energy;
+    };
 
-        const glm::vec3 f0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
-        const f32 d = DistributionGGXSamplingDensity(n, h, r);
-        const f32 vis = VisibilitySmithGGXCorrelated(nDotV, nDotL, r);
-        const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
-
+    [[nodiscard]] inline ClosureV2Surface ClosureV2PrepareSurface(const glm::vec3& n, const glm::vec3& v,
+                                                                  const glm::vec3& albedo, f32 metallic,
+                                                                  f32 roughness) noexcept
+    {
+        ClosureV2Surface s;
+        s.Albedo = albedo;
+        s.Metallic = metallic;
+        s.R = ClosureV2Roughness(roughness);
+        s.NDotV = std::max(glm::dot(n, v), 0.0f);
+        s.F0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
         // AUTHORED roughness into the energy lookup, per its contract — the
         // table rows bake the v2 clamp in (rows 0-3 all hold the r = 0.04 lobe,
         // and 0.04 lands on node 3, so the clamped r would read the same
-        // value). GLSL twin agrees (closureV2Evaluate).
-        const ClosureV2EnergyTerms energy = ClosureV2Energy(nDotV, nDotL, roughness, f0);
+        // value). GLSL twin agrees (closureV2PrepareSurface).
+        s.Energy = ClosureV2EnergyView(s.NDotV, roughness, s.F0);
+        return s;
+    }
+
+    [[nodiscard]] inline glm::vec3 ClosureV2EvaluatePrepared(const ClosureV2Surface& s, const glm::vec3& n,
+                                                             const glm::vec3& v, const glm::vec3& l) noexcept
+    {
+        const glm::vec3 h = glm::normalize(v + l);
+        const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
+
+        const f32 d = DistributionGGXSamplingDensity(n, h, s.R);
+        const f32 vis = VisibilitySmithGGXCorrelated(s.NDotV, nDotL, s.R);
+        const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), s.F0);
+
+        const ClosureV2EnergyTerms energy = ClosureV2EnergyForLight(s.Energy, nDotL);
         const glm::vec3 specular = d * vis * f + energy.MultiScatter;
 
-        const glm::vec3 kD = energy.DiffuseCoupling * (1.0f - metallic);
-        return kD * albedo * kInvPi + specular;
+        const glm::vec3 kD = energy.DiffuseCoupling * (1.0f - s.Metallic);
+        return kD * s.Albedo * kInvPi + specular;
+    }
+
+    [[nodiscard]] inline glm::vec3 ClosureV2Evaluate(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
+                                                     const glm::vec3& albedo, f32 metallic, f32 roughness) noexcept
+    {
+        return ClosureV2EvaluatePrepared(ClosureV2PrepareSurface(n, v, albedo, metallic, roughness), n, v, l);
     }
 
     // GLSL: sampleGGXVNDFTangent — Heitz 2018 §3.2 visible-normal sample in

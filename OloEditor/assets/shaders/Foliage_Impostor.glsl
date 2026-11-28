@@ -174,6 +174,8 @@ void main()
     vec3 transmitted = vec3(0.0);
 
     int lightCount = min(u_LightCount, MAX_LIGHTS);
+    // The closure's per-pixel terms, once, before the loop (issue #997).
+    ClosureV2Surface closureSurface = closureV2PrepareSurface(N, V, card.Albedo, metallic, roughness);
     for (int i = 0; i < lightCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
@@ -238,8 +240,8 @@ void main()
             }
         }
 
-        OloSurfaceLighting contrib = calculateLightContributionSplit(
-            u_Lights[i], N, V, card.Albedo, metallic, roughness, v_CardWorld);
+        OloSurfaceLighting contrib = calculateLightContributionSplitPrepared(
+            u_Lights[i], closureSurface, N, V, v_CardWorld);
         // The primary sun's full visibility, for the lighting tap (#1526).
         if (i == 0 && lightType == DIRECTIONAL_LIGHT)
             oloRecordLightingTapShadow(shadow);
