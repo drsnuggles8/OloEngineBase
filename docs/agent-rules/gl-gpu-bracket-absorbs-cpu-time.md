@@ -4,8 +4,11 @@
 check the CPU time of the same pass. A match alone proves nothing: a pass that ends in a blocking
 wait (`glFinish`, a fence wait, a readback) has that wait in its CPU time, so a GPU-bound pass
 matches too. Call the spike CPU work only when a CPU timer around the pass's own code, with no GL
-wait inside the timed interval, shows the time. Then the bracket that reads it is only the one
-whose end timestamp was still unflushed while that work ran. Time the CPU side
+wait inside the timed interval, shows the time. Even then the bracket holds idle time only if its
+end timestamp was still unflushed while that work ran. Confirm that no flush (`glFlush`,
+`glFinish`, a fence or sync, a readback, a buffer swap) ran between `EndSubPass` and the CPU work.
+If one did, the bracket holds real GPU work that overlapped the CPU work, and both timers show the
+same value. Time the CPU side
 (`RenderGraph::GetLastExecutionTimings()` gives each pass's CPU execute time, plus a
 `steady_clock` pair around the suspect calls, none of them containing a wait) before cutting
 anything inside the bracket. A match that does include a wait means inspecting both the CPU code
