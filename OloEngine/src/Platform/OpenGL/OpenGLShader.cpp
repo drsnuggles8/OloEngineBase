@@ -1413,6 +1413,27 @@ namespace OloEngine
         std::vector<GLuint> attached;
         attached.reserve(sources.size());
 
+        // Dump the exact text the driver saw. There are no #line directives on
+        // this route (PreProcess splices includes in verbatim), so a reported
+        // line number refers to the FLATTENED source and is unusable without it.
+        //
+        // A LINK failure needs it as much as a compile failure does: NVIDIA
+        // reports link-time resource errors against a stage's line too
+        // ("Fragment info 0(1515) : error C5041", #1814), and that line pointed
+        // at nothing anyone could open until the link branch dumped as well.
+        const auto dumpFlattenedStage = [this](GLenum stage, std::string_view flattened)
+        {
+            const std::filesystem::path dumpPath =
+                Utils::GetCacheDirectory() /
+                (std::filesystem::path(GetFilePath()).filename().string() +
+                 Utils::GLShaderStageCachedOpenGLFileExtension(stage) + ".bindless.failed.glsl");
+            if (std::ofstream dump(dumpPath); dump.is_open())
+            {
+                dump << flattened;
+                OLO_CORE_ERROR("  Flattened bindless GLSL dumped to: {}", dumpPath.string());
+            }
+        };
+
         bool ok = true;
         // Which step refused the raw GLSL, for the fallback line below.
         std::string failedStep;
@@ -1562,19 +1583,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("[Bindless] '{}' stage {} failed to compile: {}",
                                GetFilePath(), Utils::GLShaderStageToString(stage), log.data());
 
-                // Dump the exact text the driver saw. There are no #line
-                // directives on this route (PreProcess splices includes in
-                // verbatim), so a reported line number refers to the FLATTENED
-                // source and is unusable without it.
-                const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
-                const std::filesystem::path dumpPath =
-                    cacheDirectory / (std::filesystem::path(GetFilePath()).filename().string() +
-                                      Utils::GLShaderStageCachedOpenGLFileExtension(stage) + ".bindless.failed.glsl");
-                if (std::ofstream dump(dumpPath); dump.is_open())
-                {
-                    dump << patched;
-                    OLO_CORE_ERROR("  Flattened bindless GLSL dumped to: {}", dumpPath.string());
-                }
+                dumpFlattenedStage(stage, patched);
 
                 glDeleteShader(shader);
                 failedStep = std::string("the ") + Utils::GLShaderStageToString(stage) + " stage's compile";
@@ -1604,6 +1613,8 @@ namespace OloEngine
                 std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
                 glGetProgramInfoLog(freshProgram, length, nullptr, log.data());
                 OLO_CORE_ERROR("[Bindless] '{}' failed to link: {}", GetFilePath(), log.data());
+                for (const auto& [stage, flattened] : m_OpenGLSourceCode)
+                    dumpFlattenedStage(stage, std::string_view(flattened));
                 failedStep = "the link";
                 ok = false;
             }
