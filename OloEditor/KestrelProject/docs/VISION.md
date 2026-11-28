@@ -10,10 +10,6 @@ The full-game vision is deliberately ambitious. The current engineering north st
 
 Scale is part of the vision ([AUD-21](gameplay/guests-and-networks.md#aud-21)): the vertical slice simulates at least 20,000 concurrent, individually represented skiers, and the full game's engineering ambition is about 100,000 to 200,000 concurrent guests in a large region, with no arbitrary player-facing population cap.
 
-Scale is part of the vision ([AUD-21](gameplay/guests-and-networks.md#aud-21)): the vertical slice simulates at least 20,000 concurrent, individually represented skiers, and the full game's engineering ambition is about 100,000 to 200,000 concurrent guests in a large region, with no arbitrary player-facing population cap.
-
-Scale is part of the vision ([AUD-21](gameplay/guests-and-networks.md#aud-21)): the vertical slice simulates at least 20,000 concurrent, individually represented skiers, and the full game's engineering ambition is about 100,000 to 200,000 concurrent guests in a large region, with no arbitrary player-facing population cap.
-
 ## Decision records
 
 <a id="d-001"></a>

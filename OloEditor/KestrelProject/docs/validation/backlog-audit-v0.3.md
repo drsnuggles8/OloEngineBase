@@ -74,7 +74,7 @@ that drive the backlog are:
 | AUD-24 | Q12 | #1739 adds visible incidents, patrol response (#1857) and visuals (#1858). Lifts and buildings are never damaged. |
 | AUD-25 | Q14 | #1859, a basic functional ski school after CP3. |
 | AUD-26 | Q4, Q5, Q7 | Steam Playtest app (#1851), protected publishing (#1853), feedback (#1852, #1854), home-server assessment (#1847), CP3 external gate (#1868). |
-| AUD-27 | Q13 | Basic versioned save (#1755) and migration with backup (#1862). |
+| AUD-27 | Q13 | #1755 owns the basic versioned save and the migration framework, with a representative migration test, before the first external test; incompatible saves are backed up and rejected unchanged. #1862 owns full-resort serialization (snowpack, terrain and forest deltas, 20k+ guests), full-resort migrations and large-save performance. |
 | AUD-28 | Q8 | Synthetic mountains for CP1–CP3 labs; real terrain (#1732) as soon as available. |
 | Q2, Q3, Q6, Q15 | process | Splits filed, foundation line added, efforts recalibrated, #1740/#1749 boxes ticked. |
 
