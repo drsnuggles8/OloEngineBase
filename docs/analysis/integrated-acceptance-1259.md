@@ -349,7 +349,7 @@ for every cell and camera: [campaign-summary.md](../testing/evidence/integrated-
   every `ParallelFor` in a GL capture runs inline, which is not the frame the editor runs. Binaries:
   test host `d1eafa7b0875…`, editor `4c55dd215077…` (built from `ac23f1bdd`; the harness records
   both binaries under `a737d3655`, the commit checked out during the campaign, which differs from
-  `ac23f1bdd` only in test files); shader tree `c8a48c4f4528…`, asset tree
+  `ac23f1bdd` only in test files and docs); shader tree `c8a48c4f4528…`, asset tree
   `f3b83d93d4c7…` (full-tree hash). The only dirty file was `EditorPreferences.yaml` with
   `ThrottleEditMode: false`, which the editor host requires.
 * **Not in these numbers.** Still open when measured: #1818 (the head's coat-volume rebake,
@@ -429,7 +429,7 @@ head-camera p95 reaches 196–208 ms against 139–155 ms. A difference under ab
 camera's p95 is not a result.
 
 On the GL host the VSM cells are now GPU-paced at four of the five cameras (frame p50 tracks GPU
-p50; the CPU waits on the fence for 20–45 ms at p95; the CSM control waits 1–7 ms at the head
+p50; the CPU waits on the fence for 17–45 ms at p95; the CSM control waits 1–7 ms at the head
 cameras). The exception is coats-closeup, where CPU and GPU
 are both about 67 ms.
 
@@ -494,7 +494,7 @@ GPU window did not get (see *Live Vulkan* below).
 
 1. **ShadowPass is the largest GPU pass in every cell and camera** (16–31 ms at p50), and its
    brackets (#1590) now say why. GL Forward, p50 ms, with the Vulkan figure where it differs by
-   more than 2 ms; — means the bracket did not run at that camera. Every bracket, per cell and
+   more than 2 ms; — means that bracket has no sample at that camera. Every bracket, per cell and
    camera: [README.md](../testing/evidence/integrated-acceptance-1259/baseline-2026-11-28/README.md#shadowpass-sub-passes).
 
    | camera | VSM: `VsmLocal/GroomCasters` | VSM: `VsmSun` | CSM control: `Atlas/GroomCasters` | CSM control: `Csm` |
@@ -502,18 +502,18 @@ GPU window did not get (see *Live Vulkan* below).
    | head-closeup | 21.3 (Vulkan 17.5) | 6.1 | 6.3 | 2.1 |
    | head-backlit | 23.8 (Vulkan 17.7) | 5.5 | 6.2 | 1.6 |
    | coats-closeup | 2.5 | 16.0 | 2.2 | 9.4 |
-   | population-dolly | — | 19.4 (Vulkan 15.3) | — | 13.0 |
-   | rapid-turn | 0.1 | 16.7 (Vulkan 14.8) | 0.1 | 12.7 |
+   | population-dolly | 0.0 | 19.4 (Vulkan 15.3) | — | 13.0 |
+   | rapid-turn | 0.1 | 16.7 | 0.1 | 12.7 |
 
    At the head cameras the lamps' VSM local layers draw the hair, now 2.8× the strands, for 17–24 ms:
    on GL 3.4–3.8 times what the same casters cost through the CSM control's shadow atlas, and GL
    pays 4–6 ms more than Vulkan for it. Outdoors the GL VSM sun costs 4–7 ms more than CSM (the CSM
-   control ran on GL only). By caster class
+   control ran on GL only). At the outdoor cameras, by caster class
    (VSM sun against CSM): groom casters 4.1 vs 0.5 at coats-closeup and 4.8 vs 0.5 at
-   population-dolly, the foliage cull 2.1 vs 0.5–0.6 everywhere, foliage casters only 0.5–1.5 ms
+   population-dolly, the foliage cull 2.1 vs 0.5–0.6, foliage casters only 0.5–1.8 ms
    more. So most of the gap is the coats drawn into the sun's clip levels and the per-level foliage
    cull (October: 25–35 ms more in all). The lamp atlas route that cost 0.1–0.9 s in October costs
-   5–8 ms (the cull-slot fix, #1632).
+   1–8 ms (the cull-slot fix, #1632).
 2. **The head cameras' p95 is the coat-volume rebake (#1818).** Frame p50 is 31–57 ms at both head
    cameras on the VSM raster cells, but p95 is 114–208 ms, and CPU p95 and GPU p95 rise together. On GL
    the spike lands in whichever bracket is open (`GroomPass/RootFrames` at head-closeup,
@@ -528,7 +528,7 @@ GPU window did not get (see *Live Vulkan* below).
 4. **GL FoliagePass at the outdoor cameras** costs 13–25 ms against 3.6–4.2 ms on Vulkan at the same
    poses.
 5. **A single long CPU frame** at the same frame of every run of the VSM cells: coats-closeup frame
-   92 on GL (370–429 ms) and 185 on the editor (334–419 ms), and population-dolly frame 11 on the
+   92 on GL (367–429 ms) and 185 on the editor (334–419 ms), and population-dolly frame 11 on the
    editor (283–436 ms). On GL that population-dolly frame is about 200 ms, and other frames set that
    camera's max (202–242 ms). At the coats-closeup one the editor log shows the two horse coats
    building REST strand geometry (428 k and 489 k segments, 124 and 142 MiB) as the camera arrives.

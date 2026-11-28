@@ -53,7 +53,7 @@ The two `failed` attempts are the editor capture stalls (#1871).
 Every `ShadowPass/<Family>` and `ShadowPass/<Family>/<Class>` bracket (#1590) above 0.05 ms, for the
 GL Forward VSM cell, the GL Forward CSM control and the Vulkan Forward cell, from the campaign's
 `summary.json`. `campaign-summary.md` lists only each camera's ten largest sub-passes; the report's
-caster-class comparison reads this table. A bracket missing from a camera did not run there.
+caster-class comparison reads this table. A bracket missing from a camera either had no sample there or measured 0.05 ms or less.
 
 | cell | camera | sub-pass | p50 ms (range over counted runs) |
 |---|---|---|---:|
