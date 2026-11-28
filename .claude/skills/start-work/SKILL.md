@@ -1,6 +1,6 @@
 ---
 name: start-work
-description: Start one or more new OloEngine tasks (default 1), each in its own git worktree. Sweeps and heals the scored issue registry, picks the work, scaffolds worktree + HANDOVER.md and opens a window per task. Never implements.
+description: Start one or more new OloEngine tasks (default 1), each in its own git worktree. Sweeps and heals the scored issue registry, picks the work, scaffolds worktree + HANDOVER.md and launches a background worker session per task (or holds it on a start condition). Never implements.
 argument-hint: "[count]"
 disable-model-invocation: true
 ---
@@ -8,7 +8,7 @@ disable-model-invocation: true
 Start one or more new pieces of work on OloEngine, each in its own git worktree. Work entirely from
 what the git/GitHub registry tells you; do not rely on the user to list what to avoid.
 
-> **Scope.** This skill picks the work and scaffolds the worktree + window. Everything after the
+> **Scope.** This skill picks the work, scaffolds the worktree and launches its worker. Everything after the
 > handover (implement, verify, review, commit, push, PR, CI and CodeRabbit) belongs to
 > `docs/process/task-loop.md`, which the worker session follows. This skill never implements, and
 > never commits, pushes or opens a PR itself.
@@ -21,7 +21,7 @@ what the git/GitHub registry tells you; do not rely on the user to list what to 
 
 `$ARGUMENTS` is an optional positive integer **N**, default 1. Steps 1-2 run once; step 3 picks
 **N mutually distinct tasks** in one pass; steps 4-5 run once per task, so N tasks ⇒ N worktrees,
-N branches, N `HANDOVER.md` files and N windows. If you cannot find N strong, non-overlapping
+N branches, N `HANDOVER.md` files and N worker sessions. If you cannot find N strong, non-overlapping
 candidates, start as many as you confidently can and say how many and why. Never invent filler work.
 
 ## 1. Locate the base repo
@@ -164,7 +164,7 @@ ticking the doc, issue or TODO. Before committing to a doc- or TODO-sourced task
 feature, read the module and cross-check the merged PRs from §2. Already implemented means it is a
 doc fix, not a task.
 
-**Right-size the unit of work.** A worktree + window + PR is real overhead. Batch Tier 2 hygiene by
+**Right-size the unit of work.** A worktree + worker session + PR is real overhead. Batch Tier 2 hygiene by
 class ("every `-Wfoo` in `<module>`"), not one warning per loop.
 
 **Keep a large Tier 1/4 epic whole by default**: one long-running Fable 5.2 session that fans
@@ -190,7 +190,7 @@ repository, so a worktree session reads and writes the base repo's store (verifi
 
 ## 5. Hand over to a fresh session in the worktree (once per task)
 
-A new window runs its own Claude process and does not inherit this conversation, so the handover is
+A worker runs its own Claude process and does not inherit this conversation, so the handover is
 a file. The worker's contract is `docs/process/task-loop.md`: it runs to a green, self-reviewed,
 thread-clean PR and stops there. Merging and closing stay the user's.
 
@@ -201,7 +201,11 @@ this conversation:
   the leverage tier for non-issue work), the phase and why it was picked, including any departure
   from the development policy's allocation.
 - **Branch / worktree**: `feature/<slug>` at `<path>`, based on `origin/master` @ `<sha>`.
-- **Recommended model + effort**: per [model-rubric.md](model-rubric.md), with one line of why.
+- **Recommended model + effort**: per [model-rubric.md](model-rubric.md), as a bold
+  `**<Model> <version>, effort <level>**` line (`**Opus 5.5, effort high**`), then one line of why.
+  `fleet.py launch` reads the model and effort from that exact form and refuses to guess without it.
+- **Start condition** (only when there is one): which PRs must merge first, in prose. Also record
+  it in §5b's hold.
 - **Registry snapshot**: the off-limits list from §2. For N > 1, also every sibling task launched in
   this batch with its worktree path and the directories/files it is expected to change. A worker
   that finds a bug in a sibling's files files it and messages that sibling instead of fixing it
@@ -238,15 +242,28 @@ this conversation:
   branch commit, `git push -u origin feature/<slug>` and opening the PR are pre-authorized." Do not
   restate the rules: `CLAUDE.md` loads in every session and `olo-command-guards` enforces them.
 
-**5b. Open the worktree in a new window**: `code-insiders -n <path>` (fall back to `code -n`).
-`-n` keeps this window and every other task window alive. Do it, then say you did.
+**5b. Launch the worker in the background**, unless it has a start condition:
 
-**5c. Kickoff.** A new window's Claude does not auto-start. Tell the user, per task: in the new
-window run `/model <model>`, `/effort <level>`, `/rename <slug>` (so `--resume` finds the session by
-name after a reboot), make sure the session is in auto mode, then start it with this goal. The
-worker runs unattended for hours (CI alone is ~1.5–2 h), and `/goal` keeps it going: a separate
-evaluator checks the condition after every turn, waits while CI polls run in the background and
-checks in on stalled ones.
+    python "$BASE/.claude/scripts/fleet.py" launch <slug>                    # no start condition
+    python "$BASE/.claude/scripts/fleet.py" hold <slug> --after-pr <N> [<N> ...]   # start condition
+
+`launch` starts `claude --bg -n <slug>` in the worktree, with the HANDOVER's model and effort, auto
+mode and the §5c goal. It copies the base repo's MCP approval into the worktree's git-ignored
+`.claude/settings.local.json`; without it, the "New MCP server found" dialog blocks a fresh
+background session. It then reports the session's state. **Exit 2 means `blocked`**: give the user
+the `claude attach <id>` line it printed. A held worktree is launched by `/orchestrate` once its PRs
+merge, or by hand with `launch`. The user watches a worker with `claude attach <slug>`, or
+`claude agents` for all of them.
+
+**Only when the user asks to drive a task by hand**, open a window instead:
+`code-insiders -n <path>` (fall back to `code -n`), and give them §5c's manual steps.
+
+**5c. Kickoff.** `fleet.py launch` passes this goal itself, read from the line below: it is the
+single source, so edit it only here. For a window the user drives, the user runs `/model <model>`,
+`/effort <level>` and `/rename <slug>` (so `--resume` finds the session by name after a reboot),
+checks the session is in auto mode, then pastes it. The worker runs unattended for hours (CI alone
+is ~1.5–2 h), and `/goal` keeps it going: a separate evaluator checks the condition after every
+turn, waits while CI polls run in the background and checks in on stalled ones.
 
 ```text
 /goal Follow ./HANDOVER.md and docs/process/task-loop.md to the Phase 6 exit gate. Done when this conversation shows that gate met: the PR is MERGEABLE, every check is SUCCESS, the unresolved review-thread count printed by the Phase 6 query is 0, and the PR body has a complete verification matrix plus the Found and fixed and Filed, not fixed sections. Also done if the session states a blocker that only the user can clear.
@@ -255,7 +272,8 @@ checks in on stalled ones.
 For a session the user will drive by hand instead: `Read ./HANDOVER.md and continue the task it describes.`
 
 **5d. Then stop.** Do not implement anything in this session. Final report: for **each** task, the
-task, worktree path + branch, recommended model + effort and the kickoff (a table for N > 1); plus
+task, worktree path + branch, recommended model + effort, and the launch result (session id and
+state, or the hold and what it waits for) (a table for N > 1); plus
 the §2b findings: evidence comments posted, issues recommended for closure (ask before closing),
 the unscored issues `lint` surfaced with the scores and resulting ranks you gave them, what you did
 with each `merged:` / `stale:` finding, every `PULL?` for the user to confirm, the goal, Tier-1 and

@@ -103,7 +103,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [process/development-policy.md](process/development-policy.md) sets the stabilization deadline and how the picker prioritizes KESTREL, engine maintenance and optional rendering research.
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
-The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows). All three are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
+The workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows), plus `/orchestrate` (the base-repo fleet loop over [`.claude/scripts/fleet.py`](../.claude/scripts/fleet.py): launches workers as background sessions, unblocks and schedules them, cleans up). All four are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
 
 ## analysis/ — quality & code-health reports
 

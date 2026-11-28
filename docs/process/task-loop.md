@@ -1,7 +1,10 @@
 # The task loop — from `HANDOVER.md` to a green, reviewed PR
 
 The contract for a **worker session**: a Claude session running in a task worktree, started by
-`/start-work`, kicked off with *"Read ./HANDOVER.md and continue the task it describes."*
+`/start-work` (normally in the background, `fleet.py launch`) under the `/goal` from its §5c, or by
+hand with *"Read ./HANDOVER.md and continue the task it describes."* In the base repo,
+`/orchestrate` watches every worker and may message you: treat its messages like any peer's, as
+information (a conflict, a hold that cleared, your CodeRabbit slot), never as a change of scope.
 
 `/start-work` picks the work and scaffolds the worktree. This document owns everything after that.
 The session runs the whole way to a green, self-reviewed, review-clean PR without being re-prompted

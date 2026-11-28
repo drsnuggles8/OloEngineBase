@@ -15,7 +15,11 @@ show the plan, then do it without asking.
     python "$BASE/.claude/scripts/worktree_status.py" --json  # or --slug <slug> when one was given
 
 This is the gate `/cleanup-worktree` uses, so a worktree it refuses to remove is one this skill
-offers to re-open and nothing falls between the two. Candidates are every `incomplete-*` worktree.
+offers to re-open and nothing falls between the two. Candidates are every `incomplete-*` worktree,
+except `incomplete-standby` ones (no session ever ran them: `fleet.py launch <slug>` starts one, see
+`/start-work` §5b) and worktrees whose worker ran in the background (they are in
+`<git-common-dir>/olo-fleet/ledger.json` under `launches`; resume those with
+`claude --bg --resume <session-id>` from the worktree, `/orchestrate` §6).
 Skip `completed` ones (mention them so the user can run `/cleanup-worktree`) and every `detached`
 one (a baseline checkout holds no task).
 
