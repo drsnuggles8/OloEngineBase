@@ -228,7 +228,7 @@ vec3 OloTemporalClipHistory(vec3 historyYCoCg, OloTemporalStats stats, float gam
 // Off-screen history is not "old", it is a different pixel entirely.
 bool OloTemporalHistoryUVValid(vec2 prevUV)
 {
-    return all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThanEqual(prevUV, OLO_TEMPORAL_HISTORY_BOUNDS));
+    return all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThan(prevUV, OLO_TEMPORAL_HISTORY_BOUNDS));
 }
 
 // Question 1, for a pass that knows a WORLD POINT rather than a velocity — the

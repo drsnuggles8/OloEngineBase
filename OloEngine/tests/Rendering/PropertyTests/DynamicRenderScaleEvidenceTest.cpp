@@ -329,6 +329,10 @@ namespace OloEngine::Tests
                 ASSERT_NE(pass, nullptr);
                 ASSERT_TRUE(pass->GetStats().Active)
                     << "ReSTIR PT stood down" << at << ": " << pass->GetStats().FallbackReason;
+                // Active says nothing about reuse: the captured frame must
+                // reuse temporal history, which the scale change dropped and
+                // the settle frames rebuilt.
+                ASSERT_TRUE(pass->GetStats().HistoryValid) << "ReSTIR PT reused no temporal history" << at;
             }
         }
 

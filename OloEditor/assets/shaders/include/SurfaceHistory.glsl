@@ -104,7 +104,7 @@ uint OloEvaluateSurfaceHistory(OloSurfaceHistoryRecord current,
     if (!historyAvailable)
         reasons |= OLO_SURFACE_REJECT_NO_HISTORY;
     if (!OloSurfaceFinite(reprojectedUV) || any(lessThan(reprojectedUV, vec2(0.0))) ||
-        any(greaterThan(reprojectedUV, OLO_TEMPORAL_HISTORY_BOUNDS)))
+        any(greaterThanEqual(reprojectedUV, OLO_TEMPORAL_HISTORY_BOUNDS)))
         reasons |= OLO_SURFACE_REJECT_OFF_SCREEN;
 
     bool currentHasHit = (current.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;

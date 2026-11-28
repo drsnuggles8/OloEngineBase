@@ -2830,6 +2830,12 @@ namespace OloEngine
             // build error (glsl-shaders.md §8.2).
             glm::ivec4 VRCSParams{ 0 };
 
+            // The dynamic render scale's bounds (#1537): xy = the rendered
+            // corner [0, bounds) of the depth and normal targets, (1, 1)
+            // unscaled; zw reserved. Horizon samples clamp to it. Appended,
+            // for the same reason as VRCSParams.
+            glm::vec4 RenderBounds{ 1.0f, 1.0f, 0.0f, 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(GTAOUBO);
@@ -3120,7 +3126,7 @@ namespace OloEngine
     // never inserted — GTAO_Denoise.comp declares a shorter PREFIX of the same
     // GTAOParams block, so an insertion would relayout every field it reads
     // with no build error.
-    static_assert(sizeof(UBOStructures::GTAOUBO) == 176, "GTAOUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::GTAOUBO) == 192, "GTAOUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) % 16 == 0, "JumpFloodUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) == 48, "JumpFloodUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::SHCoefficientsUBO) % 16 == 0, "SHCoefficientsUBO size must be 16-byte aligned for std140");

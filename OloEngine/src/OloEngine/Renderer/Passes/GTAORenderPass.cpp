@@ -628,6 +628,7 @@ namespace OloEngine
         // with it. Add is unchanged (the corner starts at 0).
         const glm::vec2 renderBounds = RenderViewportBounds(m_Width, m_Height);
         data.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11) / renderBounds;
+        data.RenderBounds = glm::vec4(renderBounds, 0.0f, 0.0f);
         data.NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         f32 pixelSizeX = 1.0f / static_cast<f32>(m_Width);

@@ -46,7 +46,19 @@ both backends. The bounds are `render / physical` per axis (`DRSUBOData`,
    the scene-access headers. ReSTIR PT reads the bounds from its own
    `u_Screen.zw` (`ReSTIR::PT::Parameters::Screen`), which its rig fills.
    Spatial neighbours stay inside the rendered extent, not the storage size.
-6. **Not covered: virtual geometry**, which sizes its raster, cull and HZB from
+6. **One internal scale at a time.** An upscale preset renders the scene band
+   at its own reduced size, and a dynamic scale on top would hand scene-band
+   passes display-relative bounds. While a preset is active the pipeline holds
+   the dynamic scale at 1.0 (`RenderGraph::SetRenderScaleHeld`: full-size
+   viewports, bounds `(1, 1)`, a warning) and restores the requested scale
+   when the preset is Off. Code that reports or crops by the scale in force
+   reads `GetEffectiveRenderScale()`, not `GetRenderScale()`. The benchmark
+   manifest refuses the combination.
+7. **The rendered corner is half-open, `[0, bounds)`.** A history test or a
+   clamp that accepts `uv == bounds` reads the first unrendered texel through
+   a texel fetch; history tests use `<`, and sampling clamps stop half a
+   texel inside.
+8. **Not covered: virtual geometry**, which sizes its raster, cull and HZB from
    the G-Buffer storage ([#1822](https://github.com/drsnuggles8/OloEngineBase/issues/1822)). It changes nothing at
    scale 1.0.
 
