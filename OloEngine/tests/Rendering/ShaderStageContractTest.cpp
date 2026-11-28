@@ -519,8 +519,12 @@ namespace OloEngine::Tests
         ASSERT_TRUE(fs::exists(pipelineSource)) << "could not locate RenderPipeline.cpp from cwd " << s_StartCwd.string();
         const std::string pipelineText = StripWhitespace(SH::ReadWholeFile(pipelineSource));
         ASSERT_FALSE(pipelineText.empty());
-        EXPECT_NE(pipelineText.find("uiCompositeDesc.Attachments={RGResourceFormat::RGBA8UNorm,RGResourceFormat::R32Int,RGResourceFormat::RG16Float}"), std::string::npos)
+        // RT0 carries the composition space (#1353): RGBA8 in SDR, RGBA16F when
+        // the HDR post chain is on.
+        EXPECT_NE(pipelineText.find("uiCompositeDesc.Attachments={postToneMapFormat,RGResourceFormat::R32Int,RGResourceFormat::RG16Float}"), std::string::npos)
             << "UIComposite's graph resource must back every Renderer2D callback output with a matching attachment.";
+        EXPECT_NE(pipelineText.find("postToneMapFormat=config.HdrPostChain?RGResourceFormat::RGBA16Float:RGResourceFormat::RGBA8UNorm;"), std::string::npos)
+            << "UIComposite's colour attachment must stay RGBA8 in SDR and become RGBA16F only for the HDR post chain.";
 
         static constexpr std::array s_Shaders = {
             "Renderer2D_Quad.glsl",

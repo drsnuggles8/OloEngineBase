@@ -8,6 +8,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 
 | Doc | What stayed green |
 |---|---|
+| [post-tonemap-targets-carry-the-composition-space.md](post-tonemap-targets-carry-the-composition-space.md) | Every colour-blind test passed while, with HDR output on, the adaptation cut all highlights to UI white. |
 | [groom-scene-lighting-and-wetness.md](groom-scene-lighting-and-wetness.md) | A coat in a closed red room stayed lit by open sky its body could not see. |
 | [asset-loads-belong-to-the-game-thread.md](asset-loads-belong-to-the-game-thread.md) | Build Game worked on GL and lost the Vulkan device. |
 | [world-space-consumers-take-a-worldpose.md](world-space-consumers-take-a-worldpose.md) | Root-only tests passed while every parented body, emitter and light was placed at its parent-local position (#1714, #1707). |

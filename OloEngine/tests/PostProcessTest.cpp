@@ -62,11 +62,12 @@ TEST(PostProcessSettings, MotionBlurParameterRanges)
 // PostProcessUBOData Layout (std140 alignment)
 // =============================================================================
 
-TEST(PostProcessUBOData, SizeIs80Bytes)
+TEST(PostProcessUBOData, SizeIs112Bytes)
 {
-    // The UBO is 20 floats/ints = 80 bytes, matching the GLSL layout
-    EXPECT_EQ(PostProcessUBOData::GetSize(), 80u);
-    EXPECT_EQ(sizeof(PostProcessUBOData), 80u);
+    // 28 floats/ints = 112 bytes, matching the GLSL layout: the original 20
+    // plus the display-output row and its padding row (#1353).
+    EXPECT_EQ(PostProcessUBOData::GetSize(), 112u);
+    EXPECT_EQ(sizeof(PostProcessUBOData), 112u);
 }
 
 TEST(PostProcessUBOData, DefaultsMatchSettings)

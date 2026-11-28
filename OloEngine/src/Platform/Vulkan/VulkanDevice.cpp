@@ -367,6 +367,14 @@ namespace OloEngine
                 instanceExtensions.push_back(name);
             }
         }
+        // HDR display output (#1353): without it a surface reports only the
+        // sRGB non-linear colour space, and the HDR10 / scRGB routes are not
+        // offered even on an HDR display. Optional: SDR needs nothing from it.
+        m_SwapchainColorspaceEnabled = extensionAvailable(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        if (m_SwapchainColorspaceEnabled)
+        {
+            instanceExtensions.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+        }
         std::vector<const char*> instanceLayers;
 
         VkApplicationInfo appInfo{};
@@ -726,6 +734,7 @@ namespace OloEngine
         bool hasRayPipelineExtension = false;
         bool hasCheckpointsExtension = false;
         bool hasMemoryBudgetExtension = false;
+        bool hasHdrMetadataExtension = false;
         bool hasAddressBindingExtension = false;
         bool hasDiagnosticsConfigExtension = false;
         const char* calibratedTimestampsExtension = nullptr;
@@ -745,6 +754,7 @@ namespace OloEngine
             hasShaderSMBuiltinsExtension = listed(VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             hasMemoryBudgetExtension = listed(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            hasHdrMetadataExtension = listed(VK_EXT_HDR_METADATA_EXTENSION_NAME);
             if (listed(VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
                 calibratedTimestampsExtension = VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME;
             else if (listed(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME))
@@ -1010,6 +1020,14 @@ namespace OloEngine
             deviceExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
         }
         m_MemoryBudgetEnabled = hasMemoryBudgetExtension;
+        // HDR10 mastering metadata (#1353, vkSetHdrMetadataEXT). It needs a
+        // swapchain to describe, so it is enabled only beside VK_KHR_swapchain's
+        // instance-side colour spaces; no feature struct.
+        if (hasHdrMetadataExtension && m_SwapchainColorspaceEnabled)
+        {
+            deviceExtensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+        }
+        m_HdrMetadataEnabled = hasHdrMetadataExtension && m_SwapchainColorspaceEnabled;
         // Calibrated timestamps (#1341): Vulkan guarantees that every queue of a
         // device writes timestamps in ONE time domain only when the device
         // supports VK_KHR/EXT_calibrated_timestamps (VkTimeDomainKHR), and

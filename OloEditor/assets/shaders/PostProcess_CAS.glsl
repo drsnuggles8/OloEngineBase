@@ -78,9 +78,12 @@ layout(std140, binding = 44) uniform CASParams
 #define u_Sharpness (u_CAS_Params.x)
 #define u_TexelSize (u_CAS_Params.yz)
 
+// Each tap is capped at FP16's largest finite value, so an overflowed (+Inf)
+// texel reaches the kernel as 65504 and cannot turn Inf/Inf into NaN. Every
+// finite RGBA16F value is unchanged, and so is SDR.
 vec3 SampleColor(vec2 uv)
 {
-    return texture(u_Texture, uv).rgb;
+    return min(texture(u_Texture, uv).rgb, vec3(65504.0));
 }
 
 void main()
@@ -101,6 +104,24 @@ void main()
     vec3 g = SampleColor(uv + vec2(-ts.x, ts.y));
     vec3 h = SampleColor(uv + vec2(0.0, ts.y));
     vec3 i = SampleColor(uv + vec2(ts.x, ts.y));
+
+    // HDR output (#1353): this pass runs in the composition space, where an
+    // HDR highlight is above 1.0, but CAS's limits assume [0, 1]. Run it on
+    // the neighbourhood divided by its own peak and scale the result back.
+    // In SDR the peak is <= 1, the scale is exactly 1.0, and dividing and
+    // multiplying by 1.0 are exact: the SDR output is bit for bit unchanged.
+    vec3 hoodMax = max(max(max(max(a, b), max(c, d)), max(max(e, f), max(g, h))), i);
+    // The taps are already capped at 65504 (SampleColor), so this is finite.
+    float hdrScale = clamp(max(hoodMax.r, max(hoodMax.g, hoodMax.b)), 1.0, 65504.0);
+    a /= hdrScale;
+    b /= hdrScale;
+    c /= hdrScale;
+    d /= hdrScale;
+    e /= hdrScale;
+    f /= hdrScale;
+    g /= hdrScale;
+    h /= hdrScale;
+    i /= hdrScale;
 
     // Soft min/max: the plus (b d e f h) first, then fold in the diagonals
     // (a c g i). The two passes are summed (a factor of 2 pulled out of the
@@ -136,5 +157,5 @@ void main()
     vec3 rcpWeightRGB = vec3(1.0) / (vec3(1.0) + 4.0 * wRGB);
     vec3 outColor = (b * wRGB + d * wRGB + f * wRGB + h * wRGB + e) * rcpWeightRGB;
 
-    o_Color = vec4(clamp(outColor, 0.0, 1.0), 1.0);
+    o_Color = vec4(clamp(outColor, 0.0, 1.0) * hdrScale, 1.0);
 }

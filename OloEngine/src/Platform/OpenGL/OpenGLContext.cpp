@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 
 #include "OloEngine/Debug/CrashReporter.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
@@ -41,6 +42,14 @@ namespace OloEngine
 
         // Provide GPU info to the crash reporter for diagnostics
         CrashReporter::SetGPUInfo(fmt::format("{} — {} ({})", renderer, glVersion, vendor));
+
+        // Display output (#1353): this backend presents SDR only, and says why.
+        // GLFW creates the default framebuffer through WGL/GLX with no colour
+        // space to ask for: WGL_ARB_pixel_format_float gives float bits, never
+        // an HDR10 or scRGB signal the compositor would treat as such. The
+        // display is still queried, so the report names what an HDR-capable
+        // backend (Vulkan) would get on this monitor.
+        PublishDisplayOutput();
 
         OLO_CORE_ASSERT(GLAD_VERSION_MAJOR(version) == 4 && GLAD_VERSION_MINOR(version) >= 5, "OloEngine requires at least OpenGL version 4.5!");
 
@@ -107,5 +116,24 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         GLFWAPI::glfwSwapBuffers(m_WindowHandle);
+        // A preference change or a display change (another monitor, an OS HDR
+        // toggle) re-runs the selection, so the panel and the log stay current.
+        // The poll runs every frame, so a display change is seen once.
+        const bool displayChanged = PollPlatformDisplayChange(m_WindowHandle);
+        if (displayChanged || m_DisplaySettingsGeneration != DisplayOutput::GetSettingsGeneration())
+            PublishDisplayOutput();
+    }
+
+    void OpenGLContext::PublishDisplayOutput()
+    {
+        DisplayCapabilities caps;
+        caps.NoRouteReason = "OpenGL presents through a WGL/GLX default framebuffer with no swapchain colour space; "
+                             "use --rhi=vulkan for HDR output";
+        QueryPlatformDisplayInfo(m_WindowHandle, caps);
+        const DisplayOutputSelection selection = SelectDisplayOutputMode(DisplayOutput::GetSettings().Preference, caps);
+        DisplayOutput::PublishActive(selection, caps);
+        m_DisplaySettingsGeneration = DisplayOutput::GetSettingsGeneration();
+        OLO_CORE_INFO("Display output: {} ({}); display {}, OS HDR {}", ToString(selection.Mode), *selection.Reason,
+                      caps.DisplayName.IsEmpty() ? "unknown" : *caps.DisplayName, ToString(caps.OsHdr));
     }
 } // namespace OloEngine
