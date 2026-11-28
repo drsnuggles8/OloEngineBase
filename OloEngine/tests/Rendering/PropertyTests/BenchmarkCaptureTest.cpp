@@ -301,55 +301,58 @@ TEST(BenchmarkCapture, RunWhenRequested)
         camera.SetViewportSize(static_cast<f32>(width), static_cast<f32>(height));
 
         const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
-        const auto warmTick = [&](u32 poseFrame)
+        for (u32 i = 0; i < warmFrames; ++i)
         {
             // Re-pose EVERY frame, not once before the loop. For a still
             // camera CameraPoseAtFrame returns the declared pose and this is
             // the old behaviour exactly; for a `Motion:` camera it is what
             // makes the shot move, so the velocity buffer and the temporal
             // history rejection paths see real movement (issue #1239).
-            const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, poseFrame, dt);
+            const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, i, dt);
             camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
 
             Time::SetMockTime(manifest->StartTimeSeconds + static_cast<f32>(frameIndex) * dt);
             std::string entityMotionError;
-            const bool moved = Benchmark::ApplyEntityMotion(*scene, *manifest, frameIndex, entityMotionError);
-            EXPECT_TRUE(moved) << entityMotionError;
-            if (moved)
+            ASSERT_TRUE(Benchmark::ApplyEntityMotion(*scene, *manifest, frameIndex, entityMotionError)) << entityMotionError;
             {
                 GLStateGuard guard("BenchmarkCapture", GLStateGuard::Policy::Restore);
                 scene->OnUpdateEditor(ts, camera);
             }
             ++frameIndex;
-            return moved;
-        };
-        bool warmed = true;
-        for (u32 i = 0; i < warmFrames && warmed; ++i)
-            warmed = warmTick(i);
-        ASSERT_TRUE(warmed);
+        }
 
         // The task workers run on this host (above), so a foliage
         // regeneration a warm frame started publishes asynchronously. Measure
         // only once it has published, or the first measured frames can draw
         // the layers from before it (foliage-regeneration-is-async-once-
-        // workers-start.md). Extra frames hold the last warm pose; bounded
+        // workers-start.md). The wait drives each renderer's AdvanceRebuild
+        // directly, as FoliageCostBaselineTest does, and never ticks the
+        // scene: frameIndex, the mock clock and entity motion stay on the
+        // manifest's fixed schedule however long publication takes. Bounded
         // like RendererAttachedTest's FinishFoliageRegeneration.
-        const auto foliageRebuilding = [&scene]()
+        const auto advanceFoliage = [&scene]()
         {
+            bool rebuilding = false;
             for (const auto entity : scene->GetAllEntitiesWith<FoliageComponent>())
             {
-                const auto& foliage = Entity{ entity, scene.get() }.GetComponent<FoliageComponent>();
+                auto& foliage = Entity{ entity, scene.get() }.GetComponent<FoliageComponent>();
                 if (foliage.m_Renderer && foliage.m_Renderer->IsRebuilding())
-                    return true;
+                {
+                    GLStateGuard guard("BenchmarkCapture", GLStateGuard::Policy::Restore);
+                    foliage.m_Renderer->AdvanceRebuild();
+                    rebuilding = rebuilding || foliage.m_Renderer->IsRebuilding();
+                }
             }
-            return false;
+            return rebuilding;
         };
-        const u32 holdPose = warmFrames > 0u ? warmFrames - 1u : 0u;
         const auto rebuildDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while (warmed && foliageRebuilding() && std::chrono::steady_clock::now() < rebuildDeadline)
-            warmed = warmTick(holdPose);
-        ASSERT_TRUE(warmed);
-        ASSERT_FALSE(foliageRebuilding()) << "a foliage regeneration never reached publication within 30 s";
+        bool foliageRebuilding = advanceFoliage();
+        while (foliageRebuilding && std::chrono::steady_clock::now() < rebuildDeadline)
+        {
+            std::this_thread::yield();
+            foliageRebuilding = advanceFoliage();
+        }
+        ASSERT_FALSE(foliageRebuilding) << "a foliage regeneration never reached publication within 30 s";
 
         for (u32 i = 0; i < manifest->MeasurementFrames; ++i)
         {
