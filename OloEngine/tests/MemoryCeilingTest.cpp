@@ -257,13 +257,49 @@ TEST(MemoryCeiling, TheReportHasARowPerFinishedTestWithTheMemoryItKept)
     std::string header;
     std::string row;
     ASSERT_TRUE(std::getline(in, header)) << "the report is empty";
-    EXPECT_EQ(header, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb");
+    EXPECT_EQ(header, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb\theap_used_mb\theap_free_mb\treleased_mb");
     ASSERT_TRUE(std::getline(in, row)) << "the report has no row for the finished test";
     const ReportRow parsed = ParseReportRow(row);
     EXPECT_EQ(parsed.Name, "MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit");
     EXPECT_GE(parsed.RetainedMb, 200) << row;
     EXPECT_EQ(parsed.RetainedMb, parsed.EndMb - parsed.StartMb) << row;
     EXPECT_GE(parsed.PeakMb, parsed.EndMb) << row;
+}
+
+// #1649: glibc keeps freed memory in its arenas, so a whole-suite process
+// carried every earlier case's high-water mark into the next as resident set.
+// Freeing every other block leaves holes the allocator cannot hand back on its
+// own (no free top to trim); ReleaseFreeHeap must report them and return them.
+TEST(MemoryCeiling, ReleasingTheFreeHeapReturnsFreedArenaMemoryToTheOs)
+{
+    const OloEngine::Tests::HeapRelease probe = OloEngine::Tests::ReleaseFreeHeap();
+    if (!probe.Supported || !probe.FreeBytes)
+    {
+        GTEST_SKIP() << "only glibc (2.33+) keeps and reports freed arena memory this way";
+    }
+
+    // 64 KiB blocks stay under glibc's mmap threshold, so they come from the arena.
+    constexpr sizet kBlock = 64u * 1024u;
+    constexpr sizet kBlocks = 4096; // 256 MiB, half of it freed below
+    std::vector<std::unique_ptr<char[]>> blocks(kBlocks);
+    for (auto& block : blocks)
+    {
+        block = std::make_unique<char[]>(kBlock);
+        std::memset(block.get(), 0x5A, kBlock); // touch it, so it is resident
+    }
+    for (sizet i = 0; i < kBlocks; i += 2)
+    {
+        blocks[i].reset();
+    }
+
+    const u64 before = OloEngine::Tests::CurrentResidentBytes();
+    const OloEngine::Tests::HeapRelease release = OloEngine::Tests::ReleaseFreeHeap();
+    const u64 after = OloEngine::Tests::CurrentResidentBytes();
+
+    ASSERT_TRUE(release.FreeBytes);
+    EXPECT_GE(*release.FreeBytes, 100 * kMiB) << "the 128 MiB of freed holes were not reported as free heap";
+    EXPECT_GE(before > after ? before - after : 0, 100 * kMiB)
+        << "resident set " << before / kMiB << " MB before, " << after / kMiB << " MB after the release";
 }
 
 // A death-test child inherits --olo-rss-report. Opening it there truncated the

@@ -11,10 +11,28 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+// A sanitizer that replaces malloc owns the heap; glibc's arenas then hold
+// nothing, and its figures would describe a heap the process does not use.
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer) || \
+    __has_feature(leak_sanitizer) || __has_feature(hwaddress_sanitizer)
+#define OLO_TESTS_SANITIZER_OWNS_HEAP 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__) || defined(__SANITIZE_HWADDRESS__)
+#define OLO_TESTS_SANITIZER_OWNS_HEAP 1
+#endif
+
+#if defined(__GLIBC__) && !defined(OLO_TESTS_SANITIZER_OWNS_HEAP)
+#define OLO_TESTS_GLIBC_HEAP 1
+#include <malloc.h>
+#endif
 
 namespace OloEngine::Tests
 {
@@ -79,6 +97,13 @@ namespace OloEngine::Tests
             }
         }
 
+        // Formats an optional megabyte figure for the report: empty where the
+        // platform cannot say, so a reader never mistakes "unknown" for 0.
+        std::string OptionalMb(const std::optional<u64>& bytes)
+        {
+            return bytes ? std::to_string(ToMb(*bytes)) : std::string();
+        }
+
         class RunningTestNameListener final : public ::testing::EmptyTestEventListener
         {
             void OnTestStart(const ::testing::TestInfo& info) override
@@ -107,15 +132,29 @@ namespace OloEngine::Tests
             }
             void OnTestEnd(const ::testing::TestInfo& info) override
             {
+                const u64 beforeRelease = CurrentResidentBytes();
+                RaisePeak(beforeRelease);
+                // Hand the freed heap back before the next test inherits it: the
+                // end figure, and so every later start, is then what the test
+                // really kept.
+                const HeapRelease heap = ReleaseFreeHeap();
                 const u64 end = CurrentResidentBytes();
+                // The release normally lowers residency, but another thread can
+                // allocate between the two readings; the row must never report
+                // an end above its own peak.
                 RaisePeak(end);
                 TestResidency row{ std::string(info.test_suite_name()) + "." + info.name(),
                                    s_TestStartBytes.load(std::memory_order_relaxed), end,
                                    s_TestPeakBytes.load(std::memory_order_relaxed) };
                 if (s_Report != nullptr)
                 {
-                    std::fprintf(s_Report, "%s\t%lld\t%lld\t%lld\t%lld\n", row.Name.c_str(), ToMb(row.StartBytes),
-                                 ToMb(row.EndBytes), ToMb(row.PeakBytes), SignedMb(row.StartBytes, row.EndBytes));
+                    const std::optional<u64> released =
+                        heap.Supported ? std::optional<u64>(beforeRelease > end ? beforeRelease - end : 0)
+                                       : std::nullopt;
+                    std::fprintf(s_Report, "%s\t%lld\t%lld\t%lld\t%lld\t%s\t%s\t%s\n", row.Name.c_str(),
+                                 ToMb(row.StartBytes), ToMb(row.EndBytes), ToMb(row.PeakBytes),
+                                 SignedMb(row.StartBytes, row.EndBytes), OptionalMb(heap.UsedBytes).c_str(),
+                                 OptionalMb(heap.FreeBytes).c_str(), OptionalMb(released).c_str());
                     std::fflush(s_Report);
                 }
                 {
@@ -172,6 +211,21 @@ namespace OloEngine::Tests
         return FPlatformMemory::GetStats().UsedPhysical;
     }
 
+    HeapRelease ReleaseFreeHeap()
+    {
+        HeapRelease result;
+#if defined(OLO_TESTS_GLIBC_HEAP)
+#if __GLIBC_PREREQ(2, 33)
+        const struct mallinfo2 info = ::mallinfo2();
+        result.UsedBytes = static_cast<u64>(info.uordblks) + static_cast<u64>(info.hblkhd);
+        result.FreeBytes = static_cast<u64>(info.fordblks);
+#endif
+        result.Supported = true;
+        ::malloc_trim(0);
+#endif
+        return result;
+    }
+
     void RegisterMemoryCeilingListener()
     {
         ::testing::UnitTest::GetInstance()->listeners().Append(new RunningTestNameListener());
@@ -207,7 +261,7 @@ namespace OloEngine::Tests
             std::fprintf(stderr, "OloEngine-Tests: --olo-rss-report: cannot open '%s' for writing.\n", path.c_str());
             return false;
         }
-        std::fprintf(s_Report, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb\n");
+        std::fprintf(s_Report, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb\theap_used_mb\theap_free_mb\treleased_mb\n");
         std::fflush(s_Report);
         return true;
     }

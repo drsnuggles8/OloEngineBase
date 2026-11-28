@@ -28,6 +28,7 @@
 
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Crowd/CrowdLod.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "ProcessRendererInit.h"
 
 #include <gtest/gtest.h>
@@ -47,8 +48,11 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
@@ -161,6 +165,16 @@ TEST(BenchmarkCapture, RunWhenRequested)
     ScopedMockClock mockClock(manifest->StartTimeSeconds);
 
     OloEngine::Tests::EnsureProcessRendererInitialized();
+    // The editor's Application starts the task scheduler's workers; this host
+    // is a test with no Application, alone in its process (a capture tool run
+    // filters to it), so nothing else does. Without them every ParallelFor in
+    // the frame ran inline -- the groom coat bake's slabs among them -- and
+    // the GL host measured a frame the editor never runs (#1589;
+    // substituted-seams-compound.md rule 14, RendererAttachedTest::SetUp).
+    if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u)
+    {
+        LowLevelTasks::FScheduler::Get().StartWorkers();
+    }
     std::string presetError;
     ASSERT_TRUE(Benchmark::ValidatePresetAdmission(*manifest, "opengl", presetError)) << presetError;
     {
@@ -306,6 +320,39 @@ TEST(BenchmarkCapture, RunWhenRequested)
             }
             ++frameIndex;
         }
+
+        // The task workers run on this host (above), so a foliage
+        // regeneration a warm frame started publishes asynchronously. Measure
+        // only once it has published, or the first measured frames can draw
+        // the layers from before it (foliage-regeneration-is-async-once-
+        // workers-start.md). The wait drives each renderer's AdvanceRebuild
+        // directly, as FoliageCostBaselineTest does, and never ticks the
+        // scene: frameIndex, the mock clock and entity motion stay on the
+        // manifest's fixed schedule however long publication takes. Bounded
+        // like RendererAttachedTest's FinishFoliageRegeneration.
+        const auto advanceFoliage = [&scene]()
+        {
+            bool rebuilding = false;
+            for (const auto entity : scene->GetAllEntitiesWith<FoliageComponent>())
+            {
+                auto& foliage = Entity{ entity, scene.get() }.GetComponent<FoliageComponent>();
+                if (foliage.m_Renderer && foliage.m_Renderer->IsRebuilding())
+                {
+                    GLStateGuard guard("BenchmarkCapture", GLStateGuard::Policy::Restore);
+                    foliage.m_Renderer->AdvanceRebuild();
+                    rebuilding = rebuilding || foliage.m_Renderer->IsRebuilding();
+                }
+            }
+            return rebuilding;
+        };
+        const auto rebuildDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        bool foliageRebuilding = advanceFoliage();
+        while (foliageRebuilding && std::chrono::steady_clock::now() < rebuildDeadline)
+        {
+            std::this_thread::yield();
+            foliageRebuilding = advanceFoliage();
+        }
+        ASSERT_FALSE(foliageRebuilding) << "a foliage regeneration never reached publication within 30 s";
 
         for (u32 i = 0; i < manifest->MeasurementFrames; ++i)
         {

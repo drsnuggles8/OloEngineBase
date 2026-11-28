@@ -86,6 +86,11 @@ compiled every variant, so the front end is not where it grows.
   message lists the finished tests that retained the most. `--olo-rss-report=<path>` writes
   every case's start, end and peak resident set (the nightly uploads it as
   `gpu_amd_rss.tsv`).
+- **On glibc, the listener hands the freed heap back after every case** (`ReleaseFreeHeap`,
+  `malloc_trim`, #1649). glibc keeps freed memory in its per-thread arenas, so a whole-suite
+  process carried each case's high-water mark as resident set: 5.2 GB at the end of the nightly,
+  0.6–1.2 GB with the trim. The report's `heap_used_mb`, `heap_free_mb` and `released_mb`
+  columns say which a retainer is: live allocations, or freed memory the allocator kept.
 
 ## Reading a CI OOM kill
 

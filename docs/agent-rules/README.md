@@ -35,6 +35,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [renderer-memory-accounting.md](renderer-memory-accounting.md): book each GPU allocation once as physical backing, keep GPU and CPU bytes apart; a switched-off technique gives its memory back, or the memory budget cannot use its fallback.
 - [measure-in-the-frame-the-pixels-came-from.md](measure-in-the-frame-the-pixels-came-from.md): unproject a readback through the camera its frame was drawn with.
 - [completed-frame-perf-windows.md](completed-frame-perf-windows.md): select camera history only after verified renderer progress, and preserve its generation.
+- [gl-gpu-bracket-absorbs-cpu-time.md](gl-gpu-bracket-absorbs-cpu-time.md): on OpenGL, check a pass's CPU time before blaming a GPU bracket for a spike; an unflushed end timestamp holds CPU work that ran after it.
 - [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md): a measured number travels with a status saying whether it IS a measurement.
 - [vulkan-query-generations.md](vulkan-query-generations.md): prove completion of the submission that reset and wrote a reused query before trusting its availability or value.
 - [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md): republish main-view AO/depth bindings after mirror replay; restoring the camera does not restore textures.

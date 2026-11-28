@@ -23,6 +23,7 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,21 @@ namespace OloEngine::Tests
 
     // The process's current resident set, in bytes (0 when the platform cannot say).
     [[nodiscard]] u64 CurrentResidentBytes();
+
+    // What ReleaseFreeHeap saw in the C heap before it released the free part.
+    struct HeapRelease
+    {
+        bool Supported = false;       // false off glibc, and under a sanitizer that owns the heap
+        std::optional<u64> UsedBytes; // bytes in live allocations, mmapped blocks included
+        std::optional<u64> FreeBytes; // freed bytes the allocator still held
+    };
+
+    // Returns the C heap's freed-but-held pages to the OS (glibc's malloc_trim)
+    // and reports what the heap held just before. glibc keeps freed memory in
+    // its per-thread arenas, so a single process running thousands of cases
+    // carries every earlier case's high-water mark as resident set (#1649).
+    // The listener calls it after every test; a no-op elsewhere.
+    HeapRelease ReleaseFreeHeap();
 
     // Starts the polling thread. Call once, from main. ceilingMb applies from
     // start-up on. A non-zero headroomMb replaces it when the first test starts
@@ -56,8 +72,10 @@ namespace OloEngine::Tests
     void RegisterMemoryCeilingListener();
 
     // --olo-rss-report=<path>: also write one tab-separated row per finished test
-    // (test, start_mb, end_mb, peak_mb, retained_mb), flushed per row so a process
-    // the watchdog stops keeps every row before it. Starts the polling thread even
+    // (test, start_mb, end_mb, peak_mb, retained_mb, heap_used_mb, heap_free_mb,
+    // released_mb). end_mb, and so retained_mb, is taken after ReleaseFreeHeap;
+    // the three heap columns are empty where that is a no-op. Each row is flushed,
+    // so a process the watchdog stops keeps every row before it. Starts the polling thread even
     // with no ceiling, for the peaks. Call before StartMemoryCeilingWatchdog.
     // Returns false, having said why on stderr, when the file cannot be opened.
     // Meant for a single-process run: ctest's one process per case would have
