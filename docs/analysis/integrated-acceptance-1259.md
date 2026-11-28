@@ -424,9 +424,11 @@ p50 range.
 | Deferred | rapid-turn | 33 | 49–55 | 75–82 | 114–121 | 13–14 | 33 | ShadowPass 19.5, ScenePass 9.0, GroomPass 2.5 |
 
 **Noise floor.** An identical-arms control (a second GL Forward cell, same binary and manifest,
-interleaved) agrees with Forward within 1–3 ms at every p50 and at the outdoor cameras' p95, but its
-head-camera p95 reaches 196–208 ms against 139–155 ms. A difference under about 60 ms at a head
-camera's p95 is not a result.
+interleaved) agrees with Forward within 1–3 ms at p50, except one run's coats-closeup p50 of 80 ms
+against Forward's 68–70. At the outdoor cameras its p95 lies within 5 ms of Forward's (rapid-turn
+63–68 against 60–63). At the head cameras its p95 reaches 196–208 ms against 139–155 ms. So a
+difference under about 10 ms at an outdoor camera, or under about 60 ms at a head camera's p95, is
+not a result.
 
 On the GL host the VSM cells are now GPU-paced at four of the five cameras (frame p50 tracks GPU
 p50; the CPU waits on the fence for 17–45 ms at p95; the CSM control waits 1–7 ms at the head
@@ -486,13 +488,15 @@ above. October's Vulkan memory (live 2.75 GiB, peak 6.26 GiB) came from the live
 different host protocol, so it is not compared.
 
 **Process memory is not measured.** The capture records renderer-tracked GPU and CPU memory, not
-the process's private bytes or working set, and its residency field reads `unknown` on this host.
+the process's private bytes or working set. Its GPU residency field reads `osReported` on Vulkan
+(the tracked figures reconcile with what the driver reports) and `unknown` on GL.
 The separate sampling pass October used for the editor process needed a quiet box, which the second
 GPU window did not get (see *Live Vulkan* below).
 
 ### Where the time goes now
 
-1. **ShadowPass is the largest GPU pass in every cell and camera** (16–31 ms at p50), and its
+1. **ShadowPass is the largest GPU pass in every VSM cell and camera** (16–31 ms at p50; in the
+   CSM control GroomPass is larger at head-closeup and coats-closeup), and its
    brackets (#1590) now say why. GL Forward, p50 ms, with the Vulkan figure where it differs by
    more than 2 ms; — means that bracket has no sample at that camera. Every bracket, per cell and
    camera: [README.md](../testing/evidence/integrated-acceptance-1259/baseline-2026-11-28/README.md#shadowpass-sub-passes).
@@ -583,7 +587,7 @@ machine was in interactive use (a game at 41% GPU), so a live re-run would have 
 | bound-coat deformation and strand-pass CPU at the horses | coats-closeup, both backends | #1588 |
 | REST strand geometry built on the main thread as a coat arrives (283–436 ms frame) | coats-closeup, population-dolly | #1839 |
 | GL FoliagePass 3–6× the Vulkan cost at the outdoor cameras | GL, outdoor | #1840 |
-| hybrid: TLAS withheld, so no ray is traced, and 27–82 ms of CPU for unread proxies | Vulkan hybrid | #1870 |
+| hybrid: TLAS withheld, so no ray is traced, and 27–82 ms more CPU than Deferred, producer not attributed | Vulkan hybrid | #1870 |
 | editor capture stalls of 10–14 min (2 of 14 attempts) | Vulkan editor host | #1871 |
 | no separable eyes or mouth | criterion 1 | #1402 |
 | Deferred dynamic scale; RT proxy for skinned virtual geometry | unreachable cells | #1537, #1525 |
