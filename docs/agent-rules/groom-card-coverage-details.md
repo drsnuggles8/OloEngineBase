@@ -36,7 +36,7 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    moves; the screen position and the velocity stay the axis's. Strand roots also leave a depth tie
    with the skin (+2% on the strand tier).
 
-4a. **A ribbon's coat-shadow march starts on its tube's LIT side, one radius from the axis
+4a. **A ribbon's coat-shadow march toward a light starts on its tube's LIT side, one radius from the axis
    (#1533).** This is rule 4's reasoning applied to light, in `oloGroomCoatTauAndBody`. A card sits on its
    lock's centreline, the densest line in the volume, so a march from the axis shadowed every card
    fragment by its own lock. A viewer sees a lock's outer strands, not its centre, and under a
@@ -92,6 +92,60 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    the golden's 45 at 12 mm) Bernese and Samoyed are within 4% at every hand-over distance.
    `tools/dog-authoring/set_card_tier.py` re-authors a committed archive's cell. Widening the fibre
    lobes by the members' tangent spread does not help: 0.25 rad moved the step 1.2%.
+
+10. **A card's sky is its members' visibility-weighted mean, not its outer strand's (#1625).** The
+    ambient march runs along the fibre's eye-facing normal, nearly the view direction, so a member
+    the eye sees well also sees the sky well. Taking each half of the lock as uniform, with qf and qb
+    the transmittances of its viewer-side and far halves, the mean is (1 + qf^2) / 2 of what the
+    viewer-side surface sees in front (exact for qf = qb; `oloGroomLockHalfTransmittance`,
+    `GroomStrand.glsl`). That share scales only the paths that look out through the lock's near half
+    (R, TRT, half the residual); the far half is in the table below. Single scattering, the occluder-only
+    coats' branch, has no far half: every path, TT included, takes the one viewer-side march, so the
+    share scales the whole term there. The surface is 0.6 of the
+    cooked (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the
+    members' covered width, not the lock's depth along the sky. Only the card tier runs it
+    (`u_GroomCoatModes.w` bit 4); a gate on the lock's size against the march step switched it off
+    and on across a coat. Sun off, uniform sky, converged volume, card over strand sky shadow on both
+    horses from four directions (`GroomAnimalsAcceptanceEvidenceTest.TheCardTierShadowsTheSkyAsItsStrandsDo`):
+
+    | march from | lock share | short coat | long coat |
+    |---|---|---|---|
+    | the drawn tube's surface (rule 4a) | none | 1.33-1.88 | 1.04-1.18 |
+    | the axis | none | 0.50-0.69 | 0.91-0.95 |
+    | 1.0 x cooked radius | yes | 0.99-1.17 | 0.97-1.00 |
+    | 0.75 x | yes | 0.97-1.10 | 0.96-0.98 |
+    | **0.6 x** | yes | **0.95-1.05** | **0.95-0.98** |
+    | 0.5 x | yes | 0.92-1.01 | 0.93-0.96 |
+    | 0.6 x, gated on the card tier (shipped) | yes | 0.95-1.05 | 0.94-0.96 |
+
+    The short coat's residue at 1.0 x was its mane and tail alone (body-only coat 0.97-1.00,
+    long-hair-only 1.09-1.23). Only the card tier sets bit 4, so the strand tier never runs the
+    share and is unchanged; the half lock is integrated over its own segment, not as the difference
+    of two whole-coat marches, whose step error exceeded a thin lock's depth. Rule 4a still holds for every light. At the SHIPPED coat-shadow
+    LOD the short coat is inside one voxel and the cards still keep up to 2x its sky (#1815), so
+    `GroomAnimalsAcceptanceEvidenceTest`'s coverage case keeps its black sky.
+
+    **The far half takes no lock share.** The same argument gives qf qb of the far surface's sky
+    behind the fibre, but the coats in that test are occluders only, whose ambient never reaches the
+    far half; under dual scattering, the shipped default, it over-darkened the cards. Card over strand
+    at each coat's hand-over side:
+
+    | far half (TT, half the residual, back-scatter) | long coat | short coat |
+    |---|---|---|
+    | master's shader (no lock share anywhere) | 1.094 | 1.296 |
+    | from 0.6 x, qf qb on TT and the back-scatter's coat | 0.903 | 0.848 |
+    | from 0.6 x, no share behind | 0.963 | 0.902 |
+    | from the drawn tube's surface, no share behind | 0.986 | 0.918 |
+    | **from the drawn tube's surface, no share behind, back-scatter without the front share (shipped)** | **1.006** | **0.972** |
+
+    The back-scatter is sky the coat behind returns, which reached that coat through its own
+    surface, not through this lock's near half. The single-scattering cells do not move with any of
+    these (0.944 / 1.001 at the same stop).
+
+    The drawn tube carries the coverage widening, so the far march starts further out the further the
+    card, where it is widest against its lock. It holds there: with the shipped form, card over strand
+    (long coat / short coat) 1.007-1.008 / 0.964-0.973 at the hand-over and 1.015 / 0.998-1.002 at the Far stop (32 m), on
+    Forward, Forward+ and Deferred.
 
 ## Measured
 

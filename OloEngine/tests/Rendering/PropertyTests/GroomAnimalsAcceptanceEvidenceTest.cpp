@@ -102,6 +102,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -879,6 +880,8 @@ namespace OloEngine::Tests
     {
       public:
         Ref<TextureCubemap> m_BlackSky;
+        Entity m_Sun;
+        Entity m_Sky;
 
         // One animated body with one coat bound to it.
         struct SubjectRig
@@ -995,6 +998,7 @@ namespace OloEngine::Tests
 
             {
                 Entity light = scene.CreateEntity("Sun");
+                m_Sun = light;
                 auto& dl = light.AddComponent<DirectionalLightComponent>();
                 dl.m_Direction = glm::normalize(glm::vec3(-0.4f, -0.75f, -0.5f));
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
@@ -1002,13 +1006,16 @@ namespace OloEngine::Tests
             }
             // NO AMBIENT, as these cases have always been measured. With no
             // environment the ambient ladder ends at the flat fill, which the
-            // coat takes like its body since #1618; the card tier does not keep
-            // the short coat's self-occlusion of an ambient term (#1625), so a
-            // black sky holds the ladder to the direct light it was built for.
+            // coat takes like its body since #1618. On a converged volume the
+            // card tier shadows an ambient term as its strands do (#1625,
+            // TheCardTierShadowsTheSkyAsItsStrandsDo); at the SHIPPED coat-shadow
+            // LOD the short coat's cards keep up to 1.6x its energy under ambient (#1815), so
+            // a black sky holds the ladder to the direct light it was built for.
             {
                 m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
                 ASSERT_TRUE(m_BlackSky);
-                SetUniformSkyEnvironment(scene.CreateEntity("BlackSky"), m_BlackSky);
+                m_Sky = scene.CreateEntity("BlackSky");
+                SetUniformSkyEnvironment(m_Sky, m_BlackSky);
             }
             {
                 // A primary runtime camera is what makes RunFrames render at
@@ -1544,6 +1551,209 @@ namespace OloEngine::Tests
                 }
             }
             WritePng(name, out, w * scale, h * scale);
+        }
+
+        // The coat's linear quantities in one view (groom-card-coverage.md rule 7):
+        // per frame the ENTITY-ID target says which pixels show this coat and the
+        // HDR scene colour says what they show, with no temporal resolve.
+        struct Linear
+        {
+            f64 Cov = 0.0;  // coat pixels, per frame
+            f64 Luma = 0.0; // linear luma on them, per frame
+            u32 Frames = 0;
+            f64 RelativeError = 0.0; // standard error of Luma over Luma
+            // With `image`: mean linear luma of EVERY active-viewport pixel, and
+            // which pixels the coat covered on any frame -- what seen energy needs.
+            u32 ImageWidth = 0;
+            u32 ImageHeight = 0;
+            std::vector<f64> Image;
+            std::vector<u8> Mask;
+        };
+
+        // HOW MANY FRAMES: as many as the measurement needs, not a fixed count
+        // (#1473). A measurement renders until the standard error of its mean
+        // luma is under 1%, between 8 and 64 frames. A fixed 64 cost 943 s on
+        // the AMD nightly: the long coat settles in 8-70 frames at every stop.
+        // The short coat at range does not settle at all -- see expectEnergyNear
+        // in TheCoatKeepsItsCoverageFromNearToFar -- so frames past 64 buy it nothing.
+        // `renderMs` and `readbackMs` accumulate where the time goes: the frames
+        // themselves (to glFinish) or reading them back (#1473).
+        Linear MeasureLinear(const View& view, i32 entityId, bool image, f64& renderMs, f64& readbackMs)
+        {
+            static constexpr u32 kMinFrames = 8;
+            static constexpr u32 kMaxFrames = 64;
+            static constexpr f64 kTargetRelativeError = 0.01;
+            const glm::vec3 d = glm::normalize(view.Target - view.Eye);
+            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 400.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
+            // Every measurement draws the SAME stochastic frames (common random
+            // numbers), so where both arms draw the same strands their noise
+            // cancels in the ratio: the close-up control reads coverage 1.000
+            // on both coats in a few frames.
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
+            // Past a tier change's cross-fade window too: a coat whose tier
+            // changed since the last measurement (ladder on after ladder off,
+            // a new stop) draws both tiers until its fade ends, and a mean
+            // over those frames would measure the blend. Only a coat still
+            // fading pays for it: a fixed window cost every measurement,
+            // most of which change no tier. Once a fade ends the sequences
+            // restart and the history is cold again, so every arm measures
+            // from the same frame index (the common random numbers above) and
+            // no history holds the blend.
+            static constexpr u32 kSettleFrames = 8;
+            RunEditorFrames(camera, kSettleFrames);
+            const auto fading = []
+            {
+                for (const auto& req : Renderer3D::GetGroomStrandRequests())
+                {
+                    if (req.Lod.CrossFading)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const u32 fadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+            if (fading())
+            {
+                for (u32 f = 0; (f <= fadeFrames) && fading(); ++f)
+                {
+                    RunEditorFrames(camera, 1);
+                }
+                EXPECT_FALSE(fading()) << "a coat was still cross-fading after its " << fadeFrames << "-frame window";
+                Renderer3D::ResetFrameSequences();
+                ColdHistory();
+                RunEditorFrames(camera, kSettleFrames);
+            }
+            Linear out;
+            std::vector<f32> colour;
+            std::vector<i32> ids;
+            using Clock = std::chrono::steady_clock;
+            f64 sumLuma = 0.0;
+            f64 sumLumaSq = 0.0;
+            for (u32 f = 0; f < kMaxFrames; ++f)
+            {
+                f64 frameCov = 0.0;
+                f64 frameLuma = 0.0;
+                const auto t0 = Clock::now();
+                RunEditorFrames(camera, 1);
+                ::glFinish();
+                const auto t1 = Clock::now();
+                auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+                EXPECT_TRUE(fb);
+                if (!fb)
+                {
+                    return out;
+                }
+                // The target's own size, and only its ACTIVE viewport: under an
+                // upscaler the scene renders into a smaller rectangle of it.
+                const u32 width = fb->GetSpecification().Width;
+                const u32 height = fb->GetSpecification().Height;
+                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
+                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
+                ids.resize(static_cast<sizet>(width) * height);
+                ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
+                                    static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+                if (image)
+                {
+                    // Seen energy needs every pixel either arm's coat covers, so
+                    // the whole active viewport, not this arm's bounding box.
+                    colour.resize(static_cast<sizet>(width) * height * 4u);
+                    ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
+                    if (out.Image.empty())
+                    {
+                        out.ImageWidth = activeWidth;
+                        out.ImageHeight = activeHeight;
+                        out.Image.assign(static_cast<sizet>(activeWidth) * activeHeight, 0.0);
+                        out.Mask.assign(out.Image.size(), 0u);
+                    }
+                    for (u32 y = 0; y < out.ImageHeight; ++y)
+                    {
+                        for (u32 x = 0; x < out.ImageWidth; ++x)
+                        {
+                            const sizet src = (static_cast<sizet>(y) * width) + x;
+                            const sizet dst = (static_cast<sizet>(y) * out.ImageWidth) + x;
+                            const f64 luma = (0.2126 * colour[src * 4u]) + (0.7152 * colour[(src * 4u) + 1u]) +
+                                             (0.0722 * colour[(src * 4u) + 2u]);
+                            out.Image[dst] += luma;
+                            if (ids[src] == entityId)
+                            {
+                                out.Mask[dst] = 1u;
+                                frameCov += 1.0;
+                                frameLuma += luma;
+                            }
+                        }
+                    }
+                }
+                // Otherwise colour only over the coat's bounding box: the coat is
+                // 0.05-7% of the frame.
+                u32 x0 = activeWidth;
+                u32 y0 = activeHeight;
+                u32 x1 = 0;
+                u32 y1 = 0;
+                for (u32 y = 0; y < activeHeight; ++y)
+                {
+                    for (u32 x = 0; x < activeWidth; ++x)
+                    {
+                        if (ids[(static_cast<sizet>(y) * width) + x] == entityId)
+                        {
+                            x0 = std::min(x0, x);
+                            y0 = std::min(y0, y);
+                            x1 = std::max(x1, x + 1u);
+                            y1 = std::max(y1, y + 1u);
+                        }
+                    }
+                }
+                if (!image && x0 < x1)
+                {
+                    const u32 boxW = x1 - x0;
+                    const u32 boxH = y1 - y0;
+                    colour.resize(static_cast<sizet>(boxW) * boxH * 4u);
+                    ::glGetTextureSubImage(fb->GetColorAttachmentRendererID(0), 0, static_cast<GLint>(x0),
+                                           static_cast<GLint>(y0), 0, static_cast<GLsizei>(boxW),
+                                           static_cast<GLsizei>(boxH), 1, GL_RGBA, GL_FLOAT,
+                                           static_cast<GLsizei>(colour.size() * sizeof(f32)), colour.data());
+                    for (u32 y = y0; y < y1; ++y)
+                    {
+                        for (u32 x = x0; x < x1; ++x)
+                        {
+                            if (ids[(static_cast<sizet>(y) * width) + x] != entityId)
+                            {
+                                continue;
+                            }
+                            const sizet c = ((static_cast<sizet>(y - y0) * boxW) + (x - x0)) * 4u;
+                            frameCov += 1.0;
+                            frameLuma += (0.2126 * colour[c]) + (0.7152 * colour[c + 1]) + (0.0722 * colour[c + 2]);
+                        }
+                    }
+                }
+                const auto t2 = Clock::now();
+                renderMs += std::chrono::duration<f64, std::milli>(t1 - t0).count();
+                readbackMs += std::chrono::duration<f64, std::milli>(t2 - t1).count();
+
+                out.Cov += frameCov;
+                sumLuma += frameLuma;
+                sumLumaSq += frameLuma * frameLuma;
+                const f64 n = static_cast<f64>(f + 1u);
+                const f64 mean = sumLuma / n;
+                const f64 variance = std::max(0.0, (sumLumaSq / n) - (mean * mean)) * n / std::max(n - 1.0, 1.0);
+                out.Frames = f + 1u;
+                out.RelativeError = mean > 0.0 ? std::sqrt(variance / n) / mean : 1.0;
+                if (out.Frames >= kMinFrames && out.RelativeError < kTargetRelativeError)
+                {
+                    break;
+                }
+            }
+            if (out.Frames > 0u)
+            {
+                out.Cov /= static_cast<f64>(out.Frames);
+                out.Luma = sumLuma / static_cast<f64>(out.Frames);
+                for (f64& luma : out.Image)
+                    luma /= static_cast<f64>(out.Frames);
+            }
+            return out;
         }
 
         [[nodiscard]] const GroomStrandRequest* RequestFor(const SubjectRig& s) const
@@ -2348,174 +2558,12 @@ namespace OloEngine::Tests
         {
             subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
         }
-        // HOW MANY FRAMES: as many as the measurement needs, not a fixed count
-        // (#1473). A measurement renders until the standard error of its mean
-        // luma is under 1%, between 8 and 64 frames. A fixed 64 cost 943 s on
-        // the AMD nightly: the long coat settles in 8-70 frames at every stop.
-        // The short coat at range does not settle at all -- see
-        // expectEnergyNear below -- so frames past 64 buy it nothing.
-        constexpr u32 kMinFrames = 8;
-        constexpr u32 kMaxFrames = 64;
-        constexpr f64 kTargetRelativeError = 0.01;
         // Where the time goes, per keep(): the frames themselves (to glFinish) or
         // reading them back. Printed with each stop (#1473).
         f64 renderMs = 0.0;
         f64 readbackMs = 0.0;
-
-        struct Linear
-        {
-            f64 Cov = 0.0;  // coat pixels, per frame
-            f64 Luma = 0.0; // linear luma on them, per frame
-            u32 Frames = 0;
-            f64 RelativeError = 0.0; // standard error of Luma over Luma
-            // With `image`: mean linear luma of EVERY active-viewport pixel, and
-            // which pixels the coat covered on any frame -- what seen energy needs.
-            u32 ImageWidth = 0;
-            u32 ImageHeight = 0;
-            std::vector<f64> Image;
-            std::vector<u8> Mask;
-        };
         const auto linear = [&](const View& view, i32 entityId, bool image)
-        {
-            const glm::vec3 d = glm::normalize(view.Target - view.Eye);
-            EditorCamera camera(view.Fov, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 400.0f);
-            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose(view.Eye, std::atan2(d.x, -d.z), std::asin(std::clamp(-d.y, -1.0f, 1.0f)));
-            // Every measurement draws the SAME stochastic frames (common random
-            // numbers), so where both arms draw the same strands their noise
-            // cancels in the ratio: the close-up control reads coverage 1.000
-            // on both coats in a few frames.
-            Renderer3D::ResetFrameSequences();
-            ColdHistory();
-            RunEditorFrames(camera, 8);
-            Linear out;
-            std::vector<f32> colour;
-            std::vector<i32> ids;
-            using Clock = std::chrono::steady_clock;
-            f64 sumLuma = 0.0;
-            f64 sumLumaSq = 0.0;
-            for (u32 f = 0; f < kMaxFrames; ++f)
-            {
-                f64 frameCov = 0.0;
-                f64 frameLuma = 0.0;
-                const auto t0 = Clock::now();
-                RunEditorFrames(camera, 1);
-                ::glFinish();
-                const auto t1 = Clock::now();
-                auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-                EXPECT_TRUE(fb);
-                if (!fb)
-                {
-                    return out;
-                }
-                // The target's own size, and only its ACTIVE viewport: under an
-                // upscaler the scene renders into a smaller rectangle of it.
-                const u32 width = fb->GetSpecification().Width;
-                const u32 height = fb->GetSpecification().Height;
-                const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
-                const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
-                ids.resize(static_cast<sizet>(width) * height);
-                ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
-                                    static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
-                if (image)
-                {
-                    // Seen energy needs every pixel either arm's coat covers, so
-                    // the whole active viewport, not this arm's bounding box.
-                    colour.resize(static_cast<sizet>(width) * height * 4u);
-                    ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
-                    if (out.Image.empty())
-                    {
-                        out.ImageWidth = activeWidth;
-                        out.ImageHeight = activeHeight;
-                        out.Image.assign(static_cast<sizet>(activeWidth) * activeHeight, 0.0);
-                        out.Mask.assign(out.Image.size(), 0u);
-                    }
-                    for (u32 y = 0; y < out.ImageHeight; ++y)
-                    {
-                        for (u32 x = 0; x < out.ImageWidth; ++x)
-                        {
-                            const sizet src = (static_cast<sizet>(y) * width) + x;
-                            const sizet dst = (static_cast<sizet>(y) * out.ImageWidth) + x;
-                            const f64 luma = (0.2126 * colour[src * 4u]) + (0.7152 * colour[(src * 4u) + 1u]) +
-                                             (0.0722 * colour[(src * 4u) + 2u]);
-                            out.Image[dst] += luma;
-                            if (ids[src] == entityId)
-                            {
-                                out.Mask[dst] = 1u;
-                                frameCov += 1.0;
-                                frameLuma += luma;
-                            }
-                        }
-                    }
-                }
-                // Otherwise colour only over the coat's bounding box: the coat is
-                // 0.05-7% of the frame.
-                u32 x0 = activeWidth;
-                u32 y0 = activeHeight;
-                u32 x1 = 0;
-                u32 y1 = 0;
-                for (u32 y = 0; y < activeHeight; ++y)
-                {
-                    for (u32 x = 0; x < activeWidth; ++x)
-                    {
-                        if (ids[(static_cast<sizet>(y) * width) + x] == entityId)
-                        {
-                            x0 = std::min(x0, x);
-                            y0 = std::min(y0, y);
-                            x1 = std::max(x1, x + 1u);
-                            y1 = std::max(y1, y + 1u);
-                        }
-                    }
-                }
-                if (!image && x0 < x1)
-                {
-                    const u32 boxW = x1 - x0;
-                    const u32 boxH = y1 - y0;
-                    colour.resize(static_cast<sizet>(boxW) * boxH * 4u);
-                    ::glGetTextureSubImage(fb->GetColorAttachmentRendererID(0), 0, static_cast<GLint>(x0),
-                                           static_cast<GLint>(y0), 0, static_cast<GLsizei>(boxW),
-                                           static_cast<GLsizei>(boxH), 1, GL_RGBA, GL_FLOAT,
-                                           static_cast<GLsizei>(colour.size() * sizeof(f32)), colour.data());
-                    for (u32 y = y0; y < y1; ++y)
-                    {
-                        for (u32 x = x0; x < x1; ++x)
-                        {
-                            if (ids[(static_cast<sizet>(y) * width) + x] != entityId)
-                            {
-                                continue;
-                            }
-                            const sizet c = ((static_cast<sizet>(y - y0) * boxW) + (x - x0)) * 4u;
-                            frameCov += 1.0;
-                            frameLuma += (0.2126 * colour[c]) + (0.7152 * colour[c + 1]) + (0.0722 * colour[c + 2]);
-                        }
-                    }
-                }
-                const auto t2 = Clock::now();
-                renderMs += std::chrono::duration<f64, std::milli>(t1 - t0).count();
-                readbackMs += std::chrono::duration<f64, std::milli>(t2 - t1).count();
-
-                out.Cov += frameCov;
-                sumLuma += frameLuma;
-                sumLumaSq += frameLuma * frameLuma;
-                const f64 n = static_cast<f64>(f + 1u);
-                const f64 mean = sumLuma / n;
-                const f64 variance = std::max(0.0, (sumLumaSq / n) - (mean * mean)) * n / std::max(n - 1.0, 1.0);
-                out.Frames = f + 1u;
-                out.RelativeError = mean > 0.0 ? std::sqrt(variance / n) / mean : 1.0;
-                if (out.Frames >= kMinFrames && out.RelativeError < kTargetRelativeError)
-                {
-                    break;
-                }
-            }
-            if (out.Frames > 0u)
-            {
-                out.Cov /= static_cast<f64>(out.Frames);
-                out.Luma = sumLuma / static_cast<f64>(out.Frames);
-                for (f64& luma : out.Image)
-                    luma /= static_cast<f64>(out.Frames);
-            }
-            return out;
-        };
+        { return MeasureLinear(view, entityId, image, renderMs, readbackMs); };
 
         struct Stop
         {
@@ -2893,6 +2941,282 @@ namespace OloEngine::Tests
                 EXPECT_LT(shortEnergy, kShippedEnergyCeiling) << cell.Name;
             }
         }
+    }
+
+    // =========================================================================
+    // Criterion 2, LOD, under the SKY (#1625): each tier shadows the ambient
+    // light as its strands do. The coverage case above holds the ladder under
+    // the sun; a coat's self-occlusion of AMBIENT light is a different march
+    // (along the fibre's eye-facing normal, and behind it), and the card tier
+    // once kept 1.5x the short coat's ambient under its own coat shadow.
+    //
+    // AMBIENT ONLY: the sun is off and a uniform sky is the only light, so
+    // the ratio is the ambient self-shadow and nothing else. SHADOW is lit
+    // over unshadowed (kappa = 0) luma on the coat's own pixels, ladder on
+    // over ladder off, on a CONVERGED volume (groom-card-coverage.md rules 7
+    // and 8), from several directions around each coat.
+    // =========================================================================
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, TheCardTierShadowsTheSkyAsItsStrandsDo)
+    {
+        SetPath(RenderingPath::Forward);
+        (void)PlayFromStart(30);
+        for (SubjectRig* subject : Subjects())
+        {
+            subject->Body.GetComponent<AnimationStateComponent>().m_IsPlaying = false;
+        }
+        m_Sun.GetComponent<DirectionalLightComponent>().m_Intensity = 0.0f;
+        // A bright sky for signal: the ratio does not depend on its level.
+        const Ref<TextureCubemap> sky = MakeUniformSkyCubemap(glm::vec3(1.0f));
+        ASSERT_TRUE(sky);
+        SetUniformSkyEnvironment(m_Sky, sky);
+        ASSERT_FALSE(HasFatalFailure());
+
+        f64 renderMs = 0.0;
+        f64 readbackMs = 0.0;
+
+        struct Stop
+        {
+            const char* Name;
+            f32 Distance;
+            GroomRepresentation Tier;
+        };
+        // Near is the identical-strands control: both arms draw every strand.
+        const Stop stops[] = { { "Near", 5.0f, GroomRepresentation::Strand },
+                               { "Mid", 14.0f, GroomRepresentation::Strand },
+                               { "Handover", 19.0f, GroomRepresentation::Card },
+                               { "Far", 32.0f, GroomRepresentation::Card } };
+        struct Direction
+        {
+            const char* Name;
+            glm::vec3 Away; // x is mirrored to each coat's open side
+        };
+        const Direction directions[] = { { "Side", { 1.0f, 0.12f, 0.08f } },
+                                         { "FrontQuarter", { 0.7f, 0.15f, 0.7f } },
+                                         { "BackQuarter", { 0.7f, 0.15f, -0.7f } },
+                                         { "Above", { 0.45f, 0.85f, 0.25f } } };
+
+        struct Cell
+        {
+            f64 Shadow = 0.0;
+            f64 Error = 0.0;
+            f64 OnShadow = 0.0;
+            f64 OffShadow = 0.0;
+        };
+        const auto measureCell = [&](SubjectRig& s, const Stop& stop, const Direction& dir)
+        {
+            const glm::vec3 away =
+                glm::normalize(glm::vec3(&s == &m_ShortCoat ? -dir.Away.x : dir.Away.x, dir.Away.y, dir.Away.z));
+            const glm::vec3 target = s.Position + glm::vec3(0.0f, 1.15f, 0.0f);
+            const View view{ target + away * stop.Distance, target, 40.0f };
+            const i32 id = static_cast<i32>(static_cast<u32>(s.Coat));
+            auto& shadow = s.Coat.GetComponent<GroomCoatShadowComponent>();
+            auto& lod = s.Coat.GetComponent<GroomLodComponent>();
+            const f32 kappa = shadow.m_Kappa;
+            std::array<Linear, 2> lit;
+            std::array<Linear, 2> unshadowed;
+            for (const bool ladder : { true, false })
+            {
+                const sizet arm = ladder ? 0u : 1u;
+                lod.m_Enabled = ladder;
+                lit[arm] = MeasureLinear(view, id, false, renderMs, readbackMs);
+                if (ladder)
+                {
+                    const GroomStrandRequest* req = RequestFor(s);
+                    EXPECT_NE(req, nullptr);
+                    if (req != nullptr)
+                    {
+                        EXPECT_EQ(req->Lod.Representation, stop.Tier) << stop.Name << " is on the wrong tier";
+                    }
+                }
+                shadow.m_Kappa = 0.0f;
+                unshadowed[arm] = MeasureLinear(view, id, false, renderMs, readbackMs);
+                shadow.m_Kappa = kappa;
+            }
+            lod.m_Enabled = true;
+            Cell c;
+            const auto ratio = [](const Linear& a, const Linear& b)
+            { return b.Luma > 0.0 ? a.Luma / b.Luma : 0.0; };
+            c.OnShadow = ratio(lit[0], unshadowed[0]);
+            c.OffShadow = ratio(lit[1], unshadowed[1]);
+            c.Shadow = c.OffShadow > 0.0 ? c.OnShadow / c.OffShadow : 0.0;
+            f64 variance = 0.0;
+            for (const Linear* m : { &lit[0], &lit[1], &unshadowed[0], &unshadowed[1] })
+            {
+                variance += m->RelativeError * m->RelativeError;
+            }
+            c.Error = std::sqrt(variance);
+            std::printf("[groom-animals] sky shadow %s %s %s: shadow %.3f (ladder %.3f, strands %.3f), "
+                        "coverage %.0f / %.0f px, error %.1f%%; frames %.1f s, readback %.1f s\n",
+                        s.Tag.c_str(), stop.Name, dir.Name, c.Shadow, c.OnShadow, c.OffShadow, lit[0].Cov, lit[1].Cov,
+                        100.0 * c.Error, renderMs / 1000.0, readbackMs / 1000.0);
+            std::fflush(stdout);
+            renderMs = 0.0;
+            readbackMs = 0.0;
+            return c;
+        };
+
+        // The ladder's bars (TheCoatKeepsItsCoverageFromNearToFar): +-10% on
+        // a converged volume, held where the measurement resolves it (twice
+        // its standard error inside the bar), else the shipped gross guard,
+        // printed and recorded.
+        constexpr f64 kShadowTolerance = 0.10;
+        constexpr f64 kControlTolerance = 0.03;
+        constexpr f64 kGrossFloor = 0.75;
+        constexpr f64 kGrossCeiling = 1.40;
+        const auto hold = [&](const SubjectRig& s, const Cell& c, bool control)
+        {
+            ASSERT_GT(c.OffShadow, 0.0) << "the coat must be visible to be measured";
+            // A sky the coat does not occlude would pass any ratio: the
+            // strands must shadow it.
+            EXPECT_LT(c.OffShadow, 0.95) << "the strands did not shadow the sky";
+            if (control)
+            {
+                // Both arms draw the same strands with the same random
+                // numbers, so their noise cancels in the ratio and the four
+                // errors added in quadrature overstate it: the control is held
+                // to its bar whatever that estimate reads, and the estimate
+                // itself must stay under the bar.
+                EXPECT_LT(c.Error, kControlTolerance) << "the control did not converge";
+                EXPECT_NEAR(c.Shadow, 1.0, kControlTolerance) << "two identical frames measured different coats";
+                return;
+            }
+            const f64 tolerance = kShadowTolerance;
+            if (2.0 * c.Error < tolerance)
+            {
+                // The tier must shadow the sky at all: a card arm that ignored
+                // kappa (1.0) would sit inside the bar of a lightly shadowed
+                // strand arm.
+                EXPECT_LT(c.OnShadow, 1.0 - (2.0 * c.Error)) << "the tier did not shadow the sky";
+                EXPECT_NEAR(c.Shadow, 1.0, tolerance)
+                    << "the tier does not shadow the sky as its strands do (error " << 100.0 * c.Error << "%)";
+                return;
+            }
+            EXPECT_NE(&s, &m_LongCoat) << "the long coat's sky shadow must be measurable: error " << 100.0 * c.Error
+                                       << "%";
+            std::printf("[groom-animals] sky shadow %.3f not measurable against +-%.2f (error %.1f%%): gross guard "
+                        "only\n",
+                        c.Shadow, tolerance, 100.0 * c.Error);
+            std::fflush(stdout);
+            ::testing::Test::RecordProperty("unmeasurable_sky_shadow", s.Tag);
+            EXPECT_GT(c.Shadow, kGrossFloor);
+            EXPECT_LT(c.Shadow, kGrossCeiling);
+        };
+        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        {
+            SCOPED_TRACE(s->Name);
+            auto& shadow = s->Coat.GetComponent<GroomCoatShadowComponent>();
+            auto& lod = s->Coat.GetComponent<GroomLodComponent>();
+            shadow.m_Resolution = 128u;
+            shadow.m_MaxLodSteps = 0u;
+            shadow.m_StepVoxels = 0.5f;
+            lod.m_ShadowSteps = 0u;
+            for (const Stop& stop : stops)
+            {
+                SCOPED_TRACE(stop.Name);
+                const bool control = std::string_view(stop.Name) == "Near";
+                for (const Direction& dir : directions)
+                {
+                    SCOPED_TRACE(dir.Name);
+                    if (control && std::string_view(dir.Name) != "Side")
+                    {
+                        continue;
+                    }
+                    const Cell c = measureCell(*s, stop, dir);
+                    ASSERT_FALSE(HasFatalFailure());
+                    hold(*s, c, control);
+                    ASSERT_FALSE(HasFatalFailure());
+                }
+            }
+        }
+
+        // LOOK AT IT (rule 1 of the visual criteria): the hand-over from each
+        // coat's open side, cards and strands, enlarged, under the sky alone.
+        const auto captureCell = [&](SubjectRig& s, const char* path)
+        {
+            const Stop& stop = stops[2];
+            const glm::vec3 away =
+                glm::normalize(glm::vec3(&s == &m_ShortCoat ? -directions[0].Away.x : directions[0].Away.x,
+                                         directions[0].Away.y, directions[0].Away.z));
+            const glm::vec3 target = s.Position + glm::vec3(0.0f, 1.15f, 0.0f);
+            const View view{ target + away * stop.Distance, target, 40.0f };
+            const u32 half = std::max(24u, static_cast<u32>(220.0f * 5.0f / stop.Distance));
+            const u32 scale = std::min(std::max(2u, 360u / half), 8u);
+            auto& lod = s.Coat.GetComponent<GroomLodComponent>();
+            for (const bool ladder : { true, false })
+            {
+                lod.m_Enabled = ladder;
+                ColdHistory();
+                std::vector<u8> frame;
+                ASSERT_NO_FATAL_FAILURE(Capture("", view, frame));
+                WriteEnlargedCrop(std::string(ladder ? "GroomAnimalsSky" : "GroomAnimalsSkyOff") + "_GL_" + path +
+                                      "_" + s.Tag + "_" + stop.Name + "_Crop",
+                                  frame, kWidth / 2u - half, kHeight / 2u - half * 9u / 16u, half * 2u, half * 9u / 8u,
+                                  scale);
+            }
+            lod.m_Enabled = true;
+        };
+        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        {
+            captureCell(*s, "Forward");
+            ASSERT_FALSE(HasFatalFailure());
+        }
+
+        // THE OTHER TWO PATHS: the ambient is shaded in the strand pass on
+        // every path, so the card cell from each coat's open side is held on
+        // Deferred and Forward+ too (the volumes stay converged).
+        for (const RenderingPath path : { RenderingPath::Deferred, RenderingPath::ForwardPlus })
+        {
+            const char* pathName = path == RenderingPath::Deferred ? "Deferred" : "ForwardPlus";
+            SCOPED_TRACE(pathName);
+            SetPath(path);
+            std::printf("[groom-animals] sky shadow path %s\n", pathName);
+            for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+            {
+                SCOPED_TRACE(s->Name);
+                const Cell c = measureCell(*s, stops[2], directions[0]);
+                ASSERT_FALSE(HasFatalFailure());
+                hold(*s, c, false);
+                ASSERT_FALSE(HasFatalFailure());
+                captureCell(*s, pathName);
+                ASSERT_FALSE(HasFatalFailure());
+            }
+        }
+        SetPath(RenderingPath::Forward);
+
+        // DUAL SCATTERING, the shipped default: the fixture's coats are
+        // occluders only (MakeCoat), whose ambient takes the single-scattering
+        // branch, so the far half -- the behind march, the TT paths and the
+        // back-scatter -- is held here, from each coat's open side, at both
+        // card stops on every path. The lock share once darkened it to 0.903 /
+        // 0.848 at the hand-over. The far half marches from the drawn tube,
+        // which carries the coverage widening, so the Far stop, where the card
+        // is widest against its lock, is held as well as the hand-over.
+        for (const RenderingPath path : { RenderingPath::Forward, RenderingPath::Deferred, RenderingPath::ForwardPlus })
+        {
+            const char* pathName = path == RenderingPath::Forward    ? "Forward"
+                                   : path == RenderingPath::Deferred ? "Deferred"
+                                                                     : "ForwardPlus";
+            SCOPED_TRACE(pathName);
+            SetPath(path);
+            std::printf("[groom-animals] sky shadow dual scattering, path %s\n", pathName);
+            for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+            {
+                SCOPED_TRACE(s->Name);
+                SCOPED_TRACE("DualScattering");
+                for (const Stop* stop : { &stops[2], &stops[3] })
+                {
+                    SCOPED_TRACE(stop->Name);
+                    auto& shadow = s->Coat.GetComponent<GroomCoatShadowComponent>();
+                    shadow.m_MultipleScattering = true;
+                    const Cell c = measureCell(*s, *stop, directions[0]);
+                    shadow.m_MultipleScattering = false;
+                    ASSERT_FALSE(HasFatalFailure());
+                    hold(*s, c, false);
+                    ASSERT_FALSE(HasFatalFailure());
+                }
+            }
+        }
+        SetPath(RenderingPath::Forward);
     }
 
     // =========================================================================

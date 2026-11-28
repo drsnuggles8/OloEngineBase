@@ -395,11 +395,26 @@ frame with a live `--rhi vulkan` editor capture of the same scene.
 
 The first run of the existing shadow evidence on the windowless context found Vulkan defects no
 pass-level tenant could see: a depth-array layer larger than its framebuffer rendered and cleared
-only the framebuffer-sized corner (every shadow-atlas tile after the first was empty), and a
-timing-dependent one in the forked, groom-split shadow region that shaded fur strands random
-colours on a loaded GPU and on lavapipe (#1652). Its four cases run again in the shared lavapipe
-process. A missing black-sky bake reproduced the thin-occluder case's zero darkening; it did not
-reproduce the other three, whose cause #1652 still tracks.
+only the framebuffer-sized corner (every shadow-atlas tile after the first was empty). It also found
+what looked like a timing-dependent defect in the forked, groom-split shadow region: fur shaded
+random colours or saturated white on a loaded GPU and on lavapipe, and the strip cases' shadows
+vanished (#1652). The failures the A/B reproduced were not the region. The fixture baked its black
+sky in `BuildScene`, outside a frame; the Vulkan backend dropped the bake (`Draw`, `Clear` and
+`CopyImageSubDataRegion` "outside recording bracket" in the log), and the fur read irradiance and
+prefilter cubes nothing had written, whose contents depended on the allocation layout. At the commit
+#1652 was measured on (`60a677e62`), lavapipe failed the two strip cases with 0 px darkened in three
+runs with the bake outside a frame, and moving only the bake into `RunInFrame` passed them with
+every lever on (the thin strip darkened 1,049 px, the issue's passing number). The levers did not
+repeat the issue's pattern in that A/B (parallel recording off still failed; the coat-exit lever,
+which allocates no opaque copy, passed), so they are not evidence either way.
+On the RTX 4090 under load (two OpenGL and one Vulkan process beside it) the same binary failed the
+thin occluder (292 px) and the VSM-against-cascades strip (296 px), the two cases the issue's
+loaded-GPU repro named, and with the bake in a frame passed all 19 cases twice under the same load
+(1,046 px). The issue's other two lavapipe failures (`ACoatCastsTheShare...`,
+`TheBodyShadowsItsOwnFur...`) did not recur in any run, so their cause is not established: the bake
+is the likeliest, not a proven one. `022108a88` moved it
+and made a dropped call a test failure. A Vulkan result that changes with a recording or memory
+lever is first a question of what the frame read that nothing wrote.
 
 A third was order-dependent: after a process had rendered Forward, Forward+ and Deferred, the
 next Forward scene lost its cast shadow (#1666). The black-sky bake had been skipped, and stale
