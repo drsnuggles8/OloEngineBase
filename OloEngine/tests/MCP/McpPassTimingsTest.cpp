@@ -495,6 +495,31 @@ TEST(McpPassTimingsTest, QueueOverlapUnionsEachQueueAndIntersectsThem)
     EXPECT_DOUBLE_EQ(q["graphicsBusyMs"].get<double>(), 3.5);
 }
 
+// A compute pass with a valid time but no offsets (the frame-begin stamp was
+// unreadable) leaves the compute intervals incomplete even under a guaranteed
+// domain: busy time and overlap are unknown, not zero.
+TEST(McpPassTimingsTest, QueueOverlapIsUnknownWhenAComputePassHasNoOffsets)
+{
+    using OloEngine::GPUPassQueue;
+    GpuPassEntry unplaced{ "GTAOPass", GpuTimingSample::Measured(0.4), false, {} };
+    unplaced.Queue = GPUPassQueue::AsyncCompute;
+    unplaced.AsyncBatch = 0;
+    const std::vector<GpuPassEntry> passes{ Timed("ShadowPass", 1.0, 3.0, GPUPassQueue::Graphics), unplaced };
+    const auto overlap = OloEngine::MCP::PassTimings::ComputeQueueOverlap(passes);
+    EXPECT_EQ(overlap.UnplacedAsyncComputePasses, 1u);
+    EXPECT_EQ(overlap.UnplacedGraphicsPasses, 0u);
+
+    FrameTotals oneDomain = MakeTotals();
+    oneDomain.AsyncCompute.QueueTimestampsShareOneDomain = true;
+    const Json q = BuildPassTimings(passes, {}, oneDomain)["queueOverlap"];
+    EXPECT_TRUE(q["overlapMs"].is_null());
+    EXPECT_TRUE(q["asyncComputeBusyMs"].is_null());
+    EXPECT_DOUBLE_EQ(q["graphicsBusyMs"].get<double>(), 2.0);
+    EXPECT_EQ(q["unplacedPasses"]["asyncCompute"].get<int>(), 1);
+    EXPECT_FALSE(q.contains("withheldComputeOffsets"));
+    EXPECT_NE(q["overlapUnavailableReason"].get<std::string>().find("frame-begin"), std::string::npos);
+}
+
 // A frame with no compute-queue work needs no cross-queue comparison: its
 // zero overlap stands even when the domain is unverified.
 TEST(McpPassTimingsTest, QueueOverlapWithoutComputeWorkNeedsNoSharedDomain)

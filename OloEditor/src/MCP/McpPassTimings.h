@@ -71,6 +71,12 @@ namespace OloEngine::MCP::PassTimings
         f64 AsyncComputeBusyMs = 0.0;
         f64 OverlapMs = 0.0;
         u32 AsyncComputeIntervals = 0;
+        // Counted passes (valid time, top-level by the SumTopLevel rule) with
+        // no interval on the frame axis: an unreadable frame-begin stamp, or
+        // offsets withheld for an unverified time domain. Any of them makes
+        // that queue's busy time, and the overlap, incomplete.
+        u32 UnplacedGraphicsPasses = 0;
+        u32 UnplacedAsyncComputePasses = 0;
         // Per render-graph async batch, on whichever queue it ran.
         struct Batch
         {
@@ -145,7 +151,10 @@ namespace OloEngine::MCP::PassTimings
                 }
             }
             if (!hasInterval)
+            {
+                ++(pass.Queue == GPUPassQueue::AsyncCompute ? out.UnplacedAsyncComputePasses : out.UnplacedGraphicsPasses);
                 continue;
+            }
             (pass.Queue == GPUPassQueue::AsyncCompute ? compute : graphics).emplace_back(pass.BeginMs, pass.EndMs);
         }
         out.AsyncComputeIntervals = static_cast<u32>(compute.size());
@@ -494,17 +503,30 @@ namespace OloEngine::MCP::PassTimings
                                // "unverified": compute-queue offsets are withheld.
                                { "timeDomain", oneTimeDomain ? "oneDeviceTimeDomain" : "unverified" },
                                { "batches", std::move(batches) } };
-            if (withheldComputeOffsets > 0)
-            {
-                // Compute work ran, but its place on the frame axis is
-                // unknown: zero would claim "no overlap" without evidence.
-                queueOverlap["overlapMs"] = nullptr;
+            // A number built from incomplete placement would read as a
+            // measurement, so it goes out as null with the reason. A frame
+            // with no compute-queue work keeps its zero overlap: that needs no
+            // cross-queue comparison.
+            const bool computeWork = overlap.AsyncComputeIntervals > 0 || overlap.UnplacedAsyncComputePasses > 0;
+            if (overlap.UnplacedGraphicsPasses > 0)
+                queueOverlap["graphicsBusyMs"] = nullptr;
+            if (overlap.UnplacedAsyncComputePasses > 0)
                 queueOverlap["asyncComputeBusyMs"] = nullptr;
-                queueOverlap["withheldComputeOffsets"] = withheldComputeOffsets;
+            if (overlap.UnplacedAsyncComputePasses > 0 || (computeWork && overlap.UnplacedGraphicsPasses > 0))
+            {
+                queueOverlap["overlapMs"] = nullptr;
                 queueOverlap["overlapUnavailableReason"] =
-                    "the device does not guarantee one timestamp domain across queues (no calibrated timestamps), "
-                    "so async-compute offsets cannot be placed on the graphics queue's frame axis";
+                    withheldComputeOffsets > 0
+                        ? "the device does not guarantee one timestamp domain across queues (no calibrated "
+                          "timestamps), so async-compute offsets cannot be placed on the graphics queue's frame axis"
+                        : "some passes have no frame offsets (the frame-begin timestamp was unreadable), so the "
+                          "queue intervals are incomplete";
             }
+            if (overlap.UnplacedGraphicsPasses > 0 || overlap.UnplacedAsyncComputePasses > 0)
+                queueOverlap["unplacedPasses"] = Json{ { "graphics", overlap.UnplacedGraphicsPasses },
+                                                       { "asyncCompute", overlap.UnplacedAsyncComputePasses } };
+            if (withheldComputeOffsets > 0)
+                queueOverlap["withheldComputeOffsets"] = withheldComputeOffsets;
             o["queueOverlap"] = std::move(queueOverlap);
         }
         // Parallel command recorder telemetry (#806). Counters go out as
