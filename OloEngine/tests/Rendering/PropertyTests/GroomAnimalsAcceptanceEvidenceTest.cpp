@@ -1598,8 +1598,12 @@ namespace OloEngine::Tests
             // a new stop) draws both tiers until its fade ends, and a mean
             // over those frames would measure the blend. Only a coat still
             // fading pays for it: a fixed window cost every measurement,
-            // most of which change no tier.
-            RunEditorFrames(camera, 8u);
+            // most of which change no tier. Once a fade ends the sequences
+            // restart and the history is cold again, so every arm measures
+            // from the same frame index (the common random numbers above) and
+            // no history holds the blend.
+            static constexpr u32 kSettleFrames = 8;
+            RunEditorFrames(camera, kSettleFrames);
             const auto fading = []
             {
                 for (const auto& req : Renderer3D::GetGroomStrandRequests())
@@ -1612,11 +1616,17 @@ namespace OloEngine::Tests
                 return false;
             };
             const u32 fadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
-            for (u32 f = 0; (f <= fadeFrames) && fading(); ++f)
+            if (fading())
             {
-                RunEditorFrames(camera, 1);
+                for (u32 f = 0; (f <= fadeFrames) && fading(); ++f)
+                {
+                    RunEditorFrames(camera, 1);
+                }
+                EXPECT_FALSE(fading()) << "a coat was still cross-fading after its " << fadeFrames << "-frame window";
+                Renderer3D::ResetFrameSequences();
+                ColdHistory();
+                RunEditorFrames(camera, kSettleFrames);
             }
-            EXPECT_FALSE(fading()) << "a coat was still cross-fading after its " << fadeFrames << "-frame window";
             Linear out;
             std::vector<f32> colour;
             std::vector<i32> ids;

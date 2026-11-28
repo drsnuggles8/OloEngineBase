@@ -144,7 +144,7 @@ in [groom-representation-lod.md](groom-representation-lod.md).
 
     The drawn tube carries the coverage widening, so the far march starts further out the further the
     card, where it is widest against its lock. It holds there: with the shipped form, card over strand
-    (long coat / short coat) 1.007 / 0.975-0.978 at the hand-over and 1.010 / 0.995-0.997 at the Far stop (32 m), on
+    (long coat / short coat) 1.007-1.008 / 0.964-0.973 at the hand-over and 1.015 / 0.998-1.002 at the Far stop (32 m), on
     Forward, Forward+ and Deferred.
 
 ## Measured
