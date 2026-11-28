@@ -2,6 +2,7 @@
 #include "PostProcessSettingsPanel.h"
 #include "SettingsChangeLog.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
@@ -343,6 +344,7 @@ namespace OloEngine
         DrawDOFSection();
         DrawMotionBlurSection();
         DrawAccessibilitySection();
+        DrawDisplayOutputSection();
 
         // Forward+ controls moved to RendererSettingsPanel
 
@@ -1268,6 +1270,82 @@ namespace OloEngine
         if (ImGui::Button("Reset to defaults"))
         {
             Accessibility::Reset();
+        }
+
+        ImGui::Unindent();
+    }
+
+    void PostProcessSettingsPanel::DrawDisplayOutputSection()
+    {
+        if (!ImGui::CollapsingHeader("Display Output (HDR, issue #1353)"))
+            return;
+
+        ImGui::Indent();
+        ImGui::TextUnformatted("Per-machine preferences (config/display.yaml) — not saved into the scene.");
+        ImGui::Separator();
+
+        // Edit a copy and publish through SetSettings, which sanitizes; the
+        // presenting backend re-selects its swapchain at the next frame
+        // boundary, and recreates it only when the MODE changes.
+        DisplayOutputSettings settings = DisplayOutput::GetSettings();
+        bool changed = false;
+
+        static constexpr const char* kPreferenceNames[] = { "Auto (follow the OS)", "SDR", "HDR10 (PQ, Rec.2020)",
+                                                            "scRGB (linear, Rec.709)" };
+        if (i32 preference = static_cast<i32>(settings.Preference);
+            ImGui::Combo("Output##Display", &preference, kPreferenceNames, IM_ARRAYSIZE(kPreferenceNames)))
+        {
+            settings.Preference = static_cast<DisplayOutputPreference>(preference);
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Paper white##Display", &settings.PaperWhiteNits, kMinWhiteNits, kMaxWhiteNits, "%.0f nits");
+        ImGui::TextDisabled("The scene's reference white on an HDR display; exposure 1.0 lands here.");
+        changed |= ImGui::SliderFloat("UI white##Display", &settings.UIWhiteNits, kMinWhiteNits, kMaxWhiteNits, "%.0f nits");
+        ImGui::TextDisabled("The UI's white, independent of the scene and its exposure.");
+        changed |= ImGui::DragFloat("Peak override##Display", &settings.PeakNitsOverride, 5.0f, 0.0f, kMaxPqNits, "%.0f nits");
+        ImGui::TextDisabled("0 = the peak the display reports (1000 nits when it reports none).");
+        if (changed)
+            DisplayOutput::SetSettings(settings);
+
+        // The diagnosed state the backend selected: what it chose, and why.
+        const DisplayOutputSelection& active = DisplayOutput::GetActiveSelection();
+        const DisplayCapabilities& caps = DisplayOutput::GetActiveCapabilities();
+        const DisplayMapping mapping = DisplayOutput::GetActiveMapping();
+        ImGui::Separator();
+        ImGui::Text("Active: %s", ToString(active.Mode));
+        if (active.PreferenceNotHonoured)
+        {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "(preference not honoured)");
+        }
+        ImGui::TextWrapped("Why: %s", *active.Reason);
+        ImGui::Text("Display: %s", caps.DisplayName.IsEmpty() ? "unknown" : *caps.DisplayName);
+        ImGui::Text("OS HDR: %s   Surface offers: HDR10 %s, scRGB %s", ToString(caps.OsHdr), caps.OffersHDR10 ? "yes" : "no",
+                    caps.OffersScRGB ? "yes" : "no");
+        ImGui::Text("Reported: peak %.1f, full-frame %.1f, black %.4f nits", caps.PeakNits, caps.MaxFullFrameNits, caps.MinNits);
+        if (mapping.IsHdr())
+        {
+            ImGui::Text("Mapping: paper white %.0f, UI white %.0f, peak %.0f, black %.4f nits", mapping.PaperWhiteNits,
+                        mapping.UIWhiteNits, mapping.PeakNits, mapping.MinNits);
+        }
+        if (!caps.BackendHasHdrRoute && !caps.NoRouteReason.IsEmpty())
+            ImGui::TextWrapped("No HDR route: %s", *caps.NoRouteReason);
+
+        ImGui::Separator();
+        if (ImGui::Button("Save##Display"))
+        {
+            if (!DisplayOutput::SaveToFile(DisplayOutput::DefaultSettingsPath()))
+                OLO_CORE_ERROR("DisplayOutput: failed to save '{}'", DisplayOutput::DefaultSettingsPath().string());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reload##Display"))
+        {
+            (void)DisplayOutput::LoadFromFile(DisplayOutput::DefaultSettingsPath());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset to defaults##Display"))
+        {
+            DisplayOutput::SetSettings(DisplayOutputSettings{});
         }
 
         ImGui::Unindent();

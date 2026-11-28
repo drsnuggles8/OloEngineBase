@@ -194,6 +194,12 @@ namespace OloEngine
         // writes use a fresh proof, owned by the frame's eventual final submission.
         [[nodiscard]] std::shared_ptr<VulkanRecordingCompletion> RetireFlushedRecording(bool completed);
         void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
+        // Code outside the facade recorded into the current command buffer
+        // (the ImGui overlay: its own pipeline and classic descriptor sets),
+        // so the facade's bind caches and the descriptor-heap binding no longer
+        // describe it. Forget the caches and bind the heaps again, so a facade
+        // draw after it (the HDR display encode, #1353) re-binds everything.
+        void NotifyForeignRecording();
 
         // Backend-internal (#691): record a staged buffer→image copy
         // of one (mip, layer) region into the CURRENT frame command buffer,

@@ -103,11 +103,27 @@ void main()
     //    b
     //  d e f
     //    h
-    vec3 b = texture(u_Texture, uv + vec2(0.0, -ts.y)).rgb;
-    vec3 d = texture(u_Texture, uv + vec2(-ts.x, 0.0)).rgb;
-    vec3 e = texture(u_Texture, uv).rgb;
-    vec3 f = texture(u_Texture, uv + vec2(ts.x, 0.0)).rgb;
-    vec3 h = texture(u_Texture, uv + vec2(0.0, ts.y)).rgb;
+    // Each tap is capped at FP16's largest finite value, as in CAS, so an
+    // overflowed (+Inf) texel cannot reach nz or lobe as Inf and make NaN.
+    // Every finite RGBA16F value is unchanged, and so is SDR.
+    const vec3 kFp16Max = vec3(65504.0);
+    vec3 b = min(texture(u_Texture, uv + vec2(0.0, -ts.y)).rgb, kFp16Max);
+    vec3 d = min(texture(u_Texture, uv + vec2(-ts.x, 0.0)).rgb, kFp16Max);
+    vec3 e = min(texture(u_Texture, uv).rgb, kFp16Max);
+    vec3 f = min(texture(u_Texture, uv + vec2(ts.x, 0.0)).rgb, kFp16Max);
+    vec3 h = min(texture(u_Texture, uv + vec2(0.0, ts.y)).rgb, kFp16Max);
+
+    // HDR output (#1353): the composition space exceeds 1.0 in HDR, and the
+    // RCAS limiter assumes [0, 1]. Normalise the ring by its own peak and
+    // scale back; in SDR the scale is exactly 1.0 and the output is unchanged.
+    vec3 ringMax = max(max(max(b, d), max(e, f)), h);
+    // The taps are already capped at 65504, so this is finite.
+    float hdrScale = clamp(max(ringMax.r, max(ringMax.g, ringMax.b)), 1.0, 65504.0);
+    b /= hdrScale;
+    d /= hdrScale;
+    e /= hdrScale;
+    f /= hdrScale;
+    h /= hdrScale;
 
     float bL = Luma(b), dL = Luma(d), eL = Luma(e), fL = Luma(f), hL = Luma(h);
 
@@ -140,5 +156,5 @@ void main()
     float rcpL = 1.0 / (4.0 * lobe + 1.0);
     vec3 outColor = (lobe * (b + d + h + f) + e) * rcpL;
 
-    o_Color = vec4(clamp(outColor, 0.0, 1.0), 1.0);
+    o_Color = vec4(clamp(outColor, 0.0, 1.0) * hdrScale, 1.0);
 }

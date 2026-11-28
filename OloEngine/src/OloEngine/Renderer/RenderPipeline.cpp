@@ -4,6 +4,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 #include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
@@ -2619,6 +2620,25 @@ namespace OloEngine
             gpu.DitherAmplitude = 0.5f / 255.0f;
             gpu.CameraNear = data.View.CameraNearClip;
             gpu.CameraFar = data.View.CameraFarClip;
+            // Display output (#1353): the mapping for the mode the presenting
+            // backend selected and the user's current luminances.
+            {
+                // The composition space's gamma is the one this tone map encodes
+                // with; the display encode decodes with the same value.
+                DisplayOutput::SetCompositionGamma(pp.Gamma);
+                const DisplayMapping display = DisplayOutput::GetActiveMapping();
+                gpu.DisplayMode = std::to_underlying(display.Mode);
+                gpu.DisplayPaperWhiteNits = display.PaperWhiteNits;
+                gpu.DisplayUIWhiteNits = display.UIWhiteNits;
+                gpu.DisplayPeakNits = display.PeakNits;
+                gpu.DisplayMinNits = display.MinNits;
+                // HDR: encode with exactly the sanitized gamma the display
+                // encode decodes with, so the round trip is the identity even
+                // for an out-of-range authored gamma. SDR keeps the raw value
+                // it always had (its output is unchanged by #1353).
+                if (display.IsHdr())
+                    gpu.Gamma = DisplayOutput::GetCompositionGamma();
+            }
             if (FrameCorePasses.Scene)
             {
                 const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
@@ -3192,6 +3212,9 @@ namespace OloEngine
         config.SelectionOutlineActive = data.EnableSelectionOutline && !data.Frame.SelectionOutlineEntityIDs.IsEmpty();
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;
+        // What the presenting backend selected (VulkanContext publishes it after
+        // every swapchain (re)creation; GL never leaves SDR).
+        config.HdrPostChain = DisplayOutput::GetActiveMapping().IsHdr();
 
         RGDeclarationKey passStates;
         if (passKeys)
@@ -5511,13 +5534,20 @@ namespace OloEngine
             board.Post.UpscalerColor = upscalerOutput.Framebuffer;
             board.Post.UpscalerColorTexture = upscalerOutput.Texture;
         }
+
+        // The display-resolution targets after the tone map hold the COMPOSITION
+        // space (DisplayOutput.h): [0, 1] in SDR, where RGBA8 is exact and was
+        // always the format, and values above 1.0 in an HDR output mode (#1353),
+        // which an UNORM target would clip to UI white.
+        const RGResourceFormat postToneMapFormat = config.HdrPostChain ? RGResourceFormat::RGBA16Float
+                                                                       : RGResourceFormat::RGBA8UNorm;
         if (pipeline.PostProcessPasses.Vignette && config.VignetteEnabled &&
             pipeline.PostProcessPasses.Vignette->IsReadyForExecution())
         {
             const auto vignetteOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::VignetteColor,
                 ResourceNames::VignetteColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.VignetteColor = vignetteOutput.Framebuffer;
             board.Post.VignetteColorTexture = vignetteOutput.Texture;
         }
@@ -5531,7 +5561,7 @@ namespace OloEngine
             const auto fxaaOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::FXAAColor,
                 ResourceNames::FXAAColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.FXAAColor = fxaaOutput.Framebuffer;
             board.Post.FXAAColorTexture = fxaaOutput.Texture;
         }
@@ -5545,7 +5575,7 @@ namespace OloEngine
             const auto selectionOutlineOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::SelectionOutlineColor,
                 ResourceNames::SelectionOutlineColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.SelectionOutlineColor = selectionOutlineOutput.Framebuffer;
             board.Post.SelectionOutlineColorTexture = selectionOutlineOutput.Texture;
 
@@ -5582,7 +5612,7 @@ namespace OloEngine
             const auto overdrawOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::OverdrawColor,
                 ResourceNames::OverdrawColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.OverdrawColor = overdrawOutput.Framebuffer;
             board.Post.OverdrawColorTexture = overdrawOutput.Texture;
         }
@@ -5593,7 +5623,7 @@ namespace OloEngine
             uiCompositeDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             uiCompositeDesc.Width = postProcessWidth;
             uiCompositeDesc.Height = postProcessHeight;
-            uiCompositeDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
+            uiCompositeDesc.Attachments = { postToneMapFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
             uiCompositeDesc.DebugName = ResourceNames::UIComposite;
             board.Post.UIComposite = graph.DeclareTransientFramebuffer(ResourceNames::UIComposite, uiCompositeDesc);
             board.Post.UICompositeTexture = graph.CreateFramebufferAttachmentView(ResourceNames::UICompositeTexture, board.Post.UIComposite, 0u);
@@ -5612,7 +5642,7 @@ namespace OloEngine
             const auto colorBlindOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::ColorBlindColor,
                 ResourceNames::ColorBlindColorTexture,
-                RGResourceFormat::RGBA8UNorm);
+                postToneMapFormat);
             board.Post.ColorBlindColor = colorBlindOutput.Framebuffer;
             board.Post.ColorBlindColorTexture = colorBlindOutput.Texture;
         }

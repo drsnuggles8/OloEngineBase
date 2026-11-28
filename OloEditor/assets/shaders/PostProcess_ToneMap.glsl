@@ -115,7 +115,20 @@ layout(std140, binding = 7) uniform PostProcessUBO
     float u_TexelSizeY;
     float u_Near;
     float u_Far;
+
+    // Display output (#1353): DisplayOutput.h. Mode 0 = SDR, the pre-#1353 path.
+    int   u_DisplayMode;
+    float u_DisplayPaperWhiteNits;
+    float u_DisplayUIWhiteNits;
+    float u_DisplayPeakNits;
+
+    float u_DisplayMinNits;
+    float _ppDisplayPad0;
+    float _ppDisplayPad1;
+    float _ppDisplayPad2;
 };
+
+#include "include/DisplayEncode.glsl"
 
 // Underwater fog UBO (binding 37) — mirrors UnderwaterFogUBOData. Drives a
 // per-pixel water-volume fog: each pixel's view ray is fogged by the length of
@@ -515,26 +528,41 @@ void main()
     float exposure = (autoExp > 0.0 && autoExp < 1.0e6) ? autoExp : u_Exposure;
     hdrColor *= exposure;
 
-    // Tone mapping
     vec3 mapped;
-    switch (u_TonemapOperator)
+    if (u_DisplayMode != OLO_DISPLAY_SDR)
     {
-        case TONEMAP_REINHARD:
-            mapped = reinhardToneMapping(hdrColor);
-            break;
-        case TONEMAP_ACES:
-            mapped = acesToneMapping(hdrColor);
-            break;
-        case TONEMAP_UNCHARTED2:
-            mapped = uncharted2ToneMapping(hdrColor);
-            break;
-        default:
-            mapped = clamp(hdrColor, 0.0, 1.0);
-            break;
+        // HDR output (#1353): scene -> display nits with the BT.2390 EETF to the
+        // display's peak (the "None" operator clips at the peak instead), then
+        // the composition space -- gamma-encoded, 1.0 = UI white -- so the post
+        // chain and the UI compose exactly as they do in SDR. The SDR operators
+        // are SDR curves: each compresses to a 1.0 white, which on an HDR
+        // display would put every highlight at paper white.
+        vec3 nits = oloToneMapForHdrDisplay(hdrColor, u_DisplayPaperWhiteNits, u_DisplayPeakNits, u_DisplayMinNits,
+                                            u_TonemapOperator == TONEMAP_NONE);
+        mapped = oloNitsToComposition(nits, u_DisplayUIWhiteNits, u_Gamma);
     }
+    else
+    {
+        // Tone mapping
+        switch (u_TonemapOperator)
+        {
+            case TONEMAP_REINHARD:
+                mapped = reinhardToneMapping(hdrColor);
+                break;
+            case TONEMAP_ACES:
+                mapped = acesToneMapping(hdrColor);
+                break;
+            case TONEMAP_UNCHARTED2:
+                mapped = uncharted2ToneMapping(hdrColor);
+                break;
+            default:
+                mapped = clamp(hdrColor, 0.0, 1.0);
+                break;
+        }
 
-    // Gamma correction
-    mapped = pow(mapped, vec3(1.0 / u_Gamma));
+        // Gamma correction
+        mapped = pow(mapped, vec3(1.0 / u_Gamma));
+    }
 
     // Deband dither. Ultra-smooth gradients (distant quay / hazy water)
     // otherwise quantize into a pixel-locked interference weave — the FP16

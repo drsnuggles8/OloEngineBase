@@ -88,6 +88,8 @@ namespace OloEngine
     X(bool, SelectionOutlineActive)                                                                \
     X(bool, OverdrawDebugView)                                                                     \
     X(ColorBlindMode, ColorBlind)                                                                  \
+    /* HDR display output (#1353): post-tone-map targets carry composition values > 1. */          \
+    X(bool, HdrPostChain)                                                                          \
     /* History imports: which registry histories exist and hold a usable previous frame.        */ \
     X(u64, TemporalHistoryValidity)                                                                \
     /* Every pipeline pass: present, enabled, ready, and its own Setup() inputs. */                \

@@ -16,6 +16,7 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
+#include "OloEngine/Renderer/DisplayOutput.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -87,6 +88,12 @@ namespace OloEngine
         // prefs path resolves against the app's real cwd. A missing file is the
         // normal first-run case and leaves the construction defaults installed.
         (void)Accessibility::LoadFromFile(Accessibility::DefaultSettingsPath());
+
+        // Display output preferences (#1353): the HDR/SDR choice and the
+        // luminances, a per-machine file beside config/renderer.yaml. Loaded
+        // before the window and its context exist, so the first swapchain is
+        // made in the mode the user chose.
+        (void)DisplayOutput::LoadFromFile(DisplayOutput::DefaultSettingsPath());
 
         // Start the task scheduler workers
         LowLevelTasks::FScheduler::Get().StartWorkers();
