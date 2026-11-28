@@ -80,6 +80,7 @@ namespace OloEngine
             lutDesc.Format = RGResourceFormat::RGBA8UNorm;
             lutDesc.Width = 256;
             lutDesc.Height = 16;
+            lutDesc.FixedExtent = true;
             [[maybe_unused]] const RGTextureHandle lutHandle =
                 builder.ImportTextureHandle(kIdentityLUTTargetName, m_IdentityLUTTexture, lutDesc);
         }

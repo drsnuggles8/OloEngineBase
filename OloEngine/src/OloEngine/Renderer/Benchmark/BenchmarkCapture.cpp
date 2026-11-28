@@ -131,6 +131,27 @@ namespace OloEngine::Benchmark
         }
     } // namespace
 
+    bool IsDrawnIntoRenderCorner(const RenderCornerQuery& query)
+    {
+        if (query.EffectiveScale >= 1.0f || query.TextureWidth != query.PhysicalWidth ||
+            query.TextureHeight != query.PhysicalHeight)
+        {
+            return false;
+        }
+        // A framebuffer's attachment: its render viewport is where the frame
+        // was drawn, and a display-sized target nothing drew into the corner (a
+        // square shadow map that matches the display) has none.
+        if (query.HasOwnerFramebuffer)
+        {
+            return query.OwnerViewportWidth == query.RenderWidth && query.OwnerViewportHeight == query.RenderHeight;
+        }
+        // A texture no framebuffer owns: only a screen-space 2D target. The
+        // shadow CSM and atlas are arrays, the volumetric shadow is 3D, and a
+        // probe atlas or LUT declares FixedExtent.
+        return query.Desc != nullptr && query.Desc->Kind == RGResourceHandle::Kind::Texture2D &&
+               !query.Desc->FixedExtent;
+    }
+
     CapturedAttachment CaptureAttachment(const ManifestAttachment& spec, const CaptureContext& context)
     {
         CapturedAttachment result;
@@ -206,19 +227,23 @@ namespace OloEngine::Benchmark
         // shadow map, an upscaler's reduced scene band, a half-resolution
         // buffer) is not in that contract and is read whole (#1526).
         //
-        // Where the source is a framebuffer's attachment, ITS render viewport
-        // decides: that is where the frame was drawn, and a display-sized
-        // target nothing drew into the corner (a square shadow map that happens
-        // to match the display) has none. Only a texture no framebuffer owns (a
-        // compute output) falls back to the size match.
-        bool drawnIntoCorner = graph->GetEffectiveRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
-                               height == graph->GetPhysicalHeight();
+        // Which targets that covers is IsDrawnIntoRenderCorner's contract.
+        RenderCornerQuery corner;
+        corner.EffectiveScale = graph->GetEffectiveRenderScale();
+        corner.TextureWidth = width;
+        corner.TextureHeight = height;
+        corner.PhysicalWidth = graph->GetPhysicalWidth();
+        corner.PhysicalHeight = graph->GetPhysicalHeight();
+        corner.RenderWidth = graph->GetRenderWidth();
+        corner.RenderHeight = graph->GetRenderHeight();
         if (const Ref<Framebuffer> owner = Renderer3D::ResolveFrameGraphFramebuffer(spec.Source.ToView()))
         {
-            drawnIntoCorner = drawnIntoCorner && owner->GetRenderViewportWidth() == graph->GetRenderWidth() &&
-                              owner->GetRenderViewportHeight() == graph->GetRenderHeight();
+            corner.HasOwnerFramebuffer = true;
+            corner.OwnerViewportWidth = owner->GetRenderViewportWidth();
+            corner.OwnerViewportHeight = owner->GetRenderViewportHeight();
         }
-        if (drawnIntoCorner)
+        corner.Desc = resource != nullptr ? &resource->Desc : nullptr;
+        if (IsDrawnIntoRenderCorner(corner))
         {
             width = std::max(1u, graph->GetRenderWidth());
             height = std::max(1u, graph->GetRenderHeight());

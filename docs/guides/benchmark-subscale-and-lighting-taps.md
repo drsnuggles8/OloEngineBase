@@ -30,6 +30,11 @@ scale the capture did not run.
 | `upscaler.resolved` / `.fallback` | what reconstructed display resolution (`native`, `spatial`, `temporal`) and, for a Temporal request that ran FSR1, why (`backendNotOpenGL`, `msaaResolved`, ...); `null` if no frame resolved it |
 
 Each attachment also records `textureWidth` / `textureHeight` and `croppedToRenderRegion`.
+Under a dynamic scale, a capture crops only a source the scale drew into the corner
+(`Benchmark::IsDrawnIntoRenderCorner`). A framebuffer's attachment is cropped when that
+framebuffer's render viewport is the corner. A texture no framebuffer owns is cropped when it is
+a display-sized `Texture2D` not declared `FixedExtent`. A shadow array, a probe atlas or a LUT is
+read whole even when its size matches the display.
 
 Before #1526, `renderWidth` read only the dynamic scale, so every upscale capture reported its
 0.667 band as a native render (the #1338 `gl-controls` results say 1920 × 1080 for a

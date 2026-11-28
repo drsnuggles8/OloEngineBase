@@ -236,6 +236,10 @@ namespace OloEngine
         // after the colour targets (matching FramebufferAttachmentSpecification order).
         TArray64<RGResourceFormat> Attachments;
         bool Imported = false;
+        // A texture whose size never follows the display (a probe atlas, a LUT,
+        // a noise tile). The dynamic render scale never draws into its corner,
+        // so a capture reads it whole even when its size matches the display.
+        bool FixedExtent = false;
         bool IsPlaceholder = false;
         FString PlaceholderReason;
         FString DebugName;
@@ -278,6 +282,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Samples)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Attachments)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::Imported)> &&
+                                      TIsTriviallyRelocatable_V<decltype(RGResourceDesc::FixedExtent)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::IsPlaceholder)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::PlaceholderReason)> &&
                                       TIsTriviallyRelocatable_V<decltype(RGResourceDesc::DebugName)>;

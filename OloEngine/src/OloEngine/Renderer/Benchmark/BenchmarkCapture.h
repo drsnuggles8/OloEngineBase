@@ -27,6 +27,7 @@
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Debug/GPUTimingStatus.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 
 #include <filesystem>
@@ -437,6 +438,35 @@ namespace OloEngine::Benchmark
         f32 CameraNearClip = 0.05f;
         f32 CameraFarClip = 1000.0f;
     };
+
+    /// What CaptureAttachment knows about a source when it decides whether the
+    /// frame sits in the source's [0, render) corner.
+    struct RenderCornerQuery
+    {
+        f32 EffectiveScale = 1.0f;
+        u32 TextureWidth = 0;
+        u32 TextureHeight = 0;
+        u32 PhysicalWidth = 0;
+        u32 PhysicalHeight = 0;
+        u32 RenderWidth = 0;
+        u32 RenderHeight = 0;
+        // The framebuffer whose attachment the source is, when it is one.
+        bool HasOwnerFramebuffer = false;
+        u32 OwnerViewportWidth = 0;
+        u32 OwnerViewportHeight = 0;
+        // The graph's registered descriptor for a source no framebuffer owns;
+        // null when the registry has no entry.
+        const RGResourceDesc* Desc = nullptr;
+    };
+
+    /// True when the dynamic render scale drew the frame into the source's
+    /// corner, so a capture reads that rectangle instead of the whole texture.
+    /// A framebuffer's attachment answers by that framebuffer's render
+    /// viewport. A texture no framebuffer owns answers by its descriptor: only
+    /// a display-sized Texture2D that is not FixedExtent (a screen-space
+    /// compute output). A shadow array, a probe atlas or a texture the
+    /// registry does not know is read whole, whatever its size.
+    [[nodiscard]] bool IsDrawnIntoRenderCorner(const RenderCornerQuery& query);
 
     /// Capture one manifest attachment from the ACTIVE render graph at the
     /// size it was rendered at. Must run on the render thread with a frame's
