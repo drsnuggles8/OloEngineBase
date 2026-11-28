@@ -215,14 +215,20 @@ vec3 oloSkinSpecularMix(vec3 narrow, vec3 broad, float broadWeight)
 // non-skin surface and a skin surface whose author left the mixture at zero both
 // cost exactly what they cost before this feature existed.
 //
-// HOISTED (issue #997). Both arms' per-pixel closure terms are prepared once,
-// before the light loop, by oloSkinPrepareClosure; the broad arm only when the
-// mixture is on, so a non-skin pixel still prepares one surface, not two. The
-// per-light function below then pays one energy lookup per evaluated arm.
+// HOISTED (issue #997), THE NARROW ARM ONLY. oloSkinPrepareClosure prepares the
+// narrow arm's per-pixel closure terms once, before the light loop, and every
+// pixel -- skin or not -- evaluates that arm. The broad arm is prepared inside
+// the per-light function, and only when the mixture is on, exactly where the
+// pre-hoist code evaluated it. Hoisting it too was measured and rejected: a
+// second ClosureV2Surface held across the loop moved one pixel of
+// LeafTransmissionOff_GL_Deferred_BackFace by 1/255 on NVIDIA GL (the deferred
+// shader reads the lobe from the G-Buffer, so the compiler cannot fold the
+// broad arm away), and the hoist's contract is bit-identical output. Copying
+// Narrow into it and assigning it only under the mixture both moved the pixel;
+// this shape is byte-identical to master on every evidence frame.
 struct OloSkinClosureSurface
 {
     ClosureV2Surface Narrow;
-    ClosureV2Surface Broad; // == Narrow when Lobe.x <= 0 (never evaluated)
     vec2 Lobe;
 };
 
@@ -231,10 +237,7 @@ OloSkinClosureSurface oloSkinPrepareClosure(vec3 N, vec3 V, vec3 albedo, float m
 {
     OloSkinClosureSurface s;
     s.Narrow = closureV2PrepareSurface(N, V, albedo, metallic, roughness);
-    s.Broad = s.Narrow;
     s.Lobe = skinLobe;
-    if (!(skinLobe.x <= 0.0))
-        s.Broad = closureV2PrepareSurface(N, V, albedo, metallic, oloSkinBroadRoughness(roughness, skinLobe.y));
     return s;
 }
 
@@ -244,7 +247,9 @@ OloSurfaceLighting oloSkinLayeredClosureSplitPrepared(OloSkinClosureSurface s, v
     if (s.Lobe.x <= 0.0)
         return narrow;
 
-    OloSurfaceLighting broad = closureV2EvaluateSplitPrepared(s.Broad, N, V, L);
+    ClosureV2Surface broadSurface = closureV2PrepareSurface(N, V, s.Narrow.Albedo, s.Narrow.Metallic,
+                                                            oloSkinBroadRoughness(s.Narrow.Roughness, s.Lobe.y));
+    OloSurfaceLighting broad = closureV2EvaluateSplitPrepared(broadSurface, N, V, L);
     return OloSurfaceLighting(narrow.Diffuse,
                               oloSkinSpecularMix(narrow.Specular, broad.Specular, s.Lobe.x));
 }
