@@ -1913,7 +1913,7 @@ namespace OloEngine
         struct HZBParamsUBO
         {
             glm::vec2 DispatchThreadIdToBufferUV; // reserved: HZB.comp addresses texels by integer (#1503)
-            glm::vec2 InputViewportMaxBound;      // reserved: likewise
+            glm::vec2 InputViewportMaxBound;      // the source's rendered extent in texels, (0, 0) = the whole source (#1537)
             glm::vec2 InvSize;                    // reserved: likewise
             i32 FirstLod;                         // starting destination mip level
             i32 IsFirstPass;                      // 1 = read scene depth, 0 = read HZB

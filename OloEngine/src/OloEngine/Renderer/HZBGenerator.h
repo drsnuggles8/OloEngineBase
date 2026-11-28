@@ -70,6 +70,17 @@ namespace OloEngine
         // Generate the HZB from a scene depth texture.
         void Generate(RHI::ResourceHandle sceneDepthTexture);
 
+        // The source's rendered extent in texels, (0, 0) for the whole source.
+        // Under a dynamic render scale the frame fills only the [0, render)
+        // corner of the depth texture: the mip-0 copy clamps to this extent,
+        // so the margin repeats the frame's edge depth and no coarse mip
+        // reduces unrendered depth into an edge texel (#1537).
+        void SetSourceExtent(u32 width, u32 height)
+        {
+            m_SourceExtentWidth = width;
+            m_SourceExtentHeight = height;
+        }
+
         // Bind a transient/external HZB texture for the current frame.
         // When valid, Generate() writes into this texture instead of m_HZBTexture.
         void SetExternalHZBTexture(RHI::ResourceHandle texture, u32 mipCount = 0);
@@ -160,5 +171,7 @@ namespace OloEngine
         glm::vec2 m_UVFactor{ 1.0f };
         u32 m_ViewportWidth = 0;
         u32 m_ViewportHeight = 0;
+        u32 m_SourceExtentWidth = 0;
+        u32 m_SourceExtentHeight = 0;
     };
 } // namespace OloEngine

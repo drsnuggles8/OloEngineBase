@@ -31,7 +31,7 @@ layout(local_size_x = LOCAL_SIZE, local_size_y = LOCAL_SIZE, local_size_z = 1) i
 layout(std140, binding = 59) uniform HZBParams
 {
     vec2 u_DispatchThreadIdToBufferUV;  // reserved: both passes address by integer texel (#1503)
-    vec2 u_InputViewportMaxBound;       // reserved
+    vec2 u_InputViewportMaxBound;       // the source's rendered extent in texels, (0, 0) = whole source (#1537)
     vec2 u_InvSize;                     // reserved
     int  u_FirstLod;                    // Starting destination mip level
     int  u_IsFirstPass;                 // 1 = read from scene depth, 0 = read from HZB
@@ -189,8 +189,16 @@ void main()
         // instead would make mips 1-3 disagree with mip 0 and reintroduce
         // the same filter truncation one level up (and, in MIN-reduce mode,
         // corner averages can exceed the true quad minimum).
+        // Under a dynamic render scale only the [0, extent) corner of the
+        // depth holds the frame (u_InputViewportMaxBound, (0, 0) = whole
+        // source). Clamping the copy to it makes the margin repeat the frame's
+        // edge depth, so no coarse mip reduces unrendered depth into an edge
+        // texel (#1537).
         ivec2 srcSize = textureSize(u_InputDepth, 0);
-        ivec2 srcCoord = min(dispatchThreadId, srcSize - ivec2(1));
+        ivec2 srcLimit = srcSize;
+        if (u_InputViewportMaxBound.x >= 1.0 && u_InputViewportMaxBound.y >= 1.0)
+            srcLimit = min(srcSize, ivec2(u_InputViewportMaxBound));
+        ivec2 srcCoord = min(dispatchThreadId, srcLimit - ivec2(1));
         reducedDepth = texelFetch(u_InputDepth, srcCoord, 0).r;
         WriteMip(0, dispatchThreadId, reducedDepth);
     }

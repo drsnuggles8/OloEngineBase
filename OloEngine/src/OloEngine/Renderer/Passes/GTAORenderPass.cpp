@@ -458,6 +458,12 @@ namespace OloEngine
         auto* gpuSubTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
         if (gpuSubTimers)
             gpuSubTimers->BeginSubPass("HZB");
+        {
+            // The rendered corner of the depth under a dynamic render scale.
+            const glm::vec2 bounds = RenderViewportBounds(m_Width, m_Height);
+            m_HZBGenerator.SetSourceExtent(static_cast<u32>(std::lround(static_cast<f32>(m_Width) * bounds.x)),
+                                           static_cast<u32>(std::lround(static_cast<f32>(m_Height) * bounds.y)));
+        }
         m_HZBGenerator.Generate(inputs.Depth);
         if (gpuSubTimers)
             gpuSubTimers->EndSubPass();
