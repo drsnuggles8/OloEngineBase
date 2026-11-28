@@ -847,6 +847,134 @@ TEST(VulkanAsyncComputeDevice, ABindInsideTheBatchTransfersAnImageThePlannerDidN
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
+// #1341 review: a slot published on the graphics queue BEFORE the batch is
+// still bound when a dispatch inside the batch reads it, and no bind inside
+// the batch revisits it. The dispatch transfers every image the bound slots
+// name before it records (no compute shader is bound here, so the dispatch is
+// then dropped; the transfer has already happened).
+TEST(VulkanAsyncComputeDevice, ASlotBoundBeforeTheBatchIsTransferredWhenTheBatchDispatches)
+{
+    OLO_VULKAN_DEVICE_OR_SKIP();
+
+    ScopedHiddenVulkanWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+
+    const bool originalSequential = Levers::RenderGraphSequential();
+    const Levers::Tristate originalAsync = Levers::VulkanAsyncCompute();
+    struct LeverRestore
+    {
+        bool Sequential;
+        Levers::Tristate Async;
+        ~LeverRestore()
+        {
+            Levers::SetRenderGraphSequential(Sequential);
+            Levers::SetVulkanAsyncCompute(Async);
+        }
+    } leverRestore{ originalSequential, originalAsync };
+    Levers::SetRenderGraphSequential(false);
+    Levers::SetVulkanAsyncCompute(Levers::Tristate::On);
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    {
+        VulkanContext context(window.Get());
+        try
+        {
+            context.Init();
+        }
+        catch (const std::exception& e)
+        {
+            GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+        }
+        RenderCommand::Init();
+        VulkanDevice::ResetValidationErrorCount();
+        auto* device = VulkanDevice::Get();
+        ASSERT_NE(device, nullptr);
+        if (!device->HasAsyncComputeQueue())
+            GTEST_SKIP() << VulkanQueueSelection::Describe(device->GetAsyncComputeUnavailableReason());
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+        TransientPool pool;
+        TextureSpecification colorSpec;
+        colorSpec.Width = 64;
+        colorSpec.Height = 64;
+        colorSpec.Format = ImageFormat::RGBA16F;
+        const auto colorTex = pool.AcquireTexture(colorSpec);
+        ASSERT_TRUE(colorTex);
+        const auto colorIdentity = colorTex->GetRHIHandle();
+        RGResourceDesc texDesc;
+        texDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        texDesc.Format = RGResourceFormat::RGBA16Float;
+        texDesc.Width = 64;
+        texDesc.Height = 64;
+
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(true);
+        auto importRead = [&texDesc, colorIdentity](RGBuilder& builder)
+        {
+            auto tex = builder.ImportTextureHandle("AsyncRetainedColor", colorIdentity, texDesc);
+            [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+        };
+        graph.AddNode(Ref<AsyncStubPass>::Create(
+            "RetainedProducer",
+            [&texDesc, colorIdentity](RGBuilder& builder)
+            {
+                auto tex = builder.ImportTextureHandle("AsyncRetainedColor", colorIdentity, texDesc);
+                builder.Write(tex, RGWriteUsage::ShaderImage);
+            },
+            [&]()
+            { api.ClearTextureFloat(colorIdentity, 0, { 0.25f, 0.5f, 0.75f, 1.0f }); }));
+        // The graphics reader takes the image to its sampled layout.
+        graph.AddNode(Ref<AsyncStubPass>::Create("RetainedGraphicsReader", importRead,
+                                                 [&]()
+                                                 { api.BindTexture(0u, colorIdentity); }));
+        // The async pass declares its read through the native-id import, so
+        // the planner resolves no per-resource barrier for it, and it binds
+        // nothing: it dispatches with the graphics reader's slot still bound.
+        // The dispatch is the only place that sees the image.
+        const u32 nativeId = colorTex->GetRendererID();
+        auto consumer = Ref<AsyncStubPass>::Create(
+            "RetainedAsyncConsumer",
+            [&texDesc, nativeId](RGBuilder& builder)
+            {
+                auto tex = builder.ImportTexture("AsyncRetainedColorNative", nativeId, texDesc);
+                [[maybe_unused]] const auto sampled = builder.Read(tex, RGReadUsage::ShaderSample);
+            },
+            [&]()
+            { api.DispatchCompute(1u, 1u, 1u); });
+        consumer->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
+        consumer->SetAsyncComputeCandidate(true);
+        graph.AddNode(consumer);
+        graph.AddExecutionDependency("RetainedProducer", "RetainedGraphicsReader");
+        graph.AddExecutionDependency("RetainedGraphicsReader", "RetainedAsyncConsumer");
+        graph.SetFinalPass("RetainedAsyncConsumer");
+        graph.BuildFrameGraph();
+
+        const auto plan = graph.GetSubmissionPlan();
+        ASSERT_NE(std::ranges::find_if(plan, [](const RenderGraph::SubmissionCommand& command)
+                                       { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::BatchBegin; }),
+                  plan.end())
+            << "the graph did not schedule an async-compute batch";
+
+        context.SetFrameRenderCallback(
+            [&](const GraphicsContext::FrameRenderTarget&)
+            {
+                graph.Execute();
+                return false;
+            });
+        context.SwapBuffers();
+        ASSERT_EQ(vkQueueWaitIdle(device->GetQueue()), VK_SUCCESS);
+
+        const auto stats = api.GetAsyncComputeStats();
+        EXPECT_EQ(stats.BatchesOnComputeQueue, 1u);
+        // One pair in, one pair back at the batch end.
+        EXPECT_GE(stats.OwnershipTransfers, 2u)
+            << "the dispatch could read a slot bound before the batch while the graphics family still owned its image";
+        context.SetFrameRenderCallback({});
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
 // #1341: with the lever unset, a device that HAS a compute-only family still
 // keeps the batch on the graphics queue, and says why. Crossing measured no
 // overlap and +2.3 ms of GPU frame time, because the graphics queue waits for

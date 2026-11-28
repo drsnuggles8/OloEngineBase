@@ -988,6 +988,30 @@ namespace OloEngine
         Ctx().RecordBarrier(acquireDep);
     }
 
+    void VulkanRendererAPI::TransferBoundImagesIntoOwnershipRegion()
+    {
+        if (!m_OwnershipRegion.Active)
+            return;
+        const auto& binding = VulkanBindingState::Global();
+        const auto& slots = VulkanDescriptorSlotCache::Get();
+        const auto transfer = [&](const u32 heapSlot)
+        {
+            if (heapSlot == VulkanBindingState::kNoHeapSlot)
+                return;
+            const auto bound = slots.LookupImage(heapSlot);
+            if (!bound)
+                return;
+            // A slot whose image was destroyed has no registry entry: nothing to move.
+            if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(bound->Image))
+                TransferImageIntoOwnershipRegion(bound->Image, VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info)));
+        };
+        for (u32 unit = 0; unit < VulkanBindingState::kMaxTextureSlots; ++unit)
+        {
+            transfer(binding.GetTextureHeapSlot(unit));
+            transfer(binding.GetImageHeapSlot(unit));
+        }
+    }
+
     void VulkanRendererAPI::BeginQueueOwnershipRegion(const VkCommandBuffer releaseCmd, const u32 fromFamily,
                                                       const u32 toFamily)
     {
@@ -3766,6 +3790,10 @@ namespace OloEngine
             UnimplementedStub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
+        // Inside an async-compute batch, a slot bound before the batch reaches
+        // this dispatch still owned by the graphics family (#1341). Before
+        // anything can be recorded, whatever happens to the dispatch below.
+        TransferBoundImagesIntoOwnershipRegion();
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
         if (shader == nullptr || !shader->IsValid())
         {
@@ -3816,6 +3844,7 @@ namespace OloEngine
             UnimplementedStub("DispatchComputeIndirect(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
+        TransferBoundImagesIntoOwnershipRegion(); // as in DispatchCompute (#1341)
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
         if (shader == nullptr || !shader->IsValid())
         {

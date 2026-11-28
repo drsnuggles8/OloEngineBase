@@ -84,7 +84,8 @@ render-graph scheduling change, not a queue change.
   queue (the degrade path on hardware that has one).
 - Ownership transfers now cover every image a batch touches, including images bound through a
   descriptor that the planner issued no barrier for (`fix(vulkan): move image ownership when an
-  async-compute batch binds it`). Before it, the on-arm frames above reported 0 ownership pairs.
+  async-compute batch binds it`), and slots bound before the batch that a dispatch inside it
+  still reads. Before it, the on-arm frames above reported 0 ownership pairs.
 
 Verified with the change, six more fresh processes in the order default/on/off/default/off/on:
 

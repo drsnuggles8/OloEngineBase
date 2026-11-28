@@ -93,10 +93,13 @@ planner nothing to barrier at all. Such an image was read on the compute family 
 family owned it; a live Courtyard frame reported `batchesOnComputeQueue=3`, `ownershipTransfers=0`
 (#1341). `TransferImageIntoOwnershipRegion` is now the one per-image transfer, called from the
 barrier split **and** from the bind-time layout seam (`EnsureImageLayoutForDescriptor`, behind
-`BindTexture` and `BindImageTexture`) before its layout decision. A new route by which a batch can
-reach an image must call it too. The validation layer did not report the missing pair; the
-device test `ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier` guards it by count. An
-`UNDEFINED` layout run gets no transfer: its contents need no preserving.
+`BindTexture` and `BindImageTexture`) before its layout decision, **and** from every dispatch
+inside a batch (`TransferBoundImagesIntoOwnershipRegion`), because a slot published before the
+batch stays bound and a dispatch reads it without any bind revisiting it. A new route by which a
+batch can reach an image must call it too. The validation layer did not report the missing pair;
+the device tests `ABindInsideTheBatchTransfersAnImageThePlannerDidNotBarrier` and
+`ASlotBoundBeforeTheBatchIsTransferredWhenTheBatchDispatches` guard it by count. An `UNDEFINED`
+layout run gets no transfer: its contents need no preserving.
 
 ## 3. The degrade path is the tested path
 

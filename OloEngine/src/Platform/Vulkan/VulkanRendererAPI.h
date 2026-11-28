@@ -506,9 +506,15 @@ namespace OloEngine
         // region has not taken it yet: the release goes into the parked
         // graphics buffer, the acquire into the live one, now. No-op outside a
         // region. Every route by which a batch can touch an image calls it
-        // before that access: the barrier split above, and the bind-time
-        // layout seam, which reaches images the planner issued no barrier for.
+        // before that access: the barrier split above, the bind-time layout
+        // seam, which reaches images the planner issued no barrier for, and
+        // every dispatch, for slots still bound from before the batch.
         void TransferImageIntoOwnershipRegion(VkImage image, VkImageAspectFlags aspect);
+        // A dispatch reads every texture and storage-image slot still bound,
+        // including ones published before the batch opened, which no bind
+        // inside the batch revisits. Transfers each image those slots name
+        // (#1341). No-op outside a region.
+        void TransferBoundImagesIntoOwnershipRegion();
         // One ownership-only release/acquire pair per run of equal layout in
         // `range`; used in both directions (see the definition).
         void AppendOwnershipTransfer(VkImage image, const VkImageSubresourceRange& range, u32 fromFamily,
