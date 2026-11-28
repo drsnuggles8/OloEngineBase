@@ -139,6 +139,10 @@ namespace OloEngine::Tests
                 // really kept.
                 const HeapRelease heap = ReleaseFreeHeap();
                 const u64 end = CurrentResidentBytes();
+                // The release normally lowers residency, but another thread can
+                // allocate between the two readings; the row must never report
+                // an end above its own peak.
+                RaisePeak(end);
                 TestResidency row{ std::string(info.test_suite_name()) + "." + info.name(),
                                    s_TestStartBytes.load(std::memory_order_relaxed), end,
                                    s_TestPeakBytes.load(std::memory_order_relaxed) };
