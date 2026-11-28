@@ -143,6 +143,24 @@ namespace OloEngine
             return m_RenderScale;
         }
 
+        // An upscale preset owns the internal scale: it renders the scene band
+        // at its own reduced size, and a dynamic scale on top would hand the
+        // scene-band passes display-relative bounds. While one is active the
+        // pipeline HOLDS the dynamic scale at 1.0 (no corner viewport, bounds
+        // (1, 1)) and warns; the requested scale is kept and returns when the
+        // preset is Off. The benchmark manifest refuses the combination.
+        void SetRenderScaleHeld(bool held);
+        [[nodiscard]] bool IsRenderScaleHeld() const
+        {
+            return m_RenderScaleHeld;
+        }
+        // The scale in force: GetRenderScale(), or 1.0 while held. Render
+        // width, height and bounds all follow it.
+        [[nodiscard]] f32 GetEffectiveRenderScale() const
+        {
+            return m_RenderScaleHeld ? 1.0f : m_RenderScale;
+        }
+
         // Physical (display) framebuffer size from the last Resize(). This is the
         // full output resolution, independent of any FSR1 reduced-size scene band,
         // so callers can size the display-res post chain / EASU output correctly.
@@ -1688,6 +1706,7 @@ namespace OloEngine
         u32 m_PhysicalWidth = 0;
         u32 m_PhysicalHeight = 0;
         f32 m_RenderScale = 1.0f;
+        bool m_RenderScaleHeld = false;
 
         // Reachability tracking
         RGTransparentStringSet m_ReachablePasses; // Passes that are reachable from final output

@@ -227,7 +227,7 @@ namespace OloEngine::MCP
                 {
                     o["displayWidth"] = graph->GetPhysicalWidth();
                     o["displayHeight"] = graph->GetPhysicalHeight();
-                    o["renderScale"] = Round2(static_cast<f64>(graph->GetRenderScale()));
+                    o["renderScale"] = Round2(static_cast<f64>(graph->GetEffectiveRenderScale()));
                 }
                 // Is the editor actually running frames at all (issue #607)? Every
                 // number above describes the last COMPLETED frame, which may be

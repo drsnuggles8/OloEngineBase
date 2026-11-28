@@ -2630,6 +2630,11 @@ namespace OloEngine
 
         // Upload DRS bounds so screen-space shaders can clamp UVs to the rendered region.
         {
+            // An upscale preset owns the internal scale this frame: hold the
+            // dynamic scale at 1.0 before anything reads the bounds
+            // (RenderGraph::SetRenderScaleHeld).
+            if (data.RGraph)
+                data.RGraph->SetRenderScaleHeld(data.PostProcess.Upscale != UpscaleMode::Off);
             const glm::vec2 bounds = data.RGraph ? data.RGraph->GetRenderScaleBounds() : glm::vec2(1.0f);
             data.SceneEffectsGPU.DRSData.RenderScaleBounds = bounds;
             data.SceneEffectsGPU.DRS->SetData(&data.SceneEffectsGPU.DRSData, DRSUBOData::GetSize());

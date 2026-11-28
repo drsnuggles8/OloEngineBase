@@ -672,7 +672,7 @@ namespace OloEngine
         m_InsertionOrder.Add(name);
 
         m_NodeLookup[name] = node;
-        SynchronizeGraphEntryLifecycle(node, m_PhysicalWidth, m_PhysicalHeight, m_RenderScale);
+        SynchronizeGraphEntryLifecycle(node, m_PhysicalWidth, m_PhysicalHeight, GetEffectiveRenderScale());
         m_DependencyGraphDirty = true;
         m_ResourceRegistryDirty = true;
     }
@@ -2070,7 +2070,7 @@ namespace OloEngine
         // Targets of any other size (shadow maps, half-resolution buffers, an
         // upscaler's band) are outside that contract and untouched.
         Ref<Framebuffer> framebuffer = m_PhysicalFramebuffers[handle.Index].FB;
-        if (framebuffer && m_RenderScale < 1.0f && framebuffer->GetRenderViewportWidth() == 0u)
+        if (framebuffer && GetEffectiveRenderScale() < 1.0f && framebuffer->GetRenderViewportWidth() == 0u)
         {
             const auto& spec = framebuffer->GetSpecification();
             if (spec.Width == m_PhysicalWidth && spec.Height == m_PhysicalHeight)
@@ -4373,10 +4373,10 @@ namespace OloEngine
         // Physical resize resets render viewport overrides on all FBOs.
         // Re-apply the current DRS scale so the render viewport is correct
         // for the new physical dimensions (scale 1.0 means no-op).
-        if (m_RenderScale < 1.0f)
+        if (GetEffectiveRenderScale() < 1.0f)
         {
-            const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
-            const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+            const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * GetEffectiveRenderScale()));
+            const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * GetEffectiveRenderScale()));
             for (auto& [name, node] : m_NodeLookup)
             {
                 node->ApplyRenderViewport(renderW, renderH);
@@ -4394,15 +4394,15 @@ namespace OloEngine
         if (m_PhysicalWidth == 0 || m_PhysicalHeight == 0)
             return;
 
-        const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
-        const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+        const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * GetEffectiveRenderScale()));
+        const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * GetEffectiveRenderScale()));
 
         if (renderW != previousRenderWidth || renderH != previousRenderHeight)
             m_TemporalHistoryRegistry.Invalidate(TemporalHistoryInvalidationCause::DynamicResolutionChanged);
 
         for (auto& [name, node] : m_NodeLookup)
         {
-            if (m_RenderScale >= 1.0f)
+            if (GetEffectiveRenderScale() >= 1.0f)
             {
                 node->ApplyRenderViewport(0u, 0u);
             }
@@ -4417,14 +4417,33 @@ namespace OloEngine
     {
         if (m_PhysicalWidth == 0)
             return 0u;
-        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
+        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * GetEffectiveRenderScale()));
     }
 
     u32 RenderGraph::GetRenderHeight() const
     {
         if (m_PhysicalHeight == 0)
             return 0u;
-        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+        return static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * GetEffectiveRenderScale()));
+    }
+
+    void RenderGraph::SetRenderScaleHeld(const bool held)
+    {
+        if (held == m_RenderScaleHeld)
+            return;
+        m_RenderScaleHeld = held;
+        if (held && m_RenderScale < 1.0f)
+        {
+            OLO_CORE_WARN("RenderGraph: an upscale preset owns the internal scale; the dynamic render scale {} is held "
+                          "at 1.0 until the preset is Off",
+                          m_RenderScale);
+        }
+        // A held sub-1 scale changes the rendered size either way. SetRenderScale
+        // measures its "previous" size after the flag flipped, so the
+        // invalidation is raised here; it then re-applies the viewports.
+        if (m_RenderScale < 1.0f && m_PhysicalWidth != 0u && m_PhysicalHeight != 0u)
+            m_TemporalHistoryRegistry.Invalidate(TemporalHistoryInvalidationCause::DynamicResolutionChanged);
+        SetRenderScale(m_RenderScale);
     }
 
     glm::vec2 RenderGraph::GetRenderScaleBounds() const

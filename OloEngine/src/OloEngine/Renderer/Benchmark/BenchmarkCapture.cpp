@@ -205,7 +205,7 @@ namespace OloEngine::Benchmark
         // read the rendered rectangle. A target that is not display-sized (a
         // shadow map, an upscaler's reduced scene band, a half-resolution
         // buffer) is not in that contract and is read whole (#1526).
-        if (graph->GetRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
+        if (graph->GetEffectiveRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
             height == graph->GetPhysicalHeight())
         {
             width = std::max(1u, graph->GetRenderWidth());
@@ -816,7 +816,7 @@ namespace OloEngine::Benchmark
         }
         record.DisplayWidth = graph->GetPhysicalWidth();
         record.DisplayHeight = graph->GetPhysicalHeight();
-        record.RenderScale = graph->GetRenderScale();
+        record.RenderScale = graph->GetEffectiveRenderScale();
         record.RenderWidth = graph->GetRenderWidth();
         record.RenderHeight = graph->GetRenderHeight();
 

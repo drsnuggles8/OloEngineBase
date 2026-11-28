@@ -2981,6 +2981,40 @@ TEST(RenderGraph, GraphNodeLifecycleHooksTrackInitResizeAndRenderScale)
     EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
 }
 
+// An upscale preset owns the internal scale: while the pipeline holds the
+// dynamic scale, every node draws full-size and the bounds are (1, 1); the
+// requested scale returns when the hold is released (#1537, CodeRabbit on #1830).
+TEST(RenderGraph, AHeldRenderScaleDrawsFullSizeAndReturnsWhenReleased)
+{
+    RenderGraph graph;
+    auto node = Ref<TestGraphNode>::Create("HeldScaleNode");
+    graph.AddNode(node);
+    graph.Init(640, 480);
+    graph.SetRenderScale(0.5f);
+    ASSERT_EQ(node->GetLastRenderViewportWidth(), 320u);
+
+    graph.SetRenderScaleHeld(true);
+    EXPECT_TRUE(graph.IsRenderScaleHeld());
+    EXPECT_FLOAT_EQ(graph.GetRenderScale(), 0.5f) << "the requested scale is kept";
+    EXPECT_FLOAT_EQ(graph.GetEffectiveRenderScale(), 1.0f);
+    EXPECT_EQ(graph.GetRenderWidth(), 640u);
+    EXPECT_EQ(graph.GetRenderHeight(), 480u);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().x, 1.0f);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().y, 1.0f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 0u) << "a held scale must not leave a corner viewport";
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 0u);
+
+    // A scale set while held is remembered, not applied.
+    graph.SetRenderScale(0.75f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 0u);
+
+    graph.SetRenderScaleHeld(false);
+    EXPECT_FLOAT_EQ(graph.GetEffectiveRenderScale(), 0.75f);
+    EXPECT_EQ(node->GetLastRenderViewportWidth(), 480u);
+    EXPECT_EQ(node->GetLastRenderViewportHeight(), 360u);
+    EXPECT_FLOAT_EQ(graph.GetRenderScaleBounds().x, 0.75f);
+}
+
 TEST(RenderGraph, PassAddedAfterGraphInitializationInheritsCurrentLifecycleState)
 {
     RenderGraph graph;
