@@ -350,9 +350,13 @@ for every cell and camera: [campaign-summary.md](../testing/evidence/integrated-
   test host `d1eafa7b0875…`, editor `4c55dd215077…`; shader tree `c8a48c4f4528…`, asset tree
   `f3b83d93d4c7…` (full-tree hash). The only dirty file was `EditorPreferences.yaml` with
   `ThrottleEditMode: false`, which the editor host requires.
-* **Still in flight, not in these numbers.** #1818 (the head's coat-volume rebake, decided, landing
-  with #1660), #1660 (strand-cache budget), #997 (ClosureV2 energy hoist), #1828 itself on master,
-  and #1824 (card-tier sky self-shadow).
+* **Not in these numbers.** Still open when measured: #1818 (the head's coat-volume rebake,
+  decided, landing with #1660), #1660 (strand-cache budget), #997 (ClosureV2 energy hoist), #1828
+  itself on master, #1824 (card-tier sky self-shadow), #1830 (distance-probe silhouettes and the
+  dynamic render scale on Deferred, #1804 / #1537) and #1669 / #1651 (pass draw-signature
+  declarations, draw-time PSO gate). Merged to master after `ac23f1bdd`: #1832 (physics placement
+  takes a `WorldPose`) and #1833 (lifecycle soak tests) at 10:21–10:23, and #1817 (HDR display
+  output: the tone-map and output stage) at 14:11, after the campaign.
 * **Hardware and host.** The October machine: RTX 4090 (driver 621.14, October 617.14), i7-14700KF,
   64 GB, Windows 10.0.26300 (October 10.0.22631). Release with symbols, clang-cl, `dev-cached`.
 * **Protocol.** `acceptance-benchmark.py`, 9 cells × 3 counted runs, interleaved fresh processes,
@@ -365,9 +369,15 @@ for every cell and camera: [campaign-summary.md](../testing/evidence/integrated-
   worktrees held builds, tests and editor runs for its window. The harness sampled other GPU load
   and competing processes before and every 30 s during every run; no counted run overlapped any.
   Two Vulkan editor attempts were not counted (see *Editor capture stalls* below); their reruns were.
-* **Settings.** Native 1920×1080, VSM on, TAA on, MSAA 1, no upscaler: every run's readback
-  confirms the internal size, the resolved upscaler (`native`, no fallback) and VSM selected.
-  Upscale and MSAA are not part of this baseline, as in October.
+  Every attempt, with its samples, GPU utilisation and foreign processes:
+  [README.md](../testing/evidence/integrated-acceptance-1259/baseline-2026-11-28/README.md).
+* **Clocks and load.** The harness records `nvidia-smi` (graphics and memory clock, power,
+  temperature) just before launch and after exit, and GPU utilisation every 30 s during the run;
+  the same page lists them per attempt. It samples no clock under load and no CPU clock.
+* **Settings.** Native 1920×1080, VSM on (except the `gl-forward-csm` control, which pins CSM),
+  TAA on, MSAA 1, no upscaler: every run's readback confirms the internal size, the resolved
+  upscaler (`native`, no fallback) and the shadow technique selected. Upscale and MSAA are not part
+  of this baseline, as in October.
 * **Images.** Every run keeps Beauty, SceneColorHDR, Albedo, Normals, Velocity and SceneDepth for
   every camera, and frame ids per sample, under the campaign directory (not tracked, see *Raw run
   output* below). The population-dolly capture frame ends inside a woodland shrub, so the herd is out
@@ -416,7 +426,7 @@ head-camera p95 reaches 196–208 ms against 139–155 ms. A difference under ab
 camera's p95 is not a result.
 
 On the GL host the frame is now GPU-paced at four of the five cameras (frame p50 tracks GPU p50; the
-CPU waits on the fence for 21–44 ms at p95). The exception is coats-closeup, where CPU and GPU
+CPU waits on the fence for 20–45 ms at p95). The exception is coats-closeup, where CPU and GPU
 are both about 67 ms.
 
 ### Vulkan: editor host, controlled protocol
@@ -444,7 +454,10 @@ are both about 67 ms.
 | Hybrid | population-dolly | 96–97 | 105–139 | 159–165 | 404–436 | 94–95 | 34–35 | ShadowPass 18.1, ScenePass 7.3, GroomPass 4.7 |
 | Hybrid | rapid-turn | 63–83 | 95–124 | 112–144 | 171–288 | 62–64 | 27–37 | ShadowPass 19.2, ScenePass 6.7, GroomPass 2.1 |
 
-The raster cells are GPU-paced (frame p50 equals GPU p50; CPU p50 13–36 ms). Recording takes
+The raster cells are GPU-paced at four cameras (frame p50 within 2 ms of GPU p50; CPU p50 13–27 ms).
+At coats-closeup the frame sits 4–14 ms above the GPU time (frame p50 42–52 against GPU 37–39 ms)
+with CPU at 32–36 ms, so neither side alone sets it; one Deferred head-closeup run's p50 of 57 ms is
+the same kind of outlier against a GPU p50 of 38–40. Recording takes
 0.2–1.0 ms of wall time with no join wait: the #1340 policy keeps these regions on one thread. Present
 wait follows frame time. The hybrid cell is CPU-bound (CPU p50 45–108 ms against GPU 27–42 ms);
 see *Hybrid* below.
@@ -463,40 +476,57 @@ peak the high-water mark):
 | Vulkan Deferred | 2755 | 3938 | as Forward |
 | Vulkan Hybrid | 3158 | 5094–5095 | unattributed 699, ShadowPass 691, ShadowMap 640, transient pool 281, GroomPass 274 |
 
-October recorded GL live 1674–1761 and peak 4253–4340 MiB, and Vulkan live 2.75 GiB and peak
-6.26 GiB: the GL peak is 1.1 GiB lower, and the Vulkan hybrid peak 1.2 GiB lower. The GL live set is
-about 100 MiB higher. Process private bytes and working set are not in the capture record.
+October's GL rows, on the same test host protocol, recorded live 1674–1761 and peak 4253–4340 MiB:
+the GL peak is 1.1 GiB lower now and the live set about 100 MiB higher, with the content changes
+above. October's Vulkan memory (live 2.75 GiB, peak 6.26 GiB) came from the live editor session, a
+different host protocol, so it is not compared.
+
+**Process memory is not measured.** The capture records renderer-tracked GPU and CPU memory, not
+the process's private bytes or working set, and its residency field reads `unknown` on this host.
+The separate sampling pass October used for the editor process needed a quiet box, which the second
+GPU window did not get (see *Live Vulkan* below).
 
 ### Where the time goes now
 
-1. **ShadowPass is the largest GPU pass in every cell and camera** (16–31 ms), and its brackets
-   (#1590) now say why. GL Forward, p50 ms; the Vulkan rows agree within 4 ms:
+1. **ShadowPass is the largest GPU pass in every cell and camera** (16–31 ms at p50), and its
+   brackets (#1590) now say why. GL Forward, p50 ms, with the Vulkan figure where it differs by
+   more than 2 ms:
 
-   | camera | VSM: `VsmLocal/GroomCasters` | VSM: `VsmSun` (of it `FoliageCasters`) | CSM control: `Atlas/GroomCasters` | CSM control: `Csm` (of it `FoliageCasters`) |
+   | camera | VSM: `VsmLocal/GroomCasters` | VSM: `VsmSun` | CSM control: `Atlas/GroomCasters` | CSM control: `Csm` |
    |---|---:|---:|---:|---:|
    | head-closeup | 21.3 (Vulkan 17.5) | 6.1 | 6.3 | 2.1 |
-   | coats-closeup | 2.5 | 16.0 (8.7) | 2.2 | 9.4 (7.2) |
-   | population-dolly | 0.0 | 19.4 (11.3) | — | 13.0 (10.8) |
-   | rapid-turn | 1.0 | 16.7 (12.5) | — | 12.7 (11.3) |
+   | head-backlit | 23.8 (Vulkan 17.7) | 5.5 | 6.2 | 1.6 |
+   | coats-closeup | 2.5 | 16.0 | 2.2 | 9.4 |
+   | population-dolly | 0.0 | 19.4 | — | 13.0 |
+   | rapid-turn | 0.1 | 16.7 | 0.1 | 12.7 |
 
-   At the head the lamps' VSM local layers draw the hair, now 2.8× the strands, for 17–21 ms, three
-   times what the same casters cost through the CSM control's shadow atlas. Outdoors the VSM sun
-   costs 3–6 ms more than CSM, most of it foliage casters (October: 25–35 ms more). The lamp atlas
-   route that cost 0.1–0.9 s in October costs 5–8 ms (the cull-slot fix, #1632).
-2. **The head cameras' p95 is the coat-volume rebake (#1818).** Frame p50 is 31–55 ms at both head
-   cameras, but p95 is 114–208 ms, and CPU p95 and GPU p95 rise together. On GL the spike lands in
-   whichever bracket is open (`GroomPass/RootFrames` at head-closeup, `FoliagePass` and
-   `VirtualShadowMapMarkPass` at head-backlit): the GL bracket artefact #1828 documents. On Vulkan no
-   pass exceeds 28 ms at p95 while the total GPU span reaches 100 ms, so the span covers a CPU stall
-   mid-frame. Both are the ~115 ms coat-volume rebake on the main thread.
+   At the head cameras the lamps' VSM local layers draw the hair, now 2.8× the strands, for 17–24 ms,
+   three to four times what the same casters cost through the CSM control's shadow atlas; GL pays
+   4–6 ms more than Vulkan for it. Outdoors the VSM sun costs 4–7 ms more than CSM. By caster class
+   (VSM sun against CSM): groom casters 4.1 vs 0.5 at coats-closeup and 4.8 vs 0.5 at
+   population-dolly, the foliage cull 2.1 vs 0.5–0.6 everywhere, foliage casters only 0.5–1.5 ms
+   more. So most of the gap is the coats drawn into the sun's clip levels and the per-level foliage
+   cull (October: 25–35 ms more in all). The lamp atlas route that cost 0.1–0.9 s in October costs
+   5–8 ms (the cull-slot fix, #1632).
+2. **The head cameras' p95 is the coat-volume rebake (#1818).** Frame p50 is 31–57 ms at both head
+   cameras on the raster cells, but p95 is 114–208 ms, and CPU p95 and GPU p95 rise together. On GL
+   the spike lands in whichever bracket is open (`GroomPass/RootFrames` at head-closeup,
+   `FoliagePass` and `VirtualShadowMapMarkPass` at head-backlit): the GL bracket artefact #1828
+   documents. On Vulkan the largest single pass at the head cameras reaches 27–29 ms at p95 (30–36 ms
+   in hybrid) while the total GPU span reaches 94–119 ms, so the span covers a CPU stall mid-frame.
+   The campaign records no CPU scopes, so the attribution rests on #1828's probes at the same camera:
+   the head's coat volume rebakes every 1–2 frames while it animates, ~115 ms each on the main thread
+   with task workers.
 3. **Bound-coat CPU at the horses** (#1588): coats-closeup costs 66–69 ms of CPU on GL and 32–36 ms
    on Vulkan, more than any other camera.
 4. **GL FoliagePass at the outdoor cameras** costs 13–25 ms against 3.6–4.2 ms on Vulkan at the same
    poses.
-5. **A single CPU frame of 290–430 ms** at the same frame of every run, on both hosts: coats-closeup
-   frame 92 (GL) or 185 (editor), and population-dolly frame 11. At the coats-closeup one the editor
-   log shows the two horse coats building REST strand geometry (428 k and 489 k segments, 124 and
-   142 MiB) as the camera arrives. These single frames set every cell's max at those cameras.
+5. **A single long CPU frame** at the same frame of every run: coats-closeup frame 92 on GL
+   (370–429 ms) and 185 on the editor (334–419 ms), and population-dolly frame 11 on the editor
+   (283–436 ms; on GL that frame is about 200 ms and the camera's max is 202–242 ms). At the
+   coats-closeup one the editor log shows the two horse coats building REST strand geometry (428 k
+   and 489 k segments, 124 and 142 MiB) as the camera arrives. These frames set the max at those
+   cameras.
 
 ### Hybrid
 
@@ -504,10 +534,11 @@ about 100 MiB higher. Process private bytes and working set are not in the captu
 measured frame, and the editor logs once per run that all four lights fell back to shadow maps
 because the vegetation planner withholds the TLAS under its budget. That is October's finding, after
 #1578 closed. The cell still builds the ray-tracing scene (`RayTracingScenePass` 1.4–1.9 ms GPU) and
-pays 27–81 ms more CPU than Deferred at every camera (CPU p50 Hybrid against Deferred: head-closeup
+pays 27–82 ms more CPU than Deferred at every camera (CPU p50 Hybrid against Deferred: head-closeup
 106–108 vs 26–27, head-backlit 45–46 vs 18, coats-closeup 85–92 vs 32–36, population-dolly 94–95 vs
-17–18, rapid-turn 62–64 vs 13 ms). Its GPU peak is 1.2 GiB above Deferred's. The campaign records no
-CPU scopes, so which producer spends that time is not attributed here (October: `Vegetation::Queue`).
+17–18, rapid-turn 62–64 vs 13 ms). Its GPU peak is 1.1 GiB above Deferred's. The controlled capture
+records no CPU scopes (only `acceptance-live.py --scope-samples` does), and the live pass did not
+run, so which producer spends that time is not attributed here (October: `Vegetation::Queue`).
 
 ### Editor capture stalls
 
@@ -517,7 +548,9 @@ a same-size window resize) and `vk-deferred` round 2 (coats-closeup, frame 250, 
 for 607 s, just after a horse coat built its stride-1 REST geometry). The editor recovered both times
 and ran the capture's cleanup. Neither preceding event explains it (the stride-1 build occurs in 28
 runs that did not stall), counted runs never go silent for more than 102 s, and the GL host never
-stalled. The reruns counted. Filed with the logs as #1871.
+stalled. The reruns counted. Filed with the logs as #1871. The failed records in the evidence say
+`warmupTimedOut: true`: the editor sets that flag for a frame-await timeout in the measured loop as
+well, so it does not place the stall in the warm-up.
 
 ### Live Vulkan, like-for-like with October
 
@@ -540,11 +573,11 @@ machine was in interactive use (a game at 41% GPU), so a live re-run would have 
 | what misses the gate | cells | owner |
 |---|---|---|
 | head-camera p95: the coat-volume rebake, ~115 ms on the main thread | every cell, both head cameras | #1818 (decided; lands with #1660) |
-| ShadowPass: the head's hair in the VSM local layers (17–21 ms) and VSM-sun foliage casters (8.5–12.5 ms) | every VSM cell | #1838 |
+| ShadowPass: the head's hair in the VSM local layers (17–24 ms) and the VSM sun's 4–7 ms over CSM (coats in the clip levels, per-level foliage cull) | every VSM cell | #1838 |
 | bound-coat deformation and strand-pass CPU at the horses | coats-closeup, both backends | #1588 |
-| REST strand geometry built on the main thread as a coat arrives (290–430 ms frame) | coats-closeup, population-dolly | #1839 |
+| REST strand geometry built on the main thread as a coat arrives (283–436 ms frame) | coats-closeup, population-dolly | #1839 |
 | GL FoliagePass 3–6× the Vulkan cost at the outdoor cameras | GL, outdoor | #1840 |
-| hybrid: TLAS withheld, so no ray is traced, and 27–81 ms of CPU for unread proxies | Vulkan hybrid | #1870 |
+| hybrid: TLAS withheld, so no ray is traced, and 27–82 ms of CPU for unread proxies | Vulkan hybrid | #1870 |
 | editor capture stalls of 10–14 min (2 of 14 attempts) | Vulkan editor host | #1871 |
 | no separable eyes or mouth | criterion 1 | #1402 |
 | Deferred dynamic scale; RT proxy for skinned virtual geometry | unreachable cells | #1537, #1525 |
