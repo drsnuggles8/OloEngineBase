@@ -10618,6 +10618,11 @@ namespace OloEngine::Tests
         {
             Peaks peaks;
             LinearFrame frame;
+            // Every sweep starts from the same place (the jitter and stochastic
+            // indices, a cold history), so a probe's frame and pixel name the
+            // same sample in each run.
+            Renderer3D::ResetFrameSequences();
+            ColdHistory();
             for (u32 s = 0; s < kShifts * kShifts; ++s)
             {
                 const f32 dx = (static_cast<f32>(s % kShifts) - 1.5f) * 0.25f * pixel;
