@@ -99,7 +99,9 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     the transmittances of its viewer-side and far halves, the mean is (1 + qf^2) / 2 of what the
     viewer-side surface sees in front (exact for qf = qb; `oloGroomLockHalfTransmittance`,
     `GroomStrand.glsl`). That share scales only the paths that look out through the lock's near half
-    (R, TRT, half the residual); the far half is in the table below. The surface is 0.6 of the
+    (R, TRT, half the residual); the far half is in the table below. Single scattering, the occluder-only
+    coats' branch, has no far half: every path, TT included, takes the one viewer-side march, so the
+    share scales the whole term there. The surface is 0.6 of the
     cooked (unwidened) radius from the axis (`OLO_GROOM_LOCK_SKY_DEPTH`): the cooked radius is the
     members' covered width, not the lock's depth along the sky. Only the card tier runs it
     (`u_GroomCoatModes.w` bit 4); a gate on the lock's size against the march step switched it off
@@ -139,6 +141,11 @@ in [groom-representation-lod.md](groom-representation-lod.md).
     The back-scatter is sky the coat behind returns, which reached that coat through its own
     surface, not through this lock's near half. The single-scattering cells do not move with any of
     these (0.944 / 1.001 at the same stop).
+
+    The drawn tube carries the coverage widening, so the far march starts further out the further the
+    card, where it is widest against its lock. It holds there: with the shipped form, card over strand
+    (long coat / short coat) 1.007 / 0.975-0.978 at the hand-over and 1.010 / 0.995-0.997 at the Far stop (32 m), on
+    Forward, Forward+ and Deferred.
 
 ## Measured
 

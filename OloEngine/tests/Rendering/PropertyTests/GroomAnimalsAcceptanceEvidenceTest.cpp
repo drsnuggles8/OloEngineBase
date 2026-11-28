@@ -1596,8 +1596,27 @@ namespace OloEngine::Tests
             // Past a tier change's cross-fade window too: a coat whose tier
             // changed since the last measurement (ladder on after ladder off,
             // a new stop) draws both tiers until its fade ends, and a mean
-            // over those frames would measure the blend.
-            RunEditorFrames(camera, 8u + Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames);
+            // over those frames would measure the blend. Only a coat still
+            // fading pays for it: a fixed window cost every measurement,
+            // most of which change no tier.
+            RunEditorFrames(camera, 8u);
+            const auto fading = []
+            {
+                for (const auto& req : Renderer3D::GetGroomStrandRequests())
+                {
+                    if (req.Lod.CrossFading)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const u32 fadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+            for (u32 f = 0; (f <= fadeFrames) && fading(); ++f)
+            {
+                RunEditorFrames(camera, 1);
+            }
+            EXPECT_FALSE(fading()) << "a coat was still cross-fading after its " << fadeFrames << "-frame window";
             Linear out;
             std::vector<f32> colour;
             std::vector<i32> ids;
@@ -3157,21 +3176,37 @@ namespace OloEngine::Tests
         // DUAL SCATTERING, the shipped default: the fixture's coats are
         // occluders only (MakeCoat), whose ambient takes the single-scattering
         // branch, so the far half -- the behind march, the TT paths and the
-        // back-scatter -- is held here, at each coat's hand-over side. The
-        // lock share once darkened it to 0.903 / 0.848.
-        std::printf("[groom-animals] sky shadow dual scattering\n");
-        for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+        // back-scatter -- is held here, from each coat's open side, at both
+        // card stops on every path. The lock share once darkened it to 0.903 /
+        // 0.848 at the hand-over. The far half marches from the drawn tube,
+        // which carries the coverage widening, so the Far stop, where the card
+        // is widest against its lock, is held as well as the hand-over.
+        for (const RenderingPath path : { RenderingPath::Forward, RenderingPath::Deferred, RenderingPath::ForwardPlus })
         {
-            SCOPED_TRACE(s->Name);
-            SCOPED_TRACE("DualScattering");
-            auto& shadow = s->Coat.GetComponent<GroomCoatShadowComponent>();
-            shadow.m_MultipleScattering = true;
-            const Cell c = measureCell(*s, stops[2], directions[0]);
-            shadow.m_MultipleScattering = false;
-            ASSERT_FALSE(HasFatalFailure());
-            hold(*s, c, false);
-            ASSERT_FALSE(HasFatalFailure());
+            const char* pathName = path == RenderingPath::Forward    ? "Forward"
+                                   : path == RenderingPath::Deferred ? "Deferred"
+                                                                     : "ForwardPlus";
+            SCOPED_TRACE(pathName);
+            SetPath(path);
+            std::printf("[groom-animals] sky shadow dual scattering, path %s\n", pathName);
+            for (SubjectRig* s : { &m_LongCoat, &m_ShortCoat })
+            {
+                SCOPED_TRACE(s->Name);
+                SCOPED_TRACE("DualScattering");
+                for (const Stop* stop : { &stops[2], &stops[3] })
+                {
+                    SCOPED_TRACE(stop->Name);
+                    auto& shadow = s->Coat.GetComponent<GroomCoatShadowComponent>();
+                    shadow.m_MultipleScattering = true;
+                    const Cell c = measureCell(*s, *stop, directions[0]);
+                    shadow.m_MultipleScattering = false;
+                    ASSERT_FALSE(HasFatalFailure());
+                    hold(*s, c, false);
+                    ASSERT_FALSE(HasFatalFailure());
+                }
+            }
         }
+        SetPath(RenderingPath::Forward);
     }
 
     // =========================================================================

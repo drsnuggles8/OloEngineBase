@@ -1726,6 +1726,9 @@ OloGroomShading oloGroomShadeFibre()
 		}
 		if (!dualScattering)
 		{
+			// Single scattering has no far half: every path, TT included,
+			// takes the one viewer-side march (the uniform approximation), so
+			// the share that weights that march scales the whole term.
 			oloGroomAccumulate(total, ambient, averageRadiance * (envShadow * lockFrontShare * envBodyShadow));
 		}
 		else
