@@ -205,8 +205,20 @@ namespace OloEngine::Benchmark
         // read the rendered rectangle. A target that is not display-sized (a
         // shadow map, an upscaler's reduced scene band, a half-resolution
         // buffer) is not in that contract and is read whole (#1526).
-        if (graph->GetEffectiveRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
-            height == graph->GetPhysicalHeight())
+        //
+        // Where the source is a framebuffer's attachment, ITS render viewport
+        // decides: that is where the frame was drawn, and a display-sized
+        // target nothing drew into the corner (a square shadow map that happens
+        // to match the display) has none. Only a texture no framebuffer owns (a
+        // compute output) falls back to the size match.
+        bool drawnIntoCorner = graph->GetEffectiveRenderScale() < 1.0f && width == graph->GetPhysicalWidth() &&
+                               height == graph->GetPhysicalHeight();
+        if (const Ref<Framebuffer> owner = Renderer3D::ResolveFrameGraphFramebuffer(spec.Source.ToView()))
+        {
+            drawnIntoCorner = drawnIntoCorner && owner->GetRenderViewportWidth() == graph->GetRenderWidth() &&
+                              owner->GetRenderViewportHeight() == graph->GetRenderHeight();
+        }
+        if (drawnIntoCorner)
         {
             width = std::max(1u, graph->GetRenderWidth());
             height = std::max(1u, graph->GetRenderHeight());

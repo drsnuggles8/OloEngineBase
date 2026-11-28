@@ -42,6 +42,12 @@ layout(std140, binding = 28) uniform GTAOParams
     int   u_DenoisePasses;
     float u_DepthLinearizeB;
     int   u_DebugView;
+
+    // The rest of GTAO.comp's block, declared so the denoise can read the
+    // rendered corner (#1537). Same members, same order.
+    mat4  u_ViewMatrix;
+    ivec4 u_VRCSParams;
+    vec4  u_RenderBounds;
 };
 
 // ---------------------------------------------------------------------------
@@ -85,7 +91,13 @@ void main()
     // Thread-group swizzle for L2 locality (issue #720) — see ThreadGroupSwizzle.glsl.
     ivec2 pixCoord = OloSwizzledGlobalInvocationID2D();
 
-    if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)
+    // Under a dynamic render scale only the [0, bounds) corner holds a frame;
+    // GTAO writes AO = 1 past it, and a tap there would blend that into the
+    // edge. An unfilled block (all zero) reads as scale 1.0.
+    vec2 bounds = all(greaterThan(u_RenderBounds.xy, vec2(0.0))) ? min(u_RenderBounds.xy, vec2(1.0)) : vec2(1.0);
+    ivec2 frameExtent = ivec2(round(vec2(u_ScreenWidth, u_ScreenHeight) * bounds));
+
+    if (pixCoord.x >= frameExtent.x || pixCoord.y >= frameExtent.y)
     {
         return;
     }
@@ -108,8 +120,8 @@ void main()
         ivec2 sampleCoord = pixCoord + step * i;
 
         // Bounds check
-        if (sampleCoord.x < 0 || sampleCoord.x >= u_ScreenWidth ||
-            sampleCoord.y < 0 || sampleCoord.y >= u_ScreenHeight)
+        if (sampleCoord.x < 0 || sampleCoord.x >= frameExtent.x ||
+            sampleCoord.y < 0 || sampleCoord.y >= frameExtent.y)
         {
             continue;
         }

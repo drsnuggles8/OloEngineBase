@@ -2069,12 +2069,21 @@ namespace OloEngine
         // as the corner (#1526). So the resolve hands it the viewport in force.
         // Targets of any other size (shadow maps, half-resolution buffers, an
         // upscaler's band) are outside that contract and untouched.
+        // The viewport in force is set in both directions: the corner below
+        // 1.0, and cleared at 1.0 (a scale reset or a held scale), so a
+        // pooled target no node owns never keeps an old corner.
         Ref<Framebuffer> framebuffer = m_PhysicalFramebuffers[handle.Index].FB;
-        if (framebuffer && GetEffectiveRenderScale() < 1.0f && framebuffer->GetRenderViewportWidth() == 0u)
+        if (framebuffer)
         {
             const auto& spec = framebuffer->GetSpecification();
             if (spec.Width == m_PhysicalWidth && spec.Height == m_PhysicalHeight)
-                framebuffer->SetRenderViewportSize(GetRenderWidth(), GetRenderHeight());
+            {
+                const bool scaled = GetEffectiveRenderScale() < 1.0f;
+                const u32 wantW = scaled ? GetRenderWidth() : 0u;
+                const u32 wantH = scaled ? GetRenderHeight() : 0u;
+                if (framebuffer->GetRenderViewportWidth() != wantW || framebuffer->GetRenderViewportHeight() != wantH)
+                    framebuffer->SetRenderViewportSize(wantW, wantH);
+            }
         }
         return framebuffer;
     }
