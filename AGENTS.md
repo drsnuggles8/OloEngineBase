@@ -17,7 +17,8 @@ Two parts of the setup are specific to Claude Code. If you are another agent, re
     explicit approval for that action (the `olo-command-guards` mod refuses them in Claude Code).
 
 The `/start-work`, `/cleanup-worktree` and `/resume-worktrees` skills live in `.claude/skills/`;
-Codex wrappers for them are in `.codex/skills/`. The subagents the task loop names (`spec-reviewer`,
+Codex wrappers for them are in `.codex/skills/`. `/orchestrate` (the fleet loop in the base repo) has
+none: it drives Claude Code background sessions (`claude --bg`) and its loop tools. The subagents the task loop names (`spec-reviewer`,
 `rules-lookup`, `ci-triage`, `live-verifier`) are defined in `.claude/agents/<name>.md`: that body is
 the source. A local `.codex/agents/*.toml` is per-user, git-ignored and absent from task worktrees, so
 refresh it from the Markdown body rather than trusting it. Everything else applies as written.

@@ -188,3 +188,15 @@ repos:
       language: system
       pass_filenames: false
       files: '^\.claude/scripts/(test_)?sync_umbrella_checklists\.py$'
+
+    - id: fleet-tests
+      name: worktree gate and fleet decisions stay pinned
+      description: >-
+        Runs the offline unit tests of .claude/scripts/worktree_status.py (the gate
+        /cleanup-worktree deletes by: a regression deletes a standby worktree) and
+        .claude/scripts/fleet.py (what /orchestrate launches and reports). Also runs when
+        start-work's SKILL.md changes, because fleet.py reads its one /goal line.
+      entry: python -m unittest discover -s .claude/scripts -p test_fleet.py
+      language: system
+      pass_filenames: false
+      files: '^(\.claude/scripts/(test_fleet|fleet|worktree_status)\.py|\.claude/skills/start-work/SKILL\.md)$'

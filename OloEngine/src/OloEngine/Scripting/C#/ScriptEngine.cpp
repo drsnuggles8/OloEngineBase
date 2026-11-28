@@ -194,6 +194,10 @@ namespace OloEngine
 
     static ScriptEngineData* s_Data = nullptr;
     static Scene* s_TestSceneContext = nullptr;
+    // Field values for an engine that was never initialised: they still
+    // round-trip through the scene (serialisation, undo) as the engine-less
+    // build's stub keeps them. Cleared by Shutdown, like s_Data's own map.
+    static std::unordered_map<UUID, ScriptFieldMap> s_FieldsWithoutEngine;
 
     static void QueueAssemblyReload(u64 generation)
     {
@@ -240,6 +244,7 @@ namespace OloEngine
     {
         OLO_CORE_TRACE("[ScriptEngine] Shutting down.");
         s_TestSceneContext = nullptr;
+        s_FieldsWithoutEngine.clear();
         if (!s_Data || !s_Data->RootDomain)
         {
             delete s_Data;
@@ -441,17 +446,30 @@ namespace OloEngine
 
     void ScriptEngine::OnRuntimeStart(Scene* scene)
     {
+        // A host that never initialised C# scripting (a tool, the
+        // renderer-attached test process: #1796) still starts scenes. Their
+        // scripts cannot run, but the shared scene context the Lua bindings
+        // read through GetSceneContext must still name the running scene.
+        if (!s_Data)
+        {
+            s_TestSceneContext = scene;
+            return;
+        }
         s_Data->SceneContext = scene;
         s_TestSceneContext = nullptr;
     }
 
     bool ScriptEngine::EntityClassExists(const std::string& fullClassName)
     {
-        return s_Data->EntityClasses.contains(fullClassName);
+        // As GetEntityClass: an engine that was never initialised has no class,
+        // so a host without C# starts a scene whose scripts simply do not run.
+        return s_Data && s_Data->EntityClasses.contains(fullClassName);
     }
 
     void ScriptEngine::RebindStartupInstance(UUID owner, const Ref<ScriptInstance>& instance)
     {
+        if (!s_Data || !s_Data->SceneContext)
+            return;
         const auto entity = s_Data->SceneContext->TryGetEntityWithUUID(owner);
         if (entity && entity->HasComponent<ScriptComponent>() &&
             GetEntityClass(entity->GetComponent<ScriptComponent>().ClassName) == instance->GetScriptClass())
@@ -484,6 +502,8 @@ namespace OloEngine
 
     void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
     {
+        if (!s_Data)
+            return; // no engine, no instance: OnCreateEntity created none
         UUID entityUUID = entity.GetUUID();
 
         if (s_Data->EntityInstances.contains(entityUUID))
@@ -511,7 +531,7 @@ namespace OloEngine
 
     Ref<ScriptInstance> ScriptEngine::GetEntityScriptInstance(UUID entityID)
     {
-        if (!s_Data->EntityInstances.contains(entityID))
+        if (!s_Data || !s_Data->EntityInstances.contains(entityID))
         {
             return nullptr;
         }
@@ -538,8 +558,10 @@ namespace OloEngine
 
     void ScriptEngine::OnRuntimeStop()
     {
-        s_Data->SceneContext = nullptr;
         s_TestSceneContext = nullptr;
+        if (!s_Data)
+            return;
+        s_Data->SceneContext = nullptr;
 
         s_Data->EntityInstances.clear();
         if (s_Data->ReloadOnSceneStop)
@@ -554,11 +576,15 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity, "ScriptEngine::GetScriptFieldMap called with invalid entity");
 
         UUID entityID = entity.GetUUID();
+        if (!s_Data)
+            return s_FieldsWithoutEngine[entityID];
         return s_Data->EntityScriptFields[entityID];
     }
 
     std::unordered_map<std::string, Ref<ScriptClass>> ScriptEngine::GetEntityClasses()
     {
+        if (!s_Data)
+            return {};
         return s_Data->EntityClasses;
     }
 
@@ -635,17 +661,21 @@ namespace OloEngine
 
     MonoImage* ScriptEngine::GetCoreAssemblyImage()
     {
-        return s_Data->CoreAssemblyImage;
+        return s_Data ? s_Data->CoreAssemblyImage : nullptr;
     }
 
     MonoObject* ScriptEngine::GetManagedInstance(UUID uuid)
     {
+        if (!s_Data)
+            return nullptr;
         OLO_CORE_ASSERT(s_Data->EntityInstances.contains(uuid));
         return s_Data->EntityInstances.at(uuid)->GetManagedObject();
     }
 
     MonoString* ScriptEngine::CreateString(const char* string)
     {
+        if (!s_Data || !s_Data->AppDomain)
+            return nullptr;
         return ::mono_string_new(s_Data->AppDomain, string);
     }
 

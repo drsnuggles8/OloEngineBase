@@ -1697,6 +1697,26 @@ namespace OloEngine
         return true;
     }
 
+    namespace
+    {
+        // The run seed and the host mode, from the Application when there is
+        // one. A scene started with no Application -- the renderer-attached
+        // test process (#1796), a tool -- is a windowed host on the
+        // Application's default seed. Application::Get() there dereferenced a
+        // null instance.
+        [[nodiscard]] u64 RunSeed()
+        {
+            const Application* app = Application::TryGet();
+            return app ? app->GetRandomSeed() : Application::kDefaultRandomSeed;
+        }
+
+        [[nodiscard]] bool HostIsHeadless()
+        {
+            const Application* app = Application::TryGet();
+            return app != nullptr && app->IsHeadless();
+        }
+    } // namespace
+
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
@@ -1811,7 +1831,7 @@ namespace OloEngine
         m_InterpCurr.clear();
         m_HasInterpSnapshots = false;
         m_RenderInterpAlpha = 0.0f;
-        RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
+        RandomUtils::SetGlobalSeed(RunSeed());
 
         // Seed each particle system's own deterministic RNG (issue #452 / #576).
         // Particle emission draws from a per-ParticleSystem stream rather than
@@ -1822,7 +1842,7 @@ namespace OloEngine
         // every child sub-emitter, via a distinct sub-stream index) its own
         // independent, replay-stable stream.
         {
-            const u64 runSeed = Application::Get().GetRandomSeed();
+            const u64 runSeed = RunSeed();
             for (auto psView = m_Registry.view<ParticleSystemComponent, IDComponent>(); auto entity : psView)
             {
                 auto& psc = psView.get<ParticleSystemComponent>(entity);
@@ -1857,7 +1877,7 @@ namespace OloEngine
         PropagateWorldTransforms();
 
         // In headless mode, disable rendering
-        if (Application::Get().IsHeadless())
+        if (HostIsHeadless())
         {
             m_RenderingEnabled = false;
         }
@@ -1865,7 +1885,7 @@ namespace OloEngine
         OnPhysics2DStart();
         OnPhysics3DStart();
 
-        if (!Application::Get().IsHeadless())
+        if (!HostIsHeadless())
         {
             InitAudioRuntime();
         }
@@ -3113,9 +3133,9 @@ namespace OloEngine
             return error <= 1.0e-4f ? std::optional(candidate) : std::nullopt;
         }
 
-        [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalPhysicsPose(const glm::mat4& parentWorld, const glm::vec3& position,
-                                                                        const glm::quat& rotation, const TransformComponent& authored,
-                                                                        bool* rotationConverted = nullptr)
+        [[nodiscard]] std::optional<LocalPose> ToLocalPhysicsPose(const glm::mat4& parentWorld, const glm::vec3& position,
+                                                                  const glm::quat& rotation, const TransformComponent& authored,
+                                                                  bool* rotationConverted = nullptr)
         {
             const auto inverse = InverseParentBasis(glm::mat3(parentWorld));
             if (!inverse)
@@ -3126,18 +3146,18 @@ namespace OloEngine
             const auto localRotation = ToLocalPhysicsRotation(parentWorld, *inverse, rotation, authored.Scale);
             if (rotationConverted)
                 *rotationConverted = localRotation.has_value();
-            return Scene::WorldTRS{ localPosition, localRotation.value_or(authored.GetRotation()), authored.Scale };
+            return LocalPose{ localPosition, localRotation.value_or(authored.GetRotation()), authored.Scale };
         }
 
-        [[nodiscard]] glm::mat4 PhysicsPoseMatrix(const Scene::WorldTRS& pose)
+        [[nodiscard]] glm::mat4 PhysicsPoseMatrix(const LocalPose& pose)
         {
             return glm::translate(glm::mat4(1.0f), pose.Position) *
                    glm::mat4_cast(pose.Rotation) * glm::scale(glm::mat4(1.0f), pose.Scale);
         }
 
-        [[nodiscard]] std::optional<Scene::WorldTRS> ToLocalBox2DPose(const glm::mat4& parentWorld,
-                                                                      b2Vec2 position, b2Rot rotation,
-                                                                      const TransformComponent& authored)
+        [[nodiscard]] std::optional<LocalPose> ToLocalBox2DPose(const glm::mat4& parentWorld,
+                                                                b2Vec2 position, b2Rot rotation,
+                                                                const TransformComponent& authored)
         {
             const glm::mat2 planarBasis{ glm::vec2(parentWorld[0]), glm::vec2(parentWorld[1]) };
             const auto inverse = InverseParentBasis(planarBasis);
@@ -3154,7 +3174,7 @@ namespace OloEngine
             const glm::vec2 previousX(parentWorld * glm::vec4(authored.GetRotation() * glm::vec3(1.0f, 0.0f, 0.0f), 0.0f));
             const glm::vec2 normal(-desiredX.y, desiredX.x);
             if (glm::dot(previousX, desiredX) > 0.0f && std::abs(glm::dot(previousX, normal)) <= 1.0e-6f * glm::length(previousX))
-                return Scene::WorldTRS{ glm::vec3(localPosition, authored.Translation.z), authored.GetRotation(), authored.Scale };
+                return LocalPose{ glm::vec3(localPosition, authored.Translation.z), authored.GetRotation(), authored.Scale };
 
             // Keep authored pitch when it can produce the simulated angle.
             // The projected local X is A * (cos(z), sin(z)) plus the
@@ -3188,22 +3208,41 @@ namespace OloEngine
                 euler.y = 0.0f;
                 euler.z = static_cast<f32>(std::atan2(localX.y, localX.x));
             }
-            return Scene::WorldTRS{ glm::vec3(localPosition, authored.Translation.z), glm::quat(euler), authored.Scale };
+            return LocalPose{ glm::vec3(localPosition, authored.Translation.z), glm::quat(euler), authored.Scale };
         }
     } // namespace
 
-    Scene::WorldTRS Scene::ComputeWorldTRS(entt::entity entity) const
+    WorldPose Scene::ComputeWorldTRS(entt::entity entity) const
     {
+        // A root's parent frame is the world, so its authored values are its
+        // world pose, bit for bit.
         const auto& local = m_Registry.get<TransformComponent>(entity);
-        WorldTRS pose{ local.Translation, local.GetRotation(), local.Scale };
-        if (ResolveTransformParent(entity) != entt::null)
-        {
-            const glm::mat4 world = ComputeWorldTransform(entity);
-            glm::quat rotation;
-            if (SplitWorldMatrix(world, pose.Position, rotation, pose.Scale, /*allowCollapsedAxis=*/true))
-                pose.Rotation = rotation;
-        }
-        return pose;
+        const entt::entity parent = ResolveTransformParent(entity);
+        if (parent == entt::null)
+            return WorldPose(local.Translation, local.GetRotation(), local.Scale);
+
+        const glm::mat4 world = ComputeWorldTransform(entity);
+        glm::vec3 position;
+        glm::quat rotation;
+        glm::vec3 scale;
+        if (SplitWorldMatrix(world, position, rotation, scale, /*allowCollapsedAxis=*/true))
+            return WorldPose(position, rotation, scale);
+
+        // Fewer than two axes survive (or the frame is not finite), so the
+        // composed basis holds no rotation. The authored local rotation is in
+        // the parent's frame, so compose the chain's rotations alone: the
+        // parent's world rotation, its bone's, then this entity's.
+        glm::quat chain = ComputeWorldTRS(parent).Rotation;
+        glm::vec3 unusedPosition;
+        glm::vec3 unusedScale;
+        if (glm::quat bone; SplitWorldMatrix(GetAttachmentBasis(entity, parent), unusedPosition, bone, unusedScale))
+            chain = chain * bone;
+        // Position and scale are the composed translation and column lengths.
+        // A non-finite parent leaves them non-finite: placement consumers
+        // check Math::IsFinite and refuse, rather than read a local value.
+        return WorldPose(glm::vec3(world[3]),
+                         glm::normalize(chain * local.GetRotation()),
+                         { glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])), glm::length(glm::vec3(world[2])) });
     }
 
     bool Scene::TrySetWorldPosition(entt::entity entity, const glm::vec3& position)
@@ -3299,8 +3338,10 @@ namespace OloEngine
         }
     }
 
-    void Scene::SetPhysicsWorldPose(entt::entity entity, const glm::vec3& position, const glm::quat& rotation, const JoltScene& physics)
+    void Scene::SetPhysicsWorldPose(entt::entity entity, const WorldPose& worldPose, const JoltScene& physics)
     {
+        const glm::vec3& position = worldPose.Position;
+        const glm::quat& rotation = worldPose.Rotation;
         auto& local = m_Registry.get<TransformComponent>(entity);
         if (ResolveTransformParent(entity) == entt::null)
         {
@@ -4728,7 +4769,7 @@ namespace OloEngine
                 Entity entity = { e, this };
                 if (auto controller = m_JoltScene->GetCharacterController(entity))
                 {
-                    SetPhysicsWorldPose(e, controller->GetTranslation(), controller->GetRotation(), *m_JoltScene);
+                    SetPhysicsWorldPose(e, WorldPose::FromSimulation(controller->GetTranslation(), controller->GetRotation()), *m_JoltScene);
                 }
             }
         }

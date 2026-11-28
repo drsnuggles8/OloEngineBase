@@ -183,9 +183,13 @@ void main()
         adapted = linearColor + ErrorShiftMatrix(mode) * err;
     }
 
-    // Back to display-referred. Clamping BEFORE the encode keeps the redistributed
-    // error from re-encoding a negative value as NaN.
-    vec3 encoded = pow(clamp(adapted, vec3(0.0), vec3(1.0)), vec3(1.0 / gamma));
+    // Back to display-referred. The floor BEFORE the encode keeps the redistributed
+    // error from re-encoding a negative value as NaN. No ceiling: this stage runs
+    // in the composition space (DisplayOutput.h), which carries values above 1.0
+    // in an HDR output mode (#1353) -- a clamp to 1.0 here cut every highlight
+    // to UI white. In SDR the target is RGBA8, whose store clamps to 1.0 exactly
+    // as the old clamp did, so the SDR result is unchanged bit for bit.
+    vec3 encoded = pow(max(adapted, vec3(0.0)), vec3(1.0 / gamma));
 
     o_Color = vec4(encoded, source.a);
 }
