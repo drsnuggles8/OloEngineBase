@@ -281,7 +281,8 @@ namespace OloEngine
                                                                         const VkImageView backbufferView,
                                                                         const VkExtent2D extent,
                                                                         const RHI::ResourceHandle backbufferHandle,
-                                                                        const bool backbufferWritten)
+                                                                        const bool backbufferWritten,
+                                                                        const RHI::Access unwrittenFinalAccess)
     {
         if (!s_Initialized)
         {
@@ -384,6 +385,11 @@ namespace OloEngine
         vkCmdBeginRendering(cmd, &renderingInfo);
         ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
         vkCmdEndRendering(cmd);
+        // ImGui bound its own pipeline and classic descriptor sets, which takes
+        // the command buffer out of descriptor-heap mode. Nothing of the facade
+        // followed this before #1353; the HDR display encode does, and drawing
+        // it on the stale binds lost the device (VUID-vkCmdDrawIndexed-None-11308).
+        api.NotifyForeignRecording();
 
         if (backbufferWritten)
         {
@@ -404,9 +410,37 @@ namespace OloEngine
         toPresent.Range.BaseLayer = 0u;
         toPresent.Range.LayerCount = 1u;
         toPresent.Before = RHI::Access::ColorAttachmentWrite;
-        toPresent.After = RHI::Access::Present;
+        toPresent.After = unwrittenFinalAccess;
         api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toPresent, 1 });
         return OverlayResult::DrawnAndPresented;
+    }
+
+    void VulkanImGuiBackend::OnBackbufferFormatChanged()
+    {
+        if (!s_Initialized)
+        {
+            return;
+        }
+        const auto* context = VulkanContext::Get();
+        const VkFormat format = context != nullptr ? static_cast<VkFormat>(context->GetSwapchainColorFormat())
+                                                   : VK_FORMAT_UNDEFINED;
+        if (format == VK_FORMAT_UNDEFINED || format == s_SwapchainFormat)
+        {
+            return;
+        }
+        // Rebuild ONLY the pipeline. A Shutdown + Init would free the backend's
+        // descriptor pool, and with it every ImTextureID a panel still holds
+        // from an earlier frame: the next draw then hands a freed descriptor
+        // set to the driver (the live editor aborted inside the validation
+        // layer on the first HDR frame this way). Device is idle here
+        // (RecreateSwapchain's wait), so the old pipeline can go at once.
+        s_SwapchainFormat = format;
+        ImGui_ImplVulkan_PipelineInfo pipeline{};
+        pipeline.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+        pipeline.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+        pipeline.PipelineRenderingCreateInfo.pColorAttachmentFormats = &s_SwapchainFormat;
+        ImGui_ImplVulkan_CreateMainPipeline(&pipeline);
+        OLO_CORE_INFO("[ImGui/Vulkan] UI pipeline rebuilt for backbuffer format {}", static_cast<u32>(format));
     }
 
     void VulkanImGuiBackend::Shutdown()

@@ -166,6 +166,17 @@ namespace OloEngine
         {
             return m_MemoryBudgetEnabled;
         }
+        // HDR display output (#1353). The instance extension is what makes a
+        // surface report its HDR10 / extended-sRGB colour spaces at all; the
+        // device extension carries the HDR10 mastering metadata.
+        [[nodiscard]] bool IsSwapchainColorspaceEnabled() const
+        {
+            return m_SwapchainColorspaceEnabled;
+        }
+        [[nodiscard]] bool IsHdrMetadataEnabled() const
+        {
+            return m_HdrMetadataEnabled;
+        }
         // VK_KHR/EXT_calibrated_timestamps enabled: the spec then guarantees
         // every queue's vkCmdWriteTimestamp values share one device time
         // domain, so a compute-queue timestamp can be placed on the graphics
@@ -469,6 +480,8 @@ namespace OloEngine
         mutable std::mutex m_PipelineStatisticsMutex;
         std::unordered_map<std::string, TArray<PipelineStatistic>> m_CapturedPipelineStatistics;
         bool m_MemoryBudgetEnabled = false;
+        bool m_SwapchainColorspaceEnabled = false;
+        bool m_HdrMetadataEnabled = false;
         bool m_QueueTimestampsShareOneDomain = false;
         /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
         /// its command buffer, and a device loss reports the last one each queue

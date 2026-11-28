@@ -106,9 +106,20 @@ namespace OloEngine
         //    declined but UI exists); on the unwritten arm the overlay also
         //    issues the ColorAttachmentWrite -> Present transition, since
         //    FinalizeBackbufferForPresent will report false for that frame.
+        //  - `unwrittenFinalAccess` is the access that unwritten-arm transition
+        //    ends in: Present for a swapchain image, ShaderSampleRead for the
+        //    HDR composition image the display encode samples next (#1353).
         [[nodiscard]] static OverlayResult RecordOverlay(VulkanRendererAPI& api, VkImageView backbufferView,
                                                          VkExtent2D extent, RHI::ResourceHandle backbufferHandle,
-                                                         bool backbufferWritten);
+                                                         bool backbufferWritten,
+                                                         RHI::Access unwrittenFinalAccess = RHI::Access::Present);
+
+        // The backbuffer format changed (an SDR <-> HDR output switch, #1353):
+        // imgui_impl_vulkan bakes it into its pipeline, so the pipeline alone
+        // is rebuilt for the new one (ImGui_ImplVulkan_CreateMainPipeline).
+        // Never a Shutdown + Init: that frees every texture descriptor set a
+        // panel may still hold. Device must be idle (RecreateSwapchain's wait).
+        static void OnBackbufferFormatChanged();
 
         // ImTextureID for an engine texture (a framebuffer color attachment,
         // a Texture2D) named by its RHI handle: a cached

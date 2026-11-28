@@ -876,11 +876,26 @@ namespace OloEngine
         f32 CameraNear = 0.1f;
         f32 CameraFar = 1000.0f;
 
+        // Display output (#1353), read by PostProcess_ToneMap.glsl and
+        // DisplayEncode.glsl; DisplayOutput.h defines the spaces. Mode 0 (SDR)
+        // leaves the tone map on its pre-#1353 path bit for bit, which is the
+        // default a test filling this struct directly gets.
+        i32 DisplayMode = 0; // DisplayOutputMode
+        f32 DisplayPaperWhiteNits = 200.0f;
+        f32 DisplayUIWhiteNits = 200.0f;
+        f32 DisplayPeakNits = 1000.0f;
+
+        f32 DisplayMinNits = 0.0f;
+        f32 DisplayPad0 = 0.0f;
+        f32 DisplayPad1 = 0.0f;
+        f32 DisplayPad2 = 0.0f;
+
         static constexpr u32 GetSize()
         {
             return sizeof(PostProcessUBOData);
         }
     };
+    static_assert(sizeof(PostProcessUBOData) == 112, "PostProcessUBOData is a std140 mirror: 7 rows of 16 bytes");
 
     // GPU-side UBO layout for motion blur matrices (std140, binding 8)
     struct MotionBlurUBOData

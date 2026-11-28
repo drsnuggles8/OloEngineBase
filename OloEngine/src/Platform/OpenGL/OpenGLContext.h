@@ -36,6 +36,9 @@ namespace OloEngine
         static void DetectParallelShaderCompile();
 
         GLFWwindow* m_WindowHandle;
+        // The DisplayOutput settings generation the published selection was made for (#1353).
+        u64 m_DisplaySettingsGeneration = 0;
+        void PublishDisplayOutput();
         static ParallelShaderCompileSupport s_ParallelShaderCompile;
     };
 
