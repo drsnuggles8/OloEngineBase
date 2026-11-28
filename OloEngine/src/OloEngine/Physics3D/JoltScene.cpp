@@ -3441,11 +3441,8 @@ namespace OloEngine
         if (!entity.HasComponent<TransformComponent>())
             return;
 
-        // Get physics transform
-        glm::vec3 position = body->GetPosition();
-        glm::quat rotation = body->GetRotation();
-
-        entity.GetScene()->SetPhysicsWorldPose(entity, position, rotation, *this);
+        // Jolt simulates in world space, so the body's pose is a world pose.
+        entity.GetScene()->SetPhysicsWorldPose(entity, WorldPose::FromSimulation(body->GetPosition(), body->GetRotation()), *this);
     }
 
     void JoltScene::InitializeJolt()

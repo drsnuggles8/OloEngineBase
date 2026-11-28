@@ -22,6 +22,7 @@
 
 #include "Functional/FunctionalTest.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Physics3D/JoltBody.h"
@@ -31,6 +32,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 using namespace OloEngine;
 using namespace OloEngine::Functional;
@@ -195,6 +197,22 @@ TEST_F(ParentedPhysicsPlacementTest, JoltSpawnsAtTheWorldPoseAndKeepsWorldAuthor
     RunFrames(3);
     EXPECT_NEAR(glm::length(child->GetPosition() - twin->GetPosition()), 0.0f, 1.0e-4f);
     EXPECT_NEAR(glm::length(GetScene().GetWorldPosition(m_3D[0]) - child->GetPosition()), 0.0f, 1.0e-4f);
+}
+
+TEST_F(ParentedPhysicsPlacementTest, JoltRefusesABodyUnderANonFiniteParent)
+{
+    // A NaN parent frame has no world pose (issue #1797). Before the guard,
+    // ComputeWorldTRS handed back a NaN position and Jolt created the body there.
+    m_Rig.GetComponent<TransformComponent>().Scale.x = std::numeric_limits<f32>::quiet_NaN();
+    Entity entity = GetScene().CreateEntity("Under NaN");
+    entity.GetComponent<TransformComponent>().Translation = { 1.0f, 0.0f, 0.0f };
+    entity.SetParent(m_Rig);
+    entity.AddComponent<BoxCollider3DComponent>();
+    entity.AddComponent<Rigidbody3DComponent>().m_Type = BodyType3D::Dynamic;
+    ASSERT_FALSE(Math::IsFinite(GetScene().ComputeWorldTRS(entity).Position)) << "the fixture must produce a non-finite pose";
+
+    const Ref<JoltBody> body = GetScene().GetPhysicsScene()->CreateBody(entity);
+    EXPECT_FALSE(body && body->IsValid());
 }
 
 TEST_F(ParentedPhysicsPlacementTest, PhysicsChildrenUseTheCurrentBodyPoseOfTheirSimulatedAncestor)

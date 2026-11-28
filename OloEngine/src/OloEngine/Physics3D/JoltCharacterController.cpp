@@ -5,6 +5,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Math/Math.h"
 
 #include <unordered_set>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -414,6 +415,12 @@ namespace OloEngine
         if (m_Entity && m_Entity.HasComponent<TransformComponent>())
         {
             const auto pose = m_Entity.GetScene()->ComputeWorldTRS(m_Entity);
+            // A non-finite parent frame has no world pose; see JoltBody::CreateJoltBody.
+            if (!Math::IsFinite(pose.Position) || !Math::IsFinite(glm::vec4(pose.Rotation.x, pose.Rotation.y, pose.Rotation.z, pose.Rotation.w)))
+            {
+                OLO_CORE_ERROR("Not creating a character controller for entity {0}: its world pose is not finite", (u64)m_Entity.GetUUID());
+                return;
+            }
             position = pose.Position;
             rotation = pose.Rotation;
         }
